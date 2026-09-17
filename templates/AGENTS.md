@@ -227,10 +227,14 @@ merge-ready:
   ```
   If multiple co-authors or manual commits are squashed, include each applicable
   `Co-Authored-By:` trailer separated by newlines. A one-line `--body` is
-  correct only when the PR has no extra entry lines. Only `feat`, `fix`,
-  `perf`, `revert`, and `deps` entries render — this repository configures no
-  `changelog-sections`, so a `docs:` or `ci:` extra is absent from the changelog
-  even when it is delivered. Verify the resulting commit message after merging
+  correct only when the PR has no extra entry lines. Only `feat` (or its
+  `feature` alias), `fix`, `perf`, and `revert` entries render: with no
+  `changelog-sections` configured, release-please leaves the section list to the
+  preset it depends on, whose defaults hide `docs`, `style`, `chore`, `refactor`,
+  `test`, `build`, and `ci` and define no `deps` type at all — so a `docs:`,
+  `ci:`, or `deps:` extra is absent from the changelog even when it is delivered.
+  (Verified against release-please v17.6.0 and
+  conventional-changelog-conventionalcommits 6.1.0, 2026-09-17.) Verify the resulting commit message after merging
   (`git log -1 --format=%B`): a dropped entry line is otherwise invisible until
   the release PR is regenerated.
 

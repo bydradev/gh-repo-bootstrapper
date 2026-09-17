@@ -207,22 +207,37 @@ merge-ready:
   with any longer explanation on an *optional description line underneath* —
   not packed into the entry line itself. Release Please parses each entry line
   as its own commit subject and will truncate a long one mid-sentence in the
-  rendered changelog. No `-`/`*` bullets, and don't repeat the title as an
-  entry.
+  rendered changelog. A PR body alone never reaches the branch — Release Please
+  reads the squash commit — so these lines must also be carried into the merge
+  body; see *Squash merges* below. No `-`/`*` bullets, and don't repeat the
+  title as an entry.
 - **CLI-authored bodies** — create multi-paragraph Markdown in a file passed to
   `gh pr create` or `gh pr edit` with `--body-file`; a shell-quoted `\n` is
   literal text. Before marking a standard PR ready, read it back with
   `gh pr view <n> --json body --jq .body` and verify the paragraphs render.
-- **Squash merges** — ensure the final squash commit message retains all
-  applicable `Co-Authored-By:` trailers. When using `gh pr merge --squash`, pass
-  the trailers in the squash commit body via `--body`; do not pass an empty
-  body. For example:
+- **Squash merges** — the body given to `gh pr merge --squash` (`--body`, or
+  `--body-file` to match the rule above) *becomes* the squash commit message: it
+  replaces whatever GitHub would have generated, and that message is the only
+  thing Release Please reads. It must therefore carry the extra changelog entry
+  lines *and* every applicable `Co-Authored-By:` trailer — do not pass an empty
+  body, and do not assume the PR description is included. Write the prose, then
+  each entry line at column 0 and blank-line separated, then the trailers:
   ```sh
-  gh pr merge <n> --squash --delete-branch --body "Co-Authored-By: Antigravity CLI (Gemini 3.8 Flash (High)) <224641728+gemini-cli-robot@users.noreply.github.com>"
+  gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
+  ```
+  where `<merge-body.md>` holds the PR's prose and entry lines followed by, for
+  example:
+  ```markdown
+  Co-Authored-By: Antigravity CLI (Gemini 3.8 Flash (High)) <224641728+gemini-cli-robot@users.noreply.github.com>
   ```
   If multiple co-authors or manual commits are squashed, include each applicable
-  `Co-Authored-By:` trailer separated by newlines. Verify the resulting commit
-  message after merging.
+  `Co-Authored-By:` trailer separated by newlines. A one-line `--body` is
+  correct only when the PR has no extra entry lines. Only `feat`, `fix`,
+  `perf`, `revert`, and `deps` entries render — this repository configures no
+  `changelog-sections`, so a `docs:` or `ci:` extra is absent from the changelog
+  even when it is delivered. Verify the resulting commit message after merging
+  (`git log -1 --format=%B`): a dropped entry line is otherwise invisible until
+  the release PR is regenerated.
 
 ### Release Please pull requests
 

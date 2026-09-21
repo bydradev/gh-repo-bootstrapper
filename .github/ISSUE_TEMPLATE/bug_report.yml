@@ -8,10 +8,10 @@ body:
       value: |
         Thanks for reporting. A few things before you start:
 
-        - **Security issue?** Don't file it here — see [SECURITY.md](https://github.com/bydraio/gh-repo-bootstrapper/blob/main/SECURITY.md).
+        - **Security issue?** Don't file it here — see [SECURITY.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md).
         - **Please describe the problem in prose, not a patch or diff.** This
           project doesn't take external code — see
-          [CONTRIBUTING.md](https://github.com/bydraio/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
+          [CONTRIBUTING.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
           A clear description of what's wrong is more useful to us than a
           suggested fix.
         - **Please don't paste full generated files, `.env` contents, tokens,

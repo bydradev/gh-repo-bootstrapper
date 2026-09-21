@@ -9,7 +9,7 @@ body:
         Feature ideas are genuinely wanted. Please describe the problem and
         the behaviour you'd like — not a patch or diff. This project doesn't
         take external code; see
-        [CONTRIBUTING.md](https://github.com/bydraio/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
+        [CONTRIBUTING.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
         If this idea leads to a change, it'll be implemented independently
         and credited in the release notes.
 

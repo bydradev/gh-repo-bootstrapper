@@ -81,12 +81,12 @@ async function runFixture({
     const url = new URL(request.url ?? "/", "http://fixture.test");
     requests.push(`${url.pathname}?${url.searchParams}`);
     response.setHeader("content-type", "application/json");
-    if (url.pathname === "/repos/bydraio/fixture/dependabot/alerts") {
+    if (url.pathname === "/repos/bydradev/fixture/dependabot/alerts") {
       response.statusCode = dependabotStatus;
       response.end(JSON.stringify(alerts));
       return;
     }
-    if (url.pathname === "/repos/bydraio/fixture/actions/workflows/release-please.yml/runs") {
+    if (url.pathname === "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs") {
       response.statusCode = releaseStatus;
       response.end(
         JSON.stringify({
@@ -119,7 +119,7 @@ async function runFixture({
         ...process.env,
         PATH: `${binDir}${delimiter}${process.env.PATH}`,
         GITHUB_API_URL: `http://127.0.0.1:${port}`,
-        GITHUB_REPOSITORY: "bydraio/fixture",
+        GITHUB_REPOSITORY: "bydradev/fixture",
         ...(token ? { GITHUB_TOKEN: "fixture-token" } : {}),
       },
     });
@@ -163,8 +163,8 @@ test("accepts a captured GitHub workflow-run payload and exits zero when healthy
   assert.deepEqual(
     requests.filter((request) => request.includes("release-please.yml/runs")),
     [
-      "/repos/bydraio/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=1",
-      "/repos/bydraio/fixture/actions/workflows/release-please.yml/runs?status=success&per_page=1",
+      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=1",
+      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=success&per_page=1",
     ],
   );
 });
@@ -187,8 +187,8 @@ test("ignores a newer in-progress release run when determining release health", 
   assert.deepEqual(
     requests.filter((request) => request.includes("release-please.yml/runs")),
     [
-      "/repos/bydraio/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=1",
-      "/repos/bydraio/fixture/actions/workflows/release-please.yml/runs?status=success&per_page=1",
+      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=1",
+      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=success&per_page=1",
     ],
   );
 });

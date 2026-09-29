@@ -17,6 +17,10 @@ Next.js development server:
 ulimit -n 10240 && npm run dev
 ```
 
+The limit concerns `next dev`'s file watching. When the repository's E2E
+suite serves a production build instead of `next dev`, it is not an E2E
+requirement.
+
 This is a non-persistent per-shell setting. Do not add it to shell profiles,
 change system limits, change CI, or alter Playwright configuration. A generated
 repository owns its server lifecycle, ports, and test scripts, so follow its
@@ -52,6 +56,14 @@ time. Prefer it to `--retries=1` for intermittent failures: `on-first-retry`
 traces the retry, not the attempt that failed. Do not change the Playwright
 configuration merely to obtain a trace (trace modes checked against the
 `--trace` choices in Playwright 1.63.0's `playwright test --help`, 2026-09-29).
+
+Playwright clears its output directory (`test-results/` by default) at the
+start of every run, so copy any failure output you need before re-running.
+When CI retries failed tests, a test that fails and then passes on a retry is
+reported as `flaky`, not failed, and the run stays green; read the report's
+flaky count instead of treating a green run as proof nothing failed (both
+checked against Playwright 1.63.0's `outputDir` and test-status documentation,
+2026-09-29).
 
 ## Tooling
 Run all checks before pushing:

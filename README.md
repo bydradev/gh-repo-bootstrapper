@@ -97,7 +97,7 @@ confirm before creating anything.
 | Flag | Description |
 |---|---|
 | `--name TEXT` | Repository name (lowercase letters, digits, hyphens), or a relative/absolute path ending in one — created in the current directory by default |
-| `--type nextjs\|python\|swift\|simple` | Repository type |
+| `--type nextjs\|python\|swift\|rust\|simple` | Repository type |
 | `--org TEXT` | GitHub org or user (default: authenticated user) |
 | `--private` / `--public` | Visibility (default: private) |
 | `--postgres` | Add PostgreSQL 16 service to test workflow (nextjs only) |
@@ -122,6 +122,9 @@ confirm before creating anything.
 
 # Python library
 ./bootstrap.py --name my-tool --type python --public
+
+# Rust service or library
+./bootstrap.py --name my-service --type rust
 
 # Swift iOS app
 ./bootstrap.py --name my-app --type swift --scheme MyApp
@@ -227,6 +230,34 @@ Formatting is enforced from the first commit: `test.yml` fails CI on any
 `swift-format lint --recursive --strict` violation, and the generated
 `AGENTS.md` tells agents to run `swift-format format --recursive --in-place .`
 after editing Swift files and to check before pushing.
+
+### `rust`
+
+CI pipeline for Rust crates and workspaces.
+
+- `pr-title-check.yml`
+- `release-please.yml` — test gate → release-please (no deploy)
+- `ci.yml` — runs the test suite on every PR
+- `test.yml` — `cargo fmt --check`, `cargo clippy -D warnings`, and
+  `cargo test` across the workspace; fails with a clear error until a root
+  `Cargo.toml` exists
+- `dependabot.yml` — GitHub Actions updates only; the generated `AGENTS.md`
+  says to add a `cargo` entry once `Cargo.toml` is committed, since a new
+  repository has no manifest for Dependabot to read
+- `.gitignore` — adds Cargo's `/target/` build output
+- `README.md` — project starter with rustup setup and the CI commands
+- `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
+
+Release Please uses the `simple` release type, as for Python and Swift: it
+maintains the changelog, tags, and releases but does not edit `Cargo.toml`
+versions. The generated `AGENTS.md` explains when to move to the `rust` release
+type or the `cargo-workspace` plugin.
+
+The bootstrapper does not run `cargo init` or choose a crate layout. The
+generated `AGENTS.md` tells agents to share one `CARGO_TARGET_DIR` per
+repository across worktrees, so each worktree does not build its own
+multi-gigabyte `target/`. It lives beside those worktrees and is deleted with
+the last of them.
 
 ### `simple`
 

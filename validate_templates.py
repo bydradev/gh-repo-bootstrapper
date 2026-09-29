@@ -25,7 +25,7 @@ Checks performed on each generated file:
     must pin the operator-ruled configuration (strict False, enforce_admins
     True, a required PR with zero required approvals, no push restrictions)
     and contexts identical to required_status_checks(), for every repo type
-  - release-gated full-suite contract: rendered Python and Swift
+  - release-gated full-suite contract: rendered Python, Swift, and Rust
     release-please.yml callers must select the full suite for manual dispatch
     and for the Release Please release commit
   - runbook presence: every generated repo carries
@@ -120,6 +120,12 @@ README_REQUIREMENTS = {
         "python3 -m venv .venv",
     ),
     "swift": ("## Local development", "## Verification"),
+    "rust": (
+        "## Start here",
+        "## Local development",
+        "## Verification",
+        "cargo clippy --workspace --all-targets -- -D warnings",
+    ),
     "simple": ("## Start here", "## Project guide"),
 }
 
@@ -157,6 +163,11 @@ AGENTS_TYPE_REQUIREMENTS = {
         "stop a manually started `next dev`",
     ),
     "python": ("Never copy `.venv/`",),
+    "rust": (
+        "set `CARGO_TARGET_DIR` to one fixed directory",
+        "Never copy `target/`",
+        "the task that removes the last one deletes it too",
+    ),
     "swift": (
         "pass one fixed `-derivedDataPath` for that worktree",
         "Never choose a new derived-data path per run or per commit.",
@@ -255,6 +266,17 @@ def configurations():
                 "xcodegen": xcodegen,
             },
         )
+
+    yield (
+        "rust",
+        {
+            "name": "sample-service",
+            "repo_type": "rust",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+        },
+    )
 
     yield (
         "simple",
@@ -394,6 +416,8 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     for entry in WORKTREE_GITIGNORE_ENTRIES:
         if entry not in gitignore.splitlines():
             errors.append(f"[{label}] .gitignore is missing {entry!r}")
+    if repo_type == "rust" and "/target/" not in gitignore.splitlines():
+        errors.append(f"[{label}] Rust .gitignore is missing Cargo build output '/target/'")
     return errors
 
 
@@ -663,6 +687,38 @@ def check_readme(label: str, cfg: dict, files: dict) -> list:
     return errors
 
 
+RUST_SUITE_STEPS = (
+    "[ ! -f Cargo.toml ]",
+    "cargo fmt --all -- --check",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo test --workspace",
+)
+
+
+def check_rust_suite(label: str, repo_type: str, files: dict) -> list:
+    """The Rust test.yml must keep its manifest guard and every CI command.
+
+    The job-context check only proves a `test` job exists; this proves the job
+    still runs the guard, fmt, clippy with warnings denied, and the tests.
+    """
+    if repo_type != "rust":
+        return []
+    workflow = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
+    runs = [
+        str(step.get("run", ""))
+        for step in (workflow.get("jobs", {}).get("test", {}).get("steps") or [])
+        if isinstance(step, dict)
+    ]
+    guard = [run for run in runs if "Cargo.toml" in run]
+    errors = []
+    if not any("[ ! -f Cargo.toml ]" in run and "exit 1" in run for run in guard):
+        errors.append(f"[{label}] Rust test.yml is missing its blocking Cargo.toml guard")
+    for command in RUST_SUITE_STEPS[1:]:
+        if command not in [run.strip() for run in runs]:
+            errors.append(f"[{label}] Rust test.yml is missing step {command!r}")
+    return errors
+
+
 def check_release_full_suite_contract(label: str, repo_type: str, files: dict) -> list:
     """Keep the release-gated Python/Swift caller on the full-suite contract.
 
@@ -671,7 +727,7 @@ def check_release_full_suite_contract(label: str, repo_type: str, files: dict) -
     dispatch into the cheap path, so validate the rendered caller value rather
     than only checking that the input exists.
     """
-    if repo_type not in ("python", "swift"):
+    if repo_type not in ("python", "swift", "rust"):
         return []
 
     path = ".github/workflows/release-please.yml"
@@ -1381,7 +1437,7 @@ def run_self_tests() -> list:
         if not any("invents tooling" in e for e in result):
             errors.append(f"self-test '{repo_type} invented tooling' did not fail as expected: {result}")
 
-    for repo_type in ("python", "simple"):
+    for repo_type in ("python", "rust", "simple"):
         cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         files = bootstrap.generate_files(dict(cfg))
         result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, files)
@@ -1655,7 +1711,7 @@ def run_self_tests() -> list:
     # back to inheriting whatever its caller grants — which can change out
     # from under it later even if the caller happens to be read-only today.
     # Absence must fail regardless of the caller's current scope.
-    for repo_type in ("nextjs", "python", "swift", "simple"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
@@ -1672,7 +1728,7 @@ def run_self_tests() -> list:
     # restoring the exact exposure #10 removed — the write-scoped token reaches
     # pip/pytest/xcodebuild again, this time by declaration rather than by
     # inheritance. Both the caller and the suite must be rejected.
-    for repo_type in ("nextjs", "python", "swift"):
+    for repo_type in ("nextjs", "python", "swift", "rust"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
@@ -1738,7 +1794,7 @@ def run_self_tests() -> list:
     # block. This is the exact shape a future "helpful" addition would take —
     # a job-level grant that looks locally reasonable while reopening the
     # standing write access the live-run test proved unnecessary.
-    for repo_type in ("nextjs", "python", "swift", "simple"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
@@ -1892,10 +1948,10 @@ def run_self_tests() -> list:
     if "| Test scheme | `Sample App` |" not in spaced_readme:
         errors.append("self-test 'spaced scheme' leaked shell quoting into prose")
 
-    # Case 37: both release-gated generated repository types must keep manual
+    # Case 37: every release-gated generated repository type must keep manual
     # dispatch on the full suite, not only the Release Please merge commit.
     release_only = "${{ startsWith(github.event.head_commit.message, 'chore(main): release') }}"
-    for repo_type in ("python", "swift"):
+    for repo_type in ("python", "swift", "rust"):
         cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         files = bootstrap.generate_files(dict(cfg))
         mutated = dict(files)
@@ -1985,6 +2041,22 @@ def run_self_tests() -> list:
     if not any("must follow" in e for e in result):
         errors.append(f"self-test 'app router inside markers' did not fail as expected: {result}")
 
+    cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "rust")
+    suite = bootstrap.generate_files(dict(cfg))
+    if check_rust_suite("self-test:rust suite", "rust", suite):
+        errors.append("self-test 'rust suite' unexpectedly failed")
+    for command in RUST_SUITE_STEPS[1:] + ("exit 1",):
+        mutated = dict(suite)
+        mutated[".github/workflows/test.yml"] = suite[".github/workflows/test.yml"].replace(command, "echo skipped", 1)
+        if not check_rust_suite(f"self-test:rust suite without {command}", "rust", mutated):
+            errors.append(f"self-test 'rust suite without {command!r}' did not fail as expected")
+
+    files = bootstrap.generate_files(dict(cfg))
+    files[".gitignore"] = files[".gitignore"].replace("/target/\n", "", 1)
+    result = check_workspace_guidance("self-test:rust target ignore", "rust", files)
+    if not any("'/target/'" in e for e in result):
+        errors.append(f"self-test 'rust target ignore' did not fail as expected: {result}")
+
     return errors
 
 
@@ -2008,6 +2080,7 @@ def main() -> int:
         all_errors += check_sha_pinned_actions(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
+        all_errors += check_rust_suite(label, cfg["repo_type"], files)
         all_errors += check_release_please_config(label, cfg, files)
         all_errors += check_baseline_documents(label, cfg["repo_type"], files)
         all_errors += check_readme(label, cfg, files)

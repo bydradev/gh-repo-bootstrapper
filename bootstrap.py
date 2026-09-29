@@ -22,6 +22,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 from pathlib import Path
@@ -756,6 +757,9 @@ NEXTJS_RULES_END = "<!-- END:nextjs-agent-rules -->"
 _NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->"
 _SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
 _SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
+# A heading of any level behind blockquote or list markers (`> ## Ours`,
+# `- ## Ours`) is a subsection too, not text inside a generated paragraph.
+_CONTAINED_HEADING_RE = re.compile(r"^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}(?!#)[ \t]+\S")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 
@@ -850,7 +854,7 @@ def _subheadings(section: str) -> list:
     return [
         line.strip()
         for _, line, in_fence in _markdown_lines(section)
-        if not in_fence and _SUBHEADING_RE.match(line)
+        if not in_fence and (_SUBHEADING_RE.match(line) or _CONTAINED_HEADING_RE.match(line))
     ]
 
 
@@ -883,7 +887,7 @@ def compare_agents(expected: str, actual: str) -> list:
     actual_by_heading = {}
     for heading, body in act_sections:
         actual_by_heading.setdefault(heading, []).append(body)
-    rows = [("local", problem) for problem in _markdown_ambiguities(actual)]
+    rows = [("local", problem) for problem in _markdown_ambiguities(act_generated)]
     if act_pre.strip() and act_pre.strip() != exp_pre.strip():
         rows.append(("local", "(text before the first heading)"))
     for heading, body in exp_sections:
@@ -1018,12 +1022,30 @@ def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
 def _read_for_rewrite(path: Path):
     """The file's text for rewriting, or None when rewriting could corrupt it."""
     raw = path.read_bytes()
-    if b"\r\n" in raw:
+    if b"\r" in raw:
         return None
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
         return None
+
+
+def _replace_file(path: Path, text: str) -> None:
+    """Write text to a new file beside path, then atomically swap it in.
+
+    A new inode means a hard link elsewhere keeps its old content, and a
+    failed write leaves the original untouched. The file mode is kept.
+    """
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = False) -> list:
@@ -1051,53 +1073,55 @@ def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = Fals
     """
     actions = []
     for rel, (status, detail) in sorted(compare_repository(repo_dir, files).items()):
-        path = repo_dir / rel
-        if status == "same":
-            continue
-        if status == "symlink":
-            actions.append(("refused", rel, detail))
-            continue
-        if status == "missing":
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "x") as handle:  # never replace something created meanwhile
-                handle.write(files[rel])
-            actions.append(("wrote", rel, ""))
-            continue
-        if rel not in ("AGENTS.md", ".gitignore"):
-            actions.append(("kept", rel, "differs from the template; not overwritten"))
-            continue
-        if not _git_file_is_clean(repo_dir, rel):
-            actions.append(("refused", rel, "needs the file tracked by git with no uncommitted changes"))
-            continue
-        current = _read_for_rewrite(path)
-        if current is None:
-            actions.append(("refused", rel, "not LF-terminated UTF-8 text; update it by hand"))
-            continue
-        if rel == ".gitignore":
-            header = (
-                "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
-                "# precedence, so this repository's own rules keep their effect.\n"
-            )
-            path.write_text(header + "\n".join(detail) + "\n\n" + current)
-            actions.append(("updated", rel, f"added {len(detail)} missing entries at the top"))
-            continue
-        local = [heading for row_status, heading in detail if row_status == "local"]
-        if local:
-            actions.append(("refused", rel, "move these under ## Project specifics first: " + "; ".join(local)))
-            continue
-        differing = [heading for row_status, heading in detail if row_status == "differs"]
-        if differing and not replace_generated:
-            actions.append((
-                "refused", rel,
-                "these generated sections differ from the template — an older template or a local "
-                "edit; move local rules under ## Project specifics, then re-run with "
-                "--replace-generated-sections: " + "; ".join(differing),
-            ))
-            continue
-        path.write_text(rebuild_agents(files[rel], current))
-        replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
-        actions.append(("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}"))
+        try:
+            action = _adopt_file(repo_dir, rel, status, detail, files[rel], replace_generated)
+        except OSError as exc:
+            action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
+        if action:
+            actions.append(action)
     return actions
+
+
+def _adopt_file(repo_dir: Path, rel: str, status: str, detail, expected: str, replace_generated: bool):
+    """The adopt action for one file, or None when it is already aligned."""
+    path = repo_dir / rel
+    if status == "same":
+        return None
+    if status == "symlink":
+        return ("refused", rel, detail)
+    if status == "missing":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "x") as handle:  # never replace something created meanwhile
+            handle.write(expected)
+        return ("wrote", rel, "")
+    if rel not in ("AGENTS.md", ".gitignore"):
+        return ("kept", rel, "differs from the template; not overwritten")
+    if not _git_file_is_clean(repo_dir, rel):
+        return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+    current = _read_for_rewrite(path)
+    if current is None:
+        return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
+    if rel == ".gitignore":
+        header = (
+            "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
+            "# precedence, so this repository's own rules keep their effect.\n"
+        )
+        _replace_file(path, header + "\n".join(detail) + "\n\n" + current)
+        return ("updated", rel, f"added {len(detail)} missing entries at the top")
+    local = [heading for row_status, heading in detail if row_status == "local"]
+    if local:
+        return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
+    differing = [heading for row_status, heading in detail if row_status == "differs"]
+    if differing and not replace_generated:
+        return (
+            "refused", rel,
+            "these generated sections differ from the template — an older template or a local "
+            "edit; move local rules under ## Project specifics, then re-run with "
+            "--replace-generated-sections: " + "; ".join(differing),
+        )
+    _replace_file(path, rebuild_agents(expected, current))
+    replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
+    return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
 
 
 def existing_repository_config(args) -> dict:
@@ -1370,6 +1394,7 @@ def main():
         if args.check:
             aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
             sys.exit(0 if aligned else 1)
+        print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
         actions = adopt_repository(repo_dir, files, replace_generated=args.replace_generated_sections)
         for action, rel, detail in actions:
             print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))

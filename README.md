@@ -184,8 +184,11 @@ existing one, with two exceptions that preserve repository-owned content:
 
 Both modifications need the file tracked by git with no uncommitted changes,
 LF line endings, and UTF-8 text, so the result can be reviewed with `git diff`
-and reverted. Nothing is read or written through a symlink. `--adopt` exits 1
-when it refused anything, after applying what it could.
+and reverted. Rewrites replace the file atomically with a new one, so a hard
+link elsewhere keeps its old content. Nothing inside `PATH` is read or written
+through a symlink; `PATH` itself is resolved, and `--adopt` prints the
+directory it is changing. A failure on one file is reported as `refused`
+without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ## Repository types
 

@@ -1,5 +1,6 @@
 """Tests for --check and --adopt against existing local repositories."""
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,9 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
+
+    def _git_init(self):
+        _git(self.repo, "init", "-q")
 
     def _commit_all(self):
         _git(self.repo, "init", "-q")
@@ -197,6 +201,59 @@ class ExistingRepositoryTests(unittest.TestCase):
         subsection = generated.replace("## Definition of done\n\n", "## Definition of done\n\n### Ours\n\nX.\n\n", 1)
         rows = bootstrap.compare_agents(files["AGENTS.md"], subsection + owned)
         self.assertIn(("local", "## Definition of done › ### Ours"), rows)
+
+    def test_adopt_rewrites_through_a_new_inode(self):
+        files = _render()
+        outside = Path(self._tmp.name) / "linked-gitignore"
+        outside.write_text("node_modules/\n")
+        self._git_init()
+        os.link(outside, self.repo / ".gitignore")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+        bootstrap.adopt_repository(self.repo, files)
+        self.assertEqual(outside.read_text(), "node_modules/\n")
+        self.assertIn(".worktrees/", (self.repo / ".gitignore").read_text().splitlines())
+
+    def test_contained_headings_in_generated_sections_are_local(self):
+        files = _render()
+        generated, owned = bootstrap._split_project_specifics(files["AGENTS.md"])
+        for container in ("> ## Local policy", "- ## Local policy", "1. ### Local policy"):
+            edited = generated.replace(
+                "## Definition of done\n\n", f"## Definition of done\n\n{container}\n\n", 1
+            )
+            rows = bootstrap.compare_agents(files["AGENTS.md"], edited + owned)
+            self.assertIn(("local", f"## Definition of done › {container}"), rows)
+
+    def test_ambiguity_in_repository_owned_text_is_ignored(self):
+        files = _render()
+        tail = "\nOur heading\n-----------\n\n```\nunclosed\n"
+        self._write("AGENTS.md", files["AGENTS.md"] + tail)
+        status, _ = bootstrap.compare_repository(self.repo, files)["AGENTS.md"]
+        self.assertEqual(status, "same")
+
+    def test_lone_carriage_returns_are_refused(self):
+        files = _render()
+        self._write(".gitignore", "node_modules/\rdist/\r")
+        self._commit_all()
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".gitignore"], "refused")
+
+    def test_a_per_file_failure_does_not_abort_the_run(self):
+        files = _render()
+        original = bootstrap._adopt_file
+
+        def flaky(repo_dir, rel, *args):
+            if rel == "README.md":
+                raise FileExistsError(17, "File exists")
+            return original(repo_dir, rel, *args)
+
+        bootstrap._adopt_file = flaky
+        try:
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        finally:
+            bootstrap._adopt_file = original
+        self.assertEqual(actions["README.md"], "refused")
+        self.assertEqual(actions["AGENTS.md"], "wrote")
 
     def test_longer_fence_hides_inner_fence_and_headings(self):
         text = "## A\n\n````md\n```\n## Project specifics\n```\n````\n\n## B\n"

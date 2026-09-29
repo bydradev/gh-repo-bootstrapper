@@ -1,0 +1,26 @@
+
+## Tooling
+Run all checks before pushing:
+
+```sh
+cargo fmt --all -- --check                             # format (matches CI)
+cargo clippy --workspace --all-targets -- -D warnings  # lint (matches CI)
+cargo test --workspace                                 # tests (matches CI)
+```
+
+`cargo fmt --all` fixes formatting. CI treats every Clippy warning as an error.
+If a lint is wrong for this codebase, allow it deliberately — in the `[lints]`
+table of `Cargo.toml`, or on the narrowest item with a stated reason — and say
+why in the commit or PR; never silence it just to pass CI.
+
+Dependabot starts with GitHub Actions updates only: a new repository has no
+`Cargo.toml`, and a `cargo` entry would fail on every run until one exists.
+Once the manifest is committed, add a `cargo` ecosystem entry to
+`.github/dependabot.yml`.
+
+Cargo writes build output to `target/` in each checkout, and a workspace build
+can reach gigabytes. In a worktree, set `CARGO_TARGET_DIR` to one fixed
+directory for this repository, outside the source tree — for example next to
+the worktrees — and use it for every Cargo command there. Cargo locks the build
+directory, so a second build waits for the first rather than corrupting it.
+Never copy `target/` into a verification copy.

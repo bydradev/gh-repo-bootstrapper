@@ -7,6 +7,7 @@ Supported types:
            PostgreSQL test service.
   python   Python CI (ruff / mypy / pytest) with gated Release Please.
   swift    Swift/Xcode CI (xcodebuild test) with gated Release Please.
+  rust     Rust CI (fmt / clippy / cargo test) with gated Release Please.
   simple   Release Please only — no test workflows.
 
 Requirements: Python 3.9+, gh CLI (authenticated), git
@@ -157,6 +158,7 @@ def parse_args():
               nextjs   Full CI + optional PostgreSQL tests
               python   Python CI (ruff / mypy / pytest) + gated Release Please
               swift    Swift/Xcode CI (xcodebuild test) + gated Release Please
+              rust     Rust CI (fmt / clippy / cargo test) + gated Release Please
               simple   Release Please only (no tests)
 
             Examples:
@@ -165,13 +167,14 @@ def parse_args():
               ./bootstrap.py --name my-tool --type python --org my-org
               ./bootstrap.py --name my-app --type swift --scheme MyApp
               ./bootstrap.py --name my-app --type swift --scheme MyApp --xcodegen
+              ./bootstrap.py --name my-service --type rust --private
               ./bootstrap.py --name my-app --type nextjs --postgres --dry-run
               ./bootstrap.py --name my-app --type nextjs --configure-only
         """),
     )
     p.add_argument("--name", help="Repository name, or a relative/absolute path ending in one "
                    "(default: created in the current directory)")
-    p.add_argument("--type", choices=["nextjs", "simple", "python", "swift"],
+    p.add_argument("--type", choices=["nextjs", "simple", "python", "swift", "rust"],
                    dest="repo_type", help="Repository type")
     p.add_argument("--org", help="GitHub org or user (default: authenticated user)")
     vis = p.add_mutually_exclusive_group()
@@ -374,7 +377,7 @@ def gather_config(args) -> dict:
         if ni:
             _die("--type is required in --non-interactive mode")
         print("\nRepository type:")
-        repo_type = prompt_choice("Select type", ["nextjs", "python", "swift", "simple"])
+        repo_type = prompt_choice("Select type", ["nextjs", "python", "swift", "rust", "simple"])
 
     # --- owner ---
     owner = args.org
@@ -451,7 +454,7 @@ def gather_config(args) -> dict:
         if not ni and not args.xcodegen:
             xcodegen = prompt_yn("Generate the Xcode project from project.yml?", default=False)
 
-    else:  # python, simple
+    else:  # python, rust, simple
         if args.postgres:
             print("warning: --postgres is only used with --type nextjs; ignoring")
         if args.scheme:
@@ -510,7 +513,7 @@ def _release_please_config(name: str, repo_type: str) -> str:
             "include-component-in-tag": False,
             "packages": {".": {"release-type": "node", "package-name": name}},
         }
-    else:  # simple, python, swift — all use release-type: simple
+    else:  # simple, python, swift, rust — all use release-type: simple
         cfg = {
             "$schema": schema,
             "include-component-in-tag": False,
@@ -538,7 +541,7 @@ def required_status_checks(repo_type: str) -> list:
     """
     if repo_type == "nextjs":
         return ["validate-title", "test / build", "test / e2e"]
-    elif repo_type in ("python", "swift"):
+    elif repo_type in ("python", "swift", "rust"):
         return ["validate-title", "test / test"]
     else:
         return ["validate-title"]
@@ -641,6 +644,16 @@ def generate_files(cfg: dict) -> dict:
         files[".swift-format"] = _load(".swift-format")
         screenshot_guidance = _load("docs-screenshot-review-swift.md")
 
+    elif repo_type == "rust":
+        files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
+        files[".github/workflows/ci.yml"] = _load("ci.yml")
+        files[".github/workflows/test.yml"] = _load("test-rust.yml")
+        # Like Swift: a new Rust repo has no Cargo.toml yet, so a cargo
+        # Dependabot entry would be a permanently failing updater until one
+        # exists. The generated AGENTS.md says when to add it.
+        files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
+        screenshot_guidance = ""
+
     else:  # simple
         files[".github/workflows/release-please.yml"] = _load("release-please-simple.yml")
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
@@ -666,6 +679,8 @@ def generate_files(cfg: dict) -> dict:
         tooling = _load("AGENTS-nextjs-tooling.md")
     elif repo_type == "python":
         tooling = _load("AGENTS-python-tooling.md")
+    elif repo_type == "rust":
+        tooling = _load("AGENTS-rust-tooling.md")
     elif repo_type == "swift":
         swift_tooling = _load("AGENTS-swift-tooling.md")
         delta = _load(
@@ -709,6 +724,8 @@ def generate_files(cfg: dict) -> dict:
     files[".gitignore"] = _load(".gitignore")
     if repo_type == "swift" and xcodegen:
         files[".gitignore"] += "\n# XcodeGen output (project.yml is the source of truth)\n*.xcodeproj/\n"
+    if repo_type == "rust":
+        files[".gitignore"] += "\n# Rust build output\n/target/\n"
     files["release-please-config.json"] = _release_please_config(name, repo_type)
     files[".release-please-manifest.json"] = json.dumps({".": "0.1.0"}, indent=2) + "\n"
 

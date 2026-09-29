@@ -310,14 +310,68 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(ignored.returncode, 1)
 
     def test_gitignore_conflicts(self):
-        conflicts = bootstrap._gitignore_conflicts
+        def conflicts(added, text, base=()):
+            return bootstrap._gitignore_conflicts(added, bootstrap._negations_in(text, base))
         self.assertEqual(conflicts([".worktrees/"], "!.worktrees/keep\n"), [(".worktrees/", "!.worktrees/keep")])
-        self.assertEqual(conflicts([".claude/worktrees/"], "!.claude/worktrees/x\n"), [(".claude/worktrees/", "!.claude/worktrees/x")])
+        self.assertTrue(conflicts([".claude/worktrees/"], "!.claude/worktrees/x\n"))
+        self.assertTrue(conflicts(["**/.worktrees/"], "!.worktrees/keep\n"))
+        self.assertTrue(conflicts(["[ab].xcresult/"], "![bc].xcresult/keep\n"))
         self.assertTrue(conflicts(["*.xcresult/"], "!build/**/keep\n"))
-        self.assertEqual(conflicts([".worktrees/"], "!.env.example\n!.yarn/patches\n"), [])
-        self.assertEqual(
-            conflicts([".worktrees/", "*.xcresult/"], "!*.xcodeproj/xcshareddata/xcschemes/*.xcscheme\n"), []
-        )
+        self.assertTrue(conflicts([".worktrees/"], "!keep\n", base=(".worktrees",)))
+        self.assertTrue(conflicts(["build/"], "!src/build/keep\n"))       # slash-less: any depth
+        self.assertEqual(conflicts(["/build/"], "!src/build/keep\n"), [])  # anchored to the root
+        # A repository generated from an older template gains the entries added
+        # since without its own template exceptions blocking them.
+        template = bootstrap._load(".gitignore")
+        added = [".mypy_cache/", ".ruff_cache/", ".pytest_cache/", ".hypothesis/",
+                 "*.xcresult/", ".claude/worktrees/", ".worktrees/"]
+        older = "\n".join(line for line in template.splitlines() if line not in added)
+        self.assertEqual(conflicts(added, older), [])
+
+    def test_nested_gitignore_exception_blocks_the_update(self):
+        files = _render()
+        self._write(".gitignore", "node_modules/\n")
+        self._write(".worktrees/.gitignore", "*\n!keep\n!.gitignore\n")
+        self._write(".worktrees/keep", "x\n")
+        self._commit_all()
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".gitignore"][0], "refused")
+        self.assertIn(".worktrees/.gitignore: !keep", actions[".gitignore"][1])
+
+    def test_failed_new_file_leaves_nothing_behind(self):
+        files = {"deep/dir/new.txt": "content\n"}
+        original = bootstrap._create_anchored
+
+        def failing(parent, name, text, exact_mode=None):
+            original(parent, name, text[:2], exact_mode)
+            raise OSError(28, "No space left on device")
+
+        bootstrap._create_anchored = failing
+        try:
+            actions = bootstrap.adopt_repository(self.repo, files)
+        finally:
+            bootstrap._create_anchored = original
+        self.assertEqual(actions[0][0], "refused")
+        self.assertEqual(list(self.repo.iterdir()), [])
+
+    def test_rewrite_refused_when_the_file_changes_after_it_was_read(self):
+        files = _render()
+        self._write(".gitignore", "node_modules/\n")
+        self._commit_all()
+        original = bootstrap._create_anchored
+
+        def edit_then_create(parent, name, text, exact_mode=None):
+            (self.repo / ".gitignore").write_text("node_modules/\nconcurrent-edit/\n")
+            original(parent, name, text, exact_mode)
+
+        bootstrap._create_anchored = edit_then_create
+        try:
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, {".gitignore": files[".gitignore"]})}
+        finally:
+            bootstrap._create_anchored = original
+        self.assertEqual(actions[".gitignore"], "refused")
+        self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\nconcurrent-edit/\n")
+        self.assertEqual([p.name for p in self.repo.iterdir() if p.name.endswith(".tmp")], [])
 
     def test_unreadable_file_is_reported_and_the_run_continues(self):
         files = _render()

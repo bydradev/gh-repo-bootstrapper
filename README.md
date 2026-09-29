@@ -176,9 +176,11 @@ existing one, with two exceptions that preserve repository-owned content:
 - `.gitignore` gains the template entries it lacks, inserted at the top: a
   later rule wins in `.gitignore`, so the repository's own rules keep their
   effect. Git cannot re-include a file once a parent directory is excluded, so
-  the update is refused if an added entry could exclude a parent directory of
-  an existing `!` exception (for example `.worktrees/` against
-  `!.worktrees/keep`); add those entries by hand.
+  the update is refused if an added entry could exclude a directory named by
+  an existing `!` exception — in the root file, a nested `.gitignore`, or
+  `.git/info/exclude` (for example `.worktrees/` against `!.worktrees/keep`);
+  add those entries by hand. Wildcards that cannot be compared count as a
+  possible conflict.
 - `AGENTS.md` is rebuilt from the template, keeping `## Project specifics`
   (and everything after it) and the `next dev`-managed block. The rebuild is
   refused while anything `local` remains — move those rules under
@@ -190,11 +192,17 @@ existing one, with two exceptions that preserve repository-owned content:
 Both modifications need the file tracked by git with no uncommitted changes,
 LF line endings, and UTF-8 text, so the result can be reviewed with `git diff`
 and reverted. Rewrites replace the file atomically with a new one, keeping its
-permission bits, so a hard link elsewhere keeps its old content. Every write
-walks from `PATH` one directory at a time without following symlinks, so a
-directory swapped for a symlink mid-run is refused rather than written
-through; `PATH` itself is resolved, and `--adopt` prints the directory it is
-changing. A failure on one file is reported as `refused`
+permission bits, so a hard link elsewhere keeps its old content; a new file is
+written in full before it appears, and never replaces one created meanwhile.
+Every write walks from `PATH` one directory at a time without following
+symlinks, so a symlink met on the way is refused; `PATH` itself is resolved,
+and `--adopt` prints the directory it is changing.
+
+`--adopt` assumes nothing else modifies the repository while it runs. It
+refuses a rewrite whose target changed since it was read, but it cannot close
+every race with a concurrent process — for example one moving a directory out
+of `PATH` mid-run — so do not run it while an editor, agent, or build is
+writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ## Repository types

@@ -14,6 +14,7 @@ Requirements: Python 3.9+, gh CLI (authenticated), git
 """
 
 import argparse
+import errno
 import fnmatch
 import getpass
 import json
@@ -955,36 +956,109 @@ def _missing_lines(expected: str, actual: str) -> list:
     ]
 
 
-def _gitignore_conflicts(added: list, existing: str) -> list:
-    """(added pattern, `!` exception) pairs where the addition could break it.
+_GLOB_CHARS = "*?["
 
-    Git cannot re-include a file whose parent directory is excluded, so an
-    added pattern that can match a parent directory of an existing exception
-    would silently override it despite coming first. Wildcards that cannot be
-    compared are treated as conflicts.
+
+def _segments_may_intersect(a: str, b: str) -> bool:
+    """Whether two single-segment gitignore globs could match the same name.
+
+    Exact when either side is literal. Two globs are judged disjoint only in
+    the clear-cut `*suffix` / `prefix*` cases; anything else is assumed to
+    intersect, so doubt leads to a refusal rather than a broken exception.
+    """
+    if "**" in a or "**" in b:
+        return True
+    a_glob, b_glob = any(c in a for c in _GLOB_CHARS), any(c in b for c in _GLOB_CHARS)
+    if not a_glob or not b_glob:
+        return fnmatch.fnmatchcase(a, b) if not a_glob else fnmatch.fnmatchcase(b, a)
+    if a == b:
+        return True
+    for x, y in ((a, b), (b, a)):
+        if x.startswith("*") and y.startswith("*"):
+            xl, yl = x[1:], y[1:]
+            if not any(c in xl + yl for c in _GLOB_CHARS):
+                return xl.endswith(yl) or yl.endswith(xl)
+        if x.endswith("*") and y.endswith("*"):
+            xl, yl = x[:-1], y[:-1]
+            if not any(c in xl + yl for c in _GLOB_CHARS):
+                return xl.startswith(yl) or yl.startswith(xl)
+    return True
+
+
+def _gitignore_negations(repo_dir: Path, root_text: str) -> list:
+    """(directory parts, `!` rule) for every exception git would apply.
+
+    Reads the root .gitignore text given, nested .gitignore files git does not
+    already ignore, and .git/info/exclude. A rule's directory parts are the
+    directories its own path names — the nested file's location plus any
+    directories written in the rule. A slash-less rule such as `!.env.example`
+    names no directory, so no added directory rule is judged to break it.
+    """
+    sources = [((), root_text)]
+    def git(*args):
+        return subprocess.run(["git", "-C", str(repo_dir), *args], capture_output=True, text=True)
+    listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/.gitignore")
+    for rel in filter(None, listed.stdout.split("\0")) if listed.returncode == 0 else []:
+        if rel == ".gitignore":
+            continue
+        try:
+            sources.append((Path(rel).parent.parts, (repo_dir / rel).read_text(errors="replace")))
+        except OSError:
+            sources.append((Path(rel).parent.parts, "!**"))  # unreadable: assume the worst
+    exclude = git("rev-parse", "--git-path", "info/exclude")
+    if exclude.returncode == 0:
+        path = Path(exclude.stdout.strip())
+        path = path if path.is_absolute() else repo_dir / path
+        if path.is_file():
+            sources.append(((), path.read_text(errors="replace")))
+    return [negation for base, text in sources for negation in _negations_in(text, base)]
+
+
+def _negations_in(text: str, base: tuple = ()) -> list:
+    """(directory parts, label) for each `!` rule in one ignore file at base."""
+    negations = []
+    for line in text.splitlines():
+        rule = line.strip()
+        if rule.startswith("!"):
+            parts = [part for part in rule[1:].strip("/").split("/") if part]
+            label = f"{'/'.join(base)}/.gitignore: {rule}" if base else rule
+            negations.append((tuple(base) + tuple(parts[:-1]), label))
+    return negations
+
+
+def _gitignore_conflicts(added: list, negations: list) -> list:
+    """(added rule, exception) pairs where adding the rule could break it.
+
+    Git cannot re-include a file once a parent directory is excluded, so an
+    added rule that could match a directory an exception's path names would
+    override it even though it comes first. Added rules are root-level: one
+    with an inner slash is anchored to the root, one without matches a name at
+    any depth, and a leading `**/` matches at any depth.
     """
     conflicts = []
-    for line in existing.splitlines():
-        if not line.strip().startswith("!"):
+    for pattern in added:
+        if pattern.startswith("!"):
             continue
-        negation = line.strip()
-        parts = negation[1:].strip("/").split("/")
-        parents = parts[:-1]
-        for pattern in added:
-            if pattern.startswith("!"):
+        core = pattern.rstrip("/")
+        anchored = core.startswith("/")
+        core = core.lstrip("/")
+        if core.startswith("**/"):
+            core, anchored = core[3:], False
+        segments = core.split("/")
+        anchored = anchored or len(segments) > 1
+        for parents, rule in negations:
+            if not parents:
                 continue
-            core = pattern.strip("/")
-            multi = "/" in core
-            for depth in range(1, len(parents) + 1):
-                segment = parents[depth - 1]
-                candidate = "/".join(parents[:depth]) if multi else segment
-                undecidable = segment in ("*", "**") or (
-                    any(ch in segment for ch in "*?[")
-                    and (fnmatch.fnmatchcase(segment, core) or fnmatch.fnmatchcase(core, segment))
+            if "**" in segments:
+                hit = True  # a `**` past the start: assume it can match any parent
+            elif not anchored:
+                hit = any(_segments_may_intersect(segments[0], part) for part in parents)
+            else:
+                hit = len(segments) <= len(parents) and all(
+                    _segments_may_intersect(seg, part) for seg, part in zip(segments, parents)
                 )
-                if undecidable or fnmatch.fnmatchcase(candidate, core):
-                    conflicts.append((pattern, negation))
-                    break
+            if hit:
+                conflicts.append((pattern, rule))
     return conflicts
 
 
@@ -1076,26 +1150,35 @@ def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
 
 _DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
-_ANCHORED_WRITES = {os.open, os.mkdir, os.rename, os.unlink} <= os.supports_dir_fd
+_ANCHORED_WRITES = hasattr(os, "O_NOFOLLOW") and {
+    os.open, os.mkdir, os.rename, os.unlink, os.link, os.rmdir, os.stat
+} <= os.supports_dir_fd
 
 
-def _open_parent(repo_dir: Path, rel: str, create: bool) -> int:
+def _open_parent(repo_dir: Path, rel: str, create: bool, created: list = None) -> int:
     """A descriptor for rel's parent directory, reached from repo_dir.
 
     Each component is opened relative to the one before it with O_NOFOLLOW,
-    so a directory swapped for a symlink at any point — even after the scan —
-    fails with an OSError instead of redirecting the write. Missing
-    directories are created only when create is set.
+    so a symlink present at any component when it is opened — including one
+    swapped in after the scan — fails with an OSError instead of redirecting
+    the write. This does not stop another process moving an already-opened
+    directory out of repo_dir mid-run; --adopt assumes nothing else modifies
+    the repository while it runs. Missing directories are created only when
+    create is set, and their relative paths are appended to created.
     """
     fd = os.open(repo_dir, _DIR_FLAGS)
+    walked = []
     try:
         for part in Path(rel).parent.parts:
+            walked.append(part)
             try:
                 child = os.open(part, _DIR_FLAGS, dir_fd=fd)
             except FileNotFoundError:
                 if not create:
                     raise
                 os.mkdir(part, 0o777, dir_fd=fd)
+                if created is not None:
+                    created.append("/".join(walked))
                 child = os.open(part, _DIR_FLAGS, dir_fd=fd)
             os.close(fd)
             fd = child
@@ -1105,10 +1188,30 @@ def _open_parent(repo_dir: Path, rel: str, create: bool) -> int:
         raise
 
 
-def _read_anchored(parent: int, name: str) -> bytes:
+def _remove_empty_dirs(repo_dir: Path, created: list) -> None:
+    """Best-effort removal of directories this run created, deepest first."""
+    for rel_dir in reversed(created):
+        try:
+            parent = _open_parent(repo_dir, rel_dir, create=False)
+            try:
+                os.rmdir(Path(rel_dir).name, dir_fd=parent)
+            finally:
+                os.close(parent)
+        except OSError:
+            pass
+
+
+def _read_anchored(parent: int, name: str) -> tuple:
+    """(bytes, identity) of name in parent, never following a symlink."""
     fd = os.open(name, os.O_RDONLY | _NOFOLLOW, dir_fd=parent)
     with os.fdopen(fd, "rb") as handle:
-        return handle.read()
+        st = os.fstat(handle.fileno())
+        return handle.read(), (st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _identity(parent: int, name: str) -> tuple:
+    st = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    return (st.st_ino, st.st_size, st.st_mtime_ns)
 
 
 def _decode_for_rewrite(raw: bytes):
@@ -1133,17 +1236,43 @@ def _create_anchored(parent: int, name: str, text: str, exact_mode=None) -> None
         handle.write(text)
 
 
-def _replace_anchored(parent: int, name: str, text: str) -> None:
-    """Write text to a new file in parent, then atomically rename it over name.
+def _temp_name(name: str) -> str:
+    return f".{name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+
+
+def _publish_new(parent: int, name: str, text: str) -> None:
+    """Create name with text, all or nothing, never replacing anything there.
+
+    The text goes to a temporary sibling first and is then hard-linked into
+    place, which fails if name exists; a failed write leaves no partial file.
+    """
+    tmp = _temp_name(name)
+    try:
+        _create_anchored(parent, tmp, text)
+        os.link(tmp, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+    finally:
+        try:
+            os.unlink(tmp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+
+
+def _replace_anchored(parent: int, name: str, text: str, identity: tuple) -> None:
+    """Write text to a new file in parent, then rename it over name.
 
     A new inode means a hard link elsewhere keeps its old content, and a
     failed write leaves the original untouched. The permission bits are kept;
-    ownership, flags, and extended attributes are not.
+    ownership, flags, and extended attributes are not. If name no longer has
+    the identity (inode, size, mtime) it had when read, nothing is replaced.
+    This narrows, but cannot close, the window for a concurrent edit; --adopt
+    assumes nothing else modifies the repository while it runs.
     """
     mode = os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode & 0o7777
-    tmp = f".{name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+    tmp = _temp_name(name)
     try:
         _create_anchored(parent, tmp, text, exact_mode=mode)
+        if _identity(parent, name) != identity:
+            raise FileExistsError(errno.EBUSY, "changed while --adopt was running", name)
         os.rename(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
     except BaseException:
         try:
@@ -1163,14 +1292,17 @@ def adopt_repository(
     the template's missing entries, and AGENTS.md is rebuilt from the template
     while keeping `## Project specifics` and the `next dev` block. Both need
     the file tracked by git with no uncommitted changes, LF line endings, and
-    UTF-8 text, so the result can be reviewed and reverted. Nothing is read
-    or written through a symlink.
+    UTF-8 text, so the result can be reviewed and reverted. Writes refuse any
+    symlink they meet on the way. --adopt assumes nothing else modifies the
+    repository while it runs; it narrows but cannot close races with a
+    process that does.
 
     Missing .gitignore entries are inserted at the top of the file: a later
     rule wins in .gitignore, so the repository's own rules keep their effect.
     The one exception git makes — a file cannot be re-included once a parent
-    directory is excluded — is checked, and the update refused if an added
-    entry could exclude a parent of an existing `!` exception.
+    directory is excluded — is checked against the root file, nested
+    .gitignore files, and .git/info/exclude, and the update refused if an
+    added entry could exclude a directory an existing `!` exception names.
 
     The AGENTS.md rebuild is refused while any repository text sits outside
     `## Project specifics`, or the file has structure the parser does not
@@ -1200,9 +1332,9 @@ def _adopt_file(
     """The adopt action for one file, or None when it is already aligned.
 
     Every write goes through a descriptor chain from repo_dir that refuses
-    symlinks, and a rewrite is judged on the content read through that chain,
-    not on the earlier scan, so a file changed or swapped in between cannot
-    slip past the checks.
+    symlinks, and a rewrite is judged on the content read through that chain
+    rather than on the earlier scan. Concurrent modification of the
+    repository while --adopt runs is outside what these checks can prevent.
     """
     if status == "same":
         return None
@@ -1212,11 +1344,16 @@ def _adopt_file(
         return ("refused", rel, "this platform cannot write without following symlinks")
     name = Path(rel).name
     if status == "missing":
-        parent = _open_parent(repo_dir, rel, create=True)
+        created = []
         try:
-            _create_anchored(parent, name, expected)
-        finally:
-            os.close(parent)
+            parent = _open_parent(repo_dir, rel, create=True, created=created)
+            try:
+                _publish_new(parent, name, expected)
+            finally:
+                os.close(parent)
+        except BaseException:
+            _remove_empty_dirs(repo_dir, created)
+            raise
         return ("wrote", rel, "")
     if rel not in ("AGENTS.md", ".gitignore"):
         return ("kept", rel, "differs from the template; not overwritten")
@@ -1224,14 +1361,15 @@ def _adopt_file(
         return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
     parent = _open_parent(repo_dir, rel, create=False)
     try:
-        current = _decode_for_rewrite(_read_anchored(parent, name))
+        raw, identity = _read_anchored(parent, name)
+        current = _decode_for_rewrite(raw)
         if current is None:
             return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
         if rel == ".gitignore":
             missing = _missing_lines(expected, current)
             if not missing:
                 return None
-            conflicts = _gitignore_conflicts(missing, current)
+            conflicts = _gitignore_conflicts(missing, _gitignore_negations(repo_dir, current))
             if conflicts:
                 return (
                     "refused", rel,
@@ -1243,7 +1381,7 @@ def _adopt_file(
                 "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
                 "# precedence, so this repository's own rules keep their effect.\n"
             )
-            _replace_anchored(parent, name, header + "\n".join(missing) + "\n\n" + current)
+            _replace_anchored(parent, name, header + "\n".join(missing) + "\n\n" + current, identity)
             return ("updated", rel, f"added {len(missing)} missing entries at the top")
         rows = compare_agents(expected, current)
         if all(row_status == "same" for row_status, _ in rows):
@@ -1261,7 +1399,7 @@ def _adopt_file(
             )
         if differing and confirm is not None and not confirm(differing):
             return ("refused", rel, "replacement of differing generated sections was not confirmed")
-        _replace_anchored(parent, name, rebuild_agents(expected, current))
+        _replace_anchored(parent, name, rebuild_agents(expected, current), identity)
     finally:
         os.close(parent)
     replaced = f"; replaced: {'; '.join(differing)}" if differing else ""

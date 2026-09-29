@@ -22,5 +22,13 @@ Cargo writes build output to `target/` in each checkout, and a workspace build
 can reach gigabytes. In a worktree, set `CARGO_TARGET_DIR` to one fixed
 directory for this repository, outside the source tree — for example next to
 the worktrees — and use it for every Cargo command there. Cargo locks the build
-directory, so a second build waits for the first rather than corrupting it.
-Never copy `target/` into a verification copy.
+directory, so a second build waits for the first rather than corrupting it
+(its "waiting for file lock" message, checked against cargo 1.97.1,
+2026-09-29). Never copy `target/` into a verification copy.
+
+Release Please runs with the `simple` release type: it maintains the changelog,
+tag, and GitHub release, but does not edit versions in `Cargo.toml`. For a
+single published crate, switch `release-please-config.json` to the `rust`
+release type; a multi-crate workspace also needs Release Please's
+`cargo-workspace` plugin. Make that change deliberately, once the manifest
+exists.

@@ -25,7 +25,7 @@ Checks performed on each generated file:
     must pin the operator-ruled configuration (strict False, enforce_admins
     True, a required PR with zero required approvals, no push restrictions)
     and contexts identical to required_status_checks(), for every repo type
-  - release-gated full-suite contract: rendered Python and Swift
+  - release-gated full-suite contract: rendered Python, Swift, and Rust
     release-please.yml callers must select the full suite for manual dispatch
     and for the Release Please release commit
   - runbook presence: every generated repo carries
@@ -654,6 +654,38 @@ def check_readme(label: str, cfg: dict, files: dict) -> list:
         for command in expected_commands:
             if command not in readme:
                 errors.append(f"[{label}] Swift README.md is missing {command!r}")
+    return errors
+
+
+RUST_SUITE_STEPS = (
+    "[ ! -f Cargo.toml ]",
+    "cargo fmt --all -- --check",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo test --workspace",
+)
+
+
+def check_rust_suite(label: str, repo_type: str, files: dict) -> list:
+    """The Rust test.yml must keep its manifest guard and every CI command.
+
+    The job-context check only proves a `test` job exists; this proves the job
+    still runs the guard, fmt, clippy with warnings denied, and the tests.
+    """
+    if repo_type != "rust":
+        return []
+    workflow = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
+    runs = [
+        str(step.get("run", ""))
+        for step in (workflow.get("jobs", {}).get("test", {}).get("steps") or [])
+        if isinstance(step, dict)
+    ]
+    guard = [run for run in runs if "Cargo.toml" in run]
+    errors = []
+    if not any("[ ! -f Cargo.toml ]" in run and "exit 1" in run for run in guard):
+        errors.append(f"[{label}] Rust test.yml is missing its blocking Cargo.toml guard")
+    for command in RUST_SUITE_STEPS[1:]:
+        if command not in [run.strip() for run in runs]:
+            errors.append(f"[{label}] Rust test.yml is missing step {command!r}")
     return errors
 
 
@@ -1886,7 +1918,7 @@ def run_self_tests() -> list:
     if "| Test scheme | `Sample App` |" not in spaced_readme:
         errors.append("self-test 'spaced scheme' leaked shell quoting into prose")
 
-    # Case 37: both release-gated generated repository types must keep manual
+    # Case 37: every release-gated generated repository type must keep manual
     # dispatch on the full suite, not only the Release Please merge commit.
     release_only = "${{ startsWith(github.event.head_commit.message, 'chore(main): release') }}"
     for repo_type in ("python", "swift", "rust"):
@@ -1948,6 +1980,15 @@ def run_self_tests() -> list:
         errors.append(f"self-test 'app router inside markers' did not fail as expected: {result}")
 
     cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "rust")
+    suite = bootstrap.generate_files(dict(cfg))
+    if check_rust_suite("self-test:rust suite", "rust", suite):
+        errors.append("self-test 'rust suite' unexpectedly failed")
+    for command in RUST_SUITE_STEPS[1:] + ("exit 1",):
+        mutated = dict(suite)
+        mutated[".github/workflows/test.yml"] = suite[".github/workflows/test.yml"].replace(command, "echo skipped", 1)
+        if not check_rust_suite(f"self-test:rust suite without {command}", "rust", mutated):
+            errors.append(f"self-test 'rust suite without {command!r}' did not fail as expected")
+
     files = bootstrap.generate_files(dict(cfg))
     files[".gitignore"] = files[".gitignore"].replace("/target/\n", "", 1)
     result = check_workspace_guidance("self-test:rust target ignore", "rust", files)
@@ -1977,6 +2018,7 @@ def main() -> int:
         all_errors += check_sha_pinned_actions(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
+        all_errors += check_rust_suite(label, cfg["repo_type"], files)
         all_errors += check_release_please_config(label, cfg, files)
         all_errors += check_baseline_documents(label, cfg["repo_type"], files)
         all_errors += check_readme(label, cfg, files)

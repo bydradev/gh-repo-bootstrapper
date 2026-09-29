@@ -248,6 +248,11 @@ CI pipeline for Rust crates and workspaces.
 - `README.md` — project starter with rustup setup and the CI commands
 - `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
 
+Release Please uses the `simple` release type, as for Python and Swift: it
+maintains the changelog, tags, and releases but does not edit `Cargo.toml`
+versions. The generated `AGENTS.md` explains when to move to the `rust` release
+type or the `cargo-workspace` plugin.
+
 The bootstrapper does not run `cargo init` or choose a crate layout. The
 generated `AGENTS.md` tells agents to share one `CARGO_TARGET_DIR` per
 repository across worktrees, so each worktree does not build its own

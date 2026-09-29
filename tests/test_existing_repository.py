@@ -280,6 +280,72 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(actions["README.md"], "refused")
         self.assertEqual(actions["AGENTS.md"], "wrote")
 
+    def test_directory_swapped_for_symlink_after_the_scan_is_refused(self):
+        files = _render()
+        outside = Path(self._tmp.name) / "elsewhere"
+        outside.mkdir()
+        report = bootstrap.compare_repository(self.repo, files)  # .github does not exist yet
+        (self.repo / ".github").symlink_to(outside)
+        original = bootstrap.compare_repository
+        bootstrap.compare_repository = lambda repo_dir, files: report
+        try:
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        finally:
+            bootstrap.compare_repository = original
+        self.assertEqual(actions[".github/workflows/pr-title-check.yml"], "refused")
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(actions["AGENTS.md"], "wrote")
+
+    def test_gitignore_update_refused_when_it_would_break_an_exception(self):
+        files = _render()
+        self._write(".gitignore", "!.worktrees/keep\n")
+        self._write(".worktrees/keep", "x\n")
+        self._commit_all()
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".gitignore"][0], "refused")
+        self.assertIn(".worktrees/ vs !.worktrees/keep", actions[".gitignore"][1])
+        ignored = subprocess.run(
+            ["git", "-C", str(self.repo), "check-ignore", "-q", ".worktrees/keep"], capture_output=True
+        )
+        self.assertEqual(ignored.returncode, 1)
+
+    def test_gitignore_conflicts(self):
+        conflicts = bootstrap._gitignore_conflicts
+        self.assertEqual(conflicts([".worktrees/"], "!.worktrees/keep\n"), [(".worktrees/", "!.worktrees/keep")])
+        self.assertEqual(conflicts([".claude/worktrees/"], "!.claude/worktrees/x\n"), [(".claude/worktrees/", "!.claude/worktrees/x")])
+        self.assertTrue(conflicts(["*.xcresult/"], "!build/**/keep\n"))
+        self.assertEqual(conflicts([".worktrees/"], "!.env.example\n!.yarn/patches\n"), [])
+        self.assertEqual(
+            conflicts([".worktrees/", "*.xcresult/"], "!*.xcodeproj/xcshareddata/xcschemes/*.xcscheme\n"), []
+        )
+
+    def test_unreadable_file_is_reported_and_the_run_continues(self):
+        files = _render()
+        self._write("README.md", "# Mine\n")
+        (self.repo / "README.md").chmod(0)
+        try:
+            status, _ = bootstrap.compare_repository(self.repo, files)["README.md"]
+            self.assertEqual(status, "unreadable")
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        finally:
+            (self.repo / "README.md").chmod(0o644)
+        self.assertEqual(actions["README.md"], "refused")
+        self.assertEqual(actions["AGENTS.md"], "wrote")
+
+    def test_reordered_generated_sections_are_drift(self):
+        files = _render()
+        preamble, sections = bootstrap._agents_sections(files["AGENTS.md"])
+        titles = [title for title, _ in sections]
+        a, b = titles.index("## Branches"), titles.index("## Commits")
+        sections[a], sections[b] = sections[b], sections[a]
+        swapped = preamble + "".join(body for _, body in sections)
+        rows = bootstrap.compare_agents(files["AGENTS.md"], swapped)
+        self.assertIn(("differs", "(order of generated sections)"), rows)
+        self._write("AGENTS.md", swapped)
+        self._commit_all()
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions["AGENTS.md"], "refused")
+
     def test_longer_fence_hides_inner_fence_and_headings(self):
         text = "## A\n\n````md\n```\n## Project specifics\n```\n````\n\n## B\n"
         _, sections = bootstrap._agents_sections(text)

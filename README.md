@@ -156,11 +156,12 @@ confirm before creating anything.
 contacts GitHub; follow with `--configure-only` for repository settings.
 
 `--check PATH --type TYPE` renders the current templates for that type and
-reports each file as `same`, `differs`, `missing`, or `symlink`. Pass the same
+reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`. Pass the same
 type options the repository was generated with — `--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
 they shape report as drift. For `AGENTS.md` it reports per section: a
-generated section that is `missing` or `differs`, and anything `local` —
+generated section that is `missing` or `differs` (including generated
+sections in a different order), and anything `local` —
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence). The `next dev`-managed block and everything from
@@ -173,8 +174,11 @@ and exits 1 on drift.
 existing one, with two exceptions that preserve repository-owned content:
 
 - `.gitignore` gains the template entries it lacks, inserted at the top: a
-  later rule wins in `.gitignore`, so the repository's own rules, including
-  `!` exceptions, keep their effect.
+  later rule wins in `.gitignore`, so the repository's own rules keep their
+  effect. Git cannot re-include a file once a parent directory is excluded, so
+  the update is refused if an added entry could exclude a parent directory of
+  an existing `!` exception (for example `.worktrees/` against
+  `!.worktrees/keep`); add those entries by hand.
 - `AGENTS.md` is rebuilt from the template, keeping `## Project specifics`
   (and everything after it) and the `next dev`-managed block. The rebuild is
   refused while anything `local` remains — move those rules under
@@ -185,10 +189,12 @@ existing one, with two exceptions that preserve repository-owned content:
 
 Both modifications need the file tracked by git with no uncommitted changes,
 LF line endings, and UTF-8 text, so the result can be reviewed with `git diff`
-and reverted. Rewrites replace the file atomically with a new one, so a hard
-link elsewhere keeps its old content. Nothing inside `PATH` is read or written
-through a symlink; `PATH` itself is resolved, and `--adopt` prints the
-directory it is changing. A failure on one file is reported as `refused`
+and reverted. Rewrites replace the file atomically with a new one, keeping its
+permission bits, so a hard link elsewhere keeps its old content. Every write
+walks from `PATH` one directory at a time without following symlinks, so a
+directory swapped for a symlink mid-run is refused rather than written
+through; `PATH` itself is resolved, and `--adopt` prints the directory it is
+changing. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ## Repository types

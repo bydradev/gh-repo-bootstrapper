@@ -14,6 +14,7 @@ Requirements: Python 3.9+, gh CLI (authenticated), git
 """
 
 import argparse
+import fnmatch
 import getpass
 import json
 import os
@@ -22,7 +23,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import time
 from pathlib import Path
@@ -917,6 +917,13 @@ def compare_agents(expected: str, actual: str) -> list:
                 if sub not in known
             ]
     expected_headings = {heading for heading, _ in exp_sections}
+    present = [heading for heading, _ in exp_sections if heading in actual_by_heading]
+    seen = []
+    for heading, _ in act_sections:
+        if heading in expected_headings and heading not in seen:
+            seen.append(heading)
+    if seen != present:
+        rows.append(("differs", "(order of generated sections)"))
     rows += [("local", h) for h, _ in act_sections if h not in expected_headings]
     if act_owned is None:
         rows.append(("missing", PROJECT_SPECIFICS))
@@ -948,6 +955,39 @@ def _missing_lines(expected: str, actual: str) -> list:
     ]
 
 
+def _gitignore_conflicts(added: list, existing: str) -> list:
+    """(added pattern, `!` exception) pairs where the addition could break it.
+
+    Git cannot re-include a file whose parent directory is excluded, so an
+    added pattern that can match a parent directory of an existing exception
+    would silently override it despite coming first. Wildcards that cannot be
+    compared are treated as conflicts.
+    """
+    conflicts = []
+    for line in existing.splitlines():
+        if not line.strip().startswith("!"):
+            continue
+        negation = line.strip()
+        parts = negation[1:].strip("/").split("/")
+        parents = parts[:-1]
+        for pattern in added:
+            if pattern.startswith("!"):
+                continue
+            core = pattern.strip("/")
+            multi = "/" in core
+            for depth in range(1, len(parents) + 1):
+                segment = parents[depth - 1]
+                candidate = "/".join(parents[:depth]) if multi else segment
+                undecidable = segment in ("*", "**") or (
+                    any(ch in segment for ch in "*?[")
+                    and (fnmatch.fnmatchcase(segment, core) or fnmatch.fnmatchcase(core, segment))
+                )
+                if undecidable or fnmatch.fnmatchcase(candidate, core):
+                    conflicts.append((pattern, negation))
+                    break
+    return conflicts
+
+
 def _symlink_in_path(repo_dir: Path, rel: str) -> bool:
     """True when rel, or any directory between repo_dir and it, is a symlink."""
     current = repo_dir
@@ -966,10 +1006,14 @@ def compare_repository(repo_dir: Path, files: dict) -> dict:
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
-        if not path.is_file():
-            report[rel] = ("missing", None)
+        try:
+            if not path.is_file():
+                report[rel] = ("missing", None)
+                continue
+            actual = path.read_text(errors="replace")
+        except OSError as exc:
+            report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
             continue
-        actual = path.read_text(errors="replace")
         if actual == expected:
             report[rel] = ("same", None)
         elif rel == "AGENTS.md":
@@ -1030,9 +1074,45 @@ def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
     return status.returncode == 0 and status.stdout.strip() == ""
 
 
-def _read_for_rewrite(path: Path):
+_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_ANCHORED_WRITES = {os.open, os.mkdir, os.rename, os.unlink} <= os.supports_dir_fd
+
+
+def _open_parent(repo_dir: Path, rel: str, create: bool) -> int:
+    """A descriptor for rel's parent directory, reached from repo_dir.
+
+    Each component is opened relative to the one before it with O_NOFOLLOW,
+    so a directory swapped for a symlink at any point — even after the scan —
+    fails with an OSError instead of redirecting the write. Missing
+    directories are created only when create is set.
+    """
+    fd = os.open(repo_dir, _DIR_FLAGS)
+    try:
+        for part in Path(rel).parent.parts:
+            try:
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, 0o777, dir_fd=fd)
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _read_anchored(parent: int, name: str) -> bytes:
+    fd = os.open(name, os.O_RDONLY | _NOFOLLOW, dir_fd=parent)
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read()
+
+
+def _decode_for_rewrite(raw: bytes):
     """The file's text for rewriting, or None when rewriting could corrupt it."""
-    raw = path.read_bytes()
     if b"\r" in raw:
         return None
     try:
@@ -1041,22 +1121,35 @@ def _read_for_rewrite(path: Path):
         return None
 
 
-def _replace_file(path: Path, text: str) -> None:
-    """Write text to a new file beside path, then atomically swap it in.
+def _create_anchored(parent: int, name: str, text: str, exact_mode=None) -> None:
+    """Create name in parent; fails if anything, including a symlink, is there.
+
+    New files get the usual umask-filtered mode unless exact_mode is given.
+    """
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o666, dir_fd=parent)
+    with os.fdopen(fd, "w") as handle:
+        if exact_mode is not None:
+            os.fchmod(handle.fileno(), exact_mode)
+        handle.write(text)
+
+
+def _replace_anchored(parent: int, name: str, text: str) -> None:
+    """Write text to a new file in parent, then atomically rename it over name.
 
     A new inode means a hard link elsewhere keeps its old content, and a
-    failed write leaves the original untouched. Mode, flags, and (where the
-    platform allows) extended attributes are copied; ownership is not.
+    failed write leaves the original untouched. The permission bits are kept;
+    ownership, flags, and extended attributes are not.
     """
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    mode = os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode & 0o7777
+    tmp = f".{name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
     try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(text)
-        shutil.copystat(path, tmp)
-        os.replace(tmp, path)
+        _create_anchored(parent, tmp, text, exact_mode=mode)
+        os.rename(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
     except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        try:
+            os.unlink(tmp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
         raise
 
 
@@ -1074,8 +1167,10 @@ def adopt_repository(
     or written through a symlink.
 
     Missing .gitignore entries are inserted at the top of the file: a later
-    rule wins in .gitignore, so the repository's own rules, including `!`
-    exceptions, keep their effect over anything added.
+    rule wins in .gitignore, so the repository's own rules keep their effect.
+    The one exception git makes — a file cannot be re-included once a parent
+    directory is excluded — is checked, and the update refused if an added
+    entry could exclude a parent of an existing `!` exception.
 
     The AGENTS.md rebuild is refused while any repository text sits outside
     `## Project specifics`, or the file has structure the parser does not
@@ -1102,45 +1197,73 @@ def adopt_repository(
 def _adopt_file(
     repo_dir: Path, rel: str, status: str, detail, expected: str, replace_generated: bool, confirm=None
 ):
-    """The adopt action for one file, or None when it is already aligned."""
-    path = repo_dir / rel
+    """The adopt action for one file, or None when it is already aligned.
+
+    Every write goes through a descriptor chain from repo_dir that refuses
+    symlinks, and a rewrite is judged on the content read through that chain,
+    not on the earlier scan, so a file changed or swapped in between cannot
+    slip past the checks.
+    """
     if status == "same":
         return None
-    if status == "symlink":
+    if status in ("symlink", "unreadable"):
         return ("refused", rel, detail)
+    if not _ANCHORED_WRITES:
+        return ("refused", rel, "this platform cannot write without following symlinks")
+    name = Path(rel).name
     if status == "missing":
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "x") as handle:  # never replace something created meanwhile
-            handle.write(expected)
+        parent = _open_parent(repo_dir, rel, create=True)
+        try:
+            _create_anchored(parent, name, expected)
+        finally:
+            os.close(parent)
         return ("wrote", rel, "")
     if rel not in ("AGENTS.md", ".gitignore"):
         return ("kept", rel, "differs from the template; not overwritten")
     if not _git_file_is_clean(repo_dir, rel):
         return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
-    current = _read_for_rewrite(path)
-    if current is None:
-        return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
-    if rel == ".gitignore":
-        header = (
-            "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
-            "# precedence, so this repository's own rules keep their effect.\n"
-        )
-        _replace_file(path, header + "\n".join(detail) + "\n\n" + current)
-        return ("updated", rel, f"added {len(detail)} missing entries at the top")
-    local = [heading for row_status, heading in detail if row_status == "local"]
-    if local:
-        return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
-    differing = [heading for row_status, heading in detail if row_status == "differs"]
-    if differing and not replace_generated:
-        return (
-            "refused", rel,
-            "these generated sections differ from the template — an older template or a local "
-            "edit; move local rules under ## Project specifics, then re-run with "
-            "--replace-generated-sections: " + "; ".join(differing),
-        )
-    if differing and confirm is not None and not confirm(differing):
-        return ("refused", rel, "replacement of differing generated sections was not confirmed")
-    _replace_file(path, rebuild_agents(expected, current))
+    parent = _open_parent(repo_dir, rel, create=False)
+    try:
+        current = _decode_for_rewrite(_read_anchored(parent, name))
+        if current is None:
+            return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
+        if rel == ".gitignore":
+            missing = _missing_lines(expected, current)
+            if not missing:
+                return None
+            conflicts = _gitignore_conflicts(missing, current)
+            if conflicts:
+                return (
+                    "refused", rel,
+                    "an added entry could exclude a parent directory of an existing `!` "
+                    "exception, which git cannot then re-include; add these by hand: "
+                    + "; ".join(f"{added} vs {negation}" for added, negation in conflicts),
+                )
+            header = (
+                "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
+                "# precedence, so this repository's own rules keep their effect.\n"
+            )
+            _replace_anchored(parent, name, header + "\n".join(missing) + "\n\n" + current)
+            return ("updated", rel, f"added {len(missing)} missing entries at the top")
+        rows = compare_agents(expected, current)
+        if all(row_status == "same" for row_status, _ in rows):
+            return None
+        local = [heading for row_status, heading in rows if row_status == "local"]
+        if local:
+            return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
+        differing = [heading for row_status, heading in rows if row_status == "differs"]
+        if differing and not replace_generated:
+            return (
+                "refused", rel,
+                "these generated sections differ from the template — an older template or a local "
+                "edit; move local rules under ## Project specifics, then re-run with "
+                "--replace-generated-sections: " + "; ".join(differing),
+            )
+        if differing and confirm is not None and not confirm(differing):
+            return ("refused", rel, "replacement of differing generated sections was not confirmed")
+        _replace_anchored(parent, name, rebuild_agents(expected, current))
+    finally:
+        os.close(parent)
     replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
     return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
 

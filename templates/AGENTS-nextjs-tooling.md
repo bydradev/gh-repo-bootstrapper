@@ -60,10 +60,11 @@ configuration merely to obtain a trace (trace modes checked against the
 Playwright clears its output directory (`test-results/` by default) at the
 start of every run, so copy any failure output you need before re-running.
 When CI retries failed tests, a test that fails and then passes on a retry is
-reported as `flaky`, not failed, and the run stays green; read the report's
-flaky count instead of treating a green run as proof nothing failed (both
-checked against Playwright 1.63.0's `outputDir` and test-status documentation,
-2026-09-29).
+reported as `flaky`, not failed, and the run stays green unless it is
+configured to fail on flaky tests (`failOnFlakyTests`); read the report's flaky
+count instead of treating a green run as proof nothing failed (checked against
+Playwright 1.63.0's `outputDir`, test-status, and `failOnFlakyTests`
+documentation, 2026-09-29).
 
 ## Tooling
 Run all checks before pushing:

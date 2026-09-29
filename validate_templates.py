@@ -163,7 +163,11 @@ AGENTS_TYPE_REQUIREMENTS = {
         "stop a manually started `next dev`",
     ),
     "python": ("Never copy `.venv/`",),
-    "rust": ("set `CARGO_TARGET_DIR` to one fixed directory", "Never copy `target/`"),
+    "rust": (
+        "set `CARGO_TARGET_DIR` to one fixed directory",
+        "Never copy `target/`",
+        "the task that removes the last one deletes it too",
+    ),
     "swift": (
         "pass one fixed `-derivedDataPath` for that worktree",
         "Never choose a new derived-data path per run or per commit.",

@@ -20,11 +20,19 @@ Once the manifest is committed, add a `cargo` ecosystem entry to
 
 Cargo writes build output to `target/` in each checkout, and a workspace build
 can reach gigabytes. In a worktree, set `CARGO_TARGET_DIR` to one fixed
-directory for this repository, outside the source tree — for example next to
-the worktrees — and use it for every Cargo command there. Cargo locks the build
-directory, so a second build waits for the first rather than corrupting it
-(its "waiting for file lock" message, checked against cargo 1.97.1,
-2026-09-29). Never copy `target/` into a verification copy.
+directory for this repository, outside the source tree: `target` inside the
+directory that holds this repository's worktrees, for example
+`../.worktrees/<repo>/target` from the main checkout. Use it for every Cargo
+command in those worktrees. Cargo locks the build directory, so a second build
+waits for the first rather than corrupting it (its "waiting for file lock"
+message, checked against cargo 1.97.1, 2026-09-29). Never copy `target/` into a
+verification copy.
+
+That shared directory belongs to the repository's worktrees as a group, not to
+any one task. Leave it while any of those worktrees exists; the task that
+removes the last one deletes it too. It holds only rebuildable output, so when
+disk space is short, deleting it costs a rebuild and nothing else — never
+create a per-worktree `target/` instead.
 
 Release Please runs with the `simple` release type: it maintains the changelog,
 tag, and GitHub release, but does not edit versions in `Cargo.toml`. For a

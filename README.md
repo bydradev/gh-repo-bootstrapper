@@ -256,7 +256,8 @@ type or the `cargo-workspace` plugin.
 The bootstrapper does not run `cargo init` or choose a crate layout. The
 generated `AGENTS.md` tells agents to share one `CARGO_TARGET_DIR` per
 repository across worktrees, so each worktree does not build its own
-multi-gigabyte `target/`.
+multi-gigabyte `target/`. It lives beside those worktrees and is deleted with
+the last of them.
 
 ### `simple`
 

@@ -24,6 +24,16 @@ tools would otherwise scan it. Write `-resultBundlePath` bundles to the
 session's scratch directory and delete them once read. (Both options checked
 against `xcodebuild -help` in Xcode 27.0, 2026-09-29.)
 
+Release Please runs with the `simple` release type: it maintains the
+changelog, tag, and GitHub release, but does not change the app's
+`MARKETING_VERSION` or `CURRENT_PROJECT_VERSION`, wherever they are set. For
+`MARKETING_VERSION`, update it deliberately for a build you ship, or point
+`extra-files` in `release-please-config.json` at the field that holds it.
+`extra-files` only replaces a semantic version, so `CURRENT_PROJECT_VERSION`
+needs its own, separately verified build-number step (checked against
+release-please v17.11.2's `simple` strategy, generic updater, and config
+schema, 2026-09-29).
+
 ## Formatting
 
 Formatting is enforced in CI (`swift-format lint --recursive --strict .`), so

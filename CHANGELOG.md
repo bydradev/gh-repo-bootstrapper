@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.4.0...v0.5.0) (2026-09-29)
+
+
+### Features
+
+* add --check and --adopt for existing local repositories ([3f3f130](https://github.com/bydradev/gh-repo-bootstrapper/commit/3f3f1300538e511bc6dc895faa822883875bdf83))
+* **templates:** add a rust repository type ([757b2ad](https://github.com/bydradev/gh-repo-bootstrapper/commit/757b2ad8e14ac304c3b9e80c55a927ceb89db451))
+
 ## [0.4.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.3.1...v0.4.0) (2026-09-21)
 
 

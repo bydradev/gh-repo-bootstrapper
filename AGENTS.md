@@ -152,7 +152,9 @@ bypass without explicit authorization.
 
 ## Branches
 Never commit directly to `main`. Make every change on a branch
-(`fix/…`, `feat/…`, `chore/…`) and open a PR.
+(`fix/…`, `feat/…`, `chore/…`) and open a PR. The one exception is a
+repository's initial commit, which has no `main` to branch from; everything
+after it goes through a branch.
 
 ## Commits
 Follow [Conventional Commits](https://www.conventionalcommits.org):

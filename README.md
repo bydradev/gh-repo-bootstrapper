@@ -29,6 +29,10 @@ anything installed beyond a base Python interpreter.
 - rendered Release Please config *values*, not just that the JSON parses
 - the branch-protection payload, the runbook, and the Next.js lint/advisory
   baseline policy documents
+- the shared `AGENTS.md` worktree and scratch-output rules, each type's
+  mechanism for keeping a worktree's dependencies and build output from
+  multiplying, `## Project specifics` as the last section, and the Next.js
+  App Router note sitting outside the `next dev`-managed markers
 
 It also runs self-tests that reproduce each past regression from real rendered
 output, so a check that stops firing turns the suite red rather than passing
@@ -141,6 +145,10 @@ Every type gets a type-specific `README.md` starter, `AGENTS.md` and
 `CLAUDE.md` (contribution guidance), `.gitignore`, `release-please-config.json`,
 and `.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
 highlight the additional files and README guidance for that type.
+
+The generated `AGENTS.md` ends with a `## Project specifics` section. Put
+repository-specific rules there, below every generated section, so later
+template updates can be applied without overwriting them.
 
 ### `nextjs`
 

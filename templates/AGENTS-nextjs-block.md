@@ -8,3 +8,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
+# This project uses the App Router
+
+Routes live in `app/` or `src/app/`, not the Pages Router (`pages/`). The two
+routers are different paradigms with different data-fetching, layout, and
+metadata APIs — don't mix them. If this repository's scaffold uses the Pages
+Router instead, replace this section.
+
+This section sits outside the `nextjs-agent-rules` markers on purpose:
+`next dev` rewrites everything between them, so anything repository-specific
+must live out here to survive.
+

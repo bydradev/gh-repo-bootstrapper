@@ -759,6 +759,9 @@ _SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
 _SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
 # A heading of any level behind blockquote or list markers (`> ## Ours`,
 # `- ## Ours`) is a subsection too, not text inside a generated paragraph.
+# Blockquote markers, and list markers only when followed by whitespace — a
+# `---` underline must not be read as three list markers.
+_CONTAINER_PREFIX_RE = re.compile(r"^[ \t]*(?:(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))[ \t]*)*")
 _CONTAINED_HEADING_RE = re.compile(r"^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}(?!#)[ \t]+\S")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
@@ -819,7 +822,10 @@ def _markdown_ambiguities(text: str) -> list:
     """
     rows, left_open = _markdown_scan(text)
     problems, previous = [], ""
-    for _, line, in_fence in rows:
+    for _, raw_line, in_fence in rows:
+        # Judge blockquote and list content by what follows its markers, so
+        # `> Ours` over `> ----` counts as a setext heading too.
+        line = _CONTAINER_PREFIX_RE.sub("", raw_line)
         if (
             not in_fence
             and _SETEXT_UNDERLINE_RE.match(line)
@@ -1034,13 +1040,14 @@ def _replace_file(path: Path, text: str) -> None:
     """Write text to a new file beside path, then atomically swap it in.
 
     A new inode means a hard link elsewhere keeps its old content, and a
-    failed write leaves the original untouched. The file mode is kept.
+    failed write leaves the original untouched. Mode, flags, and (where the
+    platform allows) extended attributes are copied; ownership is not.
     """
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as handle:
             handle.write(text)
-        shutil.copymode(path, tmp)
+        shutil.copystat(path, tmp)
         os.replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
@@ -1048,7 +1055,9 @@ def _replace_file(path: Path, text: str) -> None:
         raise
 
 
-def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = False) -> list:
+def adopt_repository(
+    repo_dir: Path, files: dict, replace_generated: bool = False, confirm=None
+) -> list:
     """Bring an existing local repository in line without touching GitHub.
 
     Writes every missing generated file. Existing files are never overwritten,
@@ -1069,12 +1078,15 @@ def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = Fals
     a local edit, and nothing here can tell which, so it is replaced only when
     replace_generated is set; otherwise the rebuild is refused and the
     differing sections are listed.
+    When replace_generated is set, confirm(sections) is called with the
+    sections about to be replaced before AGENTS.md is written; a falsy result
+    refuses the rebuild.
     Returns (action, path, detail) rows.
     """
     actions = []
     for rel, (status, detail) in sorted(compare_repository(repo_dir, files).items()):
         try:
-            action = _adopt_file(repo_dir, rel, status, detail, files[rel], replace_generated)
+            action = _adopt_file(repo_dir, rel, status, detail, files[rel], replace_generated, confirm)
         except OSError as exc:
             action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
         if action:
@@ -1082,7 +1094,9 @@ def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = Fals
     return actions
 
 
-def _adopt_file(repo_dir: Path, rel: str, status: str, detail, expected: str, replace_generated: bool):
+def _adopt_file(
+    repo_dir: Path, rel: str, status: str, detail, expected: str, replace_generated: bool, confirm=None
+):
     """The adopt action for one file, or None when it is already aligned."""
     path = repo_dir / rel
     if status == "same":
@@ -1119,6 +1133,8 @@ def _adopt_file(repo_dir: Path, rel: str, status: str, detail, expected: str, re
             "edit; move local rules under ## Project specifics, then re-run with "
             "--replace-generated-sections: " + "; ".join(differing),
         )
+    if differing and confirm is not None and not confirm(differing):
+        return ("refused", rel, "replacement of differing generated sections was not confirmed")
     _replace_file(path, rebuild_agents(expected, current))
     replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
     return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
@@ -1395,7 +1411,16 @@ def main():
             aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
             sys.exit(0 if aligned else 1)
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
-        actions = adopt_repository(repo_dir, files, replace_generated=args.replace_generated_sections)
+        def confirm(sections):
+            print("\nAGENTS.md: these generated sections differ from the template and will be")
+            print("replaced with its text (the file is tracked, so git diff shows the change):")
+            for heading in sections:
+                print(f"  {heading}")
+            return args.non_interactive or prompt_yn("Replace them?", default=False)
+
+        actions = adopt_repository(
+            repo_dir, files, replace_generated=args.replace_generated_sections, confirm=confirm
+        )
         for action, rel, detail in actions:
             print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))
         print("\nReview the changes (git diff), then commit them on a branch.")

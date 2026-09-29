@@ -180,7 +180,8 @@ existing one, with two exceptions that preserve repository-owned content:
   refused while anything `local` remains — move those rules under
   `## Project specifics` first. A generated section whose text differs may be
   an older template or a local edit, and the script cannot tell which, so it
-  is replaced only with `--replace-generated-sections`.
+  is replaced only with `--replace-generated-sections`, which lists those
+  sections and asks before writing (`--non-interactive` skips the prompt).
 
 Both modifications need the file tracked by git with no uncommitted changes,
 LF line endings, and UTF-8 text, so the result can be reviewed with `git diff`

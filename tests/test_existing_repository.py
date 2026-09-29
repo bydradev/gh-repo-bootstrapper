@@ -224,6 +224,31 @@ class ExistingRepositoryTests(unittest.TestCase):
             rows = bootstrap.compare_agents(files["AGENTS.md"], edited + owned)
             self.assertIn(("local", f"## Definition of done › {container}"), rows)
 
+    def test_contained_setext_headings_are_local(self):
+        files = _render()
+        generated, owned = bootstrap._split_project_specifics(files["AGENTS.md"])
+        edited = generated.replace(
+            "## Definition of done\n\n",
+            "## Definition of done\n\n> Local policy\n> ------------\n>\n> Keep this.\n\n", 1,
+        )
+        rows = bootstrap.compare_agents(files["AGENTS.md"], edited + owned)
+        self.assertIn(("local", "(setext heading: Local policy)"), rows)
+
+    def test_replacement_requires_confirmation_when_a_confirmer_is_given(self):
+        files = _render()
+        edited = files["AGENTS.md"].replace("## Definition of done\n\n", "## Definition of done\n\nX.\n\n", 1)
+        self._write("AGENTS.md", edited)
+        self._commit_all()
+        seen = []
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(
+            self.repo, files, True, confirm=lambda sections: seen.append(sections) or False
+        )}
+        self.assertEqual(seen, [["## Definition of done"]])
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
+        bootstrap.adopt_repository(self.repo, files, True, confirm=lambda sections: True)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), files["AGENTS.md"])
+
     def test_ambiguity_in_repository_owned_text_is_ignored(self):
         files = _render()
         tail = "\nOur heading\n-----------\n\n```\nunclosed\n"

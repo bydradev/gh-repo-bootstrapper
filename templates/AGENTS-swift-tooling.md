@@ -21,7 +21,8 @@ across runs, and delete it when the worktree is removed. Never choose a new
 derived-data path per run or per commit. Keep it outside the source tree — for
 example next to the worktree — because `swift-format --recursive .` and search
 tools would otherwise scan it. Write `-resultBundlePath` bundles to the
-session's scratch directory and delete them once read.
+session's scratch directory and delete them once read. (Both options checked
+against `xcodebuild -help` in Xcode 27.0, 2026-09-29.)
 
 ## Formatting
 

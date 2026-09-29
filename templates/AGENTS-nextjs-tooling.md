@@ -24,7 +24,7 @@ local documentation before combining a manual dev server with browser tests.
 `next dev` takes a lock in the project's build directory and refuses to start
 a second server for the same project, so stop a manually started `next dev`
 before running an E2E suite that starts its own (checked against Next.js
-16.3.5, 2026-09-29).
+16.3.5's `dist/build/lockfile.js` and `setup-dev-bundler.js`, 2026-09-29).
 If Next.js or Watchpack still reports `EMFILE: too many open files, watch`,
 treat it as local host resource exhaustion. Run `npm run test:e2e:local` when that script is available.
 Otherwise, run the project's normal Playwright suite with one worker, for
@@ -44,12 +44,14 @@ validation passed.
 
 Check the trace settings before re-running a failed local Playwright test. A
 common configuration — `trace: "on-first-retry"` with no retries outside CI —
-records nothing for a local failure, because only a retry is traced. Pass
-`--trace=retain-on-failure` on the first unexplained failure rather than
-re-running plain and losing the occurrence, and prefer it to `--retries=1` for
-intermittent failures: `on-first-retry` traces the retry, not the attempt that
-failed. Do not change the Playwright configuration merely to obtain a trace
-(trace modes checked against Playwright 1.63.0, 2026-09-29).
+records nothing for a local failure, because only a retry is traced, so the
+attempt that already failed cannot be recovered. Re-run with
+`--trace=retain-on-failure` so the next failure is traced rather than lost too,
+and run with it from the start when a failure must be diagnosable the first
+time. Prefer it to `--retries=1` for intermittent failures: `on-first-retry`
+traces the retry, not the attempt that failed. Do not change the Playwright
+configuration merely to obtain a trace (trace modes checked against the
+`--trace` choices in Playwright 1.63.0's `playwright test --help`, 2026-09-29).
 
 ## Tooling
 Run all checks before pushing:

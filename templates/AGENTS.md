@@ -293,7 +293,9 @@ to that task, and removing it is part of the task.
   and search. When a harness manages its own worktree location, use that.
 - **Reuse one worktree per purpose** across runs: check out the next commit in
   it rather than adding a worktree per run, per commit, or per reviewer. When a
-  run needs a pristine tree, clean that worktree instead of creating another.
+  run needs a pristine tree, clean a worktree this task created rather than
+  creating another. In a worktree you did not create, remove only output you
+  can identify as this task's, and report anything else instead of cleaning it.
 - **Keep build caches shared, not multiplied.** Where Tooling below says where
   a worktree's dependencies and build output live, follow it; otherwise keep
   them inside that worktree so they are removed with it.

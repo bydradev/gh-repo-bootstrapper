@@ -107,6 +107,9 @@ confirm before creating anything.
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run; without `--org`, a placeholder owner is used since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
+| `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` (and the Swift options for Swift) |
+| `--adopt PATH` | Bring an existing local repository in line without contacting GitHub — see [Existing repositories](#existing-repositories) |
+| `--replace-generated-sections` | With `--adopt`: also replace `AGENTS.md` generated sections whose text differs from the template |
 
 ### Examples
 
@@ -140,7 +143,38 @@ confirm before creating anything.
 
 # Apply GitHub config (see "What the script configures") to an existing repo
 ./bootstrap.py --name my-app --type nextjs --configure-only
+
+# Compare an existing local repository with the current templates, then adopt them
+./bootstrap.py --check ../my-app --type nextjs
+./bootstrap.py --adopt ../my-app --type nextjs
 ```
+
+## Existing repositories
+
+`bootstrap.py` generates a repository once. Templates change afterwards, so
+`--check` and `--adopt` bring an existing local checkout back in line. Neither
+contacts GitHub; follow with `--configure-only` for repository settings.
+
+`--check PATH --type TYPE` renders the current templates for that type and
+reports each file as `same`, `differs`, or `missing`. For `AGENTS.md` it
+reports per section: a generated section that is `missing` or `differs`, and
+any `local` section — repository text outside `## Project specifics`. For
+`.gitignore` it lists the template entries the repository lacks, and for
+`CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes.
+
+`--adopt PATH --type TYPE` writes every missing file and never overwrites an
+existing one, with two exceptions that preserve repository-owned content:
+
+- `.gitignore` gains the template entries it lacks, appended under a comment.
+- `AGENTS.md` is rebuilt from the template, keeping `## Project specifics`
+  (and everything after it) and the `next dev`-managed block. The rebuild is
+  refused while any `local` section sits outside `## Project specifics` — move
+  those rules there first. A generated section whose text differs may be an
+  older template or a local edit, and the script cannot tell which, so it is
+  replaced only with `--replace-generated-sections`.
+
+Both modifications need a git work tree in which that file has no uncommitted
+changes, so the result can be reviewed with `git diff` and reverted.
 
 ## Repository types
 

@@ -819,6 +819,11 @@ def _markdown_ambiguities(text: str) -> list:
 
     Setext headings (a line underlined with === or ---) and a code fence left
     open at the end of the file make section boundaries uncertain.
+
+    This is a line-level approximation, not a CommonMark block parser, and it
+    errs towards reporting: a `---` thematic break after a list item or inside
+    nested quotes or indented code can be flagged. A false report only makes
+    --adopt refuse and ask for a manual edit; it never loses text.
     """
     rows, left_open = _markdown_scan(text)
     problems, previous = [], ""

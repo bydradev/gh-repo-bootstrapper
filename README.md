@@ -107,7 +107,7 @@ confirm before creating anything.
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run; without `--org`, a placeholder owner is used since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
-| `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` (and the Swift options for Swift) |
+| `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` and the type options the repository was generated with |
 | `--adopt PATH` | Bring an existing local repository in line without contacting GitHub — see [Existing repositories](#existing-repositories) |
 | `--replace-generated-sections` | With `--adopt`: also replace `AGENTS.md` generated sections whose text differs from the template |
 
@@ -156,25 +156,36 @@ confirm before creating anything.
 contacts GitHub; follow with `--configure-only` for repository settings.
 
 `--check PATH --type TYPE` renders the current templates for that type and
-reports each file as `same`, `differs`, or `missing`. For `AGENTS.md` it
-reports per section: a generated section that is `missing` or `differs`, and
-any `local` section — repository text outside `## Project specifics`. For
+reports each file as `same`, `differs`, `missing`, or `symlink`. Pass the same
+type options the repository was generated with — `--postgres` for Next.js,
+`--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
+they shape report as drift. For `AGENTS.md` it reports per section: a
+generated section that is `missing` or `differs`, and anything `local` —
+repository text outside `## Project specifics`, including a subsection added
+inside a generated section, or structure it does not parse (setext headings,
+an unclosed code fence). The `next dev`-managed block and everything from
+`## Project specifics` on are the repository's own and are not compared. For
 `.gitignore` it lists the template entries the repository lacks, and for
-`CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes.
+`CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
+and exits 1 on drift.
 
 `--adopt PATH --type TYPE` writes every missing file and never overwrites an
 existing one, with two exceptions that preserve repository-owned content:
 
-- `.gitignore` gains the template entries it lacks, appended under a comment.
+- `.gitignore` gains the template entries it lacks, inserted at the top: a
+  later rule wins in `.gitignore`, so the repository's own rules, including
+  `!` exceptions, keep their effect.
 - `AGENTS.md` is rebuilt from the template, keeping `## Project specifics`
   (and everything after it) and the `next dev`-managed block. The rebuild is
-  refused while any `local` section sits outside `## Project specifics` — move
-  those rules there first. A generated section whose text differs may be an
-  older template or a local edit, and the script cannot tell which, so it is
-  replaced only with `--replace-generated-sections`.
+  refused while anything `local` remains — move those rules under
+  `## Project specifics` first. A generated section whose text differs may be
+  an older template or a local edit, and the script cannot tell which, so it
+  is replaced only with `--replace-generated-sections`.
 
-Both modifications need a git work tree in which that file has no uncommitted
-changes, so the result can be reviewed with `git diff` and reverted.
+Both modifications need the file tracked by git with no uncommitted changes,
+LF line endings, and UTF-8 text, so the result can be reviewed with `git diff`
+and reverted. Nothing is read or written through a symlink. `--adopt` exits 1
+when it refused anything, after applying what it could.
 
 ## Repository types
 

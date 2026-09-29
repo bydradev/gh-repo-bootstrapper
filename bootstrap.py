@@ -753,8 +753,11 @@ NEXTJS_RULES_BEGIN = "<!-- BEGIN:nextjs-agent-rules -->"
 NEXTJS_RULES_END = "<!-- END:nextjs-agent-rules -->"
 # Stands in for the `next dev`-managed block while comparing: that block is
 # rewritten by Next.js itself, so neither --check nor --adopt judges its text.
-_NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->\n"
-_HEADING_RE = re.compile(r"#{1,2} \S")
+_NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->"
+_SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
+_SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
+_SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 
 
 def _nextjs_rules_block(text: str) -> str:
@@ -768,26 +771,87 @@ def _nextjs_rules_block(text: str) -> str:
 
 def _mask_nextjs_rules(text: str) -> str:
     block = _nextjs_rules_block(text)
-    return text.replace(block, _NEXTJS_RULES_PLACEHOLDER.rstrip("\n"), 1) if block else text
+    return text.replace(block, _NEXTJS_RULES_PLACEHOLDER, 1) if block else text
+
+
+def _markdown_scan(text: str) -> tuple:
+    """([(offset, line, in_fence), ...], fence_left_open) for the text.
+
+    A fence closes only on a run of the same character at least as long as
+    the one that opened it, so a ``` line inside a ```` fence stays fenced.
+    The fence lines themselves count as fenced.
+    """
+    rows, fence, offset = [], None, 0
+    for raw in text.splitlines(keepends=True):
+        line = raw.rstrip("\r\n")
+        match = _FENCE_RE.match(line)
+        if fence is None:
+            opens = bool(match) and not (match.group(1)[0] == "`" and "`" in match.group(2))
+            if opens:
+                fence = (match.group(1)[0], len(match.group(1)))
+            rows.append((offset, line, opens))
+        else:
+            if (
+                match
+                and match.group(1)[0] == fence[0]
+                and len(match.group(1)) >= fence[1]
+                and not match.group(2).strip()
+            ):
+                fence = None
+            rows.append((offset, line, True))
+        offset += len(raw)
+    return rows, fence is not None
+
+
+def _markdown_lines(text: str) -> list:
+    return _markdown_scan(text)[0]
+
+
+def _markdown_ambiguities(text: str) -> list:
+    """Structure the section parser does not model, so must not rewrite around.
+
+    Setext headings (a line underlined with === or ---) and a code fence left
+    open at the end of the file make section boundaries uncertain.
+    """
+    rows, left_open = _markdown_scan(text)
+    problems, previous = [], ""
+    for _, line, in_fence in rows:
+        if (
+            not in_fence
+            and _SETEXT_UNDERLINE_RE.match(line)
+            and previous.strip()
+            and not _SECTION_HEADING_RE.match(previous)
+            and not _SUBHEADING_RE.match(previous)
+        ):
+            problems.append(f"(setext heading: {previous.strip()})")
+        previous = "" if in_fence else line
+    if left_open:
+        problems.append("(code fence left open at end of file)")
+    return problems
 
 
 def _agents_sections(text: str) -> tuple:
     """Split Markdown into (preamble, [(heading, section_text), ...]).
 
-    Only level-1 and level-2 headings start a section, and lines inside fenced
-    code blocks never do — a `# comment` in a shell example is not a heading.
+    Only level-1 and level-2 ATX headings start a section, and lines inside
+    fenced code never do — a `# comment` in a shell example is not a heading.
     """
-    heads, offset, fence = [], 0, None
-    for line in text.splitlines(keepends=True):
-        marker = line.lstrip()[:3]
-        if marker in ("```", "~~~"):
-            fence = marker if fence is None else (None if marker == fence else fence)
-        elif fence is None and _HEADING_RE.match(line):
-            heads.append((offset, line.rstrip("\n")))
-        offset += len(line)
+    heads = [
+        (offset, line.strip())
+        for offset, line, in_fence in _markdown_lines(text)
+        if not in_fence and _SECTION_HEADING_RE.match(line)
+    ]
     bounds = [start for start, _ in heads] + [len(text)]
     preamble = text[: bounds[0]]
     return preamble, [(title, text[start : bounds[i + 1]]) for i, (start, title) in enumerate(heads)]
+
+
+def _subheadings(section: str) -> list:
+    return [
+        line.strip()
+        for _, line, in_fence in _markdown_lines(section)
+        if not in_fence and _SUBHEADING_RE.match(line)
+    ]
 
 
 def _split_project_specifics(text: str) -> tuple:
@@ -796,12 +860,8 @@ def _split_project_specifics(text: str) -> tuple:
     Everything from the `## Project specifics` heading to the end of the file
     belongs to the repository.
     """
-    preamble, sections = _agents_sections(text)
-    for heading, _ in sections:
-        if heading == PROJECT_SPECIFICS:
-            offset = len(preamble) + sum(
-                len(body) for title, body in sections[: [t for t, _ in sections].index(heading)]
-            )
+    for offset, line, in_fence in _markdown_lines(text):
+        if not in_fence and line.strip() == PROJECT_SPECIFICS:
             return text[:offset], text[offset:]
     return text, None
 
@@ -810,8 +870,11 @@ def compare_agents(expected: str, actual: str) -> list:
     """Section-level comparison of a repository AGENTS.md with the rendered one.
 
     Returns (status, heading) rows. Statuses: same, differs, missing (a
-    generated section the repository lacks), and local (a repository section
-    outside `## Project specifics`, which --adopt would otherwise overwrite).
+    generated section the repository lacks), and local — repository text that
+    --adopt would otherwise overwrite: a section, or a level-3+ subsection
+    inside a generated section, outside `## Project specifics`, or structure
+    the parser does not model. The `next dev` block and everything from
+    `## Project specifics` on are repository-owned and never compared.
     """
     exp_generated, _ = _split_project_specifics(_mask_nextjs_rules(expected))
     act_generated, act_owned = _split_project_specifics(_mask_nextjs_rules(actual))
@@ -820,7 +883,7 @@ def compare_agents(expected: str, actual: str) -> list:
     actual_by_heading = {}
     for heading, body in act_sections:
         actual_by_heading.setdefault(heading, []).append(body)
-    rows = []
+    rows = [("local", problem) for problem in _markdown_ambiguities(actual)]
     if act_pre.strip() and act_pre.strip() != exp_pre.strip():
         rows.append(("local", "(text before the first heading)"))
     for heading, body in exp_sections:
@@ -831,6 +894,13 @@ def compare_agents(expected: str, actual: str) -> list:
             rows.append(("same", heading))
         else:
             rows.append(("differs", heading))
+            known = set(_subheadings(body))
+            rows += [
+                ("local", f"{heading} › {sub}")
+                for found_body in found
+                for sub in _subheadings(found_body)
+                if sub not in known
+            ]
     expected_headings = {heading for heading, _ in exp_sections}
     rows += [("local", h) for h, _ in act_sections if h not in expected_headings]
     if act_owned is None:
@@ -856,11 +926,21 @@ def rebuild_agents(expected: str, actual: str) -> str:
 
 
 def _missing_lines(expected: str, actual: str) -> list:
-    present = set(actual.splitlines())
+    present = {line.strip() for line in actual.splitlines()}
     return [
         line for line in expected.splitlines()
-        if line.strip() and not line.startswith("#") and line not in present
+        if line.strip() and not line.startswith("#") and line.strip() not in present
     ]
+
+
+def _symlink_in_path(repo_dir: Path, rel: str) -> bool:
+    """True when rel, or any directory between repo_dir and it, is a symlink."""
+    current = repo_dir
+    for part in Path(rel).parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
 
 
 def compare_repository(repo_dir: Path, files: dict) -> dict:
@@ -868,6 +948,9 @@ def compare_repository(repo_dir: Path, files: dict) -> dict:
     report = {}
     for rel, expected in files.items():
         path = repo_dir / rel
+        if _symlink_in_path(repo_dir, rel):
+            report[rel] = ("symlink", "a symlink in this path; not compared or written")
+            continue
         if not path.is_file():
             report[rel] = ("missing", None)
             continue
@@ -875,7 +958,9 @@ def compare_repository(repo_dir: Path, files: dict) -> dict:
         if actual == expected:
             report[rel] = ("same", None)
         elif rel == "AGENTS.md":
-            report[rel] = ("differs", compare_agents(expected, actual))
+            rows = compare_agents(expected, actual)
+            aligned = all(row_status == "same" for row_status, _ in rows)
+            report[rel] = ("same", None) if aligned else ("differs", rows)
         elif rel == ".gitignore":
             missing = _missing_lines(expected, actual)
             report[rel] = ("differs", missing) if missing else ("same", None)
@@ -894,12 +979,12 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
         if status != "same":
             aligned = False
         print(f"  {status:<8} {rel}")
-        if rel == "AGENTS.md" and detail:
+        if rel == "AGENTS.md" and isinstance(detail, list):
             for row_status, heading in detail:
                 if row_status != "same":
                     hint = "  → move under ## Project specifics" if row_status == "local" else ""
                     print(f"      {row_status:<8} {heading}{hint}")
-        elif rel == ".gitignore" and detail:
+        elif rel == ".gitignore" and isinstance(detail, list):
             print(f"      missing entries: {', '.join(detail)}")
         elif isinstance(detail, str):
             print(f"      {detail}")
@@ -908,21 +993,37 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
 
 
 def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
-    """True when rel sits in a git work tree with no uncommitted changes to it."""
+    """True when rel is tracked by git and has no uncommitted changes.
+
+    Tracked is required, not just absent from `git status`: an ignored,
+    untracked file also produces no status line, but has no committed copy to
+    review the change against or revert to.
+    """
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(repo_dir), *args], capture_output=True, text=True
+        )
+
     try:
-        inside = subprocess.run(
-            ["git", "-C", str(repo_dir), "rev-parse", "--is-inside-work-tree"],
-            capture_output=True, text=True,
-        )
-        if inside.returncode != 0 or inside.stdout.strip() != "true":
+        if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
             return False
-        status = subprocess.run(
-            ["git", "-C", str(repo_dir), "status", "--porcelain", "--", rel],
-            capture_output=True, text=True, check=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
+        if git("ls-files", "--error-unmatch", "--", rel).returncode != 0:
+            return False
+        status = git("status", "--porcelain", "--", rel)
+    except OSError:
         return False
-    return status.stdout.strip() == ""
+    return status.returncode == 0 and status.stdout.strip() == ""
+
+
+def _read_for_rewrite(path: Path):
+    """The file's text for rewriting, or None when rewriting could corrupt it."""
+    raw = path.read_bytes()
+    if b"\r\n" in raw:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
 def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = False) -> list:
@@ -931,15 +1032,21 @@ def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = Fals
     Writes every missing generated file. Existing files are never overwritten,
     with two exceptions that keep repository-owned content: .gitignore gains
     the template's missing entries, and AGENTS.md is rebuilt from the template
-    while keeping `## Project specifics` and the `next dev` block. Both need a
-    git work tree in which that file has no uncommitted changes, so the result
-    can be reviewed and reverted.
+    while keeping `## Project specifics` and the `next dev` block. Both need
+    the file tracked by git with no uncommitted changes, LF line endings, and
+    UTF-8 text, so the result can be reviewed and reverted. Nothing is read
+    or written through a symlink.
 
-    The AGENTS.md rebuild is refused while any repository section sits outside
-    `## Project specifics`. A generated section whose text differs may be an
-    older template or a local edit, and nothing here can tell which, so it is
-    replaced only when replace_generated is set; otherwise the rebuild is
-    refused and the differing sections are listed.
+    Missing .gitignore entries are inserted at the top of the file: a later
+    rule wins in .gitignore, so the repository's own rules, including `!`
+    exceptions, keep their effect over anything added.
+
+    The AGENTS.md rebuild is refused while any repository text sits outside
+    `## Project specifics`, or the file has structure the parser does not
+    model. A generated section whose text differs may be an older template or
+    a local edit, and nothing here can tell which, so it is replaced only when
+    replace_generated is set; otherwise the rebuild is refused and the
+    differing sections are listed.
     Returns (action, path, detail) rows.
     """
     actions = []
@@ -947,22 +1054,32 @@ def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = Fals
         path = repo_dir / rel
         if status == "same":
             continue
+        if status == "symlink":
+            actions.append(("refused", rel, detail))
+            continue
         if status == "missing":
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(files[rel])
+            with open(path, "x") as handle:  # never replace something created meanwhile
+                handle.write(files[rel])
             actions.append(("wrote", rel, ""))
             continue
         if rel not in ("AGENTS.md", ".gitignore"):
             actions.append(("kept", rel, "differs from the template; not overwritten"))
             continue
         if not _git_file_is_clean(repo_dir, rel):
-            actions.append(("refused", rel, "needs a git work tree with no uncommitted changes to this file"))
+            actions.append(("refused", rel, "needs the file tracked by git with no uncommitted changes"))
+            continue
+        current = _read_for_rewrite(path)
+        if current is None:
+            actions.append(("refused", rel, "not LF-terminated UTF-8 text; update it by hand"))
             continue
         if rel == ".gitignore":
-            addition = "\n# Added by gh-repo-bootstrapper --adopt\n" + "\n".join(detail) + "\n"
-            existing = path.read_text()
-            path.write_text(existing + ("" if existing.endswith("\n") else "\n") + addition)
-            actions.append(("updated", rel, f"added {len(detail)} missing entries"))
+            header = (
+                "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
+                "# precedence, so this repository's own rules keep their effect.\n"
+            )
+            path.write_text(header + "\n".join(detail) + "\n\n" + current)
+            actions.append(("updated", rel, f"added {len(detail)} missing entries at the top"))
             continue
         local = [heading for row_status, heading in detail if row_status == "local"]
         if local:
@@ -977,7 +1094,7 @@ def adopt_repository(repo_dir: Path, files: dict, replace_generated: bool = Fals
                 "--replace-generated-sections: " + "; ".join(differing),
             ))
             continue
-        path.write_text(rebuild_agents(files[rel], path.read_text()))
+        path.write_text(rebuild_agents(files[rel], current))
         replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
         actions.append(("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}"))
     return actions
@@ -989,7 +1106,10 @@ def existing_repository_config(args) -> dict:
         _die("--type is required with --check and --adopt")
     if args.repo_type == "swift" and not args.scheme:
         _die("--scheme is required for --type swift")
-    repo_dir = Path(args.check or args.adopt).expanduser().resolve()
+    raw = args.check if args.check is not None else args.adopt
+    if not raw.strip():
+        _die("--check and --adopt need a non-empty PATH")
+    repo_dir = Path(raw).expanduser().resolve()
     if not repo_dir.is_dir():
         _die(f"not a directory: {repo_dir}")
     return {
@@ -1239,9 +1359,9 @@ def main():
     args = parse_args()
 
     # --- existing local repositories: compare or adopt, no GitHub calls ---
-    if args.replace_generated_sections and not args.adopt:
+    if args.replace_generated_sections and args.adopt is None:
         _die("--replace-generated-sections is only used with --adopt")
-    if args.check or args.adopt:
+    if args.check is not None or args.adopt is not None:
         if args.configure_only or args.dry_run:
             _die("--check and --adopt cannot be combined with --configure-only or --dry-run")
         cfg = existing_repository_config(args)
@@ -1250,12 +1370,11 @@ def main():
         if args.check:
             aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
             sys.exit(0 if aligned else 1)
-        for action, rel, detail in adopt_repository(
-            repo_dir, files, replace_generated=args.replace_generated_sections
-        ):
+        actions = adopt_repository(repo_dir, files, replace_generated=args.replace_generated_sections)
+        for action, rel, detail in actions:
             print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))
         print("\nReview the changes (git diff), then commit them on a branch.")
-        return
+        sys.exit(1 if any(action == "refused" for action, _, _ in actions) else 0)
 
     if not args.dry_run:
         check_dependencies()

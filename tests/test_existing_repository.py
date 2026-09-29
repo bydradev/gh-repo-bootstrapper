@@ -1,6 +1,7 @@
 """Tests for --check and --adopt against existing local repositories."""
 
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -129,17 +130,80 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(actions[".gitignore"], "refused")
         self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\ndist/\n")
 
-    def test_adopt_appends_only_missing_gitignore_entries(self):
+    def test_adopt_prepends_only_missing_gitignore_entries(self):
         files = _render()
         self._write(".gitignore", "node_modules/\n.venv/\n")
         self._commit_all()
         bootstrap.adopt_repository(self.repo, files)
         text = (self.repo / ".gitignore").read_text()
-        self.assertTrue(text.startswith("node_modules/\n.venv/\n"))
-        self.assertEqual(text.count("\n.venv/\n"), 1)
+        self.assertTrue(text.endswith("node_modules/\n.venv/\n"))
+        self.assertEqual(text.count(".venv/\n"), 1)
         self.assertIn(".worktrees/", text.splitlines())
         status, detail = bootstrap.compare_repository(self.repo, files)[".gitignore"]
         self.assertEqual((status, detail), ("same", None))
+
+    def test_adopt_keeps_repository_gitignore_exceptions(self):
+        files = _render()
+        self._write(".gitignore", "*.log\n!keep.log\n")
+        self._write("keep.log", "x\n")
+        self._commit_all()
+        bootstrap.adopt_repository(self.repo, files)
+        ignored = subprocess.run(
+            ["git", "-C", str(self.repo), "check-ignore", "-q", "keep.log"], capture_output=True
+        )
+        self.assertEqual(ignored.returncode, 1, "keep.log became ignored")
+
+    def test_adopt_never_writes_through_symlinks(self):
+        files = _render()
+        outside = Path(self._tmp.name) / "outside.md"
+        (self.repo / "README.md").symlink_to(outside)  # dangling
+        (self.repo / "docs").symlink_to(Path(self._tmp.name))
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions["README.md"], "refused")
+        self.assertEqual(actions["docs/branch-protection-runbook.md"], "refused")
+        self.assertFalse(outside.exists())
+        self.assertFalse((Path(self._tmp.name) / "branch-protection-runbook.md").exists())
+
+    def test_adopt_refuses_ignored_untracked_agents(self):
+        files = _render()
+        self._write(".gitignore", "AGENTS.md\n")
+        self._commit_all()
+        original = files["AGENTS.md"].replace("## Definition of done\n\n", "## Definition of done\n\nX.\n\n", 1)
+        self._write("AGENTS.md", original)
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files, True)}
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), original)
+
+    def test_adopt_refuses_crlf_files(self):
+        files = _render()
+        self._write(".gitignore", "node_modules/\r\n")
+        self._commit_all()
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".gitignore"], "refused")
+        self.assertEqual((self.repo / ".gitignore").read_bytes(), b"node_modules/\r\n")
+
+    def test_check_treats_project_specifics_as_repository_owned(self):
+        files = _render()
+        self._write("AGENTS.md", files["AGENTS.md"] + "\n- Only ours.\n\n## Local notes\n\nMore.\n")
+        status, _ = bootstrap.compare_repository(self.repo, files)["AGENTS.md"]
+        self.assertEqual(status, "same")
+
+    def test_ambiguous_structure_is_local(self):
+        files = _render()
+        generated, owned = bootstrap._split_project_specifics(files["AGENTS.md"])
+        setext = generated.replace("## Definition of done\n\n", "## Definition of done\n\nOur rules\n---------\n\n", 1)
+        rows = bootstrap.compare_agents(files["AGENTS.md"], setext + owned)
+        self.assertIn(("local", "(setext heading: Our rules)"), rows)
+        subsection = generated.replace("## Definition of done\n\n", "## Definition of done\n\n### Ours\n\nX.\n\n", 1)
+        rows = bootstrap.compare_agents(files["AGENTS.md"], subsection + owned)
+        self.assertIn(("local", "## Definition of done › ### Ours"), rows)
+
+    def test_longer_fence_hides_inner_fence_and_headings(self):
+        text = "## A\n\n````md\n```\n## Project specifics\n```\n````\n\n## B\n"
+        _, sections = bootstrap._agents_sections(text)
+        self.assertEqual([heading for heading, _ in sections], ["## A", "## B"])
+        self.assertEqual(bootstrap._split_project_specifics(text), (text, None))
+        self.assertIn("(code fence left open at end of file)", bootstrap._markdown_ambiguities("```\n## A\n"))
 
     def test_nextjs_block_is_kept_and_not_compared(self):
         files = _render("nextjs")
@@ -164,6 +228,26 @@ class ExistingRepositoryTests(unittest.TestCase):
         status, detail = bootstrap.compare_repository(self.repo, files)["CLAUDE.md"]
         self.assertEqual(status, "differs")
         self.assertIn("does not import AGENTS.md", detail)
+
+
+class CommandLineTests(unittest.TestCase):
+    def _run(self, *args):
+        return subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), *args], capture_output=True, text=True
+        )
+
+    def test_empty_path_is_rejected_before_any_other_flow(self):
+        for flag in ("--check", "--adopt"):
+            result = self._run(flag, "", "--type", "simple", "--non-interactive", "--name", "x")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("non-empty PATH", result.stderr)
+
+    def test_adopt_exits_nonzero_when_it_refuses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "AGENTS.md").write_text("## Ours\n")  # not in git: refused
+            result = self._run("--adopt", tmp, "--type", "simple")
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("refused  AGENTS.md", result.stdout)
 
 
 if __name__ == "__main__":

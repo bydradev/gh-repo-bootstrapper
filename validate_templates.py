@@ -351,6 +351,31 @@ def check_agents_guidance(label: str, files: dict) -> list:
     ]
 
 
+_FENCE_LINE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+
+
+def _unfenced(text: str) -> str:
+    """The text with fenced code blocks removed, so an example cannot stand in
+    for operative guidance. A fence closes only on the same character repeated
+    at least as many times as it opened with."""
+    kept, fence = [], None
+    for line in text.splitlines():
+        match = _FENCE_LINE_RE.match(line)
+        if fence is None:
+            if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+                fence = (match.group(1)[0], len(match.group(1)))
+            else:
+                kept.append(line)
+        elif (
+            match
+            and match.group(1)[0] == fence[0]
+            and len(match.group(1)) >= fence[1]
+            and not match.group(2).strip()
+        ):
+            fence = None
+    return "\n".join(kept)
+
+
 def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     """Require the per-type worktree mechanisms and the repo-owned section layout.
 
@@ -360,13 +385,14 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     everything between them.
     """
     agents = files.get("AGENTS.md", "")
-    normalized = " ".join(agents.split())
+    prose = _unfenced(agents)
+    normalized = " ".join(prose.split())
     errors = [
         f"[{label}] {repo_type} AGENTS.md is missing worktree guidance {phrase!r}"
         for phrase in AGENTS_TYPE_REQUIREMENTS[repo_type]
         if phrase not in normalized
     ]
-    headings = [line for line in agents.splitlines() if line.startswith("## ")]
+    headings = [line for line in prose.splitlines() if line.startswith("## ")]
     if not headings or headings[-1] != PROJECT_SPECIFICS_HEADING:
         errors.append(
             f"[{label}] AGENTS.md must end with {PROJECT_SPECIFICS_HEADING!r} as its last "
@@ -1966,6 +1992,20 @@ def run_self_tests() -> list:
 
     cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
     files = bootstrap.generate_files(dict(cfg))
+    phrase = AGENTS_TYPE_REQUIREMENTS["nextjs"][1]
+    fenced = dict(files)
+    fenced["AGENTS.md"] = (
+        files["AGENTS.md"].replace(phrase, "", 1) + "\n```text\n" + phrase + "\n```\n"
+    )
+    result = check_workspace_guidance("self-test:fenced phrase", "nextjs", fenced)
+    if not any(repr(phrase) in e for e in result):
+        errors.append(f"self-test 'fenced phrase' did not fail as expected: {result}")
+    fenced_heading = dict(files)
+    fenced_heading["AGENTS.md"] = files["AGENTS.md"] + "\n````md\n```\n## Example\n```\n````\n"
+    result = check_workspace_guidance("self-test:fenced heading", "nextjs", fenced_heading)
+    if result:
+        errors.append(f"self-test 'fenced heading' unexpectedly failed: {result}")
+
     note_start = files["AGENTS.md"].index(APP_ROUTER_HEADING)
     note_end = files["AGENTS.md"].index("# Working in this repo")
     note = files["AGENTS.md"][note_start:note_end]

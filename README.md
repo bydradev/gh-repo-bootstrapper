@@ -82,6 +82,12 @@ artefacts, not a claim that the generated repository's external scaffold
 actually provides those scripts. Changing a scaffold's scripts still requires
 checking that scaffold separately.
 
+The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
+configuration: a project named `chromium`, which ordinary `main` pushes run
+alone (`--project=chromium`), and the HTML reporter enabled in CI, which
+writes the `playwright-report/` directory the job uploads. Without the HTML
+reporter the upload finds nothing and is skipped silently.
+
 ## Usage
 
 ```sh

@@ -14,6 +14,7 @@ Requirements: Python 3.9+, gh CLI (authenticated), git
 """
 
 import argparse
+import errno
 import getpass
 import json
 import os
@@ -170,6 +171,8 @@ def parse_args():
               ./bootstrap.py --name my-service --type rust --private
               ./bootstrap.py --name my-app --type nextjs --postgres --dry-run
               ./bootstrap.py --name my-app --type nextjs --configure-only
+              ./bootstrap.py --check ../my-app --type nextjs
+              ./bootstrap.py --adopt ../my-app --type nextjs
         """),
     )
     p.add_argument("--name", help="Repository name, or a relative/absolute path ending in one "
@@ -192,6 +195,16 @@ def parse_args():
                    help="Generate the Xcode project from project.yml in CI (swift only)")
     p.add_argument("--configure-only", action="store_true",
                    help="Apply GitHub configuration to an existing repo (skip file generation)")
+    existing = p.add_mutually_exclusive_group()
+    existing.add_argument("--check", metavar="PATH",
+                          help="Compare an existing local repository with the current templates "
+                               "(read-only; exits 1 on drift)")
+    existing.add_argument("--adopt", metavar="PATH",
+                          help="Write missing template files into an existing local repository "
+                               "and rebuild AGENTS.md where safe (no GitHub calls)")
+    p.add_argument("--replace-generated-sections", action="store_true",
+                   help="With --adopt: also replace AGENTS.md generated sections whose text "
+                        "differs from the template (review the result with git diff)")
     p.add_argument("--dry-run", action="store_true",
                    help="Print files that would be created without doing anything")
     p.add_argument("--non-interactive", action="store_true",
@@ -733,6 +746,566 @@ def generate_files(cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Existing repositories — --check and --adopt
+# ---------------------------------------------------------------------------
+
+PROJECT_SPECIFICS = "## Project specifics"
+NEXTJS_RULES_BEGIN = "<!-- BEGIN:nextjs-agent-rules -->"
+NEXTJS_RULES_END = "<!-- END:nextjs-agent-rules -->"
+# Stands in for the `next dev`-managed block while comparing: that block is
+# rewritten by Next.js itself, so neither --check nor --adopt judges its text.
+_NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->"
+_SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
+_SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
+# A heading of any level behind blockquote or list markers (`> ## Ours`,
+# `- ## Ours`) is a subsection too, not text inside a generated paragraph.
+# Blockquote markers, and list markers only when followed by whitespace — a
+# `---` underline must not be read as three list markers.
+_CONTAINER_PREFIX_RE = re.compile(r"^[ \t]*(?:(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))[ \t]*)*")
+_CONTAINED_HEADING_RE = re.compile(r"^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}(?!#)[ \t]+\S")
+_SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
+_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+
+
+def _nextjs_rules_block(text: str) -> str:
+    """The `next dev`-managed block including its markers, or "" if absent."""
+    start = text.find(NEXTJS_RULES_BEGIN)
+    end = text.find(NEXTJS_RULES_END)
+    if start == -1 or end == -1 or end < start:
+        return ""
+    return text[start : end + len(NEXTJS_RULES_END)]
+
+
+def _mask_nextjs_rules(text: str) -> str:
+    block = _nextjs_rules_block(text)
+    return text.replace(block, _NEXTJS_RULES_PLACEHOLDER, 1) if block else text
+
+
+def _markdown_scan(text: str) -> tuple:
+    """([(offset, line, in_fence), ...], fence_left_open) for the text.
+
+    A fence closes only on a run of the same character at least as long as
+    the one that opened it, so a ``` line inside a ```` fence stays fenced.
+    The fence lines themselves count as fenced.
+    """
+    rows, fence, offset = [], None, 0
+    for raw in text.splitlines(keepends=True):
+        line = raw.rstrip("\r\n")
+        match = _FENCE_RE.match(line)
+        if fence is None:
+            opens = bool(match) and not (match.group(1)[0] == "`" and "`" in match.group(2))
+            if opens:
+                fence = (match.group(1)[0], len(match.group(1)))
+            rows.append((offset, line, opens))
+        else:
+            if (
+                match
+                and match.group(1)[0] == fence[0]
+                and len(match.group(1)) >= fence[1]
+                and not match.group(2).strip()
+            ):
+                fence = None
+            rows.append((offset, line, True))
+        offset += len(raw)
+    return rows, fence is not None
+
+
+def _markdown_lines(text: str) -> list:
+    return _markdown_scan(text)[0]
+
+
+def _markdown_ambiguities(text: str) -> list:
+    """Structure the section parser does not model, so must not rewrite around.
+
+    Setext headings (a line underlined with === or ---) and a code fence left
+    open at the end of the file make section boundaries uncertain.
+
+    This is a line-level approximation, not a CommonMark block parser, and it
+    errs towards reporting: a `---` thematic break after a list item or inside
+    nested quotes or indented code can be flagged. A false report only makes
+    --adopt refuse and ask for a manual edit; it never loses text.
+    """
+    rows, left_open = _markdown_scan(text)
+    problems, previous = [], ""
+    for _, raw_line, in_fence in rows:
+        # Judge blockquote and list content by what follows its markers, so
+        # `> Ours` over `> ----` counts as a setext heading too.
+        line = _CONTAINER_PREFIX_RE.sub("", raw_line)
+        if (
+            not in_fence
+            and _SETEXT_UNDERLINE_RE.match(line)
+            and previous.strip()
+            and not _SECTION_HEADING_RE.match(previous)
+            and not _SUBHEADING_RE.match(previous)
+        ):
+            problems.append(f"(setext heading: {previous.strip()})")
+        previous = "" if in_fence else line
+    if left_open:
+        problems.append("(code fence left open at end of file)")
+    return problems
+
+
+def _agents_sections(text: str) -> tuple:
+    """Split Markdown into (preamble, [(heading, section_text), ...]).
+
+    Only level-1 and level-2 ATX headings start a section, and lines inside
+    fenced code never do — a `# comment` in a shell example is not a heading.
+    """
+    heads = [
+        (offset, line.strip())
+        for offset, line, in_fence in _markdown_lines(text)
+        if not in_fence and _SECTION_HEADING_RE.match(line)
+    ]
+    bounds = [start for start, _ in heads] + [len(text)]
+    preamble = text[: bounds[0]]
+    return preamble, [(title, text[start : bounds[i + 1]]) for i, (start, title) in enumerate(heads)]
+
+
+def _subheadings(section: str) -> list:
+    return [
+        line.strip()
+        for _, line, in_fence in _markdown_lines(section)
+        if not in_fence and (_SUBHEADING_RE.match(line) or _CONTAINED_HEADING_RE.match(line))
+    ]
+
+
+def _split_project_specifics(text: str) -> tuple:
+    """(generated part, repository-owned part or None) of an AGENTS.md.
+
+    Everything from the `## Project specifics` heading to the end of the file
+    belongs to the repository.
+    """
+    for offset, line, in_fence in _markdown_lines(text):
+        if not in_fence and line.strip() == PROJECT_SPECIFICS:
+            return text[:offset], text[offset:]
+    return text, None
+
+
+def compare_agents(expected: str, actual: str) -> list:
+    """Section-level comparison of a repository AGENTS.md with the rendered one.
+
+    Returns (status, heading) rows. Statuses: same, differs, missing (a
+    generated section the repository lacks), and local — repository text that
+    --adopt would otherwise overwrite: a section, or a level-3+ subsection
+    inside a generated section, outside `## Project specifics`, or structure
+    the parser does not model. The `next dev` block and everything from
+    `## Project specifics` on are repository-owned and never compared.
+    """
+    exp_generated, _ = _split_project_specifics(_mask_nextjs_rules(expected))
+    act_generated, act_owned = _split_project_specifics(_mask_nextjs_rules(actual))
+    exp_pre, exp_sections = _agents_sections(exp_generated)
+    act_pre, act_sections = _agents_sections(act_generated)
+    actual_by_heading = {}
+    for heading, body in act_sections:
+        actual_by_heading.setdefault(heading, []).append(body)
+    rows = [("local", problem) for problem in _markdown_ambiguities(act_generated)]
+    if act_pre.strip() and act_pre.strip() != exp_pre.strip():
+        rows.append(("local", "(text before the first heading)"))
+    for heading, body in exp_sections:
+        found = actual_by_heading.get(heading)
+        if not found:
+            rows.append(("missing", heading))
+        elif len(found) == 1 and found[0].strip() == body.strip():
+            rows.append(("same", heading))
+        else:
+            rows.append(("differs", heading))
+            known = set(_subheadings(body))
+            rows += [
+                ("local", f"{heading} › {sub}")
+                for found_body in found
+                for sub in _subheadings(found_body)
+                if sub not in known
+            ]
+    expected_headings = {heading for heading, _ in exp_sections}
+    present = [heading for heading, _ in exp_sections if heading in actual_by_heading]
+    seen = []
+    for heading, _ in act_sections:
+        if heading in expected_headings and heading not in seen:
+            seen.append(heading)
+    if seen != present:
+        rows.append(("differs", "(order of generated sections)"))
+    rows += [("local", h) for h, _ in act_sections if h not in expected_headings]
+    if act_owned is None:
+        rows.append(("missing", PROJECT_SPECIFICS))
+    if _nextjs_rules_block(expected) and not _nextjs_rules_block(actual):
+        rows.append(("missing", NEXTJS_RULES_BEGIN))
+    return rows
+
+
+def rebuild_agents(expected: str, actual: str) -> str:
+    """The rendered AGENTS.md with the repository's own parts carried over.
+
+    Keeps the repository's `## Project specifics` section (and everything after
+    it) and its `next dev`-managed block. Callers must first confirm that
+    compare_agents() reports no `local` rows, or repository text is lost.
+    """
+    generated, template_owned = _split_project_specifics(expected)
+    _, owned = _split_project_specifics(actual)
+    repo_block, template_block = _nextjs_rules_block(actual), _nextjs_rules_block(expected)
+    if repo_block and template_block:
+        generated = generated.replace(template_block, repo_block, 1)
+    return generated + (owned if owned is not None else template_owned)
+
+
+def _missing_lines(expected: str, actual: str) -> list:
+    present = {line.strip() for line in actual.splitlines()}
+    return [
+        line for line in expected.splitlines()
+        if line.strip() and not line.startswith("#") and line.strip() not in present
+    ]
+
+
+def _symlink_in_path(repo_dir: Path, rel: str) -> bool:
+    """True when rel, or any directory between repo_dir and it, is a symlink."""
+    current = repo_dir
+    for part in Path(rel).parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def compare_repository(repo_dir: Path, files: dict) -> dict:
+    """Per-file status of an existing repository against the rendered files."""
+    report = {}
+    for rel, expected in files.items():
+        path = repo_dir / rel
+        if _symlink_in_path(repo_dir, rel):
+            report[rel] = ("symlink", "a symlink in this path; not compared or written")
+            continue
+        try:
+            if not path.is_file():
+                report[rel] = ("missing", None)
+                continue
+            actual = path.read_text(errors="replace")
+        except OSError as exc:
+            report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+            continue
+        if actual == expected:
+            report[rel] = ("same", None)
+        elif rel == "AGENTS.md":
+            rows = compare_agents(expected, actual)
+            aligned = all(row_status == "same" for row_status, _ in rows)
+            report[rel] = ("same", None) if aligned else ("differs", rows)
+        elif rel == ".gitignore":
+            missing = _missing_lines(expected, actual)
+            report[rel] = ("differs", missing) if missing else ("same", None)
+        elif rel == "CLAUDE.md" and "@AGENTS.md" not in actual.split():
+            report[rel] = ("differs", "does not import AGENTS.md (no `@AGENTS.md` line)")
+        else:
+            report[rel] = ("differs", None)
+    return report
+
+
+def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
+    """Print a --check report; return True when the repository is aligned."""
+    print(f"\n{repo_dir} — compared with the '{cfg['repo_type']}' template")
+    aligned = True
+    for rel, (status, detail) in sorted(report.items()):
+        if status != "same":
+            aligned = False
+        print(f"  {status:<8} {rel}")
+        if rel == "AGENTS.md" and isinstance(detail, list):
+            for row_status, heading in detail:
+                if row_status != "same":
+                    hint = "  → move under ## Project specifics" if row_status == "local" else ""
+                    print(f"      {row_status:<8} {heading}{hint}")
+        elif rel == ".gitignore" and isinstance(detail, list):
+            print(f"      missing entries: {', '.join(detail)}")
+        elif isinstance(detail, str):
+            print(f"      {detail}")
+    print("\nAligned." if aligned else "\nDrift found. Review it, then run --adopt to apply what can be applied.")
+    return aligned
+
+
+def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
+    """True when rel is tracked by git and has no uncommitted changes.
+
+    Tracked is required, not just absent from `git status`: an ignored,
+    untracked file also produces no status line, but has no committed copy to
+    review the change against or revert to.
+    """
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(repo_dir), *args], capture_output=True, text=True
+        )
+
+    try:
+        if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
+            return False
+        if git("ls-files", "--error-unmatch", "--", rel).returncode != 0:
+            return False
+        status = git("status", "--porcelain", "--", rel)
+    except OSError:
+        return False
+    return status.returncode == 0 and status.stdout.strip() == ""
+
+
+_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_ANCHORED_WRITES = hasattr(os, "O_NOFOLLOW") and {
+    os.open, os.mkdir, os.rename, os.unlink, os.link, os.rmdir, os.stat
+} <= os.supports_dir_fd
+
+
+def _open_parent(repo_dir: Path, rel: str, create: bool, created: list = None) -> int:
+    """A descriptor for rel's parent directory, reached from repo_dir.
+
+    Each component is opened relative to the one before it with O_NOFOLLOW,
+    so a symlink present at any component when it is opened — including one
+    swapped in after the scan — fails with an OSError instead of redirecting
+    the write. This does not stop another process moving an already-opened
+    directory out of repo_dir mid-run; --adopt assumes nothing else modifies
+    the repository while it runs. Missing directories are created only when
+    create is set, and their relative paths are appended to created.
+    """
+    fd = os.open(repo_dir, _DIR_FLAGS)
+    walked = []
+    try:
+        for part in Path(rel).parent.parts:
+            walked.append(part)
+            try:
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, 0o777, dir_fd=fd)
+                if created is not None:
+                    created.append("/".join(walked))
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _remove_empty_dirs(repo_dir: Path, created: list) -> None:
+    """Best-effort removal of directories this run created, deepest first."""
+    for rel_dir in reversed(created):
+        try:
+            parent = _open_parent(repo_dir, rel_dir, create=False)
+            try:
+                os.rmdir(Path(rel_dir).name, dir_fd=parent)
+            finally:
+                os.close(parent)
+        except OSError:
+            pass
+
+
+def _read_anchored(parent: int, name: str) -> tuple:
+    """(bytes, identity) of name in parent, never following a symlink."""
+    fd = os.open(name, os.O_RDONLY | _NOFOLLOW, dir_fd=parent)
+    with os.fdopen(fd, "rb") as handle:
+        st = os.fstat(handle.fileno())
+        return handle.read(), (st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _identity(parent: int, name: str) -> tuple:
+    st = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    return (st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _decode_for_rewrite(raw: bytes):
+    """The file's text for rewriting, or None when rewriting could corrupt it."""
+    if b"\r" in raw:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _create_anchored(parent: int, name: str, text: str, exact_mode=None) -> None:
+    """Create name in parent; fails if anything, including a symlink, is there.
+
+    New files get the usual umask-filtered mode unless exact_mode is given.
+    """
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o666, dir_fd=parent)
+    with os.fdopen(fd, "w") as handle:
+        if exact_mode is not None:
+            os.fchmod(handle.fileno(), exact_mode)
+        handle.write(text)
+
+
+def _temp_name(name: str) -> str:
+    return f".{name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+
+
+def _publish_new(parent: int, name: str, text: str) -> None:
+    """Create name with text, all or nothing, never replacing anything there.
+
+    The text goes to a temporary sibling first and is then hard-linked into
+    place, which fails if name exists; a failed write leaves no partial file.
+    """
+    tmp = _temp_name(name)
+    try:
+        _create_anchored(parent, tmp, text)
+        os.link(tmp, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+    finally:
+        try:
+            os.unlink(tmp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+
+
+def _replace_anchored(parent: int, name: str, text: str, identity: tuple) -> None:
+    """Write text to a new file in parent, then rename it over name.
+
+    A new inode means a hard link elsewhere keeps its old content, and a
+    failed write leaves the original untouched. The permission bits are kept;
+    ownership, flags, and extended attributes are not. If name no longer has
+    the identity (inode, size, mtime) it had when read, nothing is replaced.
+    This narrows, but cannot close, the window for a concurrent edit; --adopt
+    assumes nothing else modifies the repository while it runs.
+    """
+    mode = os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode & 0o7777
+    tmp = _temp_name(name)
+    try:
+        _create_anchored(parent, tmp, text, exact_mode=mode)
+        if _identity(parent, name) != identity:
+            raise FileExistsError(errno.EBUSY, "changed while --adopt was running", name)
+        os.rename(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
+    except BaseException:
+        try:
+            os.unlink(tmp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def adopt_repository(
+    repo_dir: Path, files: dict, replace_generated: bool = False, confirm=None
+) -> list:
+    """Bring an existing local repository in line without touching GitHub.
+
+    Writes every missing generated file and never overwrites an existing one,
+    except that AGENTS.md is rebuilt from the template while keeping
+    `## Project specifics` and the `next dev` block. That rewrite needs the
+    file tracked by git with no uncommitted changes, LF line endings, and
+    UTF-8 text, so the result can be reviewed and reverted. Writes refuse any
+    symlink they meet on the way. --adopt assumes nothing else modifies the
+    repository while it runs; it narrows but cannot close races with a
+    process that does.
+
+    Missing .gitignore entries are reported, not written: whether an added
+    rule would break an existing `!` exception depends on git's full ignore
+    semantics across every ignore file, so that edit is left to a person.
+
+    The AGENTS.md rebuild is refused while any repository text sits outside
+    `## Project specifics`, or the file has structure the parser does not
+    model. A generated section whose text differs may be an older template or
+    a local edit, and nothing here can tell which, so it is replaced only when
+    replace_generated is set; otherwise the rebuild is refused and the
+    differing sections are listed. When replace_generated is set,
+    confirm(sections) is called with the sections about to be replaced before
+    AGENTS.md is written; a falsy result refuses the rebuild.
+    Returns (action, path, detail) rows.
+    """
+    actions = []
+    for rel, (status, detail) in sorted(compare_repository(repo_dir, files).items()):
+        try:
+            action = _adopt_file(repo_dir, rel, status, detail, files[rel], replace_generated, confirm)
+        except OSError as exc:
+            action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
+        if action:
+            actions.append(action)
+    return actions
+
+
+def _adopt_file(
+    repo_dir: Path, rel: str, status: str, detail, expected: str, replace_generated: bool, confirm=None
+):
+    """The adopt action for one file, or None when it is already aligned.
+
+    Every write goes through a descriptor chain from repo_dir that refuses
+    symlinks, and a rewrite is judged on the content read through that chain
+    rather than on the earlier scan. Concurrent modification of the
+    repository while --adopt runs is outside what these checks can prevent.
+    """
+    if status == "same":
+        return None
+    if status in ("symlink", "unreadable"):
+        return ("refused", rel, detail)
+    if not _ANCHORED_WRITES:
+        return ("refused", rel, "this platform cannot write without following symlinks")
+    name = Path(rel).name
+    if status == "missing":
+        created = []
+        try:
+            parent = _open_parent(repo_dir, rel, create=True, created=created)
+            try:
+                _publish_new(parent, name, expected)
+            finally:
+                os.close(parent)
+        except BaseException:
+            _remove_empty_dirs(repo_dir, created)
+            raise
+        return ("wrote", rel, "")
+    if rel == ".gitignore":
+        return (
+            "kept", rel,
+            "add these missing entries by hand, where the repository's own rules allow: "
+            + ", ".join(detail),
+        )
+    if rel != "AGENTS.md":
+        return ("kept", rel, "differs from the template; not overwritten")
+    if not _git_file_is_clean(repo_dir, rel):
+        return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+    parent = _open_parent(repo_dir, rel, create=False)
+    try:
+        raw, identity = _read_anchored(parent, name)
+        current = _decode_for_rewrite(raw)
+        if current is None:
+            return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
+        rows = compare_agents(expected, current)
+        if all(row_status == "same" for row_status, _ in rows):
+            return None
+        local = [heading for row_status, heading in rows if row_status == "local"]
+        if local:
+            return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
+        differing = [heading for row_status, heading in rows if row_status == "differs"]
+        if differing and not replace_generated:
+            return (
+                "refused", rel,
+                "these generated sections differ from the template — an older template or a local "
+                "edit; move local rules under ## Project specifics, then re-run with "
+                "--replace-generated-sections: " + "; ".join(differing),
+            )
+        if differing and confirm is not None and not confirm(differing):
+            return ("refused", rel, "replacement of differing generated sections was not confirmed")
+        _replace_anchored(parent, name, rebuild_agents(expected, current), identity)
+    finally:
+        os.close(parent)
+    replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
+    return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
+
+
+def existing_repository_config(args) -> dict:
+    """Configuration for --check/--adopt, built without any GitHub calls."""
+    if not args.repo_type:
+        _die("--type is required with --check and --adopt")
+    if args.repo_type == "swift" and not args.scheme:
+        _die("--scheme is required for --type swift")
+    raw = args.check if args.check is not None else args.adopt
+    if not raw.strip():
+        _die("--check and --adopt need a non-empty PATH")
+    repo_dir = Path(raw).expanduser().resolve()
+    if not repo_dir.is_dir():
+        _die(f"not a directory: {repo_dir}")
+    return {
+        "name": repo_dir.name,
+        "repo_dir": str(repo_dir),
+        "repo_type": args.repo_type,
+        "postgres": bool(args.postgres),
+        "scheme": args.scheme or "",
+        "destination": args.destination or "iphone",
+        "xcodegen": bool(args.xcodegen),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Dry-run output
 # ---------------------------------------------------------------------------
 
@@ -966,6 +1539,35 @@ def print_success(cfg: dict):
 
 def main():
     args = parse_args()
+
+    # --- existing local repositories: compare or adopt, no GitHub calls ---
+    if args.replace_generated_sections and args.adopt is None:
+        _die("--replace-generated-sections is only used with --adopt")
+    if args.check is not None or args.adopt is not None:
+        if args.configure_only or args.dry_run:
+            _die("--check and --adopt cannot be combined with --configure-only or --dry-run")
+        cfg = existing_repository_config(args)
+        repo_dir = Path(cfg["repo_dir"])
+        files = generate_files(cfg)
+        if args.check:
+            aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
+            sys.exit(0 if aligned else 1)
+        print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
+        def confirm(sections):
+            print("\nAGENTS.md: these generated sections differ from the template and will be")
+            print("replaced with its text (the file is tracked, so git diff shows the change):")
+            for heading in sections:
+                print(f"  {heading}")
+            return args.non_interactive or prompt_yn("Replace them?", default=False)
+
+        actions = adopt_repository(
+            repo_dir, files, replace_generated=args.replace_generated_sections, confirm=confirm
+        )
+        for action, rel, detail in actions:
+            print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))
+        print("\nReview the changes (git diff), then commit them on a branch.")
+        sys.exit(1 if any(action == "refused" for action, _, _ in actions) else 0)
+
     if not args.dry_run:
         check_dependencies()
     cfg = gather_config(args)

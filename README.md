@@ -107,6 +107,9 @@ confirm before creating anything.
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run; without `--org`, a placeholder owner is used since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
+| `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` and the type options the repository was generated with |
+| `--adopt PATH` | Bring an existing local repository in line without contacting GitHub — see [Existing repositories](#existing-repositories) |
+| `--replace-generated-sections` | With `--adopt`: also replace `AGENTS.md` generated sections whose text differs from the template |
 
 ### Examples
 
@@ -140,7 +143,64 @@ confirm before creating anything.
 
 # Apply GitHub config (see "What the script configures") to an existing repo
 ./bootstrap.py --name my-app --type nextjs --configure-only
+
+# Compare an existing local repository with the current templates, then adopt them
+./bootstrap.py --check ../my-app --type nextjs
+./bootstrap.py --adopt ../my-app --type nextjs
 ```
+
+## Existing repositories
+
+`bootstrap.py` generates a repository once. Templates change afterwards, so
+`--check` and `--adopt` bring an existing local checkout back in line. Neither
+contacts GitHub; follow with `--configure-only` for repository settings.
+
+`--check PATH --type TYPE` renders the current templates for that type and
+reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`. Pass the same
+type options the repository was generated with — `--postgres` for Next.js,
+`--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
+they shape report as drift. For `AGENTS.md` it reports per section: a
+generated section that is `missing` or `differs` (including generated
+sections in a different order), and anything `local` —
+repository text outside `## Project specifics`, including a subsection added
+inside a generated section, or structure it does not parse (setext headings,
+an unclosed code fence). The `next dev`-managed block and everything from
+`## Project specifics` on are the repository's own and are not compared. For
+`.gitignore` it lists the template entries the repository lacks, and for
+`CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
+and exits 1 on drift.
+
+`--adopt PATH --type TYPE` writes every missing file and never overwrites an
+existing one, with one exception that preserves repository-owned content:
+`AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
+everything after it) and the `next dev`-managed block. The rebuild is refused
+while anything `local` remains — move those rules under `## Project specifics`
+first. A generated section whose text differs may be an older template or a
+local edit, and the script cannot tell which, so it is replaced only with
+`--replace-generated-sections`, which lists those sections and asks before
+writing (`--non-interactive` skips the prompt).
+
+For an existing `.gitignore`, missing entries are listed, not written; a
+missing `.gitignore` is created like any other file. Whether an added rule
+would override an existing `!` exception depends on git's full ignore rules
+across every ignore file — git cannot re-include a file once a parent
+directory is excluded — so that edit is left to a person.
+
+The `AGENTS.md` rewrite needs the file tracked by git with no uncommitted
+changes, LF line endings, and UTF-8 text, so the result can be reviewed with
+`git diff` and reverted. It replaces the file atomically with a new one,
+keeping its permission bits, so a hard link elsewhere keeps its old content; a
+new file is written in full before it appears, and never replaces one created
+meanwhile. Every write walks from `PATH` one directory at a time without
+following symlinks, so a symlink met on the way is refused; `PATH` itself is
+resolved, and `--adopt` prints the directory it is changing.
+
+`--adopt` assumes nothing else modifies the repository while it runs. It
+refuses a rewrite whose target changed since it was read, but it cannot close
+every race with a concurrent process — for example one moving a directory out
+of `PATH` mid-run — so do not run it while an editor, agent, or build is
+writing to the same checkout. A failure on one file is reported as `refused`
+without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ## Repository types
 

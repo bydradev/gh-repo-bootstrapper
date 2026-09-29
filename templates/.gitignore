@@ -46,6 +46,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
 venv/
 
 # Xcode and Swift
@@ -54,6 +58,7 @@ DerivedData/
 .xcschemes/
 .swiftpm/
 .build/
+*.xcresult/
 *.xcworkspace/contents.xcworkspacedata
 *.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
 *.xcodeproj/project.xcworkspace/
@@ -80,3 +85,7 @@ DerivedData/
 .serena/cache/
 .serena/project.local.yml
 .claude/settings.local.json
+.claude/worktrees/
+
+# Agent worktrees belong outside the checkout; ignore any created inside it.
+.worktrees/

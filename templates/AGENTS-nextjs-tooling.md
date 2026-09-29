@@ -21,6 +21,10 @@ This is a non-persistent per-shell setting. Do not add it to shell profiles,
 change system limits, change CI, or alter Playwright configuration. A generated
 repository owns its server lifecycle, ports, and test scripts, so follow its
 local documentation before combining a manual dev server with browser tests.
+`next dev` takes a lock in the project's build directory and refuses to start
+a second server for the same project, so stop a manually started `next dev`
+before running an E2E suite that starts its own (checked against Next.js
+16.3.5, 2026-09-29).
 If Next.js or Watchpack still reports `EMFILE: too many open files, watch`,
 treat it as local host resource exhaustion. Run `npm run test:e2e:local` when that script is available.
 Otherwise, run the project's normal Playwright suite with one worker, for
@@ -37,6 +41,15 @@ Do not make persistent OS file-limit, watcher, or global sandbox-policy changes
 solely to resolve a local validation failure. If the serial command still fails,
 record the exact error and report the limitation rather than claiming the
 validation passed.
+
+Check the trace settings before re-running a failed local Playwright test. A
+common configuration — `trace: "on-first-retry"` with no retries outside CI —
+records nothing for a local failure, because only a retry is traced. Pass
+`--trace=retain-on-failure` on the first unexplained failure rather than
+re-running plain and losing the occurrence, and prefer it to `--retries=1` for
+intermittent failures: `on-first-retry` traces the retry, not the attempt that
+failed. Do not change the Playwright configuration merely to obtain a trace
+(trace modes checked against Playwright 1.63.0, 2026-09-29).
 
 ## Tooling
 Run all checks before pushing:
@@ -61,3 +74,9 @@ In CI, automated validation runs in three tiers:
 - **Release Please PR merge (`chore(main): release`):** Runs the full validation suite, including the complete browser E2E matrix and any configured production/runtime checks.
 
 Always run the relevant checks locally before pushing. For changes that alter browser-facing UI or user interactions, run `npm run test:e2e` locally (or `npm run test:e2e:local` when that script is available) before opening or updating a PR.
+
+A worktree starts without `node_modules`, `.next`, or test output. Install
+dependencies in it with `npm ci`, which reuses the shared npm cache, only when
+a check needs them, and remove them with the worktree. Never copy
+`node_modules`, `.next`, `test-results`, or `playwright-report` into a
+verification copy.

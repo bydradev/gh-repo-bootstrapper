@@ -137,7 +137,36 @@ AGENTS_COMMON_REQUIREMENTS = (
     "do not assume browser or native",
     "## Definition of done",
     "do not claim unrun checks passed.",
+    "## Worktrees, verification copies, and scratch output",
+    "git worktree add --detach",
+    "Never copy a checkout with `cp -R`",
+    "Keep worktrees outside the checkout",
+    "Reuse one worktree per purpose",
+    "never at fixed paths in `/tmp`",
+    "Remove only what this task created",
+    "Remove the worktrees, verification copies, and scratch output the task created",
+    "## Project specifics",
 )
+
+# Per-type mechanisms behind the shared worktree and scratch-output rules: where
+# a worktree's dependencies and build output live, so they are not multiplied.
+AGENTS_TYPE_REQUIREMENTS = {
+    "nextjs": (
+        "Never copy `node_modules`, `.next`, `test-results`, or `playwright-report`",
+        "--trace=retain-on-failure",
+        "stop a manually started `next dev`",
+    ),
+    "python": ("Never copy `.venv/`",),
+    "swift": (
+        "pass one fixed `-derivedDataPath` for that worktree",
+        "Never choose a new derived-data path per run or per commit.",
+    ),
+    "simple": (),
+}
+PROJECT_SPECIFICS_HEADING = "## Project specifics"
+NEXTJS_AGENT_RULES_END = "<!-- END:nextjs-agent-rules -->"
+APP_ROUTER_HEADING = "# This project uses the App Router"
+WORKTREE_GITIGNORE_ENTRIES = (".worktrees/", ".claude/worktrees/", "*.xcresult/")
 
 SCREENSHOT_HEADINGS = (
     "# Screenshot review guidance",
@@ -302,6 +331,44 @@ def check_agents_guidance(label: str, files: dict) -> list:
         for phrase in AGENTS_COMMON_REQUIREMENTS
         if phrase not in normalized_agents
     ]
+
+
+def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
+    """Require the per-type worktree mechanisms and the repo-owned section layout.
+
+    `## Project specifics` must be the last second-level section so everything
+    a repository adds sits below the generated sections, and the Next.js App
+    Router note must sit after the `next dev`-managed markers, which rewrite
+    everything between them.
+    """
+    agents = files.get("AGENTS.md", "")
+    normalized = " ".join(agents.split())
+    errors = [
+        f"[{label}] {repo_type} AGENTS.md is missing worktree guidance {phrase!r}"
+        for phrase in AGENTS_TYPE_REQUIREMENTS[repo_type]
+        if phrase not in normalized
+    ]
+    headings = [line for line in agents.splitlines() if line.startswith("## ")]
+    if not headings or headings[-1] != PROJECT_SPECIFICS_HEADING:
+        errors.append(
+            f"[{label}] AGENTS.md must end with {PROJECT_SPECIFICS_HEADING!r} as its last "
+            f"second-level section (found {headings[-1] if headings else None!r})"
+        )
+    if repo_type == "nextjs":
+        end = agents.find(NEXTJS_AGENT_RULES_END)
+        note = agents.find(APP_ROUTER_HEADING)
+        if note == -1:
+            errors.append(f"[{label}] Next.js AGENTS.md is missing {APP_ROUTER_HEADING!r}")
+        elif end == -1 or note < end:
+            errors.append(
+                f"[{label}] {APP_ROUTER_HEADING!r} must follow {NEXTJS_AGENT_RULES_END!r}; "
+                "`next dev` rewrites everything between the markers"
+            )
+    gitignore = files.get(".gitignore", "")
+    for entry in WORKTREE_GITIGNORE_ENTRIES:
+        if entry not in gitignore.splitlines():
+            errors.append(f"[{label}] .gitignore is missing {entry!r}")
+    return errors
 
 
 def _markdown_heading_errors(label: str, path: str, content: str) -> list:
@@ -1817,6 +1884,49 @@ def run_self_tests() -> list:
                 f"self-test '{repo_type} release-only contract' did not fail as expected: {result}"
             )
 
+    # Case 38: workspace guidance fails closed — a missing per-type mechanism,
+    # repo-owned content placed below `## Project specifics`, an App Router note
+    # moved inside the `next dev` markers, and a dropped worktree ignore entry.
+    for repo_type in AGENTS_TYPE_REQUIREMENTS:
+        cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
+        files = bootstrap.generate_files(dict(cfg))
+        result = check_workspace_guidance(f"self-test:{repo_type} workspace", repo_type, files)
+        if result:
+            errors.append(f"self-test '{repo_type} workspace guidance' unexpectedly failed: {result}")
+        for phrase in AGENTS_TYPE_REQUIREMENTS[repo_type]:
+            mutated = dict(files)
+            mutated["AGENTS.md"] = " ".join(files["AGENTS.md"].split()).replace(phrase, "", 1)
+            result = check_workspace_guidance(f"self-test:{repo_type} mechanism", repo_type, mutated)
+            if not any(repr(phrase) in e for e in result):
+                errors.append(
+                    f"self-test '{repo_type} missing {phrase!r}' did not fail as expected: {result}"
+                )
+        trailing = dict(files)
+        trailing["AGENTS.md"] = files["AGENTS.md"] + "\n## Local notes\n\nText.\n"
+        result = check_workspace_guidance(f"self-test:{repo_type} trailing", repo_type, trailing)
+        if not any("must end with" in e for e in result):
+            errors.append(f"self-test '{repo_type} trailing section' did not fail as expected: {result}")
+        unignored = dict(files)
+        unignored[".gitignore"] = files[".gitignore"].replace(".worktrees/\n", "", 1)
+        result = check_workspace_guidance(f"self-test:{repo_type} gitignore", repo_type, unignored)
+        if not any("'.worktrees/'" in e for e in result):
+            errors.append(f"self-test '{repo_type} worktree ignore' did not fail as expected: {result}")
+
+    cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
+    files = bootstrap.generate_files(dict(cfg))
+    note_start = files["AGENTS.md"].index(APP_ROUTER_HEADING)
+    note_end = files["AGENTS.md"].index("# Working in this repo")
+    note = files["AGENTS.md"][note_start:note_end]
+    inside = dict(files)
+    inside["AGENTS.md"] = (
+        files["AGENTS.md"]
+        .replace(note, "", 1)
+        .replace(NEXTJS_AGENT_RULES_END, note + NEXTJS_AGENT_RULES_END, 1)
+    )
+    result = check_workspace_guidance("self-test:app router inside markers", "nextjs", inside)
+    if not any("must follow" in e for e in result):
+        errors.append(f"self-test 'app router inside markers' did not fail as expected: {result}")
+
     return errors
 
 
@@ -1833,6 +1943,7 @@ def main() -> int:
         all_errors += check_nextjs_provider_free(label, cfg["repo_type"], files)
         all_errors += check_markers(label, files)
         all_errors += check_agents_guidance(label, files)
+        all_errors += check_workspace_guidance(label, cfg["repo_type"], files)
         all_errors += check_screenshot_guidance(label, cfg["repo_type"], files)
         all_errors += check_workflow_job_consistency(label, cfg["repo_type"], files)
         all_errors += check_workflow_permissions(label, files)

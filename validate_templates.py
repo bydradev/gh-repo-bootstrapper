@@ -325,7 +325,7 @@ def check_agents_guidance(label: str, files: dict) -> list:
     agents = files.get("AGENTS.md")
     if agents is None:
         return [f"[{label}] missing AGENTS.md"]
-    normalized_agents = " ".join(agents.split())
+    normalized_agents = " ".join(_unfenced(agents).split())
     return [
         f"[{label}] AGENTS.md is missing common guidance {phrase!r}"
         for phrase in AGENTS_COMMON_REQUIREMENTS
@@ -1953,6 +1953,24 @@ def run_self_tests() -> list:
     result = check_workspace_guidance("self-test:fenced heading", "nextjs", fenced_heading)
     if result:
         errors.append(f"self-test 'fenced heading' unexpectedly failed: {result}")
+
+    simple_cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "simple")
+    simple_files = bootstrap.generate_files(dict(simple_cfg))
+    simple_agents = simple_files["AGENTS.md"]
+    start = simple_agents.index("## Worktrees, verification copies, and scratch output\n")
+    end = simple_agents.index("## Definition of done\n", start)
+    worktree_section = simple_agents[start:end]
+    fenced_common = dict(simple_files)
+    fenced_common["AGENTS.md"] = (
+        simple_agents[:start] + simple_agents[end:].replace(
+            PROJECT_SPECIFICS_HEADING + "\n",
+            "```text\n" + worktree_section + "```\n\n" + PROJECT_SPECIFICS_HEADING + "\n",
+            1,
+        )
+    )
+    result = check_agents_guidance("self-test:fenced common guidance", fenced_common)
+    if not any("## Worktrees, verification copies, and scratch output" in e for e in result):
+        errors.append(f"self-test 'fenced common guidance' did not fail as expected: {result}")
 
     note_start = files["AGENTS.md"].index(APP_ROUTER_HEADING)
     note_end = files["AGENTS.md"].index("# Working in this repo")

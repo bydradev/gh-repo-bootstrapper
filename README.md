@@ -171,32 +171,28 @@ an unclosed code fence). The `next dev`-managed block and everything from
 and exits 1 on drift.
 
 `--adopt PATH --type TYPE` writes every missing file and never overwrites an
-existing one, with two exceptions that preserve repository-owned content:
+existing one, with one exception that preserves repository-owned content:
+`AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
+everything after it) and the `next dev`-managed block. The rebuild is refused
+while anything `local` remains — move those rules under `## Project specifics`
+first. A generated section whose text differs may be an older template or a
+local edit, and the script cannot tell which, so it is replaced only with
+`--replace-generated-sections`, which lists those sections and asks before
+writing (`--non-interactive` skips the prompt).
 
-- `.gitignore` gains the template entries it lacks, inserted at the top: a
-  later rule wins in `.gitignore`, so the repository's own rules keep their
-  effect. Git cannot re-include a file once a parent directory is excluded, so
-  the update is refused if an added entry could exclude a directory named by
-  an existing `!` exception — in the root file, a nested `.gitignore`, or
-  `.git/info/exclude` (for example `.worktrees/` against `!.worktrees/keep`);
-  add those entries by hand. Wildcards that cannot be compared count as a
-  possible conflict.
-- `AGENTS.md` is rebuilt from the template, keeping `## Project specifics`
-  (and everything after it) and the `next dev`-managed block. The rebuild is
-  refused while anything `local` remains — move those rules under
-  `## Project specifics` first. A generated section whose text differs may be
-  an older template or a local edit, and the script cannot tell which, so it
-  is replaced only with `--replace-generated-sections`, which lists those
-  sections and asks before writing (`--non-interactive` skips the prompt).
+Missing `.gitignore` entries are listed, not written. Whether an added rule
+would override an existing `!` exception depends on git's full ignore rules
+across every ignore file — git cannot re-include a file once a parent
+directory is excluded — so that edit is left to a person.
 
-Both modifications need the file tracked by git with no uncommitted changes,
-LF line endings, and UTF-8 text, so the result can be reviewed with `git diff`
-and reverted. Rewrites replace the file atomically with a new one, keeping its
-permission bits, so a hard link elsewhere keeps its old content; a new file is
-written in full before it appears, and never replaces one created meanwhile.
-Every write walks from `PATH` one directory at a time without following
-symlinks, so a symlink met on the way is refused; `PATH` itself is resolved,
-and `--adopt` prints the directory it is changing.
+The `AGENTS.md` rewrite needs the file tracked by git with no uncommitted
+changes, LF line endings, and UTF-8 text, so the result can be reviewed with
+`git diff` and reverted. It replaces the file atomically with a new one,
+keeping its permission bits, so a hard link elsewhere keeps its old content; a
+new file is written in full before it appears, and never replaces one created
+meanwhile. Every write walks from `PATH` one directory at a time without
+following symlinks, so a symlink met on the way is refused; `PATH` itself is
+resolved, and `--adopt` prints the directory it is changing.
 
 `--adopt` assumes nothing else modifies the repository while it runs. It
 refuses a rewrite whose target changed since it was read, but it cannot close

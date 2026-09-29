@@ -15,7 +15,6 @@ Requirements: Python 3.9+, gh CLI (authenticated), git
 
 import argparse
 import errno
-import fnmatch
 import getpass
 import json
 import os
@@ -202,7 +201,7 @@ def parse_args():
                                "(read-only; exits 1 on drift)")
     existing.add_argument("--adopt", metavar="PATH",
                           help="Write missing template files into an existing local repository "
-                               "and update AGENTS.md/.gitignore where safe (no GitHub calls)")
+                               "and rebuild AGENTS.md where safe (no GitHub calls)")
     p.add_argument("--replace-generated-sections", action="store_true",
                    help="With --adopt: also replace AGENTS.md generated sections whose text "
                         "differs from the template (review the result with git diff)")
@@ -956,112 +955,6 @@ def _missing_lines(expected: str, actual: str) -> list:
     ]
 
 
-_GLOB_CHARS = "*?["
-
-
-def _segments_may_intersect(a: str, b: str) -> bool:
-    """Whether two single-segment gitignore globs could match the same name.
-
-    Exact when either side is literal. Two globs are judged disjoint only in
-    the clear-cut `*suffix` / `prefix*` cases; anything else is assumed to
-    intersect, so doubt leads to a refusal rather than a broken exception.
-    """
-    if "**" in a or "**" in b:
-        return True
-    a_glob, b_glob = any(c in a for c in _GLOB_CHARS), any(c in b for c in _GLOB_CHARS)
-    if not a_glob or not b_glob:
-        return fnmatch.fnmatchcase(a, b) if not a_glob else fnmatch.fnmatchcase(b, a)
-    if a == b:
-        return True
-    for x, y in ((a, b), (b, a)):
-        if x.startswith("*") and y.startswith("*"):
-            xl, yl = x[1:], y[1:]
-            if not any(c in xl + yl for c in _GLOB_CHARS):
-                return xl.endswith(yl) or yl.endswith(xl)
-        if x.endswith("*") and y.endswith("*"):
-            xl, yl = x[:-1], y[:-1]
-            if not any(c in xl + yl for c in _GLOB_CHARS):
-                return xl.startswith(yl) or yl.startswith(xl)
-    return True
-
-
-def _gitignore_negations(repo_dir: Path, root_text: str) -> list:
-    """(directory parts, `!` rule) for every exception git would apply.
-
-    Reads the root .gitignore text given, nested .gitignore files git does not
-    already ignore, and .git/info/exclude. A rule's directory parts are the
-    directories its own path names — the nested file's location plus any
-    directories written in the rule. A slash-less rule such as `!.env.example`
-    names no directory, so no added directory rule is judged to break it.
-    """
-    sources = [((), root_text)]
-    def git(*args):
-        return subprocess.run(["git", "-C", str(repo_dir), *args], capture_output=True, text=True)
-    listed = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/.gitignore")
-    for rel in filter(None, listed.stdout.split("\0")) if listed.returncode == 0 else []:
-        if rel == ".gitignore":
-            continue
-        try:
-            sources.append((Path(rel).parent.parts, (repo_dir / rel).read_text(errors="replace")))
-        except OSError:
-            sources.append((Path(rel).parent.parts, "!**"))  # unreadable: assume the worst
-    exclude = git("rev-parse", "--git-path", "info/exclude")
-    if exclude.returncode == 0:
-        path = Path(exclude.stdout.strip())
-        path = path if path.is_absolute() else repo_dir / path
-        if path.is_file():
-            sources.append(((), path.read_text(errors="replace")))
-    return [negation for base, text in sources for negation in _negations_in(text, base)]
-
-
-def _negations_in(text: str, base: tuple = ()) -> list:
-    """(directory parts, label) for each `!` rule in one ignore file at base."""
-    negations = []
-    for line in text.splitlines():
-        rule = line.strip()
-        if rule.startswith("!"):
-            parts = [part for part in rule[1:].strip("/").split("/") if part]
-            label = f"{'/'.join(base)}/.gitignore: {rule}" if base else rule
-            negations.append((tuple(base) + tuple(parts[:-1]), label))
-    return negations
-
-
-def _gitignore_conflicts(added: list, negations: list) -> list:
-    """(added rule, exception) pairs where adding the rule could break it.
-
-    Git cannot re-include a file once a parent directory is excluded, so an
-    added rule that could match a directory an exception's path names would
-    override it even though it comes first. Added rules are root-level: one
-    with an inner slash is anchored to the root, one without matches a name at
-    any depth, and a leading `**/` matches at any depth.
-    """
-    conflicts = []
-    for pattern in added:
-        if pattern.startswith("!"):
-            continue
-        core = pattern.rstrip("/")
-        anchored = core.startswith("/")
-        core = core.lstrip("/")
-        if core.startswith("**/"):
-            core, anchored = core[3:], False
-        segments = core.split("/")
-        anchored = anchored or len(segments) > 1
-        for parents, rule in negations:
-            if not parents:
-                continue
-            if "**" in segments:
-                hit = True  # a `**` past the start: assume it can match any parent
-            elif not anchored:
-                hit = any(_segments_may_intersect(segments[0], part) for part in parents)
-            else:
-                hit = len(segments) <= len(parents) and all(
-                    _segments_may_intersect(seg, part) for seg, part in zip(segments, parents)
-                )
-            if hit:
-                conflicts.append((pattern, rule))
-    return conflicts
-
-
 def _symlink_in_path(repo_dir: Path, rel: str) -> bool:
     """True when rel, or any directory between repo_dir and it, is a symlink."""
     current = repo_dir
@@ -1287,32 +1180,27 @@ def adopt_repository(
 ) -> list:
     """Bring an existing local repository in line without touching GitHub.
 
-    Writes every missing generated file. Existing files are never overwritten,
-    with two exceptions that keep repository-owned content: .gitignore gains
-    the template's missing entries, and AGENTS.md is rebuilt from the template
-    while keeping `## Project specifics` and the `next dev` block. Both need
-    the file tracked by git with no uncommitted changes, LF line endings, and
+    Writes every missing generated file and never overwrites an existing one,
+    except that AGENTS.md is rebuilt from the template while keeping
+    `## Project specifics` and the `next dev` block. That rewrite needs the
+    file tracked by git with no uncommitted changes, LF line endings, and
     UTF-8 text, so the result can be reviewed and reverted. Writes refuse any
     symlink they meet on the way. --adopt assumes nothing else modifies the
     repository while it runs; it narrows but cannot close races with a
     process that does.
 
-    Missing .gitignore entries are inserted at the top of the file: a later
-    rule wins in .gitignore, so the repository's own rules keep their effect.
-    The one exception git makes — a file cannot be re-included once a parent
-    directory is excluded — is checked against the root file, nested
-    .gitignore files, and .git/info/exclude, and the update refused if an
-    added entry could exclude a directory an existing `!` exception names.
+    Missing .gitignore entries are reported, not written: whether an added
+    rule would break an existing `!` exception depends on git's full ignore
+    semantics across every ignore file, so that edit is left to a person.
 
     The AGENTS.md rebuild is refused while any repository text sits outside
     `## Project specifics`, or the file has structure the parser does not
     model. A generated section whose text differs may be an older template or
     a local edit, and nothing here can tell which, so it is replaced only when
     replace_generated is set; otherwise the rebuild is refused and the
-    differing sections are listed.
-    When replace_generated is set, confirm(sections) is called with the
-    sections about to be replaced before AGENTS.md is written; a falsy result
-    refuses the rebuild.
+    differing sections are listed. When replace_generated is set,
+    confirm(sections) is called with the sections about to be replaced before
+    AGENTS.md is written; a falsy result refuses the rebuild.
     Returns (action, path, detail) rows.
     """
     actions = []
@@ -1355,7 +1243,13 @@ def _adopt_file(
             _remove_empty_dirs(repo_dir, created)
             raise
         return ("wrote", rel, "")
-    if rel not in ("AGENTS.md", ".gitignore"):
+    if rel == ".gitignore":
+        return (
+            "kept", rel,
+            "add these missing entries by hand, where the repository's own rules allow: "
+            + ", ".join(detail),
+        )
+    if rel != "AGENTS.md":
         return ("kept", rel, "differs from the template; not overwritten")
     if not _git_file_is_clean(repo_dir, rel):
         return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
@@ -1365,24 +1259,6 @@ def _adopt_file(
         current = _decode_for_rewrite(raw)
         if current is None:
             return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
-        if rel == ".gitignore":
-            missing = _missing_lines(expected, current)
-            if not missing:
-                return None
-            conflicts = _gitignore_conflicts(missing, _gitignore_negations(repo_dir, current))
-            if conflicts:
-                return (
-                    "refused", rel,
-                    "an added entry could exclude a parent directory of an existing `!` "
-                    "exception, which git cannot then re-include; add these by hand: "
-                    + "; ".join(f"{added} vs {negation}" for added, negation in conflicts),
-                )
-            header = (
-                "# Added by gh-repo-bootstrapper --adopt. Rules later in this file take\n"
-                "# precedence, so this repository's own rules keep their effect.\n"
-            )
-            _replace_anchored(parent, name, header + "\n".join(missing) + "\n\n" + current, identity)
-            return ("updated", rel, f"added {len(missing)} missing entries at the top")
         rows = compare_agents(expected, current)
         if all(row_status == "same" for row_status, _ in rows):
             return None

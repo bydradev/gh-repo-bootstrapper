@@ -49,6 +49,13 @@ class ExistingRepositoryTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
 
+    def _agents_missing_a_section(self, files):
+        """A lossless-to-rebuild AGENTS.md: the template minus one generated section."""
+        generated, owned = bootstrap._split_project_specifics(files["AGENTS.md"])
+        start = generated.index("## Worktrees, verification copies, and scratch output")
+        end = generated.index("## Definition of done")
+        return generated[:start] + generated[end:] + owned
+
     def test_check_reports_missing_files_and_never_writes(self):
         files = _render()
         report = bootstrap.compare_repository(self.repo, files)
@@ -121,42 +128,17 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_adopt_refuses_to_modify_files_outside_a_clean_git_tree(self):
         files = _render()
-        self._write("AGENTS.md", files["AGENTS.md"].split(bootstrap.PROJECT_SPECIFICS)[0])
-        self._write(".gitignore", "node_modules/\n")
-        # Not a git work tree: existing files must not be modified.
+        original = self._agents_missing_a_section(files)
+        self._write("AGENTS.md", original)
+        # Not a git work tree: an existing AGENTS.md must not be modified.
         actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
         self.assertEqual(actions["AGENTS.md"], "refused")
-        self.assertEqual(actions[".gitignore"], "refused")
         # A git work tree with an uncommitted change to the file: also refused.
         self._commit_all()
-        self._write(".gitignore", "node_modules/\ndist/\n")
+        self._write("AGENTS.md", original + "\nUncommitted.\n")
         actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
-        self.assertEqual(actions[".gitignore"], "refused")
-        self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\ndist/\n")
-
-    def test_adopt_prepends_only_missing_gitignore_entries(self):
-        files = _render()
-        self._write(".gitignore", "node_modules/\n.venv/\n")
-        self._commit_all()
-        bootstrap.adopt_repository(self.repo, files)
-        text = (self.repo / ".gitignore").read_text()
-        self.assertTrue(text.endswith("node_modules/\n.venv/\n"))
-        self.assertEqual(text.count(".venv/\n"), 1)
-        self.assertIn(".worktrees/", text.splitlines())
-        status, detail = bootstrap.compare_repository(self.repo, files)[".gitignore"]
-        self.assertEqual((status, detail), ("same", None))
-
-    def test_adopt_keeps_repository_gitignore_exceptions(self):
-        files = _render()
-        self._write(".gitignore", "*.log\n!keep.log\n")
-        self._write("keep.log", "x\n")
-        self._commit_all()
-        bootstrap.adopt_repository(self.repo, files)
-        ignored = subprocess.run(
-            ["git", "-C", str(self.repo), "check-ignore", "-q", "keep.log"], capture_output=True
-        )
-        self.assertEqual(ignored.returncode, 1, "keep.log became ignored")
-
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), original + "\nUncommitted.\n")
     def test_adopt_never_writes_through_symlinks(self):
         files = _render()
         outside = Path(self._tmp.name) / "outside.md"
@@ -180,12 +162,12 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_adopt_refuses_crlf_files(self):
         files = _render()
-        self._write(".gitignore", "node_modules/\r\n")
+        crlf = self._agents_missing_a_section(files).replace("\n", "\r\n").encode()
+        (self.repo / "AGENTS.md").write_bytes(crlf)
         self._commit_all()
         actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
-        self.assertEqual(actions[".gitignore"], "refused")
-        self.assertEqual((self.repo / ".gitignore").read_bytes(), b"node_modules/\r\n")
-
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_bytes(), crlf)
     def test_check_treats_project_specifics_as_repository_owned(self):
         files = _render()
         self._write("AGENTS.md", files["AGENTS.md"] + "\n- Only ours.\n\n## Local notes\n\nMore.\n")
@@ -204,16 +186,15 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_adopt_rewrites_through_a_new_inode(self):
         files = _render()
-        outside = Path(self._tmp.name) / "linked-gitignore"
-        outside.write_text("node_modules/\n")
+        outside = Path(self._tmp.name) / "linked-agents"
+        outside.write_text(self._agents_missing_a_section(files))
         self._git_init()
-        os.link(outside, self.repo / ".gitignore")
+        os.link(outside, self.repo / "AGENTS.md")
         _git(self.repo, "add", "-A")
         _git(self.repo, "commit", "-q", "-m", "init")
         bootstrap.adopt_repository(self.repo, files)
-        self.assertEqual(outside.read_text(), "node_modules/\n")
-        self.assertIn(".worktrees/", (self.repo / ".gitignore").read_text().splitlines())
-
+        self.assertEqual(outside.read_text(), self._agents_missing_a_section(files))
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), files["AGENTS.md"])
     def test_contained_headings_in_generated_sections_are_local(self):
         files = _render()
         generated, owned = bootstrap._split_project_specifics(files["AGENTS.md"])
@@ -258,11 +239,10 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_lone_carriage_returns_are_refused(self):
         files = _render()
-        self._write(".gitignore", "node_modules/\rdist/\r")
+        self._write("AGENTS.md", self._agents_missing_a_section(files).replace("\n", "\r", 3))
         self._commit_all()
         actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
-        self.assertEqual(actions[".gitignore"], "refused")
-
+        self.assertEqual(actions["AGENTS.md"], "refused")
     def test_a_per_file_failure_does_not_abort_the_run(self):
         files = _render()
         original = bootstrap._adopt_file
@@ -296,48 +276,6 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(list(outside.iterdir()), [])
         self.assertEqual(actions["AGENTS.md"], "wrote")
 
-    def test_gitignore_update_refused_when_it_would_break_an_exception(self):
-        files = _render()
-        self._write(".gitignore", "!.worktrees/keep\n")
-        self._write(".worktrees/keep", "x\n")
-        self._commit_all()
-        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
-        self.assertEqual(actions[".gitignore"][0], "refused")
-        self.assertIn(".worktrees/ vs !.worktrees/keep", actions[".gitignore"][1])
-        ignored = subprocess.run(
-            ["git", "-C", str(self.repo), "check-ignore", "-q", ".worktrees/keep"], capture_output=True
-        )
-        self.assertEqual(ignored.returncode, 1)
-
-    def test_gitignore_conflicts(self):
-        def conflicts(added, text, base=()):
-            return bootstrap._gitignore_conflicts(added, bootstrap._negations_in(text, base))
-        self.assertEqual(conflicts([".worktrees/"], "!.worktrees/keep\n"), [(".worktrees/", "!.worktrees/keep")])
-        self.assertTrue(conflicts([".claude/worktrees/"], "!.claude/worktrees/x\n"))
-        self.assertTrue(conflicts(["**/.worktrees/"], "!.worktrees/keep\n"))
-        self.assertTrue(conflicts(["[ab].xcresult/"], "![bc].xcresult/keep\n"))
-        self.assertTrue(conflicts(["*.xcresult/"], "!build/**/keep\n"))
-        self.assertTrue(conflicts([".worktrees/"], "!keep\n", base=(".worktrees",)))
-        self.assertTrue(conflicts(["build/"], "!src/build/keep\n"))       # slash-less: any depth
-        self.assertEqual(conflicts(["/build/"], "!src/build/keep\n"), [])  # anchored to the root
-        # A repository generated from an older template gains the entries added
-        # since without its own template exceptions blocking them.
-        template = bootstrap._load(".gitignore")
-        added = [".mypy_cache/", ".ruff_cache/", ".pytest_cache/", ".hypothesis/",
-                 "*.xcresult/", ".claude/worktrees/", ".worktrees/"]
-        older = "\n".join(line for line in template.splitlines() if line not in added)
-        self.assertEqual(conflicts(added, older), [])
-
-    def test_nested_gitignore_exception_blocks_the_update(self):
-        files = _render()
-        self._write(".gitignore", "node_modules/\n")
-        self._write(".worktrees/.gitignore", "*\n!keep\n!.gitignore\n")
-        self._write(".worktrees/keep", "x\n")
-        self._commit_all()
-        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
-        self.assertEqual(actions[".gitignore"][0], "refused")
-        self.assertIn(".worktrees/.gitignore: !keep", actions[".gitignore"][1])
-
     def test_failed_new_file_leaves_nothing_behind(self):
         files = {"deep/dir/new.txt": "content\n"}
         original = bootstrap._create_anchored
@@ -356,23 +294,25 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_rewrite_refused_when_the_file_changes_after_it_was_read(self):
         files = _render()
-        self._write(".gitignore", "node_modules/\n")
+        self._write("AGENTS.md", self._agents_missing_a_section(files))
         self._commit_all()
         original = bootstrap._create_anchored
+        edited = self._agents_missing_a_section(files) + "\nConcurrent edit.\n"
 
         def edit_then_create(parent, name, text, exact_mode=None):
-            (self.repo / ".gitignore").write_text("node_modules/\nconcurrent-edit/\n")
+            (self.repo / "AGENTS.md").write_text(edited)
             original(parent, name, text, exact_mode)
 
         bootstrap._create_anchored = edit_then_create
         try:
-            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, {".gitignore": files[".gitignore"]})}
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(
+                self.repo, {"AGENTS.md": files["AGENTS.md"]}
+            )}
         finally:
             bootstrap._create_anchored = original
-        self.assertEqual(actions[".gitignore"], "refused")
-        self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\nconcurrent-edit/\n")
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
         self.assertEqual([p.name for p in self.repo.iterdir() if p.name.endswith(".tmp")], [])
-
     def test_unreadable_file_is_reported_and_the_run_continues(self):
         files = _render()
         self._write("README.md", "# Mine\n")
@@ -406,6 +346,15 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual([heading for heading, _ in sections], ["## A", "## B"])
         self.assertEqual(bootstrap._split_project_specifics(text), (text, None))
         self.assertIn("(code fence left open at end of file)", bootstrap._markdown_ambiguities("```\n## A\n"))
+
+    def test_adopt_reports_missing_gitignore_entries_without_writing(self):
+        files = _render()
+        self._write(".gitignore", "node_modules/\n!.worktrees/keep\n")
+        self._commit_all()
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".gitignore"][0], "kept")
+        self.assertIn(".worktrees/", actions[".gitignore"][1])
+        self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\n!.worktrees/keep\n")
 
     def test_nextjs_block_is_kept_and_not_compared(self):
         files = _render("nextjs")

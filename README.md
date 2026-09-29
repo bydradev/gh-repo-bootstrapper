@@ -180,7 +180,8 @@ local edit, and the script cannot tell which, so it is replaced only with
 `--replace-generated-sections`, which lists those sections and asks before
 writing (`--non-interactive` skips the prompt).
 
-Missing `.gitignore` entries are listed, not written. Whether an added rule
+For an existing `.gitignore`, missing entries are listed, not written; a
+missing `.gitignore` is created like any other file. Whether an added rule
 would override an existing `!` exception depends on git's full ignore rules
 across every ignore file — git cannot re-include a file once a parent
 directory is excluded — so that edit is left to a person.

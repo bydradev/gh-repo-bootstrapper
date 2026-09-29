@@ -19,3 +19,7 @@ a plain `pip install -e .` otherwise. Projects that declare dev dependencies
 through tool-specific metadata instead (e.g. Poetry's
 `[tool.poetry.group.dev.dependencies]`) aren't detected by this check — add a
 `requirements-dev.txt` to have CI install that dependency set explicitly.
+
+A worktree needs its own virtual environment: create it inside that worktree
+and remove it with the worktree. Never copy `.venv/` or tool caches
+(`.mypy_cache/`, `.ruff_cache/`, `.pytest_cache/`) into a verification copy.

@@ -62,6 +62,6 @@ undocumented dismissal.
 - **Dismiss the Dependabot alert without a documented row** — rejected because its rationale and
   expiry condition disappear from review.
 - **Accept a production finding rather than fixing or upgrading it** — rejected because the
-  production audit floor is zero at high severity and above.
+  production audit floor admits no undocumented finding at any severity.
 - **Record every development advisory indefinitely** — rejected; record only decisions that cannot
   currently be fixed, with a trigger that forces the decision to be revisited.

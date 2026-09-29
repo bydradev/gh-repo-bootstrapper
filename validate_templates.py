@@ -161,6 +161,7 @@ AGENTS_TYPE_REQUIREMENTS = {
         "Never copy `node_modules`, `.next`, `test-results`, or `playwright-report`",
         "--trace=retain-on-failure",
         "stop a manually started `next dev`",
+        "reported as `flaky`, not failed",
     ),
     "python": ("Never copy `.venv/`",),
     "rust": (
@@ -171,6 +172,7 @@ AGENTS_TYPE_REQUIREMENTS = {
     "swift": (
         "pass one fixed `-derivedDataPath` for that worktree",
         "Never choose a new derived-data path per run or per commit.",
+        "does not change the app's `MARKETING_VERSION`",
     ),
     "simple": (),
 }

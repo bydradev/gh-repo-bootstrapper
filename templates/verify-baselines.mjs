@@ -104,20 +104,35 @@ function rulesFromEslintConfig(text) {
   return rules;
 }
 
-// Yields the body of each block comment. Scans forward with indexOf, so the
-// cost stays linear however many comments or unterminated openers a file has.
-// Like the directive scan above, it reads raw text, so a comment-shaped string
-// literal is read as a comment.
-// The delimiters are split so this file's own source holds no comment-shaped
-// literal pair to mislead the scan when it checks itself.
-const commentOpen = "/" + "*";
-const commentClose = "*" + "/";
-function* blockComments(source) {
-  for (let start = source.indexOf(commentOpen); start !== -1;) {
-    const end = source.indexOf(commentClose, start + 2);
+// Yields the body of each `eslint` configuration block comment. Rather than
+// pairing every comment delimiter, which lets a string such as a
+// "src/**/*.ts" glob open a phantom comment that swallows a real one, it
+// reads from each opener followed by `eslint` through to the next closing
+// delimiter, which is where a real comment ends. Every opener is read in full
+// and independently, so no real comment can be hidden or cut short by
+// opener-shaped text before or inside it; such text is counted too, which errs
+// on the side of requiring a row. Openers sharing one closing delimiter reread
+// the same text, so more than maxOpenersPerSpan of them fails closed rather
+// than letting a pathological file make the scan quadratic.
+const maxOpenersPerSpan = 64;
+function* eslintConfigComments(source) {
+  const opener = /\/\*\s*eslint\s/gu;
+  const close = "*" + "/";
+  let end = -1;
+  let openersInSpan = 0;
+  for (let match = opener.exec(source); match; match = opener.exec(source)) {
+    const start = opener.lastIndex;
+    if (end < start) {
+      end = source.indexOf(close, start);
+      openersInSpan = 0;
+    }
     if (end === -1) return;
-    yield source.slice(start + 2, end);
-    start = source.indexOf(commentOpen, end + 2);
+    if (++openersInSpan > maxOpenersPerSpan)
+      throw new Error(
+        `more than ${maxOpenersPerSpan} eslint configuration openers before one closing delimiter`,
+      );
+    yield source.slice(start, end);
+    opener.lastIndex = match.index + 1;
   }
 }
 
@@ -176,11 +191,12 @@ for (const sourcePath of walk(root)) {
   // may carry only eslint-disable-line and eslint-disable-next-line (checked
   // against ESLint 9.39.4's SourceCode#getInlineConfigNodes and Linter,
   // 2026-09-30).
-  for (const comment of blockComments(source)) {
-    const config = /^\s*eslint\s([\s\S]*)$/u.exec(comment);
-    if (!config) continue;
-    for (const rule of rulesFromEslintConfig(config[1]))
-      suppressions.push(`${relativePath}\u0000${rule}`);
+  try {
+    for (const config of eslintConfigComments(source))
+      for (const rule of rulesFromEslintConfig(config))
+        suppressions.push(`${relativePath}\u0000${rule}`);
+  } catch (error) {
+    fail(`${relativePath}: ${error.message}`);
   }
 }
 

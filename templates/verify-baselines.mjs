@@ -107,19 +107,21 @@ function rulesFromEslintConfig(text) {
 // Yields the body of each `eslint` configuration block comment. Rather than
 // pairing every comment delimiter, which lets a string such as a
 // "src/**/*.ts" glob open a phantom comment that swallows a real one, it
-// finds each opener followed by `eslint` and reads to the next closing
-// delimiter, which is where the real comment ends. So no configuration
-// comment can be missed; text that merely looks like one, such as inside a
-// string, is counted too, which errs on the side of requiring a row. Each
-// search moves forward, so the scan stays linear.
+// reads from each opener followed by `eslint` to the next closing delimiter,
+// which is where a real comment ends. Every opener is read independently, so
+// configuration-shaped text before a real comment (in a line comment or a
+// string) cannot hide it; such text is counted too, which errs on the side of
+// requiring a row. The next closing delimiter is found once and reused, so the
+// scan stays linear however many openers precede it.
 function* eslintConfigComments(source) {
   const opener = /\/\*\s*eslint\s/gu;
   const close = "*" + "/";
+  let end = -1;
   for (let match = opener.exec(source); match; match = opener.exec(source)) {
-    const end = source.indexOf(close, opener.lastIndex);
+    if (end < opener.lastIndex) end = source.indexOf(close, opener.lastIndex);
     if (end === -1) return;
     yield source.slice(opener.lastIndex, end);
-    opener.lastIndex = end + close.length;
+    opener.lastIndex = match.index + 1;
   }
 }
 

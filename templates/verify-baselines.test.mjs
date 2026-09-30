@@ -166,3 +166,18 @@ test("counts configuration-shaped text in a string, erring towards a row", () =>
     /sample\.ts — eqeqeq\n/,
   );
 });
+
+test("reads a real configuration comment after configuration-shaped text", () => {
+  for (const prefix of ["/" + "/ /" + "* eslint", 'const text = "/' + '* eslint";'])
+    assert.match(
+      runFixture(`${prefix}\n/` + '* eslint no-console: "off" */\n'),
+      /sample\.ts — no-console\n/,
+    );
+});
+
+test("stays linear with many openers before one closing delimiter", () => {
+  const started = Date.now();
+  const output = runFixture("/" + "* eslint ".repeat(50_000) + "*" + "/\n");
+  assert.match(output, /Baseline verification passed/);
+  assert.ok(Date.now() - started < 5_000, "scan took too long");
+});

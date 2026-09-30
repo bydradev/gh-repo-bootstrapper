@@ -144,4 +144,60 @@ test("scans its own source to the end", () => {
   const source = readFileSync(join(scriptsDirectory, "verify-baselines.mjs"), "utf8");
   const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');
   assert.match(output, /sample\.ts — no-console\n/);
+  assert.equal(output.match(/ — /g)?.length, 1, output);
+});
+
+test("finds a configuration comment wherever comment-shaped code precedes it", () => {
+  const output = runFixture(
+    [
+      'const globs = ["src/**/*.ts", "/' + '*"];',
+      "const url = /https?:\\/\\//; /" + '* eslint no-console: "off" */',
+      "const value = `${input /" + '* eslint eqeqeq: "off" */}`;',
+      "export const title = <p>Don't stop</p>; /" + '* eslint no-alert: "warn" */',
+    ].join("\n"),
+  );
+  for (const rule of ["no-console", "eqeqeq", "no-alert"])
+    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+});
+
+test("counts configuration-shaped text in a string, erring towards a row", () => {
+  assert.match(
+    runFixture('const text = "/' + "* eslint eqeqeq: 'off' */\";\n"),
+    /sample\.ts — eqeqeq\n/,
+  );
+});
+
+test("reads a real configuration comment after configuration-shaped text", () => {
+  for (const prefix of ["/" + "/ /" + "* eslint", 'const text = "/' + '* eslint";'])
+    assert.match(
+      runFixture(`${prefix}\n/` + '* eslint no-console: "off" */\n'),
+      /sample\.ts — no-console\n/,
+    );
+});
+
+test("fails closed on too many openers before one closing delimiter", () => {
+  const started = Date.now();
+  const output = runFixture(("/" + "* eslint ").repeat(50_000) + "*" + "/\n");
+  assert.match(output, /more than 64 eslint configuration openers before one closing delimiter/);
+  assert.ok(Date.now() - started < 5_000, "scan took too long");
+});
+test("parses a whole configuration comment even when a setting quotes opener text", () => {
+  const output = runFixture(
+    "/" +
+      '* eslint no-warning-comments: ["warn", { terms: ["/' +
+      '* eslint marker"] }], no-console: "off" */\n',
+  );
+  assert.match(output, /sample\.ts — no-warning-comments\n/);
+  assert.match(output, /sample\.ts — no-console\n/);
+});
+
+test("reads a real configuration comment in full after opener-shaped text", () => {
+  const output = runFixture(
+    'const label = "/' +
+      '* eslint ";\n/' +
+      '* eslint no-warning-comments: ["warn", { terms: ["/' +
+      '* eslint marker"] }], no-console: "off" */\n',
+  );
+  assert.match(output, /sample\.ts — no-warning-comments\n/);
+  assert.match(output, /sample\.ts — no-console\n/);
 });

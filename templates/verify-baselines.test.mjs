@@ -89,3 +89,28 @@ test("ignores suppression directives inside generated output directories", () =>
     /Undocumented suppressions/,
   );
 });
+
+test("counts every rule an inline ESLint configuration comment sets", () => {
+  const output = runFixture(
+    "/" +
+      '* eslint no-console: "off",\n   max-len: ["error", { code: 120, ignoreUrls: true }] */\n',
+  );
+  assert.match(output, /Undocumented suppressions/);
+  assert.match(output, /sample\.ts — no-console/);
+  assert.match(output, /sample\.ts — max-len/);
+  assert.doesNotMatch(output, /— (code|ignoreUrls)/);
+});
+
+test("ignores ESLint rule configuration in a line comment, as ESLint does", () => {
+  assert.match(
+    runFixture("/" + '/ eslint no-console: "off"\nexport const ok = 1;\n'),
+    /Baseline verification passed/,
+  );
+});
+
+test("does not read eslint-env or eslint-disable as rule configuration", () => {
+  assert.match(
+    runFixture("/" + "* eslint-env node */\nexport const ok = 1;\n"),
+    /Baseline verification passed: 0 suppression/,
+  );
+});

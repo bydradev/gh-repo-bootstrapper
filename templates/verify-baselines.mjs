@@ -62,6 +62,17 @@ function rulesFromEslintDirective(text, file) {
   return rules.split(/[\s,]+/).filter(Boolean);
 }
 
+// An `eslint` configuration block comment, such as one setting no-console to
+// "off", reconfigures rules for the whole file. Only its top-level keys name
+// rules; option arrays and objects hold settings, so strip them (innermost
+// first) before reading the keys.
+function rulesFromEslintConfig(text) {
+  let topLevel = text.split("--", 1)[0];
+  for (let previous; previous !== topLevel;)
+    [previous, topLevel] = [topLevel, topLevel.replace(/\[[^[\]]*\]|\{[^{}]*\}/g, "")];
+  return [...topLevel.matchAll(/([@\w/-]+)\s*:/g)].map(([, rule]) => rule);
+}
+
 function count(entries) {
   const counts = new Map();
   for (const entry of entries) counts.set(entry, (counts.get(entry) ?? 0) + 1);
@@ -113,6 +124,13 @@ for (const sourcePath of walk(root)) {
       : rulesFromEslintDirective(remainder, relativePath);
     for (const rule of rules) suppressions.push(`${relativePath}\u0000${rule}`);
   }
+  // ESLint honours rule configuration only in block comments; a line comment
+  // may carry only eslint-disable-line and eslint-disable-next-line (checked
+  // against ESLint 9.39.4's SourceCode#getInlineConfigNodes and Linter,
+  // 2026-09-30).
+  for (const [, config] of source.matchAll(/\/\*\s*eslint\s([\s\S]*?)\*\//g))
+    for (const rule of rulesFromEslintConfig(config))
+      suppressions.push(`${relativePath}\u0000${rule}`);
 }
 
 const documentedCounts = count(documented);

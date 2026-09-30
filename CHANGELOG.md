@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.1...v0.5.2) (2026-09-30)
+
+
+### Bug Fixes
+
+* count inline eslint rule configuration as a suppression ([#45](https://github.com/bydradev/gh-repo-bootstrapper/issues/45)) ([f5a8867](https://github.com/bydradev/gh-repo-bootstrapper/commit/f5a88679046551efa08adcd9e16ec5e900d5b4c2))
+* fail the production audit closed on an error response ([#44](https://github.com/bydradev/gh-repo-bootstrapper/issues/44)) ([64e0469](https://github.com/bydradev/gh-repo-bootstrapper/commit/64e0469d798822d0d39ac18bc82ab81fd7ba267e))
+* flag malformed review dates in the baseline review ([6d3cffe](https://github.com/bydradev/gh-repo-bootstrapper/commit/6d3cffef3cc3fa65c42f4420a483866cf4e49950))
+* name linked worktrees after their main checkout in --check and --adopt ([#42](https://github.com/bydradev/gh-repo-bootstrapper/issues/42)) ([1643935](https://github.com/bydradev/gh-repo-bootstrapper/commit/16439353f60ac99df89339342cad14eb2d7afaf6))
+* treat an npm audit error as unknown in the baseline review ([#46](https://github.com/bydradev/gh-repo-bootstrapper/issues/46)) ([6d3cffe](https://github.com/bydradev/gh-repo-bootstrapper/commit/6d3cffef3cc3fa65c42f4420a483866cf4e49950))
+
 ## [0.5.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.0...v0.5.1) (2026-09-30)
 
 

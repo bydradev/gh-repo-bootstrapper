@@ -181,3 +181,13 @@ test("stays linear with many openers before one closing delimiter", () => {
   assert.match(output, /Baseline verification passed/);
   assert.ok(Date.now() - started < 5_000, "scan took too long");
 });
+
+test("parses a whole configuration comment even when a setting quotes opener text", () => {
+  const output = runFixture(
+    "/" +
+      '* eslint no-warning-comments: ["warn", { terms: ["/' +
+      '* eslint marker"] }], no-console: "off" */\n',
+  );
+  assert.match(output, /sample\.ts — no-warning-comments\n/);
+  assert.match(output, /sample\.ts — no-console\n/);
+});

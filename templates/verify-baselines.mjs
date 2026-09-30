@@ -111,9 +111,11 @@ function rulesFromEslintConfig(text) {
 // which is where a real comment ends. Every opener is read independently, so
 // configuration-shaped text before a real comment (in a line comment or a
 // string) cannot hide it; such text is counted too, which errs on the side of
-// requiring a row. A body also stops at the next opener and the closing
-// delimiter is found once and reused, so each character is read once and the
-// scan stays linear however many openers a file holds.
+// requiring a row. The first opener before a closing delimiter reads through
+// to it, so a real comment is always parsed whole even if a setting quotes
+// opener-shaped text; later openers in the same span stop at the next opener.
+// The closing delimiter is found once and reused, so each span is read at most
+// twice and the scan stays linear however many openers a file holds.
 function* eslintConfigComments(source) {
   const opener = /\/\*\s*eslint\s/gu;
   const close = "*" + "/";
@@ -121,11 +123,12 @@ function* eslintConfigComments(source) {
   let match = opener.exec(source);
   while (match) {
     const start = opener.lastIndex;
-    if (end < start) end = source.indexOf(close, start);
+    const first = end < start;
+    if (first) end = source.indexOf(close, start);
     if (end === -1) return;
     opener.lastIndex = match.index + 1;
     const next = opener.exec(source);
-    yield source.slice(start, next && next.index < end ? next.index : end);
+    yield source.slice(start, first || !next || next.index >= end ? end : next.index);
     match = next;
   }
 }

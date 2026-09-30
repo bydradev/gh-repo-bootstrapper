@@ -21,8 +21,9 @@ npm audit --omit=dev
 Note the absence of `--audit-level`. CI runs `npm run audit:production`, which reads
 `npm audit --omit=dev --json` and requires a row in the table below for **every** reported
 advisory — a `low` finding blocks the build exactly as a `critical` one does. `--audit-level`
-has no effect alongside `--json` (it only sets npm's own exit code), so a threshold in this
-command would describe a gate that does not exist.
+sets only npm's own exit code and does not filter the JSON report, and the checker gates on that
+report rather than on npm's exit code, so a threshold in this command would describe a gate that
+does not exist.
 
 The checker derives its runtime allowlist from this table and fails closed if the document is
 missing or malformed. A row in this document is therefore the only way an accepted runtime

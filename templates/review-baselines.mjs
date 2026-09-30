@@ -28,6 +28,15 @@ function linesForReviewDates(rows, describe) {
   for (const row of rows) {
     const reviewAt = new Date(`${row.reviewDate}T00:00:00.000Z`);
     const description = describe(row);
+    // An unparseable or impossible date (2026-02-30) would otherwise compare as
+    // NaN and read as not due, hiding the row from every review.
+    if (
+      Number.isNaN(reviewAt.valueOf()) ||
+      reviewAt.toISOString().slice(0, 10) !== row.reviewDate
+    ) {
+      past.push(`${description} (invalid review date)`);
+      continue;
+    }
     const urgency = reviewUrgency(daysUntil(reviewAt), reviewWindowDays);
     if (urgency === "past") past.push(description);
     else if (urgency === "upcoming") upcoming.push(description);
@@ -88,11 +97,28 @@ async function releaseWorkflowRuns(repository, token, query) {
 function npmAuditReport() {
   const audit = spawnSync("npm", ["audit", "--json"], { encoding: "utf8" });
   if (audit.error) throw new Error(`unable to run npm audit: ${audit.error.message}`);
+  let report;
   try {
-    return JSON.parse(audit.stdout);
+    report = JSON.parse(audit.stdout);
   } catch {
     throw new Error(`npm audit did not return valid JSON. ${audit.stderr || audit.stdout}`);
   }
+  // A failed audit (for example a registry outage) still prints JSON, with an
+  // `error` object and no vulnerability map, and npm exits 0. Reading that as
+  // an empty audit would report every advisory row as orphaned, or none.
+  if (
+    !report ||
+    typeof report !== "object" ||
+    report.error ||
+    typeof report.metadata?.vulnerabilities?.total !== "number" ||
+    !report.vulnerabilities ||
+    typeof report.vulnerabilities !== "object" ||
+    Array.isArray(report.vulnerabilities)
+  )
+    throw new Error(
+      `npm audit returned an incomplete or error response. ${audit.stderr || audit.stdout}`,
+    );
+  return report;
 }
 
 function auditedAdvisoryUrls(report) {

@@ -63,8 +63,10 @@ python -m pip install -r requirements-dev.txt
 python validate_templates.py
 ```
 
-This runs in CI (`.github/workflows/validate.yml`) on every pull request and
-on pushes to `main`.
+CI (`.github/workflows/validate.yml`) runs this validator, the pytest suite
+under `tests/`, and the `node:test` suites for the generated baseline scripts
+(`node --test templates/*.test.mjs`) on every pull request and on pushes to
+`main`.
 
 ### Next.js npm-script assumptions
 

@@ -107,29 +107,32 @@ function rulesFromEslintConfig(text) {
 // Yields the body of each `eslint` configuration block comment. Rather than
 // pairing every comment delimiter, which lets a string such as a
 // "src/**/*.ts" glob open a phantom comment that swallows a real one, it
-// reads from each opener followed by `eslint` to the next closing delimiter,
-// which is where a real comment ends. Every opener is read independently, so
-// configuration-shaped text before a real comment (in a line comment or a
-// string) cannot hide it; such text is counted too, which errs on the side of
-// requiring a row. The first opener before a closing delimiter reads through
-// to it, so a real comment is always parsed whole even if a setting quotes
-// opener-shaped text; later openers in the same span stop at the next opener.
-// The closing delimiter is found once and reused, so each span is read at most
-// twice and the scan stays linear however many openers a file holds.
+// reads from each opener followed by `eslint` through to the next closing
+// delimiter, which is where a real comment ends. Every opener is read in full
+// and independently, so no real comment can be hidden or cut short by
+// opener-shaped text before or inside it; such text is counted too, which errs
+// on the side of requiring a row. Openers sharing one closing delimiter reread
+// the same text, so more than maxOpenersPerSpan of them fails closed rather
+// than letting a pathological file make the scan quadratic.
+const maxOpenersPerSpan = 64;
 function* eslintConfigComments(source) {
   const opener = /\/\*\s*eslint\s/gu;
   const close = "*" + "/";
   let end = -1;
-  let match = opener.exec(source);
-  while (match) {
+  let openersInSpan = 0;
+  for (let match = opener.exec(source); match; match = opener.exec(source)) {
     const start = opener.lastIndex;
-    const first = end < start;
-    if (first) end = source.indexOf(close, start);
+    if (end < start) {
+      end = source.indexOf(close, start);
+      openersInSpan = 0;
+    }
     if (end === -1) return;
+    if (++openersInSpan > maxOpenersPerSpan)
+      throw new Error(
+        `more than ${maxOpenersPerSpan} eslint configuration openers before one closing delimiter`,
+      );
+    yield source.slice(start, end);
     opener.lastIndex = match.index + 1;
-    const next = opener.exec(source);
-    yield source.slice(start, first || !next || next.index >= end ? end : next.index);
-    match = next;
   }
 }
 
@@ -188,9 +191,13 @@ for (const sourcePath of walk(root)) {
   // may carry only eslint-disable-line and eslint-disable-next-line (checked
   // against ESLint 9.39.4's SourceCode#getInlineConfigNodes and Linter,
   // 2026-09-30).
-  for (const config of eslintConfigComments(source))
-    for (const rule of rulesFromEslintConfig(config))
-      suppressions.push(`${relativePath}\u0000${rule}`);
+  try {
+    for (const config of eslintConfigComments(source))
+      for (const rule of rulesFromEslintConfig(config))
+        suppressions.push(`${relativePath}\u0000${rule}`);
+  } catch (error) {
+    fail(`${relativePath}: ${error.message}`);
+  }
 }
 
 const documentedCounts = count(documented);

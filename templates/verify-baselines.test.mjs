@@ -175,16 +175,26 @@ test("reads a real configuration comment after configuration-shaped text", () =>
     );
 });
 
-test("stays linear with many openers before one closing delimiter", () => {
+test("fails closed on too many openers before one closing delimiter", () => {
   const started = Date.now();
   const output = runFixture(("/" + "* eslint ").repeat(50_000) + "*" + "/\n");
-  assert.match(output, /Baseline verification passed/);
+  assert.match(output, /more than 64 eslint configuration openers before one closing delimiter/);
   assert.ok(Date.now() - started < 5_000, "scan took too long");
 });
-
 test("parses a whole configuration comment even when a setting quotes opener text", () => {
   const output = runFixture(
     "/" +
+      '* eslint no-warning-comments: ["warn", { terms: ["/' +
+      '* eslint marker"] }], no-console: "off" */\n',
+  );
+  assert.match(output, /sample\.ts — no-warning-comments\n/);
+  assert.match(output, /sample\.ts — no-console\n/);
+});
+
+test("reads a real configuration comment in full after opener-shaped text", () => {
+  const output = runFixture(
+    'const label = "/' +
+      '* eslint ";\n/' +
       '* eslint no-warning-comments: ["warn", { terms: ["/' +
       '* eslint marker"] }], no-console: "off" */\n',
   );

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.2...v0.5.3) (2026-09-30)
+
+
+### Bug Fixes
+
+* stop strings from hiding eslint configuration comments ([#47](https://github.com/bydradev/gh-repo-bootstrapper/issues/47)) ([ed3c6c4](https://github.com/bydradev/gh-repo-bootstrapper/commit/ed3c6c4d163d8dce6e32baba1fb6b560681d9d27))
+
 ## [0.5.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.1...v0.5.2) (2026-09-30)
 
 

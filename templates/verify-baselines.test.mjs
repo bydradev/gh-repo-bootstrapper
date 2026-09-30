@@ -144,19 +144,25 @@ test("scans its own source to the end", () => {
   const source = readFileSync(join(scriptsDirectory, "verify-baselines.mjs"), "utf8");
   const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');
   assert.match(output, /sample\.ts — no-console\n/);
+  assert.equal(output.match(/ — /g)?.length, 1, output);
 });
 
-test("does not let comment-shaped text in strings hide a real configuration comment", () => {
+test("finds a configuration comment wherever comment-shaped code precedes it", () => {
   const output = runFixture(
     [
       'const globs = ["src/**/*.ts", "/' + '*"];',
-      "const template = `/" + "* not a comment " + "*" + "/`;",
-      "/" + "/ a line comment mentioning /" + "* is not a block",
-      "export const title = <p>Don't stop</p>;",
-      "/" + '* eslint no-console: "off" */',
-      'const text = "/' + "* eslint eqeqeq: 'off' */\";",
+      "const url = /https?:\\/\\//; /" + '* eslint no-console: "off" */',
+      "const value = `${input /" + '* eslint eqeqeq: "off" */}`;',
+      "export const title = <p>Don't stop</p>; /" + '* eslint no-alert: "warn" */',
     ].join("\n"),
   );
-  assert.match(output, /sample\.ts — no-console\n/);
-  assert.doesNotMatch(output, /eqeqeq/);
+  for (const rule of ["no-console", "eqeqeq", "no-alert"])
+    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+});
+
+test("counts configuration-shaped text in a string, erring towards a row", () => {
+  assert.match(
+    runFixture('const text = "/' + "* eslint eqeqeq: 'off' */\";\n"),
+    /sample\.ts — eqeqeq\n/,
+  );
 });

@@ -1282,6 +1282,42 @@ def _adopt_file(
     return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
 
 
+_GIT_REPOSITORY_CONTEXT_VARIABLES = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+    "GIT_PREFIX",
+})
+
+
+def existing_repository_name(repo_dir: Path) -> str:
+    """The name templates render for an existing repository.
+
+    A linked worktree lives in a directory named for its purpose (for example
+    ``.worktrees/app/align``), so its basename is not the repository's name.
+    When ``repo_dir`` is the top level of a git working tree, use the name of the
+    main checkout that owns the shared ``.git`` directory instead. Anything else
+    (not a repository, a subdirectory of one, a worktree whose shared git
+    directory is not a ``.git`` directory, git unavailable) keeps the basename.
+    """
+    # Inherited repository-context overrides would make git describe some other
+    # repository; drop only those, so command-scope config such as
+    # GIT_CONFIG_COUNT (e.g. safe.directory) still applies.
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--show-toplevel", "--git-common-dir"],
+            capture_output=True, text=True, check=True, timeout=10, env=env,
+        )
+        toplevel, common = r.stdout.splitlines()[:2]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return repo_dir.name
+    # --git-common-dir may be relative to repo_dir; --show-toplevel is absolute.
+    toplevel, common = Path(toplevel), (repo_dir / common).resolve()
+    if toplevel.resolve() != repo_dir or common.name != ".git":
+        return repo_dir.name
+    return common.parent.name
+
+
 def existing_repository_config(args) -> dict:
     """Configuration for --check/--adopt, built without any GitHub calls."""
     if not args.repo_type:
@@ -1295,7 +1331,7 @@ def existing_repository_config(args) -> dict:
     if not repo_dir.is_dir():
         _die(f"not a directory: {repo_dir}")
     return {
-        "name": repo_dir.name,
+        "name": existing_repository_name(repo_dir),
         "repo_dir": str(repo_dir),
         "repo_type": args.repo_type,
         "postgres": bool(args.postgres),

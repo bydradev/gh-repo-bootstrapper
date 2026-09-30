@@ -13,7 +13,7 @@ CI and requires removing both the stale directive and its row below. Dependency 
 self-clean this way; their review triggers belong in `docs/advisory-baseline.md`. Each accepted
 suppression below carries a review date for the same reason: the weekly `npm run review:baselines`
 surfaces overdue acceptances alongside overdue advisories. Review-date expiry is reported by the
-weekly review only and never gates a pull request. The review cadence is six months from acceptance, the fleet precedent established by the advisory baseline.
+weekly review only and never gates a pull request. The review cadence is six months from acceptance.
 
 ## Policy: the baseline is zero
 

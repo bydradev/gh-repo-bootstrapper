@@ -15,7 +15,7 @@ const advisoryHeader = [
 ].join("\n");
 const advisoryUrl = "https://github.com/advisories/GHSA-aaaa-bbbb-cccc";
 const vulnerableReport = {
-  metadata: { vulnerabilities: { high: 1 } },
+  metadata: { vulnerabilities: { high: 1, total: 1 } },
   vulnerabilities: { example: { via: [{ url: advisoryUrl }] } },
 };
 
@@ -81,6 +81,12 @@ test("an audit error response fails closed", () => {
 
 test("a report without a vulnerability map fails closed", () => {
   const result = runAudit({ metadata: { vulnerabilities: { total: 0 } } });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /incomplete or error response/);
+});
+
+test("a report without vulnerability counts fails closed", () => {
+  const result = runAudit({ metadata: { vulnerabilities: {} }, vulnerabilities: {} });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /incomplete or error response/);
 });

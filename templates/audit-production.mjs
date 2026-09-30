@@ -38,7 +38,7 @@ if (
   !report ||
   typeof report !== "object" ||
   report.error ||
-  !report.metadata?.vulnerabilities ||
+  typeof report.metadata?.vulnerabilities?.total !== "number" ||
   !report.vulnerabilities ||
   typeof report.vulnerabilities !== "object" ||
   Array.isArray(report.vulnerabilities)

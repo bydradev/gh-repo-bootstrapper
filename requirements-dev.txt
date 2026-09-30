@@ -1,2 +1,4 @@
-# Development-only dependency for validate_templates.py.
+# Development-only dependencies: PyYAML for validate_templates.py, pytest for
+# the tests/ suite.
 PyYAML>=6,<7
+pytest>=9,<10

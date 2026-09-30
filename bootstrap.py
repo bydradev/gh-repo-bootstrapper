@@ -1282,6 +1282,29 @@ def _adopt_file(
     return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
 
 
+def existing_repository_name(repo_dir: Path) -> str:
+    """The name templates render for an existing repository.
+
+    A linked worktree lives in a directory named for its purpose (for example
+    ``.worktrees/app/align``), so its basename is not the repository's name.
+    When ``repo_dir`` is the top level of a git working tree, use the name of the
+    main checkout that owns the shared ``.git`` directory instead. Anything else
+    (not a repository, a subdirectory of one, git unavailable) keeps the basename.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--path-format=absolute",
+             "--show-toplevel", "--git-common-dir"],
+            capture_output=True, text=True, check=True, timeout=10,
+        )
+        toplevel, common = (Path(line) for line in r.stdout.splitlines()[:2])
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return repo_dir.name
+    if toplevel.resolve() != repo_dir or common.name != ".git":
+        return repo_dir.name
+    return common.parent.name
+
+
 def existing_repository_config(args) -> dict:
     """Configuration for --check/--adopt, built without any GitHub calls."""
     if not args.repo_type:
@@ -1295,7 +1318,7 @@ def existing_repository_config(args) -> dict:
     if not repo_dir.is_dir():
         _die(f"not a directory: {repo_dir}")
     return {
-        "name": repo_dir.name,
+        "name": existing_repository_name(repo_dir),
         "repo_dir": str(repo_dir),
         "repo_type": args.repo_type,
         "postgres": bool(args.postgres),

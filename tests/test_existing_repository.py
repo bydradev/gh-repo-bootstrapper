@@ -381,6 +381,37 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertIn("does not import AGENTS.md", detail)
 
 
+class RepositoryNameTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name).resolve()
+        self.repo = self.root / "sample"
+        self.repo.mkdir()
+        (self.repo / "README.md").write_text("sample\n")
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_main_checkout_uses_its_directory_name(self):
+        self.assertEqual(bootstrap.existing_repository_name(self.repo), "sample")
+
+    def test_linked_worktree_uses_the_main_checkout_name(self):
+        worktree = self.root / ".worktrees" / "sample" / "align"
+        _git(self.repo, "worktree", "add", "-q", "--detach", str(worktree))
+        self.assertEqual(bootstrap.existing_repository_name(worktree), "sample")
+
+    def test_subdirectory_and_non_repository_keep_their_basename(self):
+        nested = self.repo / "packages" / "web"
+        nested.mkdir(parents=True)
+        self.assertEqual(bootstrap.existing_repository_name(nested), "web")
+        plain = self.root / "plain"
+        plain.mkdir()
+        self.assertEqual(bootstrap.existing_repository_name(plain), "plain")
+
+
 class CommandLineTests(unittest.TestCase):
     def _run(self, *args):
         return subprocess.run(

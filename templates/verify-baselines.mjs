@@ -104,20 +104,31 @@ function rulesFromEslintConfig(text) {
   return rules;
 }
 
-// Yields the body of each block comment. Scans forward with indexOf, so the
-// cost stays linear however many comments or unterminated openers a file has.
-// Like the directive scan above, it reads raw text, so a comment-shaped string
-// literal is read as a comment.
-// The delimiters are split so this file's own source holds no comment-shaped
-// literal pair to mislead the scan when it checks itself.
-const commentOpen = "/" + "*";
-const commentClose = "*" + "/";
+// Yields the body of each block comment in one linear pass. It skips quoted
+// strings, template literals, and line comments, so text such as a
+// "src/**/*.ts" glob cannot open or close a comment and hide a real one. A
+// quoted string also ends at a newline (it cannot span lines), so a stray
+// apostrophe, as in JSX text, hides at most the rest of its line. Regular
+// expression literals are not recognised: telling one from division needs a
+// parser, and a regex holding a comment opener is rare.
 function* blockComments(source) {
-  for (let start = source.indexOf(commentOpen); start !== -1;) {
-    const end = source.indexOf(commentClose, start + 2);
-    if (end === -1) return;
-    yield source.slice(start + 2, end);
-    start = source.indexOf(commentOpen, end + 2);
+  let quote = "";
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    const next = source[index + 1];
+    if (quote) {
+      if (character === "\\") index++;
+      else if (character === quote || (character === "\n" && quote !== "`")) quote = "";
+    } else if (character === '"' || character === "'" || character === "`") quote = character;
+    else if (character === "/" && next === "/") {
+      index = source.indexOf("\n", index);
+      if (index === -1) return;
+    } else if (character === "/" && next === "*") {
+      const end = source.indexOf("*" + "/", index + 2);
+      if (end === -1) return;
+      yield source.slice(index + 2, end);
+      index = end + 1;
+    }
   }
 }
 

@@ -145,3 +145,18 @@ test("scans its own source to the end", () => {
   const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');
   assert.match(output, /sample\.ts — no-console\n/);
 });
+
+test("does not let comment-shaped text in strings hide a real configuration comment", () => {
+  const output = runFixture(
+    [
+      'const globs = ["src/**/*.ts", "/' + '*"];',
+      "const template = `/" + "* not a comment " + "*" + "/`;",
+      "/" + "/ a line comment mentioning /" + "* is not a block",
+      "export const title = <p>Don't stop</p>;",
+      "/" + '* eslint no-console: "off" */',
+      'const text = "/' + "* eslint eqeqeq: 'off' */\";",
+    ].join("\n"),
+  );
+  assert.match(output, /sample\.ts — no-console\n/);
+  assert.doesNotMatch(output, /eqeqeq/);
+});

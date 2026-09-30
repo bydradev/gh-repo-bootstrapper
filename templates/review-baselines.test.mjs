@@ -376,3 +376,15 @@ test("reports an impossible review date as actionable, not healthy", async () =>
   assert.match(output, /GHSA-aaaa-bbbb-cccc.*\(invalid review date\)/);
   assert.match(output, /no-console in e2e\/fixture\.mjs.*\(invalid review date\)/);
 });
+
+test("accepts a clean npm audit with no vulnerabilities", async () => {
+  const { output } = await runFixture({
+    rows: [],
+    alerts: [],
+    auditReport: { metadata: { vulnerabilities: { total: 0 } }, vulnerabilities: {} },
+  });
+  assert.match(
+    output,
+    /Orphaned advisory-baseline rows: none — every row's advisory appears in `npm audit`/,
+  );
+});

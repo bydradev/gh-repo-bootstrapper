@@ -1282,6 +1282,13 @@ def _adopt_file(
     return ("updated", rel, f"generated sections brought up to date; Project specifics kept{replaced}")
 
 
+_GIT_REPOSITORY_CONTEXT_VARIABLES = frozenset({
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+    "GIT_PREFIX",
+})
+
+
 def existing_repository_name(repo_dir: Path) -> str:
     """The name templates render for an existing repository.
 
@@ -1292,9 +1299,10 @@ def existing_repository_name(repo_dir: Path) -> str:
     (not a repository, a subdirectory of one, a worktree whose shared git
     directory is not a ``.git`` directory, git unavailable) keeps the basename.
     """
-    # Inherited GIT_DIR, GIT_WORK_TREE, and similar variables would make git
-    # describe some other repository; ask about repo_dir itself.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # Inherited repository-context overrides would make git describe some other
+    # repository; drop only those, so command-scope config such as
+    # GIT_CONFIG_COUNT (e.g. safe.directory) still applies.
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
     try:
         r = subprocess.run(
             ["git", "-C", str(repo_dir), "rev-parse", "--show-toplevel", "--git-common-dir"],

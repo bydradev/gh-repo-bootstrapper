@@ -408,8 +408,24 @@ class RepositoryNameTests(unittest.TestCase):
         other = self.root / "other"
         other.mkdir()
         _git(other, "init", "-q")
-        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
+        overrides = {"GIT_DIR": str(other / ".git"), "GIT_WORK_TREE": str(other)}
+        with unittest.mock.patch.dict(os.environ, overrides):
             self.assertEqual(bootstrap.existing_repository_name(self.repo), "sample")
+
+    def test_command_scope_git_config_is_kept(self):
+        config = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory",
+                  "GIT_CONFIG_VALUE_0": "*"}
+        seen = {}
+        real_run = subprocess.run
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs.get("env") or {})
+            return real_run(*args, **kwargs)
+
+        with unittest.mock.patch.dict(os.environ, config), \
+                unittest.mock.patch.object(bootstrap.subprocess, "run", spy):
+            self.assertEqual(bootstrap.existing_repository_name(self.repo), "sample")
+        self.assertEqual(seen.get("GIT_CONFIG_KEY_0"), "safe.directory")
 
     def test_subdirectory_and_non_repository_keep_their_basename(self):
         nested = self.repo / "packages" / "web"

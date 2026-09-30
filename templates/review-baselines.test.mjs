@@ -27,6 +27,7 @@ function lintBaseline(rows) {
 
 function auditReportMatching(...ghsaIds) {
   return {
+    metadata: { vulnerabilities: { total: ghsaIds.length } },
     vulnerabilities: {
       fixture: {
         via: ghsaIds.map((ghsa) => ({ url: `https://github.com/advisories/${ghsa}` })),
@@ -349,4 +350,29 @@ test("reports a failed latest release run as stale and exits non-zero", async ()
     /Release pipeline: stale — latest completed `release-please\.yml` run concluded failure/,
   );
   assert.match(output, /older than 14 days is reported as stale/);
+});
+
+test("reports orphan detection as unavailable when npm audit returns an error response", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    auditReport: { message: "request failed, reason: connect ECONNREFUSED", error: {} },
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Orphaned advisory-baseline rows: could not be determined — npm audit returned an incomplete or error response/,
+  );
+  assert.doesNotMatch(output, /Orphaned advisory-baseline rows \(advisory not found/);
+});
+
+test("reports an impossible review date as actionable, not healthy", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented.replace("2099-01-01", "2099-02-30")],
+    lintRows: ["| 1 | `no-console` | `e2e/fixture.mjs` | accepted | 2099-13-01 |"],
+    alerts: matchingAlert,
+  });
+  assert.equal(code, 1);
+  assert.match(output, /GHSA-aaaa-bbbb-cccc.*\(invalid review date\)/);
+  assert.match(output, /no-console in e2e\/fixture\.mjs.*\(invalid review date\)/);
 });

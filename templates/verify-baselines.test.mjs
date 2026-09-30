@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -88,4 +88,60 @@ test("ignores suppression directives inside generated output directories", () =>
     runFixture("export const ok = 1;\n", { "src/real.js": directive }),
     /Undocumented suppressions/,
   );
+});
+
+test("counts every rule an inline ESLint configuration comment weakens", () => {
+  const output = runFixture(
+    "/" +
+      '* eslint no-console: "off", "example/rule-one": \'warn\',\n' +
+      '   max-len: ["error", { code: 120, ignoreUrls: true }] */\n',
+  );
+  assert.match(output, /Undocumented suppressions/);
+  for (const rule of ["no-console", "example/rule-one", "max-len"])
+    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+  assert.doesNotMatch(output, /— (code|ignoreUrls)/);
+});
+
+test("does not count a rule that is only switched on", () => {
+  assert.match(
+    runFixture("/" + '* eslint no-console: "error", eqeqeq: 2 */\nexport const ok = 1;\n'),
+    /Baseline verification passed: 0 suppression/,
+  );
+});
+
+test("reads the rules before an ESLint description, not dashes inside a setting", () => {
+  const output = runFixture(
+    "/" +
+      '* eslint no-restricted-syntax: ["error", "a--b"], no-console: "off" -- local logging */\n',
+  );
+  assert.match(output, /sample\.ts — no-restricted-syntax\n/);
+  assert.match(output, /sample\.ts — no-console\n/);
+  assert.doesNotMatch(output, /local logging/);
+});
+
+test("ignores ESLint rule configuration in a line comment, as ESLint does", () => {
+  assert.match(
+    runFixture("/" + '/ eslint no-console: "off"\nexport const ok = 1;\n'),
+    /Baseline verification passed/,
+  );
+});
+
+test("does not read eslint-env or eslint-disable as rule configuration", () => {
+  assert.match(
+    runFixture("/" + "* eslint-env node */\nexport const ok = 1;\n"),
+    /Baseline verification passed: 0 suppression/,
+  );
+});
+
+test("scans many unterminated comment openers in linear time", () => {
+  const started = Date.now();
+  const output = runFixture("/" + "* eslint ".repeat(50_000) + "\n");
+  assert.match(output, /Baseline verification passed/);
+  assert.ok(Date.now() - started < 5_000, "scan took too long");
+});
+
+test("scans its own source to the end", () => {
+  const source = readFileSync(join(scriptsDirectory, "verify-baselines.mjs"), "utf8");
+  const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');
+  assert.match(output, /sample\.ts — no-console\n/);
 });

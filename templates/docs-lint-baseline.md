@@ -3,7 +3,8 @@
 ## What this document covers
 
 This is the baseline for **our own code**: inline suppressions we author, such as
-`eslint-disable` and `@ts-expect-error`. It is deliberately separate from
+`eslint-disable` and `@ts-expect-error`, and `eslint` configuration comments that turn a rule off,
+downgrade it, or change its options for a file. It is deliberately separate from
 [`docs/advisory-baseline.md`](advisory-baseline.md), which records accepted third-party dependency
 security advisories.
 

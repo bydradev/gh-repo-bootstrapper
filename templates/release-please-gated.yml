@@ -22,11 +22,12 @@ jobs:
   # `full` is true for a manual dispatch and for the commit that is the
   # Release Please PR merging (its title/commit message is the fixed
   # "chore(main): release X.Y.Z" pattern release-please always uses), and false
-  # for every other push to main. A suite with an expensive lane (Swift's
-  # xcodebuild test) skips it when `full` is false, since an ordinary merge
-  # already passed at PR time; a suite without one (Python, Rust) runs every
-  # check on every push. Either way this job must pass before release-please
-  # runs, so a failing suite blocks the release.
+  # for every other push to main. The Swift suite runs only swift-format lint
+  # when `full` is false and reserves xcodebuild test for full runs (pull
+  # requests pass false too, so the Xcode lane runs only on a dispatch or the
+  # release merge); the Python and Rust suites ignore `full` and run every check
+  # on every push. Either way this job must pass before release-please runs, so
+  # a failing suite blocks the release.
   test:
     uses: ./.github/workflows/test.yml
     with:

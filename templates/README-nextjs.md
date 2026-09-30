@@ -38,7 +38,7 @@ specific; document them with the application scaffold.
 ## Verification
 
 Once the application scaffold is in place, install Chromium once per machine,
-then run the checks CI enforces on pull requests:
+then run these checks locally before pushing:
 
 ```sh
 npx playwright install chromium  # CI adds --with-deps for the bare Linux runner
@@ -51,6 +51,12 @@ npm test
 npm run build
 npm run test:e2e
 ```
+
+CI runs them in three tiers. Pull requests run every check above except the
+browser suite. Ordinary pushes to `main` add the Chromium browser project. The
+Release Please merge runs the full suite, including every Playwright project.
+A green pull request therefore does not mean the browser suite passed; run
+`npm run test:e2e` locally for changes to browser-facing UI or interactions.
 
 ## Deployment
 

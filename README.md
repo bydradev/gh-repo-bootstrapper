@@ -177,9 +177,9 @@ an unclosed code fence). The `next dev`-managed block and everything from
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
-directory's name, or, for a linked git worktree, the name of the main checkout
-it belongs to, so a verification worktree such as `.worktrees/app/align` renders
-as `app`.
+directory's name, or, for a linked git worktree whose shared git directory is
+its main checkout's `.git`, that checkout's name, so a verification worktree such
+as `.worktrees/app/align` renders as `app`.
 
 `--adopt PATH --type TYPE` writes every missing file and never overwrites an
 existing one, with one exception that preserves repository-owned content:

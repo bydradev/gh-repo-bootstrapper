@@ -1289,17 +1289,22 @@ def existing_repository_name(repo_dir: Path) -> str:
     ``.worktrees/app/align``), so its basename is not the repository's name.
     When ``repo_dir`` is the top level of a git working tree, use the name of the
     main checkout that owns the shared ``.git`` directory instead. Anything else
-    (not a repository, a subdirectory of one, git unavailable) keeps the basename.
+    (not a repository, a subdirectory of one, a worktree whose shared git
+    directory is not a ``.git`` directory, git unavailable) keeps the basename.
     """
+    # Inherited GIT_DIR, GIT_WORK_TREE, and similar variables would make git
+    # describe some other repository; ask about repo_dir itself.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     try:
         r = subprocess.run(
-            ["git", "-C", str(repo_dir), "rev-parse", "--path-format=absolute",
-             "--show-toplevel", "--git-common-dir"],
-            capture_output=True, text=True, check=True, timeout=10,
+            ["git", "-C", str(repo_dir), "rev-parse", "--show-toplevel", "--git-common-dir"],
+            capture_output=True, text=True, check=True, timeout=10, env=env,
         )
-        toplevel, common = (Path(line) for line in r.stdout.splitlines()[:2])
+        toplevel, common = r.stdout.splitlines()[:2]
     except (OSError, ValueError, subprocess.SubprocessError):
         return repo_dir.name
+    # --git-common-dir may be relative to repo_dir; --show-toplevel is absolute.
+    toplevel, common = Path(toplevel), (repo_dir / common).resolve()
     if toplevel.resolve() != repo_dir or common.name != ".git":
         return repo_dir.name
     return common.parent.name

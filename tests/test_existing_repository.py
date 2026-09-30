@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import bootstrap
@@ -402,6 +403,13 @@ class RepositoryNameTests(unittest.TestCase):
         worktree = self.root / ".worktrees" / "sample" / "align"
         _git(self.repo, "worktree", "add", "-q", "--detach", str(worktree))
         self.assertEqual(bootstrap.existing_repository_name(worktree), "sample")
+
+    def test_inherited_git_dir_does_not_name_another_repository(self):
+        other = self.root / "other"
+        other.mkdir()
+        _git(other, "init", "-q")
+        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
+            self.assertEqual(bootstrap.existing_repository_name(self.repo), "sample")
 
     def test_subdirectory_and_non_repository_keep_their_basename(self):
         nested = self.repo / "packages" / "web"

@@ -177,7 +177,7 @@ test("reads a real configuration comment after configuration-shaped text", () =>
 
 test("stays linear with many openers before one closing delimiter", () => {
   const started = Date.now();
-  const output = runFixture("/" + "* eslint ".repeat(50_000) + "*" + "/\n");
+  const output = runFixture(("/" + "* eslint ").repeat(50_000) + "*" + "/\n");
   assert.match(output, /Baseline verification passed/);
   assert.ok(Date.now() - started < 5_000, "scan took too long");
 });

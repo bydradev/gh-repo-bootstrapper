@@ -90,15 +90,33 @@ test("ignores suppression directives inside generated output directories", () =>
   );
 });
 
-test("counts every rule an inline ESLint configuration comment sets", () => {
+test("counts every rule an inline ESLint configuration comment weakens", () => {
   const output = runFixture(
     "/" +
-      '* eslint no-console: "off",\n   max-len: ["error", { code: 120, ignoreUrls: true }] */\n',
+      '* eslint no-console: "off", "example/rule-one": \'warn\',\n' +
+      '   max-len: ["error", { code: 120, ignoreUrls: true }] */\n',
   );
   assert.match(output, /Undocumented suppressions/);
-  assert.match(output, /sample\.ts — no-console/);
-  assert.match(output, /sample\.ts — max-len/);
+  for (const rule of ["no-console", "example/rule-one", "max-len"])
+    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
   assert.doesNotMatch(output, /— (code|ignoreUrls)/);
+});
+
+test("does not count a rule that is only switched on", () => {
+  assert.match(
+    runFixture("/" + '* eslint no-console: "error", eqeqeq: 2 */\nexport const ok = 1;\n'),
+    /Baseline verification passed: 0 suppression/,
+  );
+});
+
+test("reads the rules before an ESLint description, not dashes inside a setting", () => {
+  const output = runFixture(
+    "/" +
+      '* eslint no-restricted-syntax: ["error", "a--b"], no-console: "off" -- local logging */\n',
+  );
+  assert.match(output, /sample\.ts — no-restricted-syntax\n/);
+  assert.match(output, /sample\.ts — no-console\n/);
+  assert.doesNotMatch(output, /local logging/);
 });
 
 test("ignores ESLint rule configuration in a line comment, as ESLint does", () => {
@@ -113,4 +131,11 @@ test("does not read eslint-env or eslint-disable as rule configuration", () => {
     runFixture("/" + "* eslint-env node */\nexport const ok = 1;\n"),
     /Baseline verification passed: 0 suppression/,
   );
+});
+
+test("scans many unterminated comment openers in linear time", () => {
+  const started = Date.now();
+  const output = runFixture("/" + "* eslint ".repeat(50_000) + "\n");
+  assert.match(output, /Baseline verification passed/);
+  assert.ok(Date.now() - started < 5_000, "scan took too long");
 });

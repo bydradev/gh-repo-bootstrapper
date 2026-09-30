@@ -62,15 +62,59 @@ function rulesFromEslintDirective(text, file) {
   return rules.split(/[\s,]+/).filter(Boolean);
 }
 
-// An `eslint` configuration block comment, such as one setting no-console to
-// "off", reconfigures rules for the whole file. Only its top-level keys name
-// rules; option arrays and objects hold settings, so strip them (innermost
-// first) before reading the keys.
+// Splits text on commas outside quotes, brackets, and braces.
+function topLevelEntries(text) {
+  const entries = [];
+  let depth = 0;
+  let quote = "";
+  let start = 0;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (quote) {
+      if (character === "\\") index++;
+      else if (character === quote) quote = "";
+    } else if (character === '"' || character === "'") quote = character;
+    else if (character === "[" || character === "{") depth++;
+    else if (character === "]" || character === "}") depth--;
+    else if (character === "," && depth === 0) {
+      entries.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  entries.push(text.slice(start));
+  return entries;
+}
+
+// An `eslint` configuration block comment reconfigures rules for the whole
+// file. Its value is a list of `rule: setting` entries, optionally followed by
+// a description after ESLint's own separator (whitespace, two or more dashes,
+// whitespace). A rule set to plain "error" or 2 is only switched on, and keeps
+// its configured options (checked with ESLint 9.39.4's Linter, 2026-09-30), so
+// it cannot weaken anything; every other setting — off, warn, or new options —
+// needs a lint-baseline row.
 function rulesFromEslintConfig(text) {
-  let topLevel = text.split("--", 1)[0];
-  for (let previous; previous !== topLevel;)
-    [previous, topLevel] = [topLevel, topLevel.replace(/\[[^[\]]*\]|\{[^{}]*\}/g, "")];
-  return [...topLevel.matchAll(/([@\w/-]+)\s*:/g)].map(([, rule]) => rule);
+  const rules = [];
+  for (const entry of topLevelEntries(text.split(/\s-{2,}\s/u, 1)[0])) {
+    const match = /^\s*(?:"([^"]+)"|'([^']+)'|([^\s:"']+))\s*:([\s\S]*)$/u.exec(entry);
+    if (!match) continue;
+    const [, doubleQuoted, singleQuoted, bare, setting] = match;
+    if (/^\s*(["']?)(?:error|2)\1\s*$/u.test(setting)) continue;
+    rules.push(doubleQuoted ?? singleQuoted ?? bare);
+  }
+  return rules;
+}
+
+// Yields the body of each block comment. Scans forward with indexOf, so the
+// cost stays linear however many comments or unterminated openers a file has.
+// Like the directive scan above, it reads raw text, so a comment-shaped string
+// literal is read as a comment.
+function* blockComments(source) {
+  for (let start = source.indexOf("/*"); start !== -1;) {
+    const end = source.indexOf("*/", start + 2);
+    if (end === -1) return;
+    yield source.slice(start + 2, end);
+    start = source.indexOf("/*", end + 2);
+  }
 }
 
 function count(entries) {
@@ -128,9 +172,12 @@ for (const sourcePath of walk(root)) {
   // may carry only eslint-disable-line and eslint-disable-next-line (checked
   // against ESLint 9.39.4's SourceCode#getInlineConfigNodes and Linter,
   // 2026-09-30).
-  for (const [, config] of source.matchAll(/\/\*\s*eslint\s([\s\S]*?)\*\//g))
-    for (const rule of rulesFromEslintConfig(config))
+  for (const comment of blockComments(source)) {
+    const config = /^\s*eslint\s([\s\S]*)$/u.exec(comment);
+    if (!config) continue;
+    for (const rule of rulesFromEslintConfig(config[1]))
       suppressions.push(`${relativePath}\u0000${rule}`);
+  }
 }
 
 const documentedCounts = count(documented);

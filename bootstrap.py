@@ -71,6 +71,7 @@ NEXTJS_BASELINE_DOCUMENTS = (
 
 NEXTJS_ENFORCED_AUDIT_SCRIPT = "scripts/audit-production.mjs"
 NEXTJS_BASELINE_SCRIPTS = (
+    "scripts/audit-production.test.mjs",
     "scripts/baseline-table.mjs",
     "scripts/verify-baselines.mjs",
     "scripts/verify-baselines.test.mjs",

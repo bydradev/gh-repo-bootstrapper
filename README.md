@@ -240,7 +240,7 @@ Full CI pipeline for Next.js applications.
 - `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
 - `docs/current-work.md` — forward-looking bootstrapper compatibility work
 - `scripts/baseline-table.mjs`, `scripts/verify-baselines.mjs`, and `scripts/audit-production.mjs` — shared parser plus fail-closed baseline and production-audit checkers
-- `scripts/*-baselines.test.mjs` — regression tests for the baseline verifier and scheduled review
+- `scripts/*-baselines.test.mjs` and `scripts/audit-production.test.mjs` — regression tests for the baseline verifier, scheduled review, and production audit
 - `README.md` and `AGENTS.md` — project starter, quality-baseline pointers, and contribution guidance
 
 Options:

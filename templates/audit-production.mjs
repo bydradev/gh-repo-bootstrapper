@@ -31,7 +31,20 @@ try {
 } catch {
   fail(`npm audit did not return valid JSON. ${audit.stderr || audit.stdout}`);
 }
-const vulnerabilities = report.vulnerabilities ?? {};
+// A failed audit (for example a registry outage) still prints JSON, with an
+// `error` object and no vulnerability map. Reading a missing map as empty
+// would report a clean audit, so anything short of a complete report fails.
+if (
+  !report ||
+  typeof report !== "object" ||
+  report.error ||
+  typeof report.metadata?.vulnerabilities?.total !== "number" ||
+  !report.vulnerabilities ||
+  typeof report.vulnerabilities !== "object" ||
+  Array.isArray(report.vulnerabilities)
+)
+  fail(`npm audit returned an incomplete or error response. ${audit.stderr || audit.stdout}`);
+const vulnerabilities = report.vulnerabilities;
 function isApproved(name, seen = new Set()) {
   if (seen.has(name)) return false;
   const vulnerability = vulnerabilities[name];

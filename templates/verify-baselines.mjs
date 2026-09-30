@@ -11,7 +11,17 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const lintBaselinePath = resolve(root, "docs/lint-baseline.md");
 const advisoryBaselinePath = resolve(root, "docs/advisory-baseline.md");
 const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]);
-const excludedDirectories = new Set([".git", "node_modules", ".next", "upstream"]);
+// Generated output is not source: coverage reports and Playwright's HTML report
+// and results embed third-party JavaScript whose directives are not ours.
+const excludedDirectories = new Set([
+  ".git",
+  "node_modules",
+  ".next",
+  "upstream",
+  "coverage",
+  "playwright-report",
+  "test-results",
+]);
 
 function fail(message) {
   console.error(`Baseline verification error: ${message}`);

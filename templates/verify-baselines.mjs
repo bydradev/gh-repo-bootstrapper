@@ -108,12 +108,16 @@ function rulesFromEslintConfig(text) {
 // cost stays linear however many comments or unterminated openers a file has.
 // Like the directive scan above, it reads raw text, so a comment-shaped string
 // literal is read as a comment.
+// The delimiters are split so this file's own source holds no comment-shaped
+// literal pair to mislead the scan when it checks itself.
+const commentOpen = "/" + "*";
+const commentClose = "*" + "/";
 function* blockComments(source) {
-  for (let start = source.indexOf("/*"); start !== -1;) {
-    const end = source.indexOf("*/", start + 2);
+  for (let start = source.indexOf(commentOpen); start !== -1;) {
+    const end = source.indexOf(commentClose, start + 2);
     if (end === -1) return;
     yield source.slice(start + 2, end);
-    start = source.indexOf("/*", end + 2);
+    start = source.indexOf(commentOpen, end + 2);
   }
 }
 

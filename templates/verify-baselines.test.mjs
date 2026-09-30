@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -138,4 +138,10 @@ test("scans many unterminated comment openers in linear time", () => {
   const output = runFixture("/" + "* eslint ".repeat(50_000) + "\n");
   assert.match(output, /Baseline verification passed/);
   assert.ok(Date.now() - started < 5_000, "scan took too long");
+});
+
+test("scans its own source to the end", () => {
+  const source = readFileSync(join(scriptsDirectory, "verify-baselines.mjs"), "utf8");
+  const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');
+  assert.match(output, /sample\.ts — no-console\n/);
 });

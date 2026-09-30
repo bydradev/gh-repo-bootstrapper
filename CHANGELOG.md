@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.0...v0.5.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **scripts:** skip generated report directories in the baseline check ([#39](https://github.com/bydradev/gh-repo-bootstrapper/issues/39)) ([0fcae95](https://github.com/bydradev/gh-repo-bootstrapper/commit/0fcae95c61918139a781d47d12c690bd4bc476ba))
+* **templates:** describe the audit floor as any severity in the advisory baseline ([7e73545](https://github.com/bydradev/gh-repo-bootstrapper/commit/7e7354506dd7f4093017d81e6d8a65cbb269ec4e))
+* **templates:** document the Playwright reporter the e2e upload needs ([#37](https://github.com/bydradev/gh-repo-bootstrapper/issues/37)) ([7e73545](https://github.com/bydradev/gh-repo-bootstrapper/commit/7e7354506dd7f4093017d81e6d8a65cbb269ec4e))
+
 ## [0.5.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.4.0...v0.5.0) (2026-09-29)
 
 

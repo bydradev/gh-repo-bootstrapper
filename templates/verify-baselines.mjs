@@ -76,6 +76,9 @@ function rulesFromEslintConfig(text) {
   let body = text.split(/\s-{2,}\s/u, 1)[0].trim();
   if (body.startsWith("{") && body.endsWith("}")) body = body.slice(1, -1);
   const keys = [];
+  // Sticky patterns match at lastIndex without copying the rest of the text.
+  const bareName = /[^\s:,"'[\]{}]+/uy;
+  const space = /\s*/uy;
   let depth = 0;
   for (let index = 0; index < body.length;) {
     const character = body[index];
@@ -84,14 +87,16 @@ function rulesFromEslintConfig(text) {
     if (character === '"' || character === "'") {
       while (end < body.length && body[end] !== character) end += body[end] === "\\" ? 2 : 1;
       name = body.slice(index + 1, end);
-      end += 1;
+      end = Math.min(end + 1, body.length);
     } else if (character === "[" || character === "{") depth++;
     else if (character === "]" || character === "}") depth--;
     else if (!/[\s:,]/u.test(character)) {
-      end = index + /^[^\s:,"'[\]{}]+/u.exec(body.slice(index))[0].length;
+      bareName.lastIndex = index;
+      end = index + bareName.exec(body)[0].length;
       name = body.slice(index, end);
     }
-    const colon = end + /^\s*/u.exec(body.slice(end))[0].length;
+    space.lastIndex = end;
+    const colon = end + space.exec(body)[0].length;
     if (name !== undefined && depth === 0 && body[colon] === ":") {
       keys.push({ name, start: index, valueStart: colon + 1 });
       end = colon + 1;

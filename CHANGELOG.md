@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.4...v0.5.5) (2026-10-01)
+
+
+### Bug Fixes
+
+* read braced and comma-less eslint configuration comments ([#51](https://github.com/bydradev/gh-repo-bootstrapper/issues/51)) ([d5e11c4](https://github.com/bydradev/gh-repo-bootstrapper/commit/d5e11c4b16560336f9f1f45f7894e0ae9c049944))
+
 ## [0.5.4](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.3...v0.5.4) (2026-10-01)
 
 

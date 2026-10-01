@@ -7,15 +7,13 @@ on:
     inputs:
       full:
         description: >-
-          Accepted for caller-contract parity with test.yml / test-swift.yml,
-          which use it to skip an expensive lane (Playwright e2e, xcodebuild
-          test) on ordinary main pushes. This suite has no such lane — fmt,
-          clippy and cargo test all run in one ubuntu-latest job — so nothing
-          is gated on it and every run is the full suite. Do not delete it as
-          unused: release-please-gated.yml passes `full` to whichever test.yml
-          the repo type rendered, and an undeclared input fails the workflow at
-          parse time with "Invalid input, full is not defined in the referenced
-          workflow". validate_templates.py asserts this declaration stays.
+          Accepted for caller-contract parity with the Swift test suite, which
+          runs xcodebuild test only when `full` is true. This suite has no such
+          lane — fmt, clippy and cargo test all run in one ubuntu-latest job —
+          so nothing is gated on it and every run is the full suite. Do not
+          delete it as unused: release-please.yml passes `full`, and an
+          undeclared input fails the workflow at parse time with "Invalid input,
+          full is not defined in the referenced workflow".
         type: boolean
         default: true
 

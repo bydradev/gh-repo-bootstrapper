@@ -103,9 +103,10 @@ function npmAuditReport() {
   } catch {
     throw new Error(`npm audit did not return valid JSON. ${audit.stderr || audit.stdout}`);
   }
-  // A failed audit (for example a registry outage) still prints JSON, with an
-  // `error` object and no vulnerability map, and npm exits 0. Reading that as
-  // an empty audit would report every advisory row as orphaned, or none.
+  // A failed audit (for example a registry outage) prints JSON with an
+  // `error` object and no vulnerability map. Reading that as an empty audit
+  // would report every advisory row as orphaned, or none, so check its shape
+  // rather than trusting that npm returned a report.
   if (
     !report ||
     typeof report !== "object" ||

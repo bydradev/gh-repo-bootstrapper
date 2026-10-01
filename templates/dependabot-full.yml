@@ -17,6 +17,8 @@ updates:
         update-types: ["version-update:semver-major"]
     groups:
       # react + react-dom + @types are version-locked peers — must bump together.
+      # Listed before dev-dependencies: Dependabot assigns a dependency to the
+      # first group it matches, and the @types packages match both.
       react:
         patterns:
           - react

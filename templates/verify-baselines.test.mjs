@@ -201,3 +201,17 @@ test("reads a real configuration comment in full after opener-shaped text", () =
   assert.match(output, /sample\.ts — no-warning-comments\n/);
   assert.match(output, /sample\.ts — no-console\n/);
 });
+
+test("reads a braced configuration comment", () => {
+  const output = runFixture(
+    "/" + '* eslint {"no-console":"off", "eqeqeq": 2} *' + "/\nconsole.log(1);\n",
+  );
+  assert.match(output, /sample\.ts — no-console\n/);
+  assert.doesNotMatch(output, /eqeqeq/);
+});
+
+test("reads configuration entries separated only by whitespace", () => {
+  const output = runFixture("/" + "* eslint no-alert: 2 no-console: 0 *" + "/\nconsole.log(1);\n");
+  assert.match(output, /sample\.ts — no-console\n/);
+  assert.doesNotMatch(output, /no-alert/);
+});

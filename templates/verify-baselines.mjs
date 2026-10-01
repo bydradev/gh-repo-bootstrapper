@@ -62,46 +62,57 @@ function rulesFromEslintDirective(text, file) {
   return rules.split(/[\s,]+/).filter(Boolean);
 }
 
-// Splits text on commas outside quotes, brackets, and braces.
-function topLevelEntries(text) {
-  const entries = [];
-  let depth = 0;
-  let quote = "";
-  let start = 0;
-  for (let index = 0; index < text.length; index++) {
-    const character = text[index];
-    if (quote) {
-      if (character === "\\") index++;
-      else if (character === quote) quote = "";
-    } else if (character === '"' || character === "'") quote = character;
-    else if (character === "[" || character === "{") depth++;
-    else if (character === "]" || character === "}") depth--;
-    else if (character === "," && depth === 0) {
-      entries.push(text.slice(start, index));
-      start = index + 1;
-    }
-  }
-  entries.push(text.slice(start));
-  return entries;
-}
-
-// An `eslint` configuration block comment reconfigures rules for the whole
-// file. Its value is a list of `rule: setting` entries, optionally followed by
-// a description after ESLint's own separator (whitespace, two or more dashes,
-// whitespace). A rule set to plain "error" or 2 is only switched on, and keeps
-// its configured options (checked with ESLint 9.39.4's Linter, 2026-09-30), so
-// it cannot weaken anything; every other setting — off, warn, or new options —
-// needs a lint-baseline row.
+// Reads the rules an `eslint` configuration comment sets. ESLint parses the
+// text before its description separator (whitespace, two or more dashes,
+// whitespace) as a levn object, which takes an optional outer pair of braces
+// and entries separated by commas or only by whitespace; so a rule here is any
+// quoted or bare name followed by `:` outside quotes, brackets, and braces,
+// and its setting runs to the next rule. A rule set to plain "error" or 2 is
+// only switched on, and keeps its configured options (checked with ESLint
+// 9.39.4's Linter, 2026-09-30), so it cannot weaken anything; every other
+// setting — off, warn, or new options — needs a lint-baseline row. Any value
+// ESLint accepts has at least one such key, so text with none sets no rule.
 function rulesFromEslintConfig(text) {
-  const rules = [];
-  for (const entry of topLevelEntries(text.split(/\s-{2,}\s/u, 1)[0])) {
-    const match = /^\s*(?:"([^"]+)"|'([^']+)'|([^\s:"']+))\s*:([\s\S]*)$/u.exec(entry);
-    if (!match) continue;
-    const [, doubleQuoted, singleQuoted, bare, setting] = match;
-    if (/^\s*(["']?)(?:error|2)\1\s*$/u.test(setting)) continue;
-    rules.push(doubleQuoted ?? singleQuoted ?? bare);
+  let body = text.split(/\s-{2,}\s/u, 1)[0].trim();
+  if (body.startsWith("{") && body.endsWith("}")) body = body.slice(1, -1);
+  const keys = [];
+  // Sticky patterns match at lastIndex without copying the rest of the text.
+  const bareName = /[^\s:,"'[\]{}]+/uy;
+  const space = /\s*/uy;
+  let depth = 0;
+  for (let index = 0; index < body.length;) {
+    const character = body[index];
+    let end = index + 1;
+    let name;
+    if (character === '"' || character === "'") {
+      while (end < body.length && body[end] !== character) end += body[end] === "\\" ? 2 : 1;
+      name = body.slice(index + 1, end);
+      end = Math.min(end + 1, body.length);
+    } else if (character === "[" || character === "{") depth++;
+    else if (character === "]" || character === "}") depth--;
+    else if (!/[\s:,]/u.test(character)) {
+      bareName.lastIndex = index;
+      end = index + bareName.exec(body)[0].length;
+      name = body.slice(index, end);
+    }
+    space.lastIndex = end;
+    const colon = end + space.exec(body)[0].length;
+    if (name !== undefined && depth === 0 && body[colon] === ":") {
+      keys.push({ name, start: index, valueStart: colon + 1 });
+      end = colon + 1;
+    }
+    index = end;
   }
-  return rules;
+  return keys
+    .filter(({ valueStart }, position) => {
+      const setting = body
+        .slice(valueStart, keys[position + 1]?.start ?? body.length)
+        .trim()
+        .replace(/,$/u, "")
+        .trim();
+      return !/^(["']?)(?:error|2)\1$/u.test(setting);
+    })
+    .map(({ name }) => name);
 }
 
 // Yields the body of each `eslint` configuration block comment. Rather than

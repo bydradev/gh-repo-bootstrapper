@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.4](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.3...v0.5.4) (2026-10-01)
+
+
+### Bug Fixes
+
+* declare shouldGroupImports in the swift-format template ([#49](https://github.com/bydradev/gh-repo-bootstrapper/issues/49)) ([03056f4](https://github.com/bydradev/gh-repo-bootstrapper/commit/03056f453ab91c05e08e096080e610a609e26a66))
+* say why the react dependabot group precedes dev-dependencies ([03056f4](https://github.com/bydradev/gh-repo-bootstrapper/commit/03056f453ab91c05e08e096080e610a609e26a66))
+
 ## [0.5.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.2...v0.5.3) (2026-09-30)
 
 

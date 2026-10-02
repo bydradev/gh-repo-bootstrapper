@@ -1,5 +1,6 @@
 
 ## Tooling
+
 Run all checks before pushing:
 
 ```sh

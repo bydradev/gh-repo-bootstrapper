@@ -44,3 +44,9 @@ jobs:
         with:
           node-version-file: templates/.nvmrc
       - run: node --test templates/*.test.mjs
+      # Generated AGENTS.md, CLAUDE.md, READMEs and docs land in repositories
+      # that may lint Markdown; keep them markdownlint-clean.
+      - name: Lint generated Markdown
+        run: |
+          python validate_templates.py --render-markdown "$RUNNER_TEMP/generated-markdown"
+          npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$RUNNER_TEMP/generated-markdown/**/*.md"

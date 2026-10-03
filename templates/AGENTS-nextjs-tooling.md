@@ -67,6 +67,7 @@ Playwright 1.63.0's `outputDir`, test-status, and `failOnFlakyTests`
 documentation, 2026-09-29).
 
 ## Tooling
+
 Run all checks before pushing:
 
 ```sh
@@ -84,6 +85,7 @@ npm run test:e2e      # Playwright e2e
 Prettier formatting issues.
 
 In CI, automated validation runs in three tiers:
+
 - **Pull requests (`ci.yml`):** Runs fast validation (`build` only: lint, format, typecheck, unit tests, verify baselines, production build) with browser E2E skipped for rapid feedback (< 2 mins).
 - **Push to `main` (`release-please.yml`):** Runs the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
 - **Release Please PR merge (`chore(main): release`):** Runs the full validation suite, including the complete browser E2E matrix and any configured production/runtime checks.

@@ -66,7 +66,10 @@ python validate_templates.py
 CI (`.github/workflows/validate.yml`) runs this validator, the pytest suite
 under `tests/`, and the `node:test` suites for the generated baseline scripts
 (`node --test templates/*.test.mjs`) on every pull request and on pushes to
-`main`.
+`main`. It also renders every configuration's generated Markdown with
+`python validate_templates.py --render-markdown <dir>` and lints it with
+markdownlint-cli2 using `markdownlint-generated.jsonc`, so generated
+`AGENTS.md`, `CLAUDE.md`, READMEs, and docs stay markdownlint-clean.
 
 ### Next.js npm-script assumptions
 

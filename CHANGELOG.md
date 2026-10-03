@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.5...v0.6.0) (2026-10-03)
+
+
+### Features
+
+* generate read-only fresh-eyes reviewer agents ([578591d](https://github.com/bydradev/gh-repo-bootstrapper/commit/578591d77aa4e97d09f9050fb7c63c6bd38abd9f))
+* split generated AGENTS.md into a hub and template-owned skills ([#54](https://github.com/bydradev/gh-repo-bootstrapper/issues/54)) ([578591d](https://github.com/bydradev/gh-repo-bootstrapper/commit/578591d77aa4e97d09f9050fb7c63c6bd38abd9f))
+* track template-owned files with stamps in check and adopt ([578591d](https://github.com/bydradev/gh-repo-bootstrapper/commit/578591d77aa4e97d09f9050fb7c63c6bd38abd9f))
+* validate the AGENTS.md budget, skill references and stamps ([578591d](https://github.com/bydradev/gh-repo-bootstrapper/commit/578591d77aa4e97d09f9050fb7c63c6bd38abd9f))
+
+
+### Bug Fixes
+
+* make generated markdown pass markdownlint ([#53](https://github.com/bydradev/gh-repo-bootstrapper/issues/53)) ([fd09274](https://github.com/bydradev/gh-repo-bootstrapper/commit/fd09274ece482de26e6d05f18d87577bfb1eb711))
+
 ## [0.5.5](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.4...v0.5.5) (2026-10-01)
 
 

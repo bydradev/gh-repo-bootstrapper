@@ -80,8 +80,10 @@ DerivedData/
 # Local tooling state
 .omc/*
 !.omc/skills/
-.agents/
-.opencode/
+.agents/*
+!.agents/skills/
+.opencode/*
+!.opencode/agents/
 .serena/cache/
 .serena/project.local.yml
 .claude/settings.local.json

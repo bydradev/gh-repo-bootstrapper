@@ -1,3 +1,11 @@
+---
+name: local-validation-nextjs
+description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, or Playwright E2E. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev`, `EMFILE` fallbacks, Playwright traces and flaky results, the CI validation tiers, and how a worktree gets its dependencies."
+---
+
+# Local validation for Next.js
+
+The commands to run before pushing are in the `## Tooling` section of `AGENTS.md`. This skill covers what to do when they misbehave locally, and how CI runs them.
 
 ## Local browser-validation constraints
 
@@ -66,23 +74,7 @@ count instead of treating a green run as proof nothing failed (checked against
 Playwright 1.63.0's `outputDir`, test-status, and `failOnFlakyTests`
 documentation, 2026-09-29).
 
-## Tooling
-
-Run all checks before pushing:
-
-```sh
-npm run lint          # ESLint
-npm run format:check  # Prettier
-npm run typecheck     # TypeScript
-npm test              # unit/integration tests
-npm run audit:production  # runtime advisory floor; requires network access
-npm run verify:baselines  # lint/advisory baseline parity
-npm run build         # Next.js production build
-npm run test:e2e      # Playwright e2e
-```
-
-`npm run lint:fix` auto-fixes ESLint violations; `npm run format` auto-fixes
-Prettier formatting issues.
+## CI validation tiers
 
 In CI, automated validation runs in three tiers:
 
@@ -90,7 +82,7 @@ In CI, automated validation runs in three tiers:
 - **Push to `main` (`release-please.yml`):** Runs the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
 - **Release Please PR merge (`chore(main): release`):** Runs the full validation suite, including the complete browser E2E matrix and any configured production/runtime checks.
 
-Always run the relevant checks locally before pushing. For changes that alter browser-facing UI or user interactions, run `npm run test:e2e` locally (or `npm run test:e2e:local` when that script is available) before opening or updating a PR.
+## Worktrees
 
 A worktree starts without `node_modules`, `.next`, or test output. Install
 dependencies in it with `npm ci`, which reuses the shared npm cache, only when

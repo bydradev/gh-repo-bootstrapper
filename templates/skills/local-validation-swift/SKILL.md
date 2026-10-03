@@ -1,12 +1,13 @@
+---
+name: local-validation-swift
+description: "Use before running local validation in this Swift repository: `xcodebuild test`, simulator destinations, `swift-format`, derived data in a worktree, or result bundles. Covers how CI picks a simulator, project and dependency setup, the fixed `-derivedDataPath` rule, what Release Please does and does not version, and the formatter rules."
+---
 
-## Tooling
+# Local validation for Swift
 
-# <<XCODEGEN_PROJECT_NOTE>>
+The commands to run before pushing are in the `## Tooling` section of `AGENTS.md`. This skill covers the detail behind them.
 
-```sh
-# <<XCODEGEN_GENERATE_STEP>>
-xcodebuild test -scheme __SCHEME__ -destination "__DESTINATION_EXAMPLE__"
-```
+## Simulator destinations
 
 The CI suite runs this on `macos-26`. For `iphone`/`ipad` destinations it
 resolves an available simulator's UDID at run time (via `xcrun simctl`) and
@@ -14,7 +15,11 @@ passes `-destination "platform=iOS Simulator,id=<udid>"` — a UDID rather than
 a `name=` destination, since simulator names aren't unique across installed
 runtimes.
 
+## Dependencies
+
 # <<XCODEGEN_DEPENDENCY_NOTE>>
+
+## Worktrees
 
 In a worktree, pass one fixed `-derivedDataPath` for that worktree, reuse it
 across runs, and delete it when the worktree is removed. Never choose a new
@@ -23,6 +28,8 @@ example next to the worktree — because `swift-format --recursive .` and search
 tools would otherwise scan it. Write `-resultBundlePath` bundles to the
 session's scratch directory and delete them once read. (Both options checked
 against `xcodebuild -help` in Xcode 27.0, 2026-09-29.)
+
+## Versioning
 
 Release Please runs with the `simple` release type: it maintains the
 changelog, tag, and GitHub release, but does not change the app's

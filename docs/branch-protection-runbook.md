@@ -1,3 +1,4 @@
+<!-- gh-repo-bootstrapper: template-owned; sha256=6d85cc1c360e438c258a11085b387435b8eaf3667a1201fb895b0a24f6d4a494 -->
 # Branch protection and release PRs — operational runbook
 
 `main` is protected: a pull request and specific status checks are required, and the rules bind

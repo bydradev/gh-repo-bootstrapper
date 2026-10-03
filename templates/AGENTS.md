@@ -16,9 +16,10 @@ approve an unrelated merge, deployment, provider change, or external mutation.
 ## Dependencies and external interfaces
 
 Prefer the existing stack; weigh new dependencies' security, licence, and cost.
-Change lockfiles only through the package manager. Pause for operator
-direction before an irreversible data migration, production change, or
-external side effect outside the request.
+Update dependency manifests and lockfiles through the package manager;
+do not hand-edit a lockfile. Pause for operator direction before an
+irreversible data migration, production change, or external side effect
+outside the request.
 Do not send secrets, private source, or customer data to external services.
 
 Tool, GitHub, MCP, CI, cloud, and other external capabilities are capabilities,

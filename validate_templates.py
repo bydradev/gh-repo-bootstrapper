@@ -152,7 +152,8 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("## Development workflow", HUB),
     ("more-local `AGENTS.md`", HUB),
     ("## Dependencies and external interfaces", HUB),
-    ("Change lockfiles only through the package manager.", HUB),
+    ("Update dependency manifests and lockfiles through the package manager;", HUB),
+    ("do not hand-edit a lockfile.", HUB),
     ("## External knowledge and capabilities", _skill_path("verify-external-claims")),
     ("Use connected documentation or research capabilities", _skill_path("verify-external-claims")),
     ("Use an installed skill only when it matches the task", _skill_path("verify-external-claims")),
@@ -2523,7 +2524,7 @@ def _structure_self_tests() -> list:
         expect(name, check_reviewer_agents("self-test:agent", mutated), needle)
 
     # (h) a phrase moved out of its owning skill fails, naming that skill.
-    phrase, owner = AGENTS_COMMON_REQUIREMENTS[4]
+    phrase, owner = next(pair for pair in AGENTS_COMMON_REQUIREMENTS if SKILL_PATH_RE.match(pair[1]))
     moved = dict(files)
     moved[owner] = files[owner].replace(phrase, "", 1)
     moved[HUB] = files[HUB] + "\n" + phrase + "\n"

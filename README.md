@@ -166,8 +166,100 @@ confirm before creating anything.
 `--check` and `--adopt` bring an existing local checkout back in line. Neither
 contacts GitHub; follow with `--configure-only` for repository settings.
 
+### Generated agent layout
+
+The generated `AGENTS.md` is a short hub. It holds the gates every agent must
+see (scope, GitHub operations, branches, commits, preservation, definition of
+done), the type's tooling commands, a skills table, and `## Project specifics`
+last. Detailed procedures live in skills that load when they're relevant:
+
+| Skill (`.agents/skills/<name>/SKILL.md`) | Types |
+|---|---|
+| `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `delegation` | all |
+| `screenshot-review` | `nextjs`, `swift` |
+| `baseline-process` | `nextjs` |
+| `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
+
+Each skill is mirrored as a relative symlink,
+`.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
+doesn't scan `.agents/` but does follow symlinked skill folders. Codex,
+OpenCode and Antigravity read `.agents/skills` directly. The fresh-eyes review
+runs as a separate read-only reviewer agent,
+`.claude/agents/fresh-eyes-reviewer.md` and
+`.opencode/agents/fresh-eyes-reviewer.md`, and both load the
+`fresh-eyes-review` skill. The generated `.gitignore` ignores `.agents/*` and
+`.opencode/*` but re-includes `!.agents/skills/` and `!.opencode/agents/`, so
+these files are committed.
+
+Why split it? Harnesses cut long instruction files off, and `## Project
+specifics` is last, so it's lost first:
+
+- Antigravity reads at most 24,000 B per rule file (its built-in rules
+  documentation, checked 2026-10-03).
+- Codex stops at `project_doc_max_bytes`, 32 KiB by default
+  (`openai/codex` `agents_md.rs` at `c542fb9`, checked 2026-10-03).
+- OMO was observed truncating `AGENTS.md` on read at about 12 to 16 KB
+  (2026-10-03).
+
+### Template-owned files
+
+These files belong to the template and are replaced, not merged, when it
+changes:
+
+- the generated skills;
+- the two reviewer agents;
+- `docs/branch-protection-runbook.md`;
+- `docs/screenshot-review.md`.
+
+`docs/lint-baseline.md` and `docs/advisory-baseline.md` aren't in this set.
+They're tables each repository edits, so they keep the plain `kept`
+behaviour, as do scripts, workflows and configs.
+
+Every template-owned file carries a stamp line:
+
+```text
+<!-- gh-repo-bootstrapper: template-owned; sha256=<hex> -->
+```
+
+The hex is the SHA-256 of the file with the stamp line removed. In a
+`SKILL.md` or agent file the stamp sits on the line after the YAML
+frontmatter; in other markdown it's line 1. A digest that no longer matches
+means someone edited the file locally.
+
+To narrow a template skill for one repository, don't edit the stamped file.
+Write the narrower rule in `## Project specifics`, or add a repository-owned
+skill under `.agents/skills/` whose name doesn't start with a template skill
+name. A stamped file that has been edited is reported as `local-modified` and
+is never overwritten.
+
+Repositories adopted before stamps existed may have edited a legacy
+`docs/branch-protection-runbook.md` or `docs/screenshot-review.md`. Migrate
+once: move the local changes into `## Project specifics` or a repository-owned
+skill, delete the old file, and run `--adopt` to write the stamped version.
+
+### Checking and adopting
+
 `--check PATH --type TYPE` renders the current templates for that type and
-reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`. Pass the same
+reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`.
+Template-owned files get their own states:
+
+| State | Meaning | `--adopt` |
+|---|---|---|
+| `same` | matches the current render | nothing |
+| `stale` | valid stamp differs from the current render, or an unstamped non-skill body equals the current unstamped render or a recorded legacy body | overwritten, if tracked, clean, LF-terminated and UTF-8 |
+| `local-modified` | invalid or mismatched stamp, or an unrecognized unstamped non-skill body | refused |
+| `missing` | not present | written |
+| `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar | refused; use a plain single-line name when the name is ambiguous |
+| `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
+| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp |
+| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading |
+
+When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
+prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't
+change the exit code; shorten `## Project specifics` by moving reference
+material into a repository-owned skill.
+
+Pass the same
 type options the repository was generated with — `--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
 they shape report as drift. For `AGENTS.md` it reports per section: a
@@ -184,8 +276,9 @@ directory's name, or, for a linked git worktree whose shared git directory is
 its main checkout's `.git`, that checkout's name, so a verification worktree such
 as `.worktrees/app/align` renders as `app`.
 
-`--adopt PATH --type TYPE` writes every missing file and never overwrites an
-existing one, with one exception that preserves repository-owned content:
+`--adopt PATH --type TYPE` writes every missing file. It overwrites an
+existing file only when it's a `stale` template-owned file (see the table
+above), with one more exception that preserves repository-owned content:
 `AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
 everything after it) and the `next dev`-managed block. The rebuild is refused
 while anything `local` remains — move those rules under `## Project specifics`

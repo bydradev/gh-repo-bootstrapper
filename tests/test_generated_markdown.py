@@ -31,6 +31,14 @@ class RenderMarkdownTest(unittest.TestCase):
             self.assertIn("simple", agents)
             self.assertFalse(list(Path(tmp).rglob("*.yml")))
 
+    def test_writes_skills_and_reviewer_agents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            validate_templates.render_markdown(Path(tmp))
+            simple = Path(tmp) / "simple"
+            self.assertTrue((simple / ".agents/skills/pull-requests/SKILL.md").is_file())
+            self.assertTrue((simple / ".claude/agents/fresh-eyes-reviewer.md").is_file())
+            self.assertTrue((simple / ".opencode/agents/fresh-eyes-reviewer.md").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

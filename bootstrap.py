@@ -13,9 +13,13 @@ Supported types:
 Requirements: Python 3.9+, gh CLI (authenticated), git
 """
 
+from __future__ import annotations
+
 import argparse
+import difflib
 import errno
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -81,6 +85,138 @@ NEXTJS_BASELINE_SCRIPTS = (
 NEXTJS_BASELINE_REVIEW_WORKFLOW = ".github/workflows/baseline-review.yml"
 SCREENSHOT_REVIEW = "docs/screenshot-review.md"
 README = "README.md"
+AGENTS_SIZE_WARN_BYTES = 20_000
+STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
+_STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
+_GENERAL_SKILLS = (
+    "pull-requests", "worktrees-and-scratch", "verify-external-claims",
+    "fresh-eyes-review", "delegation",
+)
+TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
+    "simple": _GENERAL_SKILLS,
+    "python": _GENERAL_SKILLS + ("local-validation-python",),
+    "rust": _GENERAL_SKILLS + ("local-validation-rust",),
+    "swift": _GENERAL_SKILLS + ("local-validation-swift", "screenshot-review"),
+    "nextjs": _GENERAL_SKILLS + (
+        "local-validation-nextjs", "baseline-process", "screenshot-review",
+    ),
+}
+_TEMPLATE_AGENTS = {
+    ".claude/agents/fresh-eyes-reviewer.md": "agents/claude-fresh-eyes-reviewer.md",
+    ".opencode/agents/fresh-eyes-reviewer.md": "agents/opencode-fresh-eyes-reviewer.md",
+}
+
+
+def template_owned_paths(cfg) -> list[str]:
+    """The complete template-owned manifest for this configuration."""
+    paths = [f".agents/skills/{name}/SKILL.md" for name in TEMPLATE_SKILLS[cfg["repo_type"]]]
+    paths += list(_TEMPLATE_AGENTS) + ["docs/branch-protection-runbook.md"]
+    if cfg["repo_type"] in ("nextjs", "swift"):
+        paths.append(SCREENSHOT_REVIEW)
+    return paths
+
+
+def generate_links(cfg) -> dict[str, str]:
+    """Claude's relative directory mirrors of the shared skills."""
+    return {
+        f".claude/skills/{name}": f"../../.agents/skills/{name}"
+        for name in TEMPLATE_SKILLS[cfg["repo_type"]]
+    }
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def read_stamp(text: str) -> tuple[str | None, str]:
+    """Return the single stamp digest and the exact body, without its line."""
+    lines = text.splitlines(keepends=True)
+    matches = [(i, _STAMP_RE.fullmatch(line.rstrip("\r\n"))) for i, line in enumerate(lines)]
+    stamps = [(i, match.group(1)) for i, match in matches if match]
+    if len(stamps) != 1:
+        return None, text
+    index, digest = stamps[0]
+    return digest, "".join(lines[:index] + lines[index + 1:])
+
+
+def stamp(text: str) -> str:
+    """Stamp a body, after closed YAML frontmatter or before ordinary Markdown."""
+    _, body = read_stamp(text)
+    offset = 0
+    if body.startswith("---\n"):
+        for line in body[4:].splitlines(keepends=True):
+            offset += len(line)
+            if line.rstrip("\r\n") == "---":
+                offset += 4
+                if not line.endswith("\n"):
+                    body = body[:offset] + "\n" + body[offset:]
+                    offset += 1
+                break
+        else:
+            offset = 0
+    marker = f"{STAMP_PREFIX}{_digest(body)} -->\n"
+    return body[:offset] + marker + body[offset:]
+
+
+def stamp_is_valid(text: str) -> bool:
+    digest, body = read_stamp(text)
+    return digest is not None and digest == _digest(body)
+
+
+# Rebuilt by compute_legacy_digests(), from every v0.* tag and the #53 head.
+LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
+    "docs/branch-protection-runbook.md": frozenset({
+        "1f4ce79e3a984e4e76dfdee4b3ca655c6911825eabee6a92dd5a3c76a9526dc1",
+        "6639309aab33a20e8b514470e3aa34e3964d8f6bd0118ce7b8c44b940752546d",
+        "6d85cc1c360e438c258a11085b387435b8eaf3667a1201fb895b0a24f6d4a494",
+        "0393321b93da4028ce9becf74df5af865da24256dee0f035b3a31a8d378f188b",
+    }),
+    "docs/screenshot-review.md": frozenset({
+        "14682e234d008988775c61f361f63e55f6b6d53e05fbc97311919d01aab72948",
+        "705bc3cd766b0bdcbf292f1db676f209aebcd30815bf2cde9c25b354df63e884",
+        "6382eea5102c54492dbe4f80f942262759dea40296ef2c629065a9efcfc9bfca",
+    }),
+}
+
+
+def _legacy_template_bodies() -> dict[str, list[str]]:
+    """Render historical owned docs; new skills and agents have no legacy copies."""
+    repo = TEMPLATES_DIR.parent
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    refs = subprocess.run(
+        ["git", "-C", str(repo), "tag", "--list", "v0.*"],
+        capture_output=True, text=True, check=True, env=env,
+    ).stdout.splitlines()
+    refs.append("origin/fix/lint-clean-generated-markdown")
+    bodies = {}
+    for ref in refs:
+        def source(name):
+            result = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{ref}:templates/{name}"],
+                capture_output=True, check=False, env=env,
+            )
+            return result.stdout.decode("utf-8") if result.returncode == 0 else None
+
+        runbook = source("docs-branch-protection-runbook.md")
+        if runbook is not None:
+            bodies.setdefault("docs/branch-protection-runbook.md", []).append(runbook)
+        common = source("docs-screenshot-review-common.md")
+        if common is not None:
+            for repo_type in ("nextjs", "swift"):
+                fragment = source(f"docs-screenshot-review-{repo_type}.md")
+                if fragment is not None:
+                    bodies.setdefault(SCREENSHOT_REVIEW, []).append(
+                        _compose(common, "PLATFORM_GUIDANCE", fragment)
+                    )
+    return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
+
+
+def compute_legacy_digests() -> dict:
+    """Rebuild the checked-in legacy table using the historical template renders."""
+    return {
+        path: frozenset(_digest(body) for body in bodies)
+        for path, bodies in _legacy_template_bodies().items()
+    }
 
 
 def _die(msg: str) -> NoReturn:
@@ -595,6 +731,22 @@ _DESTINATION_EXAMPLES = {
 }
 
 
+# Type-specific rows of the hub's skills pointer table (templates/AGENTS.md).
+_TYPE_SKILL_ROWS = {
+    "nextjs": (
+        "| run local validation | `local-validation-nextjs` |\n",
+        "| touch lint or audit baselines | `baseline-process` |\n",
+        "| change screenshots or captured views | `screenshot-review` |\n",
+    ),
+    "swift": (
+        "| run local validation | `local-validation-swift` |\n",
+        "| change screenshots or captured views | `screenshot-review` |\n",
+    ),
+    "rust": ("| run local validation | `local-validation-rust` |\n",),
+    "python": ("| run local validation | `local-validation-python` |\n",),
+}
+
+
 def generate_files(cfg: dict) -> dict:
     name = cfg["name"]
     repo_type = cfg["repo_type"]
@@ -685,18 +837,16 @@ def generate_files(cfg: dict) -> dict:
     files["docs/branch-protection-runbook.md"] = _load("docs-branch-protection-runbook.md")
 
     preamble = ""
-    baseline_guidance = ""
     tooling = ""
     if repo_type == "nextjs":
         preamble = _load("AGENTS-nextjs-block.md")
-        baseline_guidance = _load("AGENTS-nextjs-baseline.md")
-        tooling = _load("AGENTS-nextjs-tooling.md")
+        tooling = _load("AGENTS-nextjs-commands.md")
     elif repo_type == "python":
-        tooling = _load("AGENTS-python-tooling.md")
+        tooling = _load("AGENTS-python-commands.md")
     elif repo_type == "rust":
-        tooling = _load("AGENTS-rust-tooling.md")
+        tooling = _load("AGENTS-rust-commands.md")
     elif repo_type == "swift":
-        swift_tooling = _load("AGENTS-swift-tooling.md")
+        swift_tooling = _load("AGENTS-swift-commands.md")
         delta = _load(
             "AGENTS-swift-xcodegen-delta.md" if xcodegen else "AGENTS-swift-tooling-default.md"
         )
@@ -705,7 +855,9 @@ def generate_files(cfg: dict) -> dict:
         # "package-name": "DEPENDENCY_NOTE" on every Swift repo while this loop
         # rebound it. validate_templates.check_release_please_config asserts the
         # rendered value now.
-        for section in ("PROJECT_NOTE", "GENERATE_STEP", "DEPENDENCY_NOTE"):
+        # The commands fragment holds only the project note and generate step;
+        # the dependency note now lives in the local-validation-swift skill.
+        for section in ("PROJECT_NOTE", "GENERATE_STEP"):
             swift_tooling = _compose(
                 swift_tooling, f"XCODEGEN_{section}", _extract_section(delta, section)
             )
@@ -718,29 +870,21 @@ def generate_files(cfg: dict) -> dict:
     files["CLAUDE.md"] = _load("CLAUDE.md")
     agents = _load("AGENTS.md")
     agents = _compose(agents, "TYPE_PREAMBLE", preamble)
-    agents = _compose(agents, "BASELINE_PROCESS", baseline_guidance)
     agents = _compose(agents, "TYPE_TOOLING", tooling)
+    agents = _compose(agents, "SKILL_ROWS_TYPE", "".join(_TYPE_SKILL_ROWS.get(repo_type, ())))
     if repo_type in ("nextjs", "swift"):
+        # The screenshot-review skill carries this guidance; drop the marker
+        # together with the blank line after it.
         agents = _compose(
-            agents, "SCREENSHOT_GUIDANCE", _load(f"AGENTS-{repo_type}-screenshot-link.md")
-        )
-    else:
-        # No platform link: drop the marker together with the blank line after
-        # it, so the section is not followed by two blank lines.
-        agents = _compose(
-            agents.replace("# <<SCREENSHOT_GUIDANCE>>\n\n", "# <<SCREENSHOT_GUIDANCE>>\n", 1),
-            "SCREENSHOT_GUIDANCE",
+            agents.replace("# <<SCREENSHOT_REVIEW_REF>>\n\n", "# <<SCREENSHOT_REVIEW_REF>>\n", 1),
+            "SCREENSHOT_REVIEW_REF",
             "",
         )
-    agents = _compose(
-        agents,
-        "SCREENSHOT_REVIEW_REF",
-        _load(
-            "AGENTS-screenshot-review-ref-linked.md"
-            if repo_type in ("nextjs", "swift")
-            else "AGENTS-screenshot-review-ref-generic.md"
-        ),
-    )
+    else:
+        # No screenshot-review skill for this type: keep the generic rule inline.
+        agents = _compose(
+            agents, "SCREENSHOT_REVIEW_REF", _load("AGENTS-screenshot-review-ref-generic.md")
+        )
     files["AGENTS.md"] = agents
     files[".gitignore"] = _load(".gitignore")
     if repo_type == "swift" and xcodegen:
@@ -750,6 +894,21 @@ def generate_files(cfg: dict) -> dict:
     files["release-please-config.json"] = _release_please_config(name, repo_type)
     files[".release-please-manifest.json"] = json.dumps({".": "0.1.0"}, indent=2) + "\n"
 
+    for skill in TEMPLATE_SKILLS[repo_type]:
+        content = _load(f"skills/{skill}/SKILL.md")
+        if skill == "local-validation-swift":
+            content = _compose(content, "XCODEGEN_DEPENDENCY_NOTE", _extract_section(delta, "DEPENDENCY_NOTE"))
+            content = (
+                content.replace("__SCHEME__", shlex.quote(cfg["scheme"]))
+                .replace("__SCHEME_SHELL__", shlex.quote(cfg["scheme"]))
+                .replace("__DESTINATION_EXAMPLE__", _DESTINATION_EXAMPLES[destination])
+                .replace("__DESTINATION_KIND__", destination)
+            )
+        files[f".agents/skills/{skill}/SKILL.md"] = content
+    for path, source in _TEMPLATE_AGENTS.items():
+        files[path] = _load(source)
+    for path in template_owned_paths(cfg):
+        files[path] = stamp(files[path])
     return files
 
 
@@ -773,6 +932,26 @@ _CONTAINER_PREFIX_RE = re.compile(r"^[ \t]*(?:(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]
 _CONTAINED_HEADING_RE = re.compile(r"^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}(?!#)[ \t]+\S")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+RETIRED_SECTIONS: frozenset[str] = frozenset({
+    "## Orchestration and delegation",
+    "## Independent fresh-eyes review",
+    "## External knowledge and capabilities",
+    "## Pull requests (squash-merge + Release Please)",
+    "## Worktrees, verification copies, and scratch output",
+    "## Baseline process",
+    "## Screenshot review",
+    "## Local browser-validation constraints",
+    "## Formatting",
+})
+_TYPE_RETIRED_SECTIONS = {
+    "nextjs": frozenset({"## Baseline process", "## Local browser-validation constraints"}),
+    "swift": frozenset({"## Formatting"}),
+}
+_RETIRED_SUBHEADINGS = {
+    "## Pull requests (squash-merge + Release Please)": frozenset({
+        "### Standard pull requests", "### Release Please pull requests",
+    }),
+}
 
 
 def _nextjs_rules_block(text: str) -> str:
@@ -925,6 +1104,10 @@ def compare_agents(expected: str, actual: str) -> list:
                 if sub not in known
             ]
     expected_headings = {heading for heading, _ in exp_sections}
+    retired_headings = RETIRED_SECTIONS.difference(*_TYPE_RETIRED_SECTIONS.values())
+    for repo_type, headings in _TYPE_RETIRED_SECTIONS.items():
+        if f"`local-validation-{repo_type}`" in exp_generated:
+            retired_headings |= headings
     present = [heading for heading, _ in exp_sections if heading in actual_by_heading]
     seen = []
     for heading, _ in act_sections:
@@ -932,7 +1115,18 @@ def compare_agents(expected: str, actual: str) -> list:
             seen.append(heading)
     if seen != present:
         rows.append(("differs", "(order of generated sections)"))
-    rows += [("local", h) for h, _ in act_sections if h not in expected_headings]
+    for heading, body in act_sections:
+        if heading in expected_headings:
+            continue
+        if heading in retired_headings:
+            rows.append(("retired", heading))
+            rows += [
+                ("local", f"{heading} › {sub}")
+                for sub in _subheadings(body)
+                if sub not in _RETIRED_SUBHEADINGS.get(heading, ())
+            ]
+        else:
+            rows.append(("local", heading))
     if act_owned is None:
         rows.append(("missing", PROJECT_SPECIFICS))
     if _nextjs_rules_block(expected) and not _nextjs_rules_block(actual):
@@ -940,13 +1134,18 @@ def compare_agents(expected: str, actual: str) -> list:
     return rows
 
 
-def rebuild_agents(expected: str, actual: str) -> str:
+def rebuild_agents(expected: str, actual: str, replace_generated: bool = False) -> str:
     """The rendered AGENTS.md with the repository's own parts carried over.
 
     Keeps the repository's `## Project specifics` section (and everything after
     it) and its `next dev`-managed block. Callers must first confirm that
     compare_agents() reports no `local` rows, or repository text is lost.
     """
+    rows = compare_agents(expected, actual)
+    retired = [heading for status, heading in rows if status == "retired"]
+    local = [heading for status, heading in rows if status == "local"]
+    if retired and (local or not replace_generated):
+        raise ValueError("cannot drop retired sections: " + "; ".join(local or retired))
     generated, template_owned = _split_project_specifics(expected)
     _, owned = _split_project_specifics(actual)
     repo_block, template_block = _nextjs_rules_block(actual), _nextjs_rules_block(expected)
@@ -963,33 +1162,177 @@ def _missing_lines(expected: str, actual: str) -> list:
     ]
 
 
-def _symlink_in_path(repo_dir: Path, rel: str) -> bool:
-    """True when rel, or any directory between repo_dir and it, is a symlink."""
+def _symlink_in_path(repo_dir: Path, rel: str, links: dict = None) -> bool:
+    """Refuse symlinks except a declared mirror at the final component."""
     current = repo_dir
-    for part in Path(rel).parts:
+    parts = Path(rel).parts
+    for index, part in enumerate(parts):
         current = current / part
         if current.is_symlink():
+            if links and rel in links and index == len(parts) - 1:
+                continue
             return True
     return False
 
 
-def compare_repository(repo_dir: Path, files: dict) -> dict:
+def _links_for_files(files: dict) -> dict[str, str]:
+    """Infer mirrors for callers that only have the generated files dict."""
+    return {
+        f".claude/skills/{Path(path).parent.name}": f"../../.agents/skills/{Path(path).parent.name}"
+        for path in files
+        if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
+    }
+
+
+def _git_ignored(repo_dir: Path, rel: str) -> bool:
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    result = subprocess.run(
+        ["git", "-C", str(repo_dir), "check-ignore", "-q", "--", rel],
+        capture_output=True, env=env,
+    )
+    return result.returncode == 0
+
+
+def _template_file_state(rel: str, expected: str, actual: str) -> str:
+    """Classify exact bytes, not newline-normalized text."""
+    digest, body = read_stamp(actual)
+    if digest is None:
+        if STAMP_PREFIX in actual:
+            return "local-modified"
+        if rel.startswith(".agents/skills/"):
+            return "shadowed"
+        if body == read_stamp(expected)[1] or _digest(body) in LEGACY_TEMPLATE_DIGESTS.get(rel, ()):
+            return "stale"
+        return "local-modified"
+    if digest != _digest(body):
+        return "local-modified"
+    return "same" if actual == expected else "stale"
+
+
+def _skill_name(text: str) -> str | None:
+    """Read an unambiguous one-line name; never interpret other YAML value forms."""
+    if not text.startswith("---\n") or "\n---\n" not in text:
+        return None
+    frontmatter = text[4:].split("\n---\n", 1)[0]
+    for line in frontmatter.splitlines():
+        if not line.strip() or line.startswith((" ", "\t", "#")):
+            continue
+        if not re.match(r"^(?:[\w-]+|\"[\w-]+\"|'[\w-]+')[ \t]*:", line):
+            return None
+    matches = list(re.finditer(
+        r"^(?:name|\"name\"|'name')[ \t]*:[ \t]*([^\n]*)", frontmatter, re.MULTILINE
+    ))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    for line in frontmatter[match.end():].splitlines()[1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if line.startswith((" ", "\t")):
+            return None
+        break
+    scalar = match.group(1).strip()
+    if scalar.startswith('"'):
+        try:
+            name, end = json.JSONDecoder().raw_decode(scalar)
+        except ValueError:
+            return None
+        suffix = scalar[end:].strip()
+        return name if not suffix or suffix.startswith("#") else None
+    if scalar.startswith("'"):
+        quoted = re.fullmatch(r"'((?:[^']|'')*)'(?:[ \t]+#.*)?", scalar)
+        return quoted.group(1).replace("''", "'") if quoted else None
+    plain = re.fullmatch(r"([A-Za-z0-9_][A-Za-z0-9_-]*)(?:[ \t]+#.*)?", scalar)
+    return plain.group(1) if plain else None
+
+
+def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
+    """Find orphaned stamped files and name collisions, without following links."""
+    extras = {}
+    skill_paths = {
+        Path(path).parent.name: path for path in files
+        if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
+    }
+    for base in (".agents/skills", ".claude/agents", ".opencode/agents"):
+        if _symlink_in_path(repo_dir, base):
+            continue
+        for directory, dirs, names in os.walk(repo_dir / base, followlinks=False):
+            dirs[:] = sorted(d for d in dirs if not (Path(directory) / d).is_symlink())
+            for name in sorted(names):
+                path = Path(directory) / name
+                rel = path.relative_to(repo_dir).as_posix()
+                if rel in files or path.is_symlink() or not path.is_file():
+                    continue
+                try:
+                    text = path.read_bytes().decode("utf-8")
+                except (OSError, UnicodeDecodeError):
+                    if base == ".agents/skills" and name == "SKILL.md":
+                        extras[rel] = (
+                            "shadowed",
+                            "frontmatter name could not be read unambiguously; use a plain single-line name",
+                        )
+                    continue
+                stamped = any(line.startswith(STAMP_PREFIX) for line in text.splitlines())
+                if base == ".agents/skills" and name == "SKILL.md":
+                    _, body = read_stamp(text)
+                    skill_name = _skill_name(body)
+                    if skill_name is None and (body.lstrip("\ufeff").startswith("---") or not stamped):
+                        extras[rel] = (
+                            "shadowed",
+                            "frontmatter name could not be read unambiguously; use a plain single-line name",
+                        )
+                        continue
+                    if skill_name in skill_paths:
+                        extras[rel] = ("shadowed", "frontmatter name collides with a template skill")
+                        extras[skill_paths[skill_name]] = ("shadowed", f"shadowed by {rel}")
+                        continue
+                if stamped:
+                    extras[rel] = (
+                        ("ignored", "ignored by git; not deleted")
+                        if _git_ignored(repo_dir, rel) else ("orphaned", None)
+                    )
+    return extras
+
+
+def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     """Per-file status of an existing repository against the rendered files."""
     report = {}
+    links = _links_for_files(files) if links is None else links
+    legacy_bodies = None
     for rel, expected in files.items():
         path = repo_dir / rel
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
+        owned = read_stamp(expected)[0] is not None
+        if owned and _git_ignored(repo_dir, rel):
+            report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
+            continue
         try:
             if not path.is_file():
                 report[rel] = ("missing", None)
                 continue
-            actual = path.read_text(errors="replace")
+            actual = path.read_bytes().decode("utf-8", errors="replace")
         except OSError as exc:
             report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
             continue
-        if actual == expected:
+        if owned:
+            status = _template_file_state(rel, expected, actual)
+            detail = None
+            if status == "local-modified" and read_stamp(actual)[0] is None and rel in LEGACY_TEMPLATE_DIGESTS:
+                if legacy_bodies is None:
+                    legacy_bodies = _legacy_template_bodies()
+                candidates = legacy_bodies.get(rel, [])
+                if candidates:
+                    nearest = max(candidates, key=lambda body: difflib.SequenceMatcher(
+                        None, body.splitlines(), actual.splitlines(), autojunk=False
+                    ).ratio())
+                    detail = "".join(difflib.unified_diff(
+                        nearest.splitlines(keepends=True), actual.splitlines(keepends=True),
+                        fromfile=f"legacy/{rel}", tofile=rel,
+                    ))
+            report[rel] = (status, detail)
+        elif actual == expected:
             report[rel] = ("same", None)
         elif rel == "AGENTS.md":
             rows = compare_agents(expected, actual)
@@ -1002,6 +1345,19 @@ def compare_repository(repo_dir: Path, files: dict) -> dict:
             report[rel] = ("differs", "does not import AGENTS.md (no `@AGENTS.md` line)")
         else:
             report[rel] = ("differs", None)
+    report.update(_extra_owned_files(repo_dir, files))
+    for rel, target in links.items():
+        path = repo_dir / rel
+        if _symlink_in_path(repo_dir, rel, links):
+            report[rel] = ("symlink", "a symlink in the parent path; not compared or written")
+        elif _git_ignored(repo_dir, rel):
+            report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
+        elif path.is_symlink():
+            report[rel] = ("same", None) if os.readlink(path) == target else ("differs", "wrong mirror target")
+        elif path.exists():
+            report[rel] = ("differs", "mirror path is not a symlink")
+        else:
+            report[rel] = ("missing", None)
     return report
 
 
@@ -1022,6 +1378,11 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
             print(f"      missing entries: {', '.join(detail)}")
         elif isinstance(detail, str):
             print(f"      {detail}")
+    agents = repo_dir / "AGENTS.md"
+    if not _symlink_in_path(repo_dir, "AGENTS.md") and agents.is_file():
+        size = agents.stat().st_size
+        if size > AGENTS_SIZE_WARN_BYTES:
+            print(f"  warn AGENTS.md total {size} B > {AGENTS_SIZE_WARN_BYTES} B")
     print("\nAligned." if aligned else "\nDrift found. Review it, then run --adopt to apply what can be applied.")
     return aligned
 
@@ -1035,7 +1396,8 @@ def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
     """
     def git(*args):
         return subprocess.run(
-            ["git", "-C", str(repo_dir), *args], capture_output=True, text=True
+            ["git", "-C", str(repo_dir), *args], capture_output=True, text=True,
+            env={k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES},
         )
 
     try:
@@ -1131,7 +1493,7 @@ def _create_anchored(parent: int, name: str, text: str, exact_mode=None) -> None
     New files get the usual umask-filtered mode unless exact_mode is given.
     """
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o666, dir_fd=parent)
-    with os.fdopen(fd, "w") as handle:
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
         if exact_mode is not None:
             os.fchmod(handle.fileno(), exact_mode)
         handle.write(text)
@@ -1184,12 +1546,14 @@ def _replace_anchored(parent: int, name: str, text: str, identity: tuple) -> Non
 
 
 def adopt_repository(
-    repo_dir: Path, files: dict, replace_generated: bool = False, confirm=None
+    repo_dir: Path, files: dict, replace_generated: bool = False, confirm=None, links: dict = None
 ) -> list:
     """Bring an existing local repository in line without touching GitHub.
 
-    Writes every missing generated file and never overwrites an existing one,
-    except that AGENTS.md is rebuilt from the template while keeping
+    Writes missing generated files and mirrors, upgrades stale template-owned
+    files, and deletes digest-valid orphaned template-owned files. Locally
+    modified or shadowed owned files and ignored paths are refused. Other
+    existing files are kept, except that AGENTS.md is rebuilt while keeping
     `## Project specifics` and the `next dev` block. That rewrite needs the
     file tracked by git with no uncommitted changes, LF line endings, and
     UTF-8 text, so the result can be reviewed and reverted. Writes refuse any
@@ -1206,20 +1570,49 @@ def adopt_repository(
     model. A generated section whose text differs may be an older template or
     a local edit, and nothing here can tell which, so it is replaced only when
     replace_generated is set; otherwise the rebuild is refused and the
-    differing sections are listed. When replace_generated is set,
+    differing and retired sections are listed. Retired sections are dropped
+    only with replace_generated and no unknown subsections. When it is set,
     confirm(sections) is called with the sections about to be replaced before
     AGENTS.md is written; a falsy result refuses the rebuild.
     Returns (action, path, detail) rows.
     """
     actions = []
-    for rel, (status, detail) in sorted(compare_repository(repo_dir, files).items()):
+    mirrors = _links_for_files(files) if links is None else links
+    report = compare_repository(repo_dir, files) if links is None else compare_repository(repo_dir, files, links)
+    for rel, (status, detail) in sorted(report.items()):
         try:
-            action = _adopt_file(repo_dir, rel, status, detail, files[rel], replace_generated, confirm)
+            if rel in mirrors:
+                action = _adopt_link(repo_dir, rel, status, detail, mirrors[rel])
+            else:
+                action = _adopt_file(repo_dir, rel, status, detail, files.get(rel), replace_generated, confirm)
         except OSError as exc:
             action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
         if action:
             actions.append(action)
     return actions
+
+
+def _adopt_link(repo_dir: Path, rel: str, status: str, detail, target: str):
+    """Publish a declared mirror only when absent; never replace an existing entry."""
+    if status == "same":
+        return None
+    if status != "missing":
+        return ("refused", rel, detail or "mirror path already exists")
+    if not _ANCHORED_WRITES or os.symlink not in os.supports_dir_fd:
+        return ("refused", rel, "this platform cannot create anchored symlinks")
+    if _git_ignored(repo_dir, rel):
+        return ("refused", rel, "ignored by git")
+    created = []
+    try:
+        parent = _open_parent(repo_dir, rel, create=True, created=created)
+        try:
+            os.symlink(target, Path(rel).name, dir_fd=parent)
+        finally:
+            os.close(parent)
+    except BaseException:
+        _remove_empty_dirs(repo_dir, created)
+        raise
+    return ("wrote", rel, f"-> {target}")
 
 
 def _adopt_file(
@@ -1234,12 +1627,53 @@ def _adopt_file(
     """
     if status == "same":
         return None
-    if status in ("symlink", "unreadable"):
+    if status in ("symlink", "unreadable", "ignored", "shadowed"):
         return ("refused", rel, detail)
+    if status == "local-modified":
+        return (
+            "refused", rel,
+            "edited locally; move the change to ## Project specifics or a repo-owned skill, "
+            "then delete the file to regenerate",
+        )
     if not _ANCHORED_WRITES:
         return ("refused", rel, "this platform cannot write without following symlinks")
     name = Path(rel).name
+    if status in ("stale", "orphaned"):
+        if status == "stale" and not _git_file_is_clean(repo_dir, rel):
+            return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+        parent = _open_parent(repo_dir, rel, create=False)
+        try:
+            raw, identity = _read_anchored(parent, name)
+            if status == "orphaned":
+                if _git_ignored(repo_dir, rel):
+                    return ("refused", rel, "ignored by git; not deleted")
+                try:
+                    current = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    return ("refused", rel, "not UTF-8 text")
+                if not stamp_is_valid(current):
+                    return ("refused", rel, "orphaned file edited locally; not deleted")
+                if _identity(parent, name) != identity:
+                    return ("refused", rel, "changed while --adopt was running")
+                os.unlink(name, dir_fd=parent)
+                return ("deleted", rel, "unmodified orphaned template-owned file")
+            current = _decode_for_rewrite(raw)
+            if current is None or not raw.endswith(b"\n"):
+                return ("refused", rel, "not LF-terminated UTF-8 text; update it by hand")
+            current_status = _template_file_state(rel, expected, current)
+            if current_status == "same":
+                return None
+            if current_status != "stale":
+                return ("refused", rel, "edited locally since the scan; not overwritten")
+            if _git_ignored(repo_dir, rel):
+                return ("refused", rel, "ignored by git")
+            _replace_anchored(parent, name, expected, identity)
+            return ("updated", rel, "stale template-owned file brought up to date")
+        finally:
+            os.close(parent)
     if status == "missing":
+        if read_stamp(expected)[0] is not None and _git_ignored(repo_dir, rel):
+            return ("refused", rel, "ignored by git")
         created = []
         try:
             parent = _open_parent(repo_dir, rel, create=True, created=created)
@@ -1273,7 +1707,7 @@ def _adopt_file(
         local = [heading for row_status, heading in rows if row_status == "local"]
         if local:
             return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
-        differing = [heading for row_status, heading in rows if row_status == "differs"]
+        differing = [heading for row_status, heading in rows if row_status in ("differs", "retired")]
         if differing and not replace_generated:
             return (
                 "refused", rel,
@@ -1283,7 +1717,7 @@ def _adopt_file(
             )
         if differing and confirm is not None and not confirm(differing):
             return ("refused", rel, "replacement of differing generated sections was not confirmed")
-        _replace_anchored(parent, name, rebuild_agents(expected, current), identity)
+        _replace_anchored(parent, name, rebuild_agents(expected, current, replace_generated), identity)
     finally:
         os.close(parent)
     replaced = f"; replaced: {'; '.join(differing)}" if differing else ""
@@ -1376,7 +1810,10 @@ def print_dry_run(cfg: dict, files: dict):
             print(f"  {line}")
         print()
 
-    print(f"Total files: {len(files)}\n")
+    links = generate_links(cfg)
+    for path, target in sorted(links.items()):
+        print(f"  {path} -> {target}")
+    print(f"Total files: {len(files)}; links: {len(links)}\n")
 
     print("GitHub variables to configure:")
     print("  RELEASE_PLEASE_CLIENT_ID")
@@ -1423,6 +1860,12 @@ def create_and_push(cfg: dict, files: dict):
         dest = repo_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
+    for rel, target in generate_links(cfg).items():
+        parent = _open_parent(repo_dir, rel, create=True)
+        try:
+            os.symlink(target, Path(rel).name, dir_fd=parent)
+        finally:
+            os.close(parent)
 
     print("Committing and pushing…")
     _run(["git", "-C", str(repo_dir), "add", "."])

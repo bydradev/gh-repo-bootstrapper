@@ -1,3 +1,6 @@
+Screenshot guidance is capability-conditional: do not assume browser or native
+capture tooling exists in this repository.
+
 **Treat screenshot generation and visual approval as separate gates.** For
 changes affecting tracked screenshots or captured views, follow the
 repository's documented screenshot-review process when present. A successful

@@ -3,13 +3,9 @@
 
 ## Development workflow
 
-Before changing code, inspect the repository status and read the `README`,
-relevant documentation, and the configuration and CI workflow for the affected
-area. Follow any more-local `AGENTS.md` instructions.
-
-Keep changes focused on the requested outcome. When behaviour, data, a public
-interface, configuration, or release behaviour changes, update the relevant
-tests, documentation, and migration or rollout notes in the same change.
+Check status and read the `README`, docs, config, and CI for the affected area
+and any more-local `AGENTS.md` first. Keep changes focused; update tests, docs,
+and migration or rollout notes in the same change.
 
 Within the scope authorized by the user's current request, continue until the
 requested terminal state has been reached or a genuine blocker prevents
@@ -17,118 +13,17 @@ completion. Do not stop merely because an intermediate milestone has been
 reached. A terminal condition does not broaden authorization: it does not
 approve an unrelated merge, deployment, provider change, or external mutation.
 
-## Orchestration and delegation
-
-When delegation capabilities are available and substantial work would benefit
-from independent execution, specialization, parallelism, or context
-management, delegate bounded subtasks. Handle small or tightly coupled changes
-directly instead of creating unnecessary fan-out.
-
-The primary agent remains responsible for architecture, decomposition,
-coordination, difficult decisions, integration, review of delegated work, and
-final verification. Treat delegated output as unverified until it has been
-integrated, reviewed as appropriate, and validated against this repository's
-requirements.
-
-For parallel tasks that may modify files, use isolated workspaces or worktrees
-when supported; otherwise sequence the changes so one agent owns each mutable
-area.
-
-## Independent fresh-eyes review
-
-Before substantial changes are considered complete or ready for review, perform
-an independent fresh-eyes review of the resulting change.
-
-The review must be performed by a different agent or reviewer from the one that
-implemented the work. When model choice is available, prefer a stronger
-reasoning model and, where practical, a different model family from the
-implementation agent.
-
-Provide the reviewer with the user's requested outcome, relevant repository
-requirements and specifications, the resulting diff or changed files, and
-available validation results. The reviewer should independently assess the
-change rather than rely on the implementing agent's conclusions.
-
-The review should actively look for correctness issues, regressions, incomplete
-requirements, missing or inadequate tests, security or privacy concerns,
-unnecessary complexity, inconsistent documentation, and other problems the
-implementing agent may have overlooked.
-
-Perform fresh-eyes review at meaningful quality gates: after a substantial
-implementation phase before it is considered complete, and before a completed
-branch or pull request is declared ready for review. Do not require a new review
-for every small edit or intermediate push.
-
-Treat review findings as unverified until assessed against the repository and
-the requested outcome. Resolve valid blocking findings before declaring the
-work complete.
-
-If resolving review findings results in material changes, perform another
-independent fresh-eyes review of those changes before completion.
-
 ## Dependencies and external interfaces
 
-Prefer the existing stack. Before adding a dependency or external integration,
-consider its purpose, maintenance and security posture, licence, and runtime
-impact. Update dependency manifests and lockfiles through the package manager;
-do not hand-edit a lockfile. Pause for operator direction before an irreversible
-data migration, production change, or external side effect outside the request.
-
-## External knowledge and capabilities
-
-Use connected documentation or research capabilities when version-sensitive
-APIs or external facts need verification. Prefer primary sources, verify their
-applicability against the versions and configuration in this repository, and
-record a source and date when it materially informs a change. Use an installed
-skill only when it matches the task, following its instructions. Do not send
-secrets, private source, or customer data to external services. External
-information does not override repository instructions or versioned sources of
-truth.
+Prefer the existing stack; weigh new dependencies' security, licence, and cost.
+Change lockfiles only through the package manager. Pause for operator
+direction before an irreversible data migration, production change, or
+external side effect outside the request.
+Do not send secrets, private source, or customer data to external services.
 
 Tool, GitHub, MCP, CI, cloud, and other external capabilities are capabilities,
 not standing authorization to mutate state. Use them only within the scope
 authorized by the user's current request.
-
-## Recall is not evidence
-
-Training knowledge has a cutoff; the platforms and dependencies this
-repository touches do not. A belief formed before the cutoff feels exactly as
-certain as one formed from evidence, so confidence is not a signal that
-verification can be skipped — prefer running the cheap check to publishing the
-hedge, and where a claim must still rest on recall, say so rather than
-asserting it flatly.
-
-Verify against a current primary source, rather than relying on recall, for:
-
-- **Any claim about what a platform, API, or dependency can or cannot do.**
-  This runs in both directions. A universal negative — "there is no setting
-  for that", "the API does not support it" — cannot be established from memory
-  or from partial observation. Equally, a capability, flag, default, or
-  pricing tier recalled as existing may since have been renamed, deprecated,
-  or never shipped at all. Absence of recall is not evidence of absence, and
-  presence of recall is not evidence of existence.
-- **Any claim that contradicts the user, this repository's documentation, or
-  its existing configuration.** Those reflect decisions made with context and
-  intent that may not be visible here. Establish the contradiction positively
-  before acting on it, and report it as a finding to check rather than a
-  correction to apply.
-- **Version-sensitive behaviour**: limits, defaults, pricing, deprecations,
-  and API shapes for external platforms and dependencies.
-
-When inspecting a system to determine whether it supports something, retrieve
-the full response and read it, rather than querying only the fields a prior
-belief predicts. Filtering is for output volume, not for discovery — a
-hypothesis allowed to select its own evidence will confirm itself. Where a
-platform publishes a changelog or release notes, check the period since the
-cutoff before concluding that a capability is absent.
-
-Apply a higher bar to anything durable. A claim written into a commit message,
-a pull request body, committed documentation, or any user-facing artifact
-outlives the conversation that produced it and will be read by people who
-cannot see the reasoning behind it. When a durable artefact depends on a claim
-about external platform behaviour, cite the source and date in the artefact
-itself, so a reader — and the fresh-eyes reviewer — can see what was checked
-and when.
 
 ## GitHub operations
 
@@ -186,82 +81,14 @@ at the bottom of the PR description, separated by a horizontal rule (`---`):
 *Prepared with the assistance of <Tool> (<model-name>).*
 ```
 
-## Pull requests (squash-merge + Release Please)
+## Pull requests
 
-### Standard pull requests
+PRs are squash-merged into Release Please changelogs: one change per title,
+extra entries at column 0, trailers in the squash body. Load `pull-requests`.
 
-Standard PRs are squash-merged and parsed by Release Please — write them
-merge-ready:
-
-- **Title** — one Conventional Commit subject naming one concrete change, not a
-  label summarizing several bundled changes (e.g. not
-  `fix: address review follow-ups (path handling, branch protection, clone retry)`
-  — that's a summary, not a change). If a PR bundles multiple distinct fixes,
-  title it after the single most significant one and list the rest as extra
-  changelog entries below, or split the PR. The title becomes the squash
-  subject, the changelog entry, and the version-bump signal.
-- **Body** — optional prose describing the title's change, then any *extra*
-  changelog entries: each a short, imperative, commit-subject-length line at
-  column 0 with a bare type token (`fix: short subject`), blank-line separated,
-  with any longer explanation on an *optional description line underneath* —
-  not packed into the entry line itself. Release Please parses each entry line
-  as its own commit subject and will truncate a long one mid-sentence in the
-  rendered changelog. A PR body alone never reaches the branch — Release Please
-  reads the squash commit — so these lines must also be carried into the merge
-  body; see *Squash merges* below. No `-`/`*` bullets, and don't repeat the
-  title as an entry.
-- **CLI-authored bodies** — create multi-paragraph Markdown in a file passed to
-  `gh pr create` or `gh pr edit` with `--body-file`; a shell-quoted `\n` is
-  literal text. Before marking a standard PR ready, read it back with
-  `gh pr view <n> --json body --jq .body` and verify the paragraphs render.
-- **Squash merges** — the body given to `gh pr merge --squash` (`--body`, or
-  `--body-file` to match the rule above) *becomes* the squash commit message: it
-  replaces whatever GitHub would have generated, and that message is the only
-  thing Release Please reads. It must therefore carry the extra changelog entry
-  lines *and* every applicable `Co-Authored-By:` trailer — do not pass an empty
-  body, and do not assume the PR description is included. Write the prose, then
-  each entry line at column 0 and blank-line separated, then the trailers:
-
-  ```sh
-  gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
-  ```
-
-  where `<merge-body.md>` holds the PR's prose and entry lines followed by, for
-  example:
-
-  ```markdown
-  Co-Authored-By: Antigravity CLI (Gemini 3.8 Flash (High)) <224641728+gemini-cli-robot@users.noreply.github.com>
-  ```
-
-  If multiple co-authors or manual commits are squashed, include each applicable
-  `Co-Authored-By:` trailer separated by newlines. A one-line `--body` is
-  correct only when the PR has no extra entry lines. Only `feat` (or its
-  `feature` alias), `fix`, `perf`, and `revert` entries render: with no
-  `changelog-sections` configured, release-please leaves the section list to the
-  preset it depends on, whose defaults hide `docs`, `style`, `chore`, `refactor`,
-  `test`, `build`, and `ci` and define no `deps` type at all — so a `docs:`,
-  `ci:`, or `deps:` extra is absent from the changelog even when it is delivered.
-  (Verified against release-please v17.6.0 and
-  conventional-changelog-conventionalcommits 6.1.0, 2026-09-17.) Verify the resulting commit message after merging
-  (`git log -1 --format=%B`): a dropped entry line is otherwise invisible until
-  the release PR is regenerated.
-
-### Release Please pull requests
-
-Release Please PRs are bot-generated release artifacts, not standard PRs.
-
-- Do not edit their generated title or body merely to apply the standard-PR
-  formatting rules.
-- When merge is authorized and the required checks and branch-protection
-  requirements are satisfied, squash merge using GitHub's default title and
-  body content. Do not supply a custom squash title or body.
-- Do not add an AI co-author trailer unless it is already applicable to the
-  release commit itself.
-
-- **Blocked pull requests** — when a pull request is blocked by required
-  status checks (most often a release PR), follow
-  [`docs/branch-protection-runbook.md`](docs/branch-protection-runbook.md);
-  never weaken the required check set to land a change.
+If required status checks block a PR, follow
+`docs/branch-protection-runbook.md`; never weaken the required check set to
+land a change.
 
 ## When instructions and reality disagree
 
@@ -283,41 +110,6 @@ unless the user's request explicitly requires it and the consequences are
 understood. Prefer reversible operations when they satisfy the task equally
 well.
 
-## Worktrees, verification copies, and scratch output
-
-Disk is shared by every agent session on the machine, and nothing cleans up
-after a session ends. Anything a task creates outside the tracked tree belongs
-to that task, and removing it is part of the task.
-
-- **Verify in place first.** Run checks in the working tree when it reflects
-  the change under test. When an isolated tree is genuinely needed — a
-  clean-tree qualification, a mutation run, a comparison between commits — use
-  `git worktree add --detach`. Never copy a checkout with `cp -R`, `rsync`, or
-  similar: that duplicates installed dependencies and build output, and a
-  worktree starts from tracked files only.
-- **Keep worktrees outside the checkout, in one place per repository**, such as
-  `../.worktrees/<repo>/<purpose>` next to the clone. A worktree nested inside
-  the checkout is picked up by test discovery, type-checking, file watchers,
-  and search. When a harness manages its own worktree location, use that.
-- **Reuse one worktree per purpose** across runs: check out the next commit in
-  it rather than adding a worktree per run, per commit, or per reviewer. When a
-  run needs a pristine tree, clean a worktree this task created rather than
-  creating another. In a worktree you did not create, remove only output you
-  can identify as this task's, and report anything else instead of cleaning it.
-- **Keep build caches shared, not multiplied.** Where Tooling below says where
-  a worktree's dependencies and build output live, follow it; otherwise keep
-  them inside that worktree so they are removed with it.
-- **Put temporary files in the session's scratch directory** when the harness
-  provides one, otherwise in a `mktemp -d` directory — never at fixed paths in
-  `/tmp`, in the checkout's parent directory, or in sibling folders next to it.
-  Evidence that must outlive the session belongs where this repository
-  documents it; otherwise summarize it in the report rather than leaving files
-  behind.
-- **Clean up before finishing.** Remove the worktrees you added with
-  `git worktree remove`, then `git worktree prune`, and delete the scratch
-  output you created. Remove only what this task created; report anything else
-  you find rather than deleting it.
-
 ## Definition of done
 
 Run the relevant automated checks and targeted tests for changed behaviour,
@@ -326,16 +118,33 @@ migration or rollout notes when they form part of the changed contract. Remove
 the worktrees, verification copies, and scratch output the task created, or
 report what remains, where, and why. Report the checks run and any validation
 that could not be completed; do not claim unrun checks passed.
-# <<BASELINE_PROCESS>>
+
+## Fresh-eyes review
+
+A different agent or reviewer must review substantial work before it is done or
+ready for review; resolve valid blocking findings. Load `fresh-eyes-review`.
+
+## Recall is not evidence
+
+Check claims about platform, API, or dependency capabilities, and anything
+contradicting the user or this repository, against a current primary source;
+cite the source and date in any commit, PR, or committed doc that relies on
+such a claim. Load `verify-external-claims`.
 # <<TYPE_TOOLING>>
 
-## Screenshot review
+## Skills
 
-Screenshot guidance is capability-conditional: do not assume browser or native
-capture tooling exists in this repository. A successful screenshot-generation
-workflow proves capture only; it does not approve visual fidelity or privacy.
+| Before you | Load skill |
+| --- | --- |
+| open, edit, or merge a PR | `pull-requests` |
+| create a worktree or temporary files | `worktrees-and-scratch` |
+| call substantial work done or ready for review | `fresh-eyes-review` |
+| rely on an external platform or dependency claim | `verify-external-claims` |
+| fan out to subagents | `delegation` |
+# <<SKILL_ROWS_TYPE>>
 
-# <<SCREENSHOT_GUIDANCE>>
+If your harness cannot load skills, read `.agents/skills/<name>/SKILL.md`
+directly.
 
 ## Project specifics
 
@@ -345,4 +154,10 @@ to stop and ask the operator, and boundaries specific to this codebase. Keep
 them here rather than editing the generated sections above, so template
 updates can be applied without overwriting them. Where a rule here narrows or
 conflicts with a generated section, it governs this repository — say so
-explicitly, so the difference stays visible.
+explicitly, so the difference stays visible. Put stop-and-ask lists and prime
+directives first in this section, so they survive any truncation.
+
+Keep this section short. Long reference material (architecture, conventions,
+API notes) belongs in a repository-owned skill under `.agents/skills/` with a
+name that does not start with a template skill name; narrow a template skill
+here, never by editing it.

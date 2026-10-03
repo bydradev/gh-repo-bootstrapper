@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, Co-Authored-By trailers in merge bodies, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=872d131e25b5ed914f775f378bb455bc1efae84e2e6497149b947d6808922871 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=2bdfe7bdb60e134a76050a93228c1fa5b79d959675cb33e565da400ab1f3fe3d -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -79,5 +79,5 @@ Release Please PRs are bot-generated release artifacts, not standard PRs.
 
 - **Blocked pull requests** — when a pull request is blocked by required
   status checks (most often a release PR), follow
-  [`docs/branch-protection-runbook.md`](../../../docs/branch-protection-runbook.md);
+  `docs/branch-protection-runbook.md` (repository root);
   never weaken the required check set to land a change.

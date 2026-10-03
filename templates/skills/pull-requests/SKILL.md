@@ -78,5 +78,5 @@ Release Please PRs are bot-generated release artifacts, not standard PRs.
 
 - **Blocked pull requests** — when a pull request is blocked by required
   status checks (most often a release PR), follow
-  [`docs/branch-protection-runbook.md`](../../../docs/branch-protection-runbook.md);
+  `docs/branch-protection-runbook.md` (repository root);
   never weaken the required check set to land a change.

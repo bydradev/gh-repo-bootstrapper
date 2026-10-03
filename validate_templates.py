@@ -24,6 +24,8 @@ Checks performed on each generated file:
   - AGENTS.md hub structure: the generated part fits its byte budget, has no
     bare `@path` imports, and points only at skills the render contains;
     every SKILL.md has valid agentskills.io frontmatter with a unique name;
+    relative Markdown links in the hub and in every SKILL.md resolve from
+    their own directory;
     every template-owned file carries a valid stamp; the reviewer agents are
     read-only and leave the model unset
 
@@ -230,6 +232,7 @@ CLAUDE_REVIEWER = ".claude/agents/fresh-eyes-reviewer.md"
 OPENCODE_REVIEWER = ".opencode/agents/fresh-eyes-reviewer.md"
 CLAUDE_WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
+SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
 PROJECT_SPECIFICS_HEADING = "## Project specifics"
 NEXTJS_AGENT_RULES_END = "<!-- END:nextjs-agent-rules -->"
@@ -704,6 +707,15 @@ def _local_markdown_link_errors(label: str, path: str, content: str, files: dict
     return errors
 
 
+def check_markdown_links(label: str, files: dict) -> list:
+    """Relative links in the hub and every SKILL.md resolve from their own directory."""
+    errors = []
+    for path in sorted(files):
+        if path == HUB or SKILL_PATH_RE.match(path):
+            errors += _local_markdown_link_errors(label, path, files[path], files)
+    return errors
+
+
 def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
     """Validate the composed screenshot contract and its type boundaries."""
     errors = []
@@ -724,20 +736,15 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
     if document is None:
         return [f"[{label}] missing {bootstrap.SCREENSHOT_REVIEW} for {repo_type}"]
 
-    # The screenshot-review skill, not the hub, links the platform document.
+    # The screenshot-review skill, not the hub, points at the platform
+    # document by its repository-root path (check_markdown_links covers links).
     skill = files.get(SCREENSHOT_SKILL)
     if skill is None:
         errors.append(f"[{label}] missing {SCREENSHOT_SKILL} for {repo_type}")
-    else:
-        errors += _local_markdown_link_errors(label, SCREENSHOT_SKILL, skill, files)
-        linked = {
-            posixpath.normpath(posixpath.join(posixpath.dirname(SCREENSHOT_SKILL), target.split("#", 1)[0]))
-            for target in MARKDOWN_LINK_RE.findall(skill)
-        }
-        if bootstrap.SCREENSHOT_REVIEW not in linked:
-            errors.append(
-                f"[{label}] {SCREENSHOT_SKILL} is missing its link to {bootstrap.SCREENSHOT_REVIEW}"
-            )
+    elif SCREENSHOT_POINTER not in skill:
+        errors.append(
+            f"[{label}] {SCREENSHOT_SKILL} is missing its pointer {SCREENSHOT_POINTER!r}"
+        )
 
     for heading in SCREENSHOT_HEADINGS + (SCREENSHOT_PLATFORM_HEADINGS[repo_type],):
         if heading not in document:
@@ -2530,10 +2537,26 @@ def _structure_self_tests() -> list:
     moved[HUB] = files[HUB] + "\n" + phrase + "\n"
     expect("phrase outside its owner", check_agents_guidance("self-test:owner", moved), f"{owner} is missing")
 
-    # The screenshot-review skill must link docs/screenshot-review.md.
-    unlinked = dict(files)
-    unlinked[SCREENSHOT_SKILL] = re.sub(r"\]\([^)]*screenshot-review\.md\)", "]()", files[SCREENSHOT_SKILL])
-    expect("unlinked screenshot skill", check_screenshot_guidance("self-test:shot", "nextjs", unlinked), "missing its link")
+    # The screenshot-review skill must point at docs/screenshot-review.md.
+    unpointed = dict(files)
+    unpointed[SCREENSHOT_SKILL] = files[SCREENSHOT_SKILL].replace(SCREENSHOT_POINTER, "the guide", 1)
+    expect(
+        "screenshot skill without pointer",
+        check_screenshot_guidance("self-test:shot", "nextjs", unpointed),
+        "missing its pointer",
+    )
+
+    # Skill links resolve from the skill's directory, hub links from the root:
+    # a root-relative link in a skill fails, the same target rebased passes.
+    expect("rendered links", check_markdown_links("self-test:links", files), None)
+    for name, path, link, needle in (
+        ("root-relative skill link", BASELINE_SKILL, "[x](docs/lint-baseline.md)", "broken local Markdown link"),
+        ("rebased skill link", BASELINE_SKILL, "[x](../../../docs/lint-baseline.md)", None),
+        ("broken hub link", HUB, "[x](docs/absent.md)", "broken local Markdown link"),
+    ):
+        linked = dict(files)
+        linked[path] = files[path] + "\n" + link + "\n"
+        expect(name, check_markdown_links("self-test:links", linked), needle)
 
     # Legacy digests: a stale recorded table fails.
     expect(
@@ -2562,6 +2585,7 @@ def main() -> int:
         all_errors += check_no_at_imports(label, files)
         all_errors += check_skill_pointers(label, files)
         all_errors += check_skill_frontmatter(label, files)
+        all_errors += check_markdown_links(label, files)
         all_errors += check_template_stamps(label, cfg, files)
         all_errors += check_reviewer_agents(label, files)
         all_errors += check_workspace_guidance(label, cfg["repo_type"], files)

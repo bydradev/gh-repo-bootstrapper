@@ -12,7 +12,7 @@ workflow proves capture only; it does not approve visual fidelity or privacy.
 
 **Treat screenshot generation and visual approval as separate gates.** For
 changes affecting tracked screenshots or captured views, follow
-[`docs/screenshot-review.md`](../../../docs/screenshot-review.md) when this
+`docs/screenshot-review.md` (repository root) when this
 repository has it; otherwise follow the repository's documented
 screenshot-review process when present. A successful
 screenshot-generation workflow means only that artifacts were produced; it is

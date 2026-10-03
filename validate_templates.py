@@ -19,7 +19,13 @@ Checks performed on each generated file:
   - README rendering: every repository type receives its starter, and Swift
     commands retain the safe formatter path and configured test destination
   - shared AGENTS.md guidance: every generated repository type carries the
-    required SDLC, dependency, external-knowledge, and completion guidance
+    required SDLC, dependency, external-knowledge, and completion guidance,
+    each phrase in the hub or in the template-owned skill that now owns it
+  - AGENTS.md hub structure: the generated part fits its byte budget, has no
+    bare `@path` imports, and points only at skills the render contains;
+    every SKILL.md has valid agentskills.io frontmatter with a unique name;
+    every template-owned file carries a valid stamp; the reviewer agents are
+    read-only and leave the model unset
 
   - branch-protection payload semantics: bootstrap.branch_protection_payload()
     must pin the operator-ruled configuration (strict False, enforce_admins
@@ -47,7 +53,9 @@ import json
 import posixpath
 import re
 import shlex
+import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Optional, Union
 
@@ -129,53 +137,99 @@ README_REQUIREMENTS = {
     "simple": ("## Start here", "## Project guide"),
 }
 
+def _skill_path(name: str) -> str:
+    return f".agents/skills/{name}/SKILL.md"
+
+
+HUB = "AGENTS.md"
+# The screenshot rules live in the screenshot-review skill for the types that
+# generate one (nextjs, swift) and inline in the hub for every other type.
+SCREENSHOT_OWNER = "<screenshot-review skill, or the hub when the type has none>"
+
+# (phrase, owning file) pairs. The hub keeps the gates; the detail moved into
+# template-owned skills, so each phrase is required in the file that owns it.
 AGENTS_COMMON_REQUIREMENTS = (
-    "## Development workflow",
-    "Follow any more-local `AGENTS.md` instructions.",
-    "## Dependencies and external interfaces",
-    "do not hand-edit a lockfile",
-    "## External knowledge and capabilities",
-    "Use connected documentation or research capabilities",
-    "Use an installed skill only when it matches the task",
-    "Do not send secrets, private source, or customer data to external services.",
-    "A successful screenshot-generation workflow means only that artifacts were produced; it is not visual approval.",
-    "Screenshot guidance is capability-conditional",
-    "do not assume browser or native",
-    "## Definition of done",
-    "do not claim unrun checks passed.",
-    "## Worktrees, verification copies, and scratch output",
-    "git worktree add --detach",
-    "Never copy a checkout with `cp -R`",
-    "Keep worktrees outside the checkout",
-    "Reuse one worktree per purpose",
-    "never at fixed paths in `/tmp`",
-    "Remove only what this task created",
-    "Remove the worktrees, verification copies, and scratch output the task created",
-    "## Project specifics",
+    ("## Development workflow", HUB),
+    ("more-local `AGENTS.md`", HUB),
+    ("## Dependencies and external interfaces", HUB),
+    ("Change lockfiles only through the package manager.", HUB),
+    ("## External knowledge and capabilities", _skill_path("verify-external-claims")),
+    ("Use connected documentation or research capabilities", _skill_path("verify-external-claims")),
+    ("Use an installed skill only when it matches the task", _skill_path("verify-external-claims")),
+    ("Do not send secrets, private source, or customer data to external services.", HUB),
+    (
+        "A successful screenshot-generation workflow means only that artifacts were produced; it is not visual approval.",
+        SCREENSHOT_OWNER,
+    ),
+    ("Screenshot guidance is capability-conditional", SCREENSHOT_OWNER),
+    ("do not assume browser or native", SCREENSHOT_OWNER),
+    ("## Definition of done", HUB),
+    ("do not claim unrun checks passed.", HUB),
+    ("# Worktrees, verification copies, and scratch output", _skill_path("worktrees-and-scratch")),
+    ("git worktree add --detach", _skill_path("worktrees-and-scratch")),
+    ("Never copy a checkout with `cp -R`", _skill_path("worktrees-and-scratch")),
+    ("Keep worktrees outside the checkout", _skill_path("worktrees-and-scratch")),
+    ("Reuse one worktree per purpose", _skill_path("worktrees-and-scratch")),
+    ("never at fixed paths in `/tmp`", _skill_path("worktrees-and-scratch")),
+    ("Remove only what this task created", _skill_path("worktrees-and-scratch")),
+    ("Remove the worktrees, verification copies, and scratch output the task created", HUB),
+    ("## Project specifics", HUB),
 )
 
 # Per-type mechanisms behind the shared worktree and scratch-output rules: where
 # a worktree's dependencies and build output live, so they are not multiplied.
+# Each lives in the type's local-validation skill.
 AGENTS_TYPE_REQUIREMENTS = {
-    "nextjs": (
-        "Never copy `node_modules`, `.next`, `test-results`, or `playwright-report`",
-        "--trace=retain-on-failure",
-        "stop a manually started `next dev`",
-        "reported as `flaky`, not failed",
+    "nextjs": tuple(
+        (phrase, _skill_path("local-validation-nextjs"))
+        for phrase in (
+            "Never copy `node_modules`, `.next`, `test-results`, or `playwright-report`",
+            "--trace=retain-on-failure",
+            "stop a manually started `next dev`",
+            "reported as `flaky`, not failed",
+        )
     ),
-    "python": ("Never copy `.venv/`",),
-    "rust": (
-        "set `CARGO_TARGET_DIR` to one fixed directory",
-        "Never copy `target/`",
-        "the task that removes the last one deletes it too",
+    "python": (("Never copy `.venv/`", _skill_path("local-validation-python")),),
+    "rust": tuple(
+        (phrase, _skill_path("local-validation-rust"))
+        for phrase in (
+            "set `CARGO_TARGET_DIR` to one fixed directory",
+            "Never copy `target/`",
+            "the task that removes the last one deletes it too",
+        )
     ),
-    "swift": (
-        "pass one fixed `-derivedDataPath` for that worktree",
-        "Never choose a new derived-data path per run or per commit.",
-        "does not change the app's `MARKETING_VERSION`",
+    "swift": tuple(
+        (phrase, _skill_path("local-validation-swift"))
+        for phrase in (
+            "pass one fixed `-derivedDataPath` for that worktree",
+            "Never choose a new derived-data path per run or per commit.",
+            "does not change the app's `MARKETING_VERSION`",
+        )
     ),
     "simple": (),
 }
+
+# The hub's generated part (everything above `## Project specifics`, with the
+# `next dev` block masked) must stay within HUB_BUDGET_BYTES so every harness
+# reads it whole. HUB_CEILING_BYTES is the hard ceiling the budget exists to
+# keep well clear of; the self-test proves a hub just over it is rejected.
+HUB_BUDGET_BYTES = 8_000
+HUB_CEILING_BYTES = 10_000
+# A bare `@path` token is an import directive in some harnesses (Claude Code
+# expands `@AGENTS.md`); the hub must not pull other files in that way.
+AT_IMPORT_RE = re.compile(r"(^|\s)@[\w./-]+")
+INLINE_CODE_RE = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
+SKILLS_HEADING = "## Skills"
+SKILL_ROW_RE = re.compile(r"^\|.*\|\s*`([^`]+)`\s*\|\s*$")
+SKILL_PATH_RE = re.compile(r"^\.agents/skills/([^/]+)/SKILL\.md$")
+SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+SKILL_NAME_MAX = 64
+SKILL_DESCRIPTION_MAX = 1024
+CLAUDE_REVIEWER = ".claude/agents/fresh-eyes-reviewer.md"
+OPENCODE_REVIEWER = ".opencode/agents/fresh-eyes-reviewer.md"
+CLAUDE_WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+SCREENSHOT_SKILL = _skill_path("screenshot-review")
+BASELINE_SKILL = _skill_path("baseline-process")
 PROJECT_SPECIFICS_HEADING = "## Project specifics"
 NEXTJS_AGENT_RULES_END = "<!-- END:nextjs-agent-rules -->"
 APP_ROUTER_HEADING = "# This project uses the App Router"
@@ -372,21 +426,189 @@ def render_markdown(out_dir: Path) -> int:
                 target = out_dir / slug / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content)
+    # Skills (.agents/skills/*/SKILL.md) and reviewer agents (.claude/agents,
+    # .opencode/agents) are Markdown too, so they are written and linted here.
     print(f"Rendered generated Markdown to {out_dir}")
     return 0
 
 
+def _owner_path(owner: str, files: dict) -> str:
+    if owner == SCREENSHOT_OWNER:
+        return SCREENSHOT_SKILL if SCREENSHOT_SKILL in files else HUB
+    return owner
+
+
+def _missing_phrases(label: str, files: dict, pairs, kind: str) -> list:
+    """Each (phrase, owner) pair must appear, outside code fences and with
+    whitespace normalized, in the file that owns it."""
+    errors, normalized = [], {}
+    for phrase, owner in pairs:
+        path = _owner_path(owner, files)
+        if path not in files:
+            errors.append(f"[{label}] missing {path}, which owns {kind} {phrase!r}")
+            continue
+        if path not in normalized:
+            normalized[path] = " ".join(_unfenced(files[path]).split())
+        if phrase not in normalized[path]:
+            errors.append(f"[{label}] {path} is missing {kind} {phrase!r}")
+    return errors
+
+
 def check_agents_guidance(label: str, files: dict) -> list:
     """Require the shared SDLC guidance for every generated repository type."""
-    agents = files.get("AGENTS.md")
-    if agents is None:
+    if HUB not in files:
         return [f"[{label}] missing AGENTS.md"]
-    normalized_agents = " ".join(_unfenced(agents).split())
+    return _missing_phrases(label, files, AGENTS_COMMON_REQUIREMENTS, "common guidance")
+
+
+def _hub_generated_part(agents: str) -> str:
+    """The hub above `## Project specifics`, with the `next dev` block masked."""
+    masked = bootstrap._mask_nextjs_rules(agents)
+    match = re.search(r"^" + re.escape(PROJECT_SPECIFICS_HEADING) + r"[ \t]*$", masked, re.MULTILINE)
+    return masked[: match.start()] if match else masked
+
+
+def check_hub_budget(label: str, files: dict) -> list:
+    """Hub budget: the generated part of AGENTS.md fits HUB_BUDGET_BYTES."""
+    size = len(_hub_generated_part(files.get(HUB, "")).encode())
+    if size <= HUB_BUDGET_BYTES:
+        return []
+    ceiling = ", above the hard ceiling" if size > HUB_CEILING_BYTES else ""
     return [
-        f"[{label}] AGENTS.md is missing common guidance {phrase!r}"
-        for phrase in AGENTS_COMMON_REQUIREMENTS
-        if phrase not in normalized_agents
+        f"[{label}] AGENTS.md hub budget: generated part is {size} B > {HUB_BUDGET_BYTES} B"
+        f" (ceiling {HUB_CEILING_BYTES} B{ceiling}); move detail into a skill"
     ]
+
+
+def check_no_at_imports(label: str, files: dict) -> list:
+    """No bare `@path` token outside code spans and fences in AGENTS.md."""
+    prose = INLINE_CODE_RE.sub("", _unfenced(files.get(HUB, "")))
+    return [
+        f"[{label}] AGENTS.md has a bare @-import token {match.group(0).strip()!r}; "
+        "wrap it in backticks or name the file without '@'"
+        for match in AT_IMPORT_RE.finditer(prose)
+    ]
+
+
+def _hub_skill_names(agents: str) -> list:
+    section = _unfenced(agents).split("\n" + SKILLS_HEADING + "\n", 1)
+    if len(section) < 2:
+        return []
+    body = re.split(r"^## ", section[1], maxsplit=1, flags=re.MULTILINE)[0]
+    return [m.group(1) for m in map(SKILL_ROW_RE.match, body.splitlines()) if m]
+
+
+def check_skill_pointers(label: str, files: dict) -> list:
+    """Every skill named in the hub's `## Skills` table exists in the render."""
+    names = _hub_skill_names(files.get(HUB, ""))
+    if not names:
+        return [f"[{label}] AGENTS.md has no skills in its {SKILLS_HEADING!r} table"]
+    return [
+        f"[{label}] AGENTS.md points at skill {name!r}, but {_skill_path(name)} is not generated"
+        for name in names
+        if _skill_path(name) not in files
+    ]
+
+
+def _frontmatter(text: str):
+    """(mapping, None) for a `---`-delimited YAML frontmatter block, or
+    (None, reason) when it is absent, unterminated, or not a mapping."""
+    lines = text.split("\n")
+    if not lines or lines[0] != "---":
+        return None, "does not start with a '---' frontmatter line"
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return None, "has no closing '---' frontmatter line"
+    try:
+        data = yaml.safe_load("\n".join(lines[1:end]))
+    except yaml.YAMLError as exc:
+        return None, f"has invalid YAML frontmatter — {exc}"
+    if not isinstance(data, dict):
+        return None, "frontmatter is not a mapping"
+    return data, None
+
+
+def check_skill_frontmatter(label: str, files: dict) -> list:
+    """agentskills.io frontmatter for every SKILL.md, with unique names."""
+    errors, names = [], Counter()
+    for path in sorted(files):
+        match = SKILL_PATH_RE.match(path)
+        if not match:
+            continue
+        data, problem = _frontmatter(files[path])
+        if problem:
+            errors.append(f"[{label}] {path} {problem}")
+            continue
+        name, description = data.get("name"), data.get("description")
+        names[name if isinstance(name, str) else repr(name)] += 1
+        if name != match.group(1):
+            errors.append(f"[{label}] {path}: name {name!r} must equal its directory {match.group(1)!r}")
+        if not isinstance(name, str) or not SKILL_NAME_RE.match(name) or len(name) > SKILL_NAME_MAX:
+            errors.append(
+                f"[{label}] {path}: name {name!r} must be lowercase-hyphen and "
+                f"at most {SKILL_NAME_MAX} characters"
+            )
+        if not isinstance(description, str) or not description.strip():
+            errors.append(f"[{label}] {path}: description must be a non-empty string")
+        elif len(description) > SKILL_DESCRIPTION_MAX:
+            errors.append(
+                f"[{label}] {path}: description is {len(description)} characters "
+                f"> {SKILL_DESCRIPTION_MAX}"
+            )
+    errors += [
+        f"[{label}] duplicate skill name {name!r} in {count} SKILL.md files"
+        for name, count in sorted(names.items(), key=str)
+        if count > 1
+    ]
+    return errors
+
+
+def check_template_stamps(label: str, cfg: dict, files: dict) -> list:
+    """Every template-owned file is rendered with a stamp matching its body."""
+    errors = []
+    for path in sorted(bootstrap.template_owned_paths(cfg)):
+        if path not in files:
+            errors.append(f"[{label}] template-owned {path} is not generated")
+        elif not bootstrap.stamp_is_valid(files[path]):
+            errors.append(f"[{label}] template-owned {path} has no valid {bootstrap.STAMP_PREFIX!r} stamp")
+    return errors
+
+
+def _tool_names(tools) -> set:
+    if isinstance(tools, str):
+        return {tool.strip() for tool in tools.split(",") if tool.strip()}
+    if isinstance(tools, list):
+        return {str(tool).strip() for tool in tools}
+    return set()
+
+
+def check_reviewer_agents(label: str, files: dict) -> list:
+    """Both fresh-eyes reviewer agents are read-only and leave the model unset."""
+    errors = []
+    for path in (CLAUDE_REVIEWER, OPENCODE_REVIEWER):
+        if path not in files:
+            errors.append(f"[{label}] missing {path}")
+            continue
+        data, problem = _frontmatter(files[path])
+        if problem:
+            errors.append(f"[{label}] {path} {problem}")
+            continue
+        if "model" in data:
+            errors.append(f"[{label}] {path} must not set 'model'; the harness picks it")
+        if path == CLAUDE_REVIEWER:
+            if "tools" not in data:
+                errors.append(f"[{label}] {path} must list 'tools' (omitting it grants every tool)")
+            writers = sorted(_tool_names(data.get("tools")) & set(CLAUDE_WRITE_TOOLS))
+            if writers:
+                errors.append(f"[{label}] {path} must be read-only but grants {writers}")
+        else:
+            if data.get("mode") != "subagent":
+                errors.append(f"[{label}] {path} must set 'mode: subagent'")
+            permission = data.get("permission")
+            if not isinstance(permission, dict) or permission.get("edit") != "deny":
+                errors.append(f"[{label}] {path} must set 'permission.edit: deny'")
+    return errors
 
 
 _FENCE_LINE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
@@ -424,12 +646,9 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     """
     agents = files.get("AGENTS.md", "")
     prose = _unfenced(agents)
-    normalized = " ".join(prose.split())
-    errors = [
-        f"[{label}] {repo_type} AGENTS.md is missing worktree guidance {phrase!r}"
-        for phrase in AGENTS_TYPE_REQUIREMENTS[repo_type]
-        if phrase not in normalized
-    ]
+    errors = _missing_phrases(
+        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} worktree guidance"
+    )
     headings = [line for line in prose.splitlines() if line.startswith("## ")]
     if not headings or headings[-1] != PROJECT_SPECIFICS_HEADING:
         errors.append(
@@ -497,10 +716,27 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
             )
         if "docs/screenshot-review.md" in agents:
             errors.append(f"[{label}] {repo_type} AGENTS.md must not link screenshot guidance")
+        if SCREENSHOT_SKILL in files:
+            errors.append(f"[{label}] {SCREENSHOT_SKILL} must not be generated for {repo_type}")
         return errors
 
     if document is None:
         return [f"[{label}] missing {bootstrap.SCREENSHOT_REVIEW} for {repo_type}"]
+
+    # The screenshot-review skill, not the hub, links the platform document.
+    skill = files.get(SCREENSHOT_SKILL)
+    if skill is None:
+        errors.append(f"[{label}] missing {SCREENSHOT_SKILL} for {repo_type}")
+    else:
+        errors += _local_markdown_link_errors(label, SCREENSHOT_SKILL, skill, files)
+        linked = {
+            posixpath.normpath(posixpath.join(posixpath.dirname(SCREENSHOT_SKILL), target.split("#", 1)[0]))
+            for target in MARKDOWN_LINK_RE.findall(skill)
+        }
+        if bootstrap.SCREENSHOT_REVIEW not in linked:
+            errors.append(
+                f"[{label}] {SCREENSHOT_SKILL} is missing its link to {bootstrap.SCREENSHOT_REVIEW}"
+            )
 
     for heading in SCREENSHOT_HEADINGS + (SCREENSHOT_PLATFORM_HEADINGS[repo_type],):
         if heading not in document:
@@ -510,10 +746,6 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
 
     if SCREENSHOT_PLATFORM_HEADINGS[repo_type] not in document:
         return errors
-
-    normalized_agents = " ".join(agents.split())
-    if "[docs/screenshot-review.md](docs/screenshot-review.md)" not in normalized_agents:
-        errors.append(f"[{label}] {repo_type} AGENTS.md is missing its screenshot guidance link")
 
     lowered = document.lower()
     for phrase in SCREENSHOT_FORBIDDEN_INVENTED_TOOLING:
@@ -623,8 +855,8 @@ def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
                     errors.append(
                         f"[{label}] {bootstrap.NEXTJS_ENFORCED_AUDIT_SCRIPT} is missing {phrase!r}"
                     )
-        if "## Baseline process" not in files.get("AGENTS.md", ""):
-            errors.append(f"[{label}] AGENTS.md is missing the baseline process guidance")
+        if "# Baseline process" not in files.get(BASELINE_SKILL, ""):
+            errors.append(f"[{label}] {BASELINE_SKILL} is missing the baseline process guidance")
         readme = files.get(bootstrap.README, "")
         for phrase in ("docs/lint-baseline.md", "docs/advisory-baseline.md"):
             if phrase not in readme:
@@ -1309,7 +1541,12 @@ def _read_file_or_none(path: Union[str, Path]) -> Optional[bytes]:
 def check_runbook_copy_matches_template(
     label: str, repo_copy: Optional[bytes], template_copy: Optional[bytes]
 ) -> list:
-    """The bootstrapper's own docs/ runbook must match the template byte-for-byte.
+    """The bootstrapper's own docs/ runbook must match the template as rendered.
+
+    Generated repositories receive the runbook stamped (bootstrap.stamp), so
+    the bootstrapper's own copy must equal the stamped render. Until the
+    bootstrapper adopts its own stamped copy, the exact unstamped template is
+    accepted too; any other byte difference fails.
 
     The template ships into every generated repository; the repo's own copy is
     what readers here see. A silent drift between the two means the repository
@@ -1320,14 +1557,66 @@ def check_runbook_copy_matches_template(
         return [f"[{label}] missing {REPO_RUNBOOK}"]
     if template_copy is None:
         return [f"[{label}] missing {TEMPLATE_RUNBOOK}"]
-    if repo_copy != template_copy:
+    if repo_copy == template_copy:
+        return []
+    try:
+        stamped = bootstrap.stamp(template_copy.decode()).encode()
+    except UnicodeDecodeError:
+        stamped = None
+    if repo_copy != stamped:
         return [
-            f"[{label}] {REPO_RUNBOOK} differs from {TEMPLATE_RUNBOOK} — "
-            "the repository's own runbook must match the template byte-for-byte "
+            f"[{label}] {REPO_RUNBOOK} differs from {TEMPLATE_RUNBOOK} rendered through "
+            "bootstrap.stamp — the repository's own runbook must match the template "
             "so this repo and the repositories it generates never document "
             "different gates"
         ]
     return []
+
+
+def _legacy_tags_available() -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(Path(__file__).parent), "tag", "--list", "v0.*"],
+            capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return bool(result.stdout.strip())
+
+
+def _digest_table(table: dict) -> dict:
+    return {path: set(digests) for path, digests in table.items()}
+
+
+def check_legacy_digests(computed: Optional[dict] = None, recorded: Optional[dict] = None) -> list:
+    """bootstrap.LEGACY_TEMPLATE_DIGESTS must equal what the released tags give.
+
+    Without git tags (a shallow clone) the table cannot be rebuilt, so the
+    check is skipped with a notice rather than passed silently."""
+    if computed is None:
+        if not _legacy_tags_available():
+            print("notice: git v0.* tags unavailable; skipped the LEGACY_TEMPLATE_DIGESTS check")
+            return []
+        computed = bootstrap.compute_legacy_digests()
+    if recorded is None:
+        recorded = bootstrap.LEGACY_TEMPLATE_DIGESTS
+    if _digest_table(computed) != _digest_table(recorded):
+        return [
+            "bootstrap.LEGACY_TEMPLATE_DIGESTS is stale; regenerate it with "
+            "`python3 validate_templates.py --regenerate-legacy-digests` and paste the output"
+        ]
+    return []
+
+
+def format_legacy_digests(table: dict) -> str:
+    """LEGACY_TEMPLATE_DIGESTS as deterministic Python source."""
+    lines = ["LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {"]
+    for path in sorted(table):
+        lines.append(f"    {json.dumps(path)}: frozenset({{")
+        lines += [f"        {json.dumps(digest)}," for digest in sorted(table[path])]
+        lines.append("    }),")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -1673,6 +1962,25 @@ def run_self_tests() -> list:
     if not any("missing docs/branch-protection-runbook.md" in e for e in result):
         errors.append(f"self-test 'missing repo runbook' did not fail as expected: {result}")
 
+    # Case 24b: the bootstrapper's own runbook may be the stamped render of the
+    # template, but a stamped copy whose body drifted still fails.
+    template_runbook = "# branch protection and release PRs\n\nbeta\n"
+    stamped_runbook = bootstrap.stamp(template_runbook)
+    result = check_runbook_copy_matches_template(
+        "self-test:stamped repo runbook",
+        repo_copy=stamped_runbook.encode(),
+        template_copy=template_runbook.encode(),
+    )
+    if result:
+        errors.append(f"self-test 'stamped repo runbook' unexpectedly failed: {result}")
+    result = check_runbook_copy_matches_template(
+        "self-test:stamped drifted runbook",
+        repo_copy=stamped_runbook.replace("beta", "gamma").encode(),
+        template_copy=template_runbook.encode(),
+    )
+    if not any("rendered through bootstrap.stamp" in e for e in result):
+        errors.append(f"self-test 'stamped drifted runbook' did not fail as expected: {result}")
+
     # Case 25: the lint baseline must carry the review-date column and the
     # honest "Why this is accepted" header, not the old "unavoidable false
     # positive" wording that misdescribes accepted true positives.
@@ -2009,9 +2317,9 @@ def run_self_tests() -> list:
         result = check_workspace_guidance(f"self-test:{repo_type} workspace", repo_type, files)
         if result:
             errors.append(f"self-test '{repo_type} workspace guidance' unexpectedly failed: {result}")
-        for phrase in AGENTS_TYPE_REQUIREMENTS[repo_type]:
+        for phrase, owner in AGENTS_TYPE_REQUIREMENTS[repo_type]:
             mutated = dict(files)
-            mutated["AGENTS.md"] = " ".join(files["AGENTS.md"].split()).replace(phrase, "", 1)
+            mutated[owner] = " ".join(files[owner].split()).replace(phrase, "", 1)
             result = check_workspace_guidance(f"self-test:{repo_type} mechanism", repo_type, mutated)
             if not any(repr(phrase) in e for e in result):
                 errors.append(
@@ -2030,11 +2338,9 @@ def run_self_tests() -> list:
 
     cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
     files = bootstrap.generate_files(dict(cfg))
-    phrase = AGENTS_TYPE_REQUIREMENTS["nextjs"][1]
+    phrase, owner = AGENTS_TYPE_REQUIREMENTS["nextjs"][1]
     fenced = dict(files)
-    fenced["AGENTS.md"] = (
-        files["AGENTS.md"].replace(phrase, "", 1) + "\n```text\n" + phrase + "\n```\n"
-    )
+    fenced[owner] = files[owner].replace(phrase, "", 1) + "\n```text\n" + phrase + "\n```\n"
     result = check_workspace_guidance("self-test:fenced phrase", "nextjs", fenced)
     if not any(repr(phrase) in e for e in result):
         errors.append(f"self-test 'fenced phrase' did not fail as expected: {result}")
@@ -2046,20 +2352,11 @@ def run_self_tests() -> list:
 
     simple_cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "simple")
     simple_files = bootstrap.generate_files(dict(simple_cfg))
-    simple_agents = simple_files["AGENTS.md"]
-    start = simple_agents.index("## Worktrees, verification copies, and scratch output\n")
-    end = simple_agents.index("## Definition of done\n", start)
-    worktree_section = simple_agents[start:end]
+    worktree_skill = _skill_path("worktrees-and-scratch")
     fenced_common = dict(simple_files)
-    fenced_common["AGENTS.md"] = (
-        simple_agents[:start] + simple_agents[end:].replace(
-            PROJECT_SPECIFICS_HEADING + "\n",
-            "```text\n" + worktree_section + "```\n\n" + PROJECT_SPECIFICS_HEADING + "\n",
-            1,
-        )
-    )
+    fenced_common[worktree_skill] = "````text\n" + simple_files[worktree_skill] + "````\n"
     result = check_agents_guidance("self-test:fenced common guidance", fenced_common)
-    if not any("## Worktrees, verification copies, and scratch output" in e for e in result):
+    if not any("# Worktrees, verification copies, and scratch output" in e for e in result):
         errors.append(f"self-test 'fenced common guidance' did not fail as expected: {result}")
 
     note_start = files["AGENTS.md"].index(APP_ROUTER_HEADING)
@@ -2091,6 +2388,158 @@ def run_self_tests() -> list:
     if not any("'/target/'" in e for e in result):
         errors.append(f"self-test 'rust target ignore' did not fail as expected: {result}")
 
+    errors += _structure_self_tests()
+    return errors
+
+
+# Number of hub/skill/stamp fixtures _structure_self_tests ran, so the success
+# line shows they executed rather than being skipped.
+STRUCTURE_FIXTURES_RUN = [0]
+
+
+def _structure_self_tests() -> list:
+    """Each hub, skill, stamp, and reviewer-agent check fails on its fixture."""
+    errors = []
+
+    def expect(name: str, result: list, needle: Optional[str]) -> None:
+        STRUCTURE_FIXTURES_RUN[0] += 1
+        if needle is None:
+            if result:
+                errors.append(f"self-test '{name}' unexpectedly failed: {result}")
+        elif not any(needle in e for e in result):
+            errors.append(f"self-test '{name}' did not fail as expected: {result}")
+
+    cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
+    files = bootstrap.generate_files(dict(cfg))
+
+    # (a) budget: a hub just over the hard ceiling fails; exactly the budget passes.
+    over = {HUB: "# Hub\n\n" + "x" * (HUB_CEILING_BYTES + 1 - 8) + "\n## Project specifics\n"}
+    if len(_hub_generated_part(over[HUB]).encode()) != HUB_CEILING_BYTES + 1:
+        errors.append("self-test 'hub over ceiling' fixture is not HUB_CEILING_BYTES + 1 bytes")
+    expect("hub over ceiling", check_hub_budget("self-test:hub", over), "hub budget")
+    at_budget = {HUB: "x" * (HUB_BUDGET_BYTES - 1) + "\n## Project specifics\n" + "y" * 5000}
+    expect("hub at budget", check_hub_budget("self-test:hub", at_budget), None)
+    # The `next dev` block is masked, so its size never counts against the hub.
+    managed = {
+        HUB: bootstrap.NEXTJS_RULES_BEGIN + "\n" + "z" * HUB_CEILING_BYTES + "\n"
+        + bootstrap.NEXTJS_RULES_END + "\n\n## Project specifics\n"
+    }
+    expect("hub masks next dev block", check_hub_budget("self-test:hub", managed), None)
+
+    # (b) bare @-imports fail; addresses, code spans, and fences do not.
+    expect(
+        "bare @-import",
+        check_no_at_imports("self-test:at", {HUB: files[HUB] + "\n@AGENTS.md\n"}),
+        "'@AGENTS.md'",
+    )
+    expect(
+        "indented @-import",
+        check_no_at_imports("self-test:at", {HUB: "See @docs/rules.md first.\n"}),
+        "'@docs/rules.md'",
+    )
+    benign = "Mail noreply@openai.com.\nUse `@AGENTS.md` here.\n```text\n@AGENTS.md\n```\n"
+    expect("benign @ tokens", check_no_at_imports("self-test:at", {HUB: benign}), None)
+
+    # (c) a pointer row naming a skill the render lacks fails.
+    dangling = dict(files)
+    dangling[HUB] = files[HUB].replace(
+        "| fan out to subagents | `delegation` |\n",
+        "| fan out to subagents | `delegation` |\n| do magic | `no-such-skill` |\n",
+        1,
+    )
+    expect("dangling skill pointer", check_skill_pointers("self-test:ptr", dangling), "'no-such-skill'")
+    expect("no skills table", check_skill_pointers("self-test:ptr", {HUB: "# Hub\n"}), "no skills")
+
+    # (d) frontmatter: unterminated, over-long description, name/dir mismatch,
+    # bad name characters, empty description.
+    def skill(path_name: str, front: str) -> dict:
+        return {_skill_path(path_name): front + "\n# Body\n"}
+
+    expect(
+        "unterminated frontmatter",
+        check_skill_frontmatter("self-test:fm", skill("demo", "---\nname: demo\ndescription: x")),
+        "no closing '---'",
+    )
+    expect(
+        "long description",
+        check_skill_frontmatter(
+            "self-test:fm",
+            skill("demo", f"---\nname: demo\ndescription: {'d' * (SKILL_DESCRIPTION_MAX + 1)}\n---"),
+        ),
+        f"{SKILL_DESCRIPTION_MAX + 1} characters",
+    )
+    expect(
+        "name differs from directory",
+        check_skill_frontmatter("self-test:fm", skill("demo", "---\nname: other\ndescription: x\n---")),
+        "must equal its directory",
+    )
+    expect(
+        "uppercase name",
+        check_skill_frontmatter("self-test:fm", skill("Demo", "---\nname: Demo\ndescription: x\n---")),
+        "lowercase-hyphen",
+    )
+    expect(
+        "empty description",
+        check_skill_frontmatter("self-test:fm", skill("demo", "---\nname: demo\ndescription: ''\n---")),
+        "non-empty",
+    )
+
+    # (e) two SKILL.md files declaring one name fail.
+    duplicate = {
+        **skill("demo", "---\nname: demo\ndescription: x\n---"),
+        **skill("demo-copy", "---\nname: demo\ndescription: x\n---"),
+    }
+    expect("duplicate skill names", check_skill_frontmatter("self-test:fm", duplicate), "duplicate skill name 'demo'")
+
+    # (f) a template-owned file whose body drifted from its stamp, or lost it, fails.
+    owned = sorted(bootstrap.template_owned_paths(cfg))
+    target = next(path for path in owned if SKILL_PATH_RE.match(path))
+    edited = dict(files)
+    edited[target] = files[target] + "\nA local edit.\n"
+    expect("edited template-owned skill", check_template_stamps("self-test:stamp", cfg, edited), target)
+    unstamped = dict(files)
+    unstamped[BRANCH_PROTECTION_RUNBOOK] = bootstrap.read_stamp(files[BRANCH_PROTECTION_RUNBOOK])[1]
+    expect(
+        "unstamped runbook",
+        check_template_stamps("self-test:stamp", cfg, unstamped),
+        BRANCH_PROTECTION_RUNBOOK,
+    )
+    expect("rendered stamps", check_template_stamps("self-test:stamp", cfg, files), None)
+
+    # (g) reviewer agents: a model, a write tool, a missing tools list, an
+    # allowed edit, or a primary mode each fail.
+    for name, path, old, new, needle in (
+        ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
+        ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
+        ("claude without tools", CLAUDE_REVIEWER, "\ntools:", "\nx-tools:", "must list 'tools'"),
+        ("opencode model", OPENCODE_REVIEWER, "mode:", "model: x/y\nmode:", "'model'"),
+        ("opencode edit allowed", OPENCODE_REVIEWER, "edit: deny", "edit: allow", "permission.edit: deny"),
+        ("opencode primary", OPENCODE_REVIEWER, "mode: subagent", "mode: primary", "mode: subagent"),
+    ):
+        mutated = dict(files)
+        if old not in files[path]:
+            errors.append(f"self-test '{name}' fixture anchor {old!r} is absent from {path}")
+        mutated[path] = files[path].replace(old, new, 1)
+        expect(name, check_reviewer_agents("self-test:agent", mutated), needle)
+
+    # (h) a phrase moved out of its owning skill fails, naming that skill.
+    phrase, owner = AGENTS_COMMON_REQUIREMENTS[4]
+    moved = dict(files)
+    moved[owner] = files[owner].replace(phrase, "", 1)
+    moved[HUB] = files[HUB] + "\n" + phrase + "\n"
+    expect("phrase outside its owner", check_agents_guidance("self-test:owner", moved), f"{owner} is missing")
+
+    # The screenshot-review skill must link docs/screenshot-review.md.
+    unlinked = dict(files)
+    unlinked[SCREENSHOT_SKILL] = re.sub(r"\]\([^)]*screenshot-review\.md\)", "]()", files[SCREENSHOT_SKILL])
+    expect("unlinked screenshot skill", check_screenshot_guidance("self-test:shot", "nextjs", unlinked), "missing its link")
+
+    # Legacy digests: a stale recorded table fails.
+    expect(
+        "stale legacy digests",
+        check_legacy_digests(computed={"docs/x.md": {"a"}}, recorded={"docs/x.md": {"b"}}),
+        "LEGACY_TEMPLATE_DIGESTS is stale",
+    )
     return errors
 
 
@@ -2108,6 +2557,12 @@ def main() -> int:
         all_errors += check_markers(label, files)
         all_errors += check_markdown_blank_lines(label, files)
         all_errors += check_agents_guidance(label, files)
+        all_errors += check_hub_budget(label, files)
+        all_errors += check_no_at_imports(label, files)
+        all_errors += check_skill_pointers(label, files)
+        all_errors += check_skill_frontmatter(label, files)
+        all_errors += check_template_stamps(label, cfg, files)
+        all_errors += check_reviewer_agents(label, files)
         all_errors += check_workspace_guidance(label, cfg["repo_type"], files)
         all_errors += check_screenshot_guidance(label, cfg["repo_type"], files)
         all_errors += check_workflow_job_consistency(label, cfg["repo_type"], files)
@@ -2132,6 +2587,7 @@ def main() -> int:
         _read_file_or_none(TEMPLATE_RUNBOOK_PATH),
     )
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())
+    all_errors += check_legacy_digests()
 
     if all_errors:
         print(f"FAILED — {len(all_errors)} error(s) across {total} configuration(s):\n")
@@ -2139,11 +2595,21 @@ def main() -> int:
             print(f"  {err}")
         return 1
 
-    print(f"OK — {total} configuration(s) validated, no errors.")
+    print(
+        f"OK — {total} configuration(s) validated, {STRUCTURE_FIXTURES_RUN[0]} "
+        "hub/skill/stamp self-test fixture(s) behaved as expected, no errors."
+    )
     return 0
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--render-markdown":
         sys.exit(render_markdown(Path(sys.argv[2])))
+    if sys.argv[1:] == ["--regenerate-legacy-digests"]:
+        print(format_legacy_digests(bootstrap.compute_legacy_digests()), end="")
+        sys.exit(0)
+    if len(sys.argv) > 1:
+        sys.exit(
+            "usage: validate_templates.py [--render-markdown <dir> | --regenerate-legacy-digests]"
+        )
     sys.exit(main())

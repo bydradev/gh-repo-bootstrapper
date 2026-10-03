@@ -90,7 +90,7 @@ These are different states and only one of them is safe:
 
 For workflows that invoke a reusable workflow (such as `ci.yml` or `release-please.yml` calling `test.yml`), GitHub formats the status check context name using the convention:
 
-```
+```text
 {caller job} / {reusable job}
 ```
 

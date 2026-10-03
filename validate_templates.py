@@ -344,6 +344,38 @@ def check_markers(label: str, files: dict) -> list:
     return errors
 
 
+def check_markdown_blank_lines(label: str, files: dict) -> list:
+    """Reject runs of blank lines in generated Markdown.
+
+    An optional fragment composed in as an empty string can leave two blank
+    lines behind its marker. markdownlint (MD012) catches that in CI too; this
+    keeps the check in the Python validator, which runs without Node.
+    """
+    errors = []
+    for path, content in files.items():
+        if path.endswith(".md") and "\n\n\n" in content:
+            line = content[: content.index("\n\n\n")].count("\n") + 2
+            errors.append(f"[{label}] {path}:{line}: multiple consecutive blank lines")
+    return errors
+
+
+def render_markdown(out_dir: Path) -> int:
+    """Write every configuration's generated Markdown under out_dir/<label>/.
+
+    validate.yml lints the result with markdownlint-cli2, using
+    markdownlint-generated.jsonc.
+    """
+    for label, cfg in configurations():
+        slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+        for path, content in bootstrap.generate_files(cfg).items():
+            if path.endswith(".md"):
+                target = out_dir / slug / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
+    print(f"Rendered generated Markdown to {out_dir}")
+    return 0
+
+
 def check_agents_guidance(label: str, files: dict) -> list:
     """Require the shared SDLC guidance for every generated repository type."""
     agents = files.get("AGENTS.md")
@@ -2074,6 +2106,7 @@ def main() -> int:
         all_errors += check_syntax(label, files)
         all_errors += check_nextjs_provider_free(label, cfg["repo_type"], files)
         all_errors += check_markers(label, files)
+        all_errors += check_markdown_blank_lines(label, files)
         all_errors += check_agents_guidance(label, files)
         all_errors += check_workspace_guidance(label, cfg["repo_type"], files)
         all_errors += check_screenshot_guidance(label, cfg["repo_type"], files)
@@ -2111,4 +2144,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--render-markdown":
+        sys.exit(render_markdown(Path(sys.argv[2])))
     sys.exit(main())

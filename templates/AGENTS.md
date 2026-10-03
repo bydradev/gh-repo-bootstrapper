@@ -146,12 +146,14 @@ protection, or repository policy, and never force-push or use administrative
 bypass without explicit authorization.
 
 ## Branches
+
 Never commit directly to `main`. Make every change on a branch
 (`fix/…`, `feat/…`, `chore/…`) and open a PR. The one exception is a
 repository's initial commit, which has no `main` to branch from; everything
 after it goes through a branch.
 
 ## Commits
+
 Follow [Conventional Commits](https://www.conventionalcommits.org):
 `type(scope): subject`. Types: `feat`, `fix`, `chore`, `docs`, `refactor`,
 `perf`, `test`, `build`, `ci`, `revert`. Scope optional; subject lowercase,
@@ -219,14 +221,18 @@ merge-ready:
   lines *and* every applicable `Co-Authored-By:` trailer — do not pass an empty
   body, and do not assume the PR description is included. Write the prose, then
   each entry line at column 0 and blank-line separated, then the trailers:
+
   ```sh
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
   ```
+
   where `<merge-body.md>` holds the PR's prose and entry lines followed by, for
   example:
+
   ```markdown
   Co-Authored-By: Antigravity CLI (Gemini 3.8 Flash (High)) <224641728+gemini-cli-robot@users.noreply.github.com>
   ```
+
   If multiple co-authors or manual commits are squashed, include each applicable
   `Co-Authored-By:` trailer separated by newlines. A one-line `--body` is
   correct only when the PR has no extra entry lines. Only `feat` (or its

@@ -720,11 +720,18 @@ def generate_files(cfg: dict) -> dict:
     agents = _compose(agents, "TYPE_PREAMBLE", preamble)
     agents = _compose(agents, "BASELINE_PROCESS", baseline_guidance)
     agents = _compose(agents, "TYPE_TOOLING", tooling)
-    agents = _compose(
-        agents,
-        "SCREENSHOT_GUIDANCE",
-        _load(f"AGENTS-{repo_type}-screenshot-link.md") if repo_type in ("nextjs", "swift") else "",
-    )
+    if repo_type in ("nextjs", "swift"):
+        agents = _compose(
+            agents, "SCREENSHOT_GUIDANCE", _load(f"AGENTS-{repo_type}-screenshot-link.md")
+        )
+    else:
+        # No platform link: drop the marker together with the blank line after
+        # it, so the section is not followed by two blank lines.
+        agents = _compose(
+            agents.replace("# <<SCREENSHOT_GUIDANCE>>\n\n", "# <<SCREENSHOT_GUIDANCE>>\n", 1),
+            "SCREENSHOT_GUIDANCE",
+            "",
+        )
     agents = _compose(
         agents,
         "SCREENSHOT_REVIEW_REF",

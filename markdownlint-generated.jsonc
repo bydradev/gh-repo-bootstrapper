@@ -1,0 +1,16 @@
+// markdownlint configuration for the Markdown that bootstrap.py generates.
+// validate.yml renders every configuration with
+// `python validate_templates.py --render-markdown <dir>` and lints the result.
+{
+  "config": {
+    // Template prose is wrapped by hand; commands and URLs run long.
+    "MD013": false,
+    // Next.js AGENTS.md: `next dev` writes its own top-level heading in the
+    // managed block above the template's headings.
+    "MD025": false,
+    // CLAUDE.md is a single `@AGENTS.md` import with no heading.
+    "MD041": false,
+    // README tables use compact pipes.
+    "MD060": false
+  }
+}

@@ -20,8 +20,9 @@ approve an unrelated merge, deployment, provider change, or external mutation.
 
 ## Dependencies and external interfaces
 
-Prefer the existing stack; weigh new dependencies' security, licence, and cost.
-Update dependency manifests and lockfiles through the package manager;
+Prefer the existing stack. Before adding a dependency or external integration,
+consider its purpose, maintenance and security posture, licence, and runtime
+impact. Update dependency manifests and lockfiles through the package manager;
 do not hand-edit a lockfile. Pause for operator direction before an
 irreversible data migration, production change, or external side effect
 outside the request.
@@ -136,14 +137,14 @@ that could not be completed; do not claim unrun checks passed.
 ## Fresh-eyes review
 
 A different agent or reviewer must review substantial work before it is done or
-ready for review; resolve valid blocking findings. Load `fresh-eyes-review`.
+ready for review; resolve valid blocking findings.
 
 ## Recall is not evidence
 
 Check claims about platform, API, or dependency capabilities, and anything
 contradicting the user or this repository, against a current primary source;
 cite the source and date in any commit, PR, or committed doc that relies on
-such a claim. Load `verify-external-claims`.
+such a claim.
 
 ## Tooling
 
@@ -169,8 +170,7 @@ rm -rf "$md_dir"
 | rely on an external platform or dependency claim | `verify-external-claims` |
 | fan out to subagents | `delegation` |
 
-If your harness cannot load skills, read `.agents/skills/<name>/SKILL.md`
-directly.
+Without skill support, read `.agents/skills/<name>/SKILL.md`.
 
 ## Project specifics
 

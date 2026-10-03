@@ -154,6 +154,12 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("## Development workflow", HUB),
     ("more-local `AGENTS.md`", HUB),
     ("## Dependencies and external interfaces", HUB),
+    ("Prefer the existing stack.", HUB),
+    (
+        "Before adding a dependency or external integration, consider its purpose, "
+        "maintenance and security posture, licence, and runtime impact.",
+        HUB,
+    ),
     ("Update dependency manifests and lockfiles through the package manager;", HUB),
     ("do not hand-edit a lockfile.", HUB),
     ("## External knowledge and capabilities", _skill_path("verify-external-claims")),

@@ -1603,17 +1603,6 @@ def check_runbook_copy_matches_template(
     return []
 
 
-def _legacy_tags_available() -> bool:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(Path(__file__).parent), "tag", "--list", "v0.*"],
-            capture_output=True, text=True, check=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return False
-    return bool(result.stdout.strip())
-
-
 def _digest_table(table: dict) -> dict:
     return {path: set(digests) for path, digests in table.items()}
 
@@ -1624,8 +1613,8 @@ def check_legacy_digests(computed: Optional[dict] = None, recorded: Optional[dic
     Without git tags (a shallow clone) the table cannot be rebuilt, so the
     check is skipped with a notice rather than passed silently."""
     if computed is None:
-        if not _legacy_tags_available():
-            print("notice: git v0.* tags unavailable; skipped the LEGACY_TEMPLATE_DIGESTS check")
+        if not bootstrap._legacy_tags():
+            print("notice: git vX.Y.Z release tags unavailable; skipped the LEGACY_TEMPLATE_DIGESTS check")
             return []
         computed = bootstrap.compute_legacy_digests()
     if recorded is None:
@@ -1697,14 +1686,14 @@ def run_self_tests() -> list:
 
     # Case 4: template command omitted from assumptions.
     result = check_npm_script_assumptions(
-        {"AGENTS-nextjs-tooling.md": "npm run lint\nnpm test\n"}, {"test"}
+        {"AGENTS-nextjs-commands.md": "npm run lint\nnpm test\n"}, {"test"}
     )
     if not any("not declared" in e for e in result):
         errors.append(f"self-test 'undeclared npm script' did not fail as expected: {result}")
 
     # Case 5: stale assumption no template actually documents.
     result = check_npm_script_assumptions(
-        {"AGENTS-nextjs-tooling.md": "npm test\n"}, {"test", "lint"}
+        {"AGENTS-nextjs-commands.md": "npm test\n"}, {"test", "lint"}
     )
     if not any("never documented" in e for e in result):
         errors.append(f"self-test 'unused npm assumption' did not fail as expected: {result}")
@@ -1712,7 +1701,7 @@ def run_self_tests() -> list:
     # Case 6: an explicitly optional local workaround must not become a
     # generated-scaffold script contract.
     result = check_npm_script_assumptions(
-        {"AGENTS-nextjs-tooling.md": "npm run test:e2e:local` when that script is available"},
+        {"AGENTS-nextjs-commands.md": "npm run test:e2e:local` when that script is available"},
         set(),
     )
     if result:
@@ -1720,7 +1709,7 @@ def run_self_tests() -> list:
 
     # Case 7: optional wording must not exempt another undeclared script.
     result = check_npm_script_assumptions(
-        {"AGENTS-nextjs-tooling.md": "npm run invented` when that script is available"},
+        {"AGENTS-nextjs-commands.md": "npm run invented` when that script is available"},
         set(),
     )
     if not any("not declared" in e for e in result):

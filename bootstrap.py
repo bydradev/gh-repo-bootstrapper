@@ -163,7 +163,7 @@ def stamp_is_valid(text: str) -> bool:
     return digest is not None and digest == _digest(body)
 
 
-# Rebuilt by compute_legacy_digests(), from every v0.* tag and the #53 head.
+# Rebuilt by compute_legacy_digests(), from every vX.Y.Z release tag.
 LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
     "docs/branch-protection-runbook.md": frozenset({
         "1f4ce79e3a984e4e76dfdee4b3ca655c6911825eabee6a92dd5a3c76a9526dc1",
@@ -179,15 +179,34 @@ LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
 }
 
 
+def _legacy_tags() -> list[str] | None:
+    """The bootstrapper's vX.Y.Z release tags, oldest first; None when git cannot list them."""
+    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(TEMPLATES_DIR.parent), "tag", "--list", "v*"],
+            capture_output=True, text=True, check=True, env=env,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    tags = [tag for tag in result.stdout.splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", tag)]
+    return sorted(tags, key=lambda tag: tuple(int(part) for part in tag[1:].split(".")))
+
+
 def _legacy_template_bodies() -> dict[str, list[str]]:
-    """Render historical owned docs; new skills and agents have no legacy copies."""
+    """Render historical owned docs; new skills and agents have no legacy copies.
+
+    Without git or release tags (a copy without .git, a shallow clone) there
+    is nothing to render: a one-line notice goes to stderr and the result is
+    empty, so callers skip the legacy diff instead of failing.
+    """
     repo = TEMPLATES_DIR.parent
     env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
-    refs = subprocess.run(
-        ["git", "-C", str(repo), "tag", "--list", "v0.*"],
-        capture_output=True, text=True, check=True, env=env,
-    ).stdout.splitlines()
-    refs.append("origin/fix/lint-clean-generated-markdown")
+    refs = _legacy_tags()
+    if not refs:
+        print(f"notice: no git release tags in {repo}; skipped the diff against legacy template docs",
+              file=sys.stderr)
+        return {}
     bodies = {}
     for ref in refs:
         def source(name):
@@ -1359,6 +1378,29 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     return report
 
 
+RETIRED_TEXT_PREVIEW_LINES = 3
+
+
+def _retired_section_text(repo_dir: Path, rows: list) -> dict[str, list[str]]:
+    """Non-blank lines under each retired heading of the repository's AGENTS.md.
+
+    --replace-generated-sections drops a retired section whole, so --check
+    shows its text first: a repository rule added there would be lost too.
+    """
+    retired = {heading for row_status, heading in rows if row_status == "retired"}
+    if not retired or _symlink_in_path(repo_dir, "AGENTS.md"):
+        return {}
+    try:
+        actual = (repo_dir / "AGENTS.md").read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return {}
+    text = {}
+    for heading, body in _agents_sections(actual)[1]:
+        if heading in retired:
+            text.setdefault(heading, []).extend(line.strip() for line in body.splitlines()[1:] if line.strip())
+    return text
+
+
 def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     """Print a --check report; return True when the repository is aligned."""
     print(f"\n{repo_dir} — compared with the '{cfg['repo_type']}' template")
@@ -1368,10 +1410,18 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
             aligned = False
         print(f"  {status:<8} {rel}")
         if rel == "AGENTS.md" and isinstance(detail, list):
+            retired_text = _retired_section_text(repo_dir, detail)
             for row_status, heading in detail:
                 if row_status != "same":
                     hint = "  → move under ## Project specifics" if row_status == "local" else ""
                     print(f"      {row_status:<8} {heading}{hint}")
+                if row_status == "retired" and retired_text.get(heading):
+                    lines = retired_text[heading]
+                    print(f"        notice: retired section contains {len(lines)} "
+                          f"line{'' if len(lines) == 1 else 's'} of text; "
+                          "--replace-generated-sections drops this text. First lines:")
+                    for line in lines[:RETIRED_TEXT_PREVIEW_LINES]:
+                        print(f"          {line}")
         elif rel == ".gitignore" and isinstance(detail, list):
             print(f"      missing entries: {', '.join(detail)}")
         elif isinstance(detail, str):

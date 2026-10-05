@@ -243,6 +243,9 @@ Repositories adopted before stamps existed may have edited a legacy
 `docs/branch-protection-runbook.md` or `docs/screenshot-review.md`. Migrate
 once: move the local changes into `## Project specifics` or a repository-owned
 skill, delete the old file, and run `--adopt` to write the stamped version.
+`--check` shows the local changes as a diff against the nearest released body.
+The diff needs the bootstrapper's git release tags; from a copy without them,
+`--check` prints a notice and skips it.
 
 ### Checking and adopting
 
@@ -259,7 +262,7 @@ Template-owned files get their own states:
 | `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar | refused; use a plain single-line name when the name is ambiguous |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp |
-| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading |
+| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading; any text under it is dropped too, so `--check` prints its line count and first lines |
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
 prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't

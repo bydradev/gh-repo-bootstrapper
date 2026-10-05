@@ -14,9 +14,10 @@ import unittest.mock
 from pathlib import Path
 
 import bootstrap
+import validate_templates
 
 # Exact v0.5.5 nextjs/Swift renders (sample, My App, iphone, XcodeGen) and
-# historical docs from all v0.* tags plus PR #53. Captured from git show;
+# historical docs from all release tags through v0.6.0. Captured from git show;
 # compressed here because tests must also run without tags in a shallow clone.
 _LEGACY_FIXTURES = json.loads(zlib.decompress(base64.b85decode(
     (
@@ -243,6 +244,11 @@ _LEGACY_FIXTURES = json.loads(zlib.decompress(base64.b85decode(
         'YwTEK#~M4<*s;d{39-h1{p<e&DkTLs'
     ).encode("ascii")
 )))
+# PR #53's docs were captured from its since-deleted branch; they shipped
+# unchanged in v0.6.0, so the fixture history tags them as that release.
+_LEGACY_FIXTURES["sources"]["v0.6.0"] = _LEGACY_FIXTURES["sources"].pop(
+    "origin/fix/lint-clean-generated-markdown"
+)
 
 
 def _render(repo_type="python", name="sample"):
@@ -305,10 +311,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                 (templates / name).write_text(body, encoding="utf-8")
             _git(repo, "add", "-A")
             _git(repo, "commit", "-q", "--allow-empty", "-m", ref)
-            if ref.startswith("v0."):
-                _git(repo, "tag", ref)
-            else:
-                _git(repo, "update-ref", f"refs/remotes/{ref}", "HEAD")
+            _git(repo, "tag", ref)
         return templates
 
     def test_check_reports_missing_files_and_never_writes(self):
@@ -654,10 +657,44 @@ class ExistingRepositoryTests(unittest.TestCase):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
             self.assertEqual(bootstrap.compute_legacy_digests(), bootstrap.LEGACY_TEMPLATE_DIGESTS)
 
+    def test_validator_flags_a_release_missing_from_the_legacy_table(self):
+        templates = self._legacy_templates()
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
+            self.assertEqual(validate_templates.check_legacy_digests(), [])
+            runbook = templates / "docs-branch-protection-runbook.md"
+            runbook.write_text(runbook.read_text(encoding="utf-8") + "\nA later release.\n", encoding="utf-8")
+            _git(templates.parent, "commit", "-q", "-am", "v1.0.0")
+            _git(templates.parent, "tag", "v1.0.0")
+            errors = validate_templates.check_legacy_digests()
+        self.assertTrue(any("LEGACY_TEMPLATE_DIGESTS is stale" in error for error in errors), errors)
+
+    def test_legacy_diff_is_skipped_with_a_notice_without_git_or_tags(self):
+        files = _render()
+        rel = "docs/branch-protection-runbook.md"
+        body = _LEGACY_FIXTURES["sources"]["v0.5.5"]["docs-branch-protection-runbook.md"]
+        self._write(rel, body + "\nRepository customization.\n")
+        self._commit_all()
+        copy = Path(self._tmp.name) / "copy" / "templates"
+        copy.mkdir(parents=True)
+        tagless = Path(self._tmp.name) / "tagless" / "templates"
+        tagless.mkdir(parents=True)
+        (tagless / "README.md").write_text("untagged\n")
+        _git(tagless.parent, "init", "-q")
+        _git(tagless.parent, "add", "-A")
+        _git(tagless.parent, "commit", "-q", "-m", "untagged")
+        for label, templates in (("non-git copy", copy), ("tagless clone", tagless)):
+            with self.subTest(label), unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors):
+                    report = bootstrap.compare_repository(self.repo, files)
+                self.assertEqual(report[rel], ("local-modified", None))
+                self.assertEqual(len(errors.getvalue().splitlines()), 1, errors.getvalue())
+                self.assertIn("skipped the diff against legacy template docs", errors.getvalue())
+
     def test_unstamped_released_runbooks_are_upgraded(self):
         files = _render()
         rel = "docs/branch-protection-runbook.md"
-        for ref in ("v0.5.5", "origin/fix/lint-clean-generated-markdown"):
+        for ref in ("v0.5.5", "v0.6.0"):
             with self.subTest(ref=ref):
                 body = _LEGACY_FIXTURES["sources"][ref]["docs-branch-protection-runbook.md"]
                 self._write(rel, body)
@@ -916,6 +953,25 @@ class ExistingRepositoryTests(unittest.TestCase):
         actions = bootstrap.adopt_repository(self.repo, files, True)
         self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
         self.assertEqual((self.repo / "AGENTS.md").read_text(), files["AGENTS.md"] + "\nLocal specifics.\n")
+
+    def test_retired_section_text_is_shown_by_check_and_dropped_on_replace(self):
+        files = _render()
+        title = "## Worktrees, verification copies, and scratch output"
+        rule = "LOCAL RULE: never use /tmp here."
+        mine = title + "\n\n" + rule + "\n\n" + files["AGENTS.md"]
+        self._write("AGENTS.md", mine)
+        self._commit_all()
+        status, rows = bootstrap.compare_repository(self.repo, files)["AGENTS.md"]
+        self.assertIn(("retired", title), rows)
+        self.assertFalse([heading for row_status, heading in rows if row_status == "local"], rows)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            bootstrap.print_repository_report(self.repo, {"repo_type": "python"}, {"AGENTS.md": (status, rows)})
+        self.assertIn("notice: retired section contains 1 line of text", output.getvalue())
+        self.assertIn(f"          {rule}\n", output.getvalue())
+        actions = bootstrap.adopt_repository(self.repo, files, True)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        self.assertNotIn(rule, (self.repo / "AGENTS.md").read_text())
 
     def test_real_v055_nextjs_migration_preserves_project_specifics(self):
         self._migrate_real_v055_agents("nextjs")

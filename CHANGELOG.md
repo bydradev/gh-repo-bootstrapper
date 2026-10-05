@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.1...v0.6.2) (2026-10-05)
+
+
+### Bug Fixes
+
+* tolerate missing git tags when diffing legacy template bodies ([#58](https://github.com/bydradev/gh-repo-bootstrapper/issues/58)) ([2a9ed0c](https://github.com/bydradev/gh-repo-bootstrapper/commit/2a9ed0cda01c139cb6681c6d44b31d2984f04da8))
+
 ## [0.6.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.0...v0.6.1) (2026-10-05)
 
 

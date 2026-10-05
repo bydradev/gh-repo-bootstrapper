@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.2...v0.6.3) (2026-10-05)
+
+
+### Bug Fixes
+
+* check for anchored symlink support before creating a new repo ([5e3ced3](https://github.com/bydradev/gh-repo-bootstrapper/commit/5e3ced36a5639e3232840da340043720778d5b94))
+* place the template-owned stamp after BOM or CRLF frontmatter ([#61](https://github.com/bydradev/gh-repo-bootstrapper/issues/61)) ([5e3ced3](https://github.com/bydradev/gh-repo-bootstrapper/commit/5e3ced36a5639e3232840da340043720778d5b94))
+
 ## [0.6.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.1...v0.6.2) (2026-10-05)
 
 

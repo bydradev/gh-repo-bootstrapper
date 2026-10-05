@@ -1,9 +1,3 @@
-> **Maintainer workflow guidance.** This file describes how work is carried out
-> *in* this repository — for the maintainer and for AI assistants working under
-> their direction. It is not an invitation to contribute. External code
-> contributions are not accepted; [`CONTRIBUTING.md`](CONTRIBUTING.md) controls
-> external submissions.
-
 # Working in this repo
 
 ## Development workflow
@@ -140,20 +134,6 @@ Check platform, API, or dependency capability claims, and anything
 contradicting the user or this repository, against a current primary source;
 cite the source and date in any commit, PR, or doc that relies on one.
 
-## Tooling
-
-Run checks before pushing:
-
-```sh
-uv run --with pyyaml python3 validate_templates.py
-uv run --with pytest --with pyyaml python3 -m pytest
-node --test templates/*.test.mjs
-md_dir=$(mktemp -d)
-uv run --with pyyaml python3 validate_templates.py --render-markdown "$md_dir"
-npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_dir/**/*.md"
-rm -rf "$md_dir"
-```
-
 ## Skills
 
 | Before you | Load skill |
@@ -181,3 +161,28 @@ Keep this section short. Long reference material (architecture, conventions,
 API notes) belongs in a repository-owned skill under `.agents/skills/` with a
 name that does not start with a template skill name; narrow a template skill
 here, never by editing it.
+
+### Maintainer workflow guidance
+
+> **Maintainer workflow guidance.** This file describes how work is carried out
+> *in* this repository — for the maintainer and for AI assistants working under
+> their direction. It is not an invitation to contribute. External code
+> contributions are not accepted; [`CONTRIBUTING.md`](CONTRIBUTING.md) controls
+> external submissions.
+
+### Tooling
+
+These commands extend the generated sections above with this repository's
+pre-push checks.
+
+Run checks before pushing:
+
+```sh
+uv run --with pyyaml python3 validate_templates.py
+uv run --with pytest --with pyyaml python3 -m pytest
+node --test templates/*.test.mjs
+md_dir=$(mktemp -d)
+uv run --with pyyaml python3 validate_templates.py --render-markdown "$md_dir"
+npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_dir/**/*.md"
+rm -rf "$md_dir"
+```

@@ -143,18 +143,23 @@ def stamp(text: str) -> str:
     """Stamp a body, after closed YAML frontmatter or before ordinary Markdown."""
     _, body = read_stamp(text)
     offset = 0
-    if body.startswith("---\n"):
-        for line in body[4:].splitlines(keepends=True):
+    eol = "\n"
+    bom = "\ufeff" if body.startswith("\ufeff") else ""
+    opener = next((o for o in ("---\n", "---\r\n") if body.startswith(o, len(bom))), None)
+    if opener:
+        eol = opener[3:]
+        start = len(bom) + len(opener)
+        for line in body[start:].splitlines(keepends=True):
             offset += len(line)
             if line.rstrip("\r\n") == "---":
-                offset += 4
+                offset += start
                 if not line.endswith("\n"):
-                    body = body[:offset] + "\n" + body[offset:]
-                    offset += 1
+                    body = body[:offset] + eol + body[offset:]
+                    offset += len(eol)
                 break
         else:
             offset = 0
-    marker = f"{STAMP_PREFIX}{_digest(body)} -->\n"
+    marker = f"{STAMP_PREFIX}{_digest(body)} -->{eol}"
     return body[:offset] + marker + body[offset:]
 
 

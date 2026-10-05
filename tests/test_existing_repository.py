@@ -1317,6 +1317,30 @@ class StampTests(unittest.TestCase):
         self.assertIn("\n---\n" + bootstrap.STAMP_PREFIX, stamped)
         self.assertTrue(bootstrap.stamp_is_valid(stamped))
 
+    def test_stamp_follows_bom_and_crlf_frontmatter(self):
+        cases = {
+            "BOM+LF": ("\ufeff---\nname: skill\n---\n", "\n# Body\n"),
+            "CRLF": ("---\r\nname: skill\r\n---\r\n", "\r\n# Body\r\n"),
+            "BOM+CRLF": ("\ufeff---\r\nname: skill\r\n---\r\n", "\r\n# Body\r\n"),
+        }
+        for label, (frontmatter, rest) in cases.items():
+            with self.subTest(label):
+                body = frontmatter + rest
+                eol = frontmatter[-2:] if frontmatter.endswith("\r\n") else "\n"
+                stamped = bootstrap.stamp(body)
+                marker = stamped[len(frontmatter):].split(eol, 1)[0]
+                self.assertTrue(stamped.startswith(frontmatter + bootstrap.STAMP_PREFIX))
+                self.assertEqual(stamped, frontmatter + marker + eol + rest)
+                self.assertTrue(bootstrap.stamp_is_valid(stamped))
+                self.assertEqual(bootstrap.read_stamp(stamped)[1], body)
+                self.assertEqual(bootstrap.stamp(stamped), stamped)
+
+    def test_crlf_frontmatter_only_without_newline_gets_a_crlf_separated_stamp(self):
+        stamped = bootstrap.stamp("\ufeff---\r\nname: skill\r\n---")
+        self.assertTrue(stamped.startswith("\ufeff---\r\nname: skill\r\n---\r\n" + bootstrap.STAMP_PREFIX))
+        self.assertTrue(stamped.endswith(" -->\r\n"))
+        self.assertTrue(bootstrap.stamp_is_valid(stamped))
+
     def test_invalid_duplicate_and_modified_stamps_do_not_validate(self):
         valid = bootstrap.stamp("# Body\n")
         marker = valid.splitlines(keepends=True)[0]

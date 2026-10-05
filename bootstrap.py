@@ -873,12 +873,10 @@ def generate_files(cfg: dict) -> dict:
     agents = _compose(agents, "TYPE_TOOLING", tooling)
     agents = _compose(agents, "SKILL_ROWS_TYPE", "".join(_TYPE_SKILL_ROWS.get(repo_type, ())))
     if repo_type in ("nextjs", "swift"):
-        # The screenshot-review skill carries this guidance; drop the marker
-        # together with the blank line after it.
+        # The screenshot privacy and pre-commit review gates stay in the hub;
+        # the fragment points at the screenshot-review skill for the process.
         agents = _compose(
-            agents.replace("# <<SCREENSHOT_REVIEW_REF>>\n\n", "# <<SCREENSHOT_REVIEW_REF>>\n", 1),
-            "SCREENSHOT_REVIEW_REF",
-            "",
+            agents, "SCREENSHOT_REVIEW_REF", _load("AGENTS-screenshot-review-ref-skill.md")
         )
     else:
         # No screenshot-review skill for this type: keep the generic rule inline.

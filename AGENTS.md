@@ -62,26 +62,21 @@ Follow [Conventional Commits](https://www.conventionalcommits.org):
 imperative, no trailing period.
 
 **AI co-authors & PR footers** — every commit materially created or modified
-with AI assistance must include a `Co-Authored-By:` trailer in the git commit
-message. The form is
-`Co-Authored-By: <Tool> (<model-name>) <tool-noreply-address>`, where
-`<Tool>` is the tool's name — not a persona or agent nickname — and
-`<model-name>` is substituted dynamically with the model actually running
-the commit; do not hard-code it. The named tools are examples of the form,
-not an exhaustive list — a new tool needs no change to this rule:
+with AI assistance must include a
+`Co-Authored-By: <Tool> (<model-name>) <tool-noreply-address>` trailer, where
+`<Tool>` is the tool's name, not a persona or agent nickname, and
+`<model-name>` is the model actually running the commit, never hard-coded.
+Examples (not exhaustive):
 
 - **Codex** — `Co-Authored-By: Codex (<model-name>) <noreply@openai.com>`
-- **Claude Code** — the documented exception: use its default
-  `Co-Authored-By:` trailer as emitted.
+- **Claude Code** — use its default `Co-Authored-By:` trailer as emitted.
 - **Antigravity CLI** —
   `Co-Authored-By: Antigravity CLI (<model-name>) <224641728+gemini-cli-robot@users.noreply.github.com>`
 - **OpenCode** — `Co-Authored-By: OpenCode (<model-name>) <noreply@opencode.ai>`
 - **OMP** — `Co-Authored-By: OMP (<model-name>) <noreply@omp.sh>`
 
-Keep the `Co-Authored-By:` git trailer in every applicable commit; do not use
-the commit trailer format in pull request descriptions. Instead, when the AI
-harness CLI creates or updates a pull request, append a human-readable footer
-at the bottom of the PR description, separated by a horizontal rule (`---`):
+Never use the trailer format in pull request descriptions; a PR an AI harness
+creates or updates ends with this footer:
 
 ```markdown
 ---
@@ -99,13 +94,13 @@ land a change.
 
 ## When instructions and reality disagree
 
-Where this file describes the repository inaccurately, reality wins — but flag
-the gap instead of silently diverging. Guardrails are not descriptions: if one
+Where this file is inaccurate, reality wins — but flag the gap instead of
+silently diverging. Guardrails are not descriptions: if one
 blocks a genuinely better approach, raise it with the operator rather than
 working around it.
 
-For user-facing changes, verify the rendered or running product in addition to
-automated checks; tests alone do not establish visual or interaction quality.
+For user-facing changes, also verify the rendered or running product; tests
+alone do not establish visual or interaction quality.
 
 Screenshot guidance is capability-conditional: do not assume browser or native
 capture tooling exists in this repository.
@@ -141,10 +136,9 @@ ready for review; resolve valid blocking findings.
 
 ## Recall is not evidence
 
-Check claims about platform, API, or dependency capabilities, and anything
+Check platform, API, or dependency capability claims, and anything
 contradicting the user or this repository, against a current primary source;
-cite the source and date in any commit, PR, or committed doc that relies on
-such a claim.
+cite the source and date in any commit, PR, or doc that relies on one.
 
 ## Tooling
 

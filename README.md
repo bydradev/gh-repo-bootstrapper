@@ -198,15 +198,17 @@ specifics` is last, so it's lost first:
   documentation, checked 2026-10-03).
 - Codex stops at `project_doc_max_bytes`, 32 KiB by default
   (`openai/codex` `agents_md.rs` at `c542fb9`, checked 2026-10-03).
-- OMO cuts each injected `AGENTS.md` or rule file at 12,000 characters
-  (`DEFAULT_MAX_RULE_CHARS = 12000` in the omo 5.1.12 runtime, measured
-  2026-10-03) and appends `[Rule truncated. Read full rule: <path>]`. The
-  `PI_RULES_MAX_RULE_CHARS` environment variable overrides the limit.
+- OMO (5.1.12, checked 2026-10-05) loads `AGENTS.md` from the working
+  folder and its ancestors in full at startup. When it reads a file in a
+  subfolder, it injects that folder's `AGENTS.md` as Directory Context, in
+  full up to 32 KiB per file. Its rules plugin also adds a second copy,
+  which it cuts at 12,000 characters (`PI_RULES_MAX_RULE_CHARS`) with a
+  `[Rule truncated. Read full rule: <path>]` marker.
 
-Set `PI_RULES_MAX_RULE_CHARS=24000` wherever OMO runs, which matches
-Antigravity's per-file cap. Without it, OMO reads only the first 12,000
-characters, so keep stop-and-ask rules first in `## Project specifics`. The
-20,000 B `AGENTS.md` warning target stays the same either way.
+The truncated OMO copy is a duplicate, so OMO needs no setting. To drop it,
+run OMO with `--pi-rules-mode static`, and Directory Context still injects
+the full file. Keep stop-and-ask rules first in `## Project specifics` for
+the other harnesses. The 20,000 B `AGENTS.md` warning target stays the same.
 
 ### Template-owned files
 

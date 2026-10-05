@@ -1889,6 +1889,9 @@ def create_and_push(cfg: dict, files: dict):
 
     if repo_dir.exists() and any(repo_dir.iterdir()):
         _die(f"target directory '{repo_dir}' already exists and is not empty")
+    # Checked before the remote exists, so a failure leaves nothing to clean up.
+    if generate_links(cfg) and (not _ANCHORED_WRITES or os.symlink not in os.supports_dir_fd):
+        _die("this platform cannot create anchored symlinks for the .claude/skills mirrors")
 
     print(f"\nCreating {full} in {repo_dir}/…")
     try:

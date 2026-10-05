@@ -1282,6 +1282,21 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertTrue(cfg["files_pushed"])
         self.assertEqual(calls[-1][:4], ["git", "-C", str(self.repo), "push"])
 
+    def test_create_and_push_refuses_before_creating_without_anchored_symlinks(self):
+        files = _render()
+        cfg = {"name": "sample", "repo_type": "python", "owner": "owner",
+               "private": True, "repo_dir": self.repo}
+        calls = []
+        stderr = io.StringIO()
+        with unittest.mock.patch.object(bootstrap, "_run", lambda command, **kwargs: calls.append(command)), \
+                unittest.mock.patch.object(bootstrap, "_ANCHORED_WRITES", False), \
+                contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            bootstrap.create_and_push(cfg, files)
+        self.assertIn("cannot create anchored symlinks", stderr.getvalue())
+        self.assertEqual(calls, [])
+        self.assertNotIn("repo_created", cfg)
+        self.assertEqual(list(self.repo.iterdir()), [])
+
     def test_dry_run_prints_links_without_writing(self):
         files = _render()
         cfg = {"name": "sample", "repo_type": "python", "owner": "owner",

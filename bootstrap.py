@@ -116,12 +116,13 @@ def template_owned_paths(cfg) -> list[str]:
     return paths
 
 
+def _skill_mirrors(names) -> dict[str, str]:
+    return {f".claude/skills/{name}": f"../../.agents/skills/{name}" for name in names}
+
+
 def generate_links(cfg) -> dict[str, str]:
     """Claude's relative directory mirrors of the shared skills."""
-    return {
-        f".claude/skills/{name}": f"../../.agents/skills/{name}"
-        for name in TEMPLATE_SKILLS[cfg["repo_type"]]
-    }
+    return _skill_mirrors(TEMPLATE_SKILLS[cfg["repo_type"]])
 
 
 def _digest(text: str) -> str:
@@ -1199,11 +1200,10 @@ def _symlink_in_path(repo_dir: Path, rel: str, links: dict = None) -> bool:
 
 def _links_for_files(files: dict) -> dict[str, str]:
     """Infer mirrors for callers that only have the generated files dict."""
-    return {
-        f".claude/skills/{Path(path).parent.name}": f"../../.agents/skills/{Path(path).parent.name}"
-        for path in files
+    return _skill_mirrors(
+        Path(path).parent.name for path in files
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
-    }
+    )
 
 
 def _git_ignored(repo_dir: Path, rel: str) -> bool:

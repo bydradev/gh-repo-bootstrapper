@@ -144,9 +144,19 @@ def _skill_path(name: str) -> str:
 
 
 HUB = "AGENTS.md"
-# The screenshot rules live in the screenshot-review skill for the types that
-# generate one (nextjs, swift) and inline in the hub for every other type.
+# The screenshot process lives in the screenshot-review skill for the types
+# that generate one (nextjs, swift) and inline in the hub for every other type.
+# The privacy and pre-commit visual-review gates are pinned to the hub for
+# every type: a gate must not depend on loading a skill.
 SCREENSHOT_OWNER = "<screenshot-review skill, or the hub when the type has none>"
+SCREENSHOT_GATES = (
+    "Treat screenshot generation and visual approval as separate gates.",
+    "A successful screenshot-generation workflow means only that artifacts were produced; it is not visual approval.",
+    "Never capture live or private data, and do not commit regenerated assets "
+    "until the required visual and privacy review has passed.",
+)
+# Hub sentence (nextjs, swift) that sends agents to the skill for the process.
+HUB_SCREENSHOT_POINTER = "Load `screenshot-review` for the full process."
 
 # (phrase, owning file) pairs. The hub keeps the gates; the detail moved into
 # template-owned skills, so each phrase is required in the file that owns it.
@@ -170,6 +180,7 @@ AGENTS_COMMON_REQUIREMENTS = (
         "A successful screenshot-generation workflow means only that artifacts were produced; it is not visual approval.",
         SCREENSHOT_OWNER,
     ),
+    *((phrase, HUB) for phrase in SCREENSHOT_GATES),
     ("Screenshot guidance is capability-conditional", SCREENSHOT_OWNER),
     ("do not assume browser or native", SCREENSHOT_OWNER),
     ("## Definition of done", HUB),
@@ -737,7 +748,12 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] {repo_type} AGENTS.md must not link screenshot guidance")
         if SCREENSHOT_SKILL in files:
             errors.append(f"[{label}] {SCREENSHOT_SKILL} must not be generated for {repo_type}")
+        if "`screenshot-review`" in agents:
+            errors.append(f"[{label}] {repo_type} AGENTS.md must not point at the screenshot-review skill")
         return errors
+
+    if HUB_SCREENSHOT_POINTER not in " ".join(agents.split()):
+        errors.append(f"[{label}] AGENTS.md is missing its pointer {HUB_SCREENSHOT_POINTER!r}")
 
     if document is None:
         return [f"[{label}] missing {bootstrap.SCREENSHOT_REVIEW} for {repo_type}"]
@@ -1723,6 +1739,20 @@ def run_self_tests() -> list:
             f"{result}"
         )
 
+    # Case 8b: the screenshot privacy and pre-commit review gates are pinned to
+    # the hub for every type, even where the screenshot-review skill repeats
+    # them, so dropping them from the hub fails closed.
+    for repo_type in ("nextjs", "swift", "python", "rust", "simple"):
+        cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
+        files = bootstrap.generate_files(dict(cfg))
+        result = check_agents_guidance(f"self-test:{repo_type} screenshot gates", files)
+        if result:
+            errors.append(f"self-test '{repo_type} screenshot gates' unexpectedly failed: {result}")
+        files[HUB] = files[HUB].replace("Never capture live or private data", "Capture data", 1)
+        result = check_agents_guidance(f"self-test:{repo_type} screenshot gate dropped", files)
+        if not any("AGENTS.md is missing common guidance 'Never capture live" in e for e in result):
+            errors.append(f"self-test '{repo_type} screenshot gate dropped' did not fail as expected: {result}")
+
     # Case 6b: screenshot guidance is composed only for browser-capable and
     # native configurations, and each safety/structure guard fails closed when
     # its source is mutated.
@@ -1774,12 +1804,23 @@ def run_self_tests() -> list:
         if not any("invents tooling" in e for e in result):
             errors.append(f"self-test '{repo_type} invented tooling' did not fail as expected: {result}")
 
+        no_pointer = dict(files)
+        no_pointer[HUB] = files[HUB].replace("Load `screenshot-review` for the full process.", "", 1)
+        result = check_screenshot_guidance(f"self-test:{repo_type} hub screenshot pointer", repo_type, no_pointer)
+        if not any("missing its pointer 'Load" in e for e in result):
+            errors.append(f"self-test '{repo_type} hub screenshot pointer' did not fail as expected: {result}")
+
     for repo_type in ("python", "rust", "simple"):
         cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         files = bootstrap.generate_files(dict(cfg))
         result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, files)
         if result:
             errors.append(f"self-test '{repo_type} screenshot omission' unexpectedly failed: {result}")
+        pointer = dict(files)
+        pointer[HUB] += "\nLoad `screenshot-review` for the full process.\n"
+        result = check_screenshot_guidance(f"self-test:{repo_type} stray screenshot pointer", repo_type, pointer)
+        if not any("must not point at the screenshot-review skill" in e for e in result):
+            errors.append(f"self-test '{repo_type} stray screenshot pointer' did not fail as expected: {result}")
         files[bootstrap.SCREENSHOT_REVIEW] = "# Screenshot review guidance\n"
         result = check_screenshot_guidance(f"self-test:{repo_type} unexpected screenshot document", repo_type, files)
         if not any("must not be generated" in e for e in result):

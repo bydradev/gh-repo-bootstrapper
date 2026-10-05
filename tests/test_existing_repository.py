@@ -1282,6 +1282,21 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertTrue(cfg["files_pushed"])
         self.assertEqual(calls[-1][:4], ["git", "-C", str(self.repo), "push"])
 
+    def test_create_and_push_refuses_before_creating_without_anchored_symlinks(self):
+        files = _render()
+        cfg = {"name": "sample", "repo_type": "python", "owner": "owner",
+               "private": True, "repo_dir": self.repo}
+        calls = []
+        stderr = io.StringIO()
+        with unittest.mock.patch.object(bootstrap, "_run", lambda command, **kwargs: calls.append(command)), \
+                unittest.mock.patch.object(bootstrap, "_ANCHORED_WRITES", False), \
+                contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            bootstrap.create_and_push(cfg, files)
+        self.assertIn("cannot create anchored symlinks", stderr.getvalue())
+        self.assertEqual(calls, [])
+        self.assertNotIn("repo_created", cfg)
+        self.assertEqual(list(self.repo.iterdir()), [])
+
     def test_dry_run_prints_links_without_writing(self):
         files = _render()
         cfg = {"name": "sample", "repo_type": "python", "owner": "owner",
@@ -1315,6 +1330,30 @@ class StampTests(unittest.TestCase):
     def test_frontmatter_only_without_newline_gets_a_valid_separated_stamp(self):
         stamped = bootstrap.stamp("---\nname: skill\n---")
         self.assertIn("\n---\n" + bootstrap.STAMP_PREFIX, stamped)
+        self.assertTrue(bootstrap.stamp_is_valid(stamped))
+
+    def test_stamp_follows_bom_and_crlf_frontmatter(self):
+        cases = {
+            "BOM+LF": ("\ufeff---\nname: skill\n---\n", "\n# Body\n"),
+            "CRLF": ("---\r\nname: skill\r\n---\r\n", "\r\n# Body\r\n"),
+            "BOM+CRLF": ("\ufeff---\r\nname: skill\r\n---\r\n", "\r\n# Body\r\n"),
+        }
+        for label, (frontmatter, rest) in cases.items():
+            with self.subTest(label):
+                body = frontmatter + rest
+                eol = frontmatter[-2:] if frontmatter.endswith("\r\n") else "\n"
+                stamped = bootstrap.stamp(body)
+                marker = stamped[len(frontmatter):].split(eol, 1)[0]
+                self.assertTrue(stamped.startswith(frontmatter + bootstrap.STAMP_PREFIX))
+                self.assertEqual(stamped, frontmatter + marker + eol + rest)
+                self.assertTrue(bootstrap.stamp_is_valid(stamped))
+                self.assertEqual(bootstrap.read_stamp(stamped)[1], body)
+                self.assertEqual(bootstrap.stamp(stamped), stamped)
+
+    def test_crlf_frontmatter_only_without_newline_gets_a_crlf_separated_stamp(self):
+        stamped = bootstrap.stamp("\ufeff---\r\nname: skill\r\n---")
+        self.assertTrue(stamped.startswith("\ufeff---\r\nname: skill\r\n---\r\n" + bootstrap.STAMP_PREFIX))
+        self.assertTrue(stamped.endswith(" -->\r\n"))
         self.assertTrue(bootstrap.stamp_is_valid(stamped))
 
     def test_invalid_duplicate_and_modified_stamps_do_not_validate(self):

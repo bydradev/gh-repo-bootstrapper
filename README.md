@@ -198,16 +198,20 @@ specifics` is last, so it's lost first:
   documentation, checked 2026-10-03).
 - Codex stops at `project_doc_max_bytes`, 32 KiB by default
   (`openai/codex` `agents_md.rs` at `c542fb9`, checked 2026-10-03).
-- OMO (5.1.12, checked 2026-10-05) loads `AGENTS.md` from the working
-  folder and its ancestors in full at startup. When it reads a file in a
-  subfolder, it injects that folder's `AGENTS.md` as Directory Context, in
-  full up to 32 KiB per file. Its rules plugin also adds a second copy,
-  which it cuts at 12,000 characters (`PI_RULES_MAX_RULE_CHARS`) with a
+- OMO (5.1.12 to 5.1.19, checked 2026-10-05) loads `AGENTS.md` from the
+  working folder and its ancestors in full at startup. When it reads a file
+  in a subfolder, it injects that folder's `AGENTS.md` as Directory Context,
+  in full up to 32 KiB per file. Its rules plugin also adds a second copy,
+  on edits and writes as well as reads, which it cuts at 12,000 characters
+  (`PI_RULES_MAX_RULE_CHARS`) with a
   `[Rule truncated. Read full rule: <path>]` marker.
 
 The truncated OMO copy is a duplicate, so OMO needs no setting. To drop it,
-run OMO with `--pi-rules-mode static`, and Directory Context still injects
-the full file. Keep stop-and-ask rules first in `## Project specifics` for
+run OMO with `--pi-rules-mode static`. Directory Context still injects the
+full file on reads, but an edit or write in a subfolder that wasn't read
+first then gets no nested `AGENTS.md`. This only matters for sessions
+started above the repository, since a repository root's `AGENTS.md` loads at
+startup. Keep stop-and-ask rules first in `## Project specifics` for
 the other harnesses. The 20,000 B `AGENTS.md` warning target stays the same.
 
 ### Template-owned files

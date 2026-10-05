@@ -116,12 +116,13 @@ def template_owned_paths(cfg) -> list[str]:
     return paths
 
 
+def _skill_mirrors(names) -> dict[str, str]:
+    return {f".claude/skills/{name}": f"../../.agents/skills/{name}" for name in names}
+
+
 def generate_links(cfg) -> dict[str, str]:
     """Claude's relative directory mirrors of the shared skills."""
-    return {
-        f".claude/skills/{name}": f"../../.agents/skills/{name}"
-        for name in TEMPLATE_SKILLS[cfg["repo_type"]]
-    }
+    return _skill_mirrors(TEMPLATE_SKILLS[cfg["repo_type"]])
 
 
 def _digest(text: str) -> str:
@@ -143,18 +144,23 @@ def stamp(text: str) -> str:
     """Stamp a body, after closed YAML frontmatter or before ordinary Markdown."""
     _, body = read_stamp(text)
     offset = 0
-    if body.startswith("---\n"):
-        for line in body[4:].splitlines(keepends=True):
+    eol = "\n"
+    bom = "\ufeff" if body.startswith("\ufeff") else ""
+    opener = next((o for o in ("---\n", "---\r\n") if body.startswith(o, len(bom))), None)
+    if opener:
+        eol = opener[3:]
+        start = len(bom) + len(opener)
+        for line in body[start:].splitlines(keepends=True):
             offset += len(line)
             if line.rstrip("\r\n") == "---":
-                offset += 4
+                offset += start
                 if not line.endswith("\n"):
-                    body = body[:offset] + "\n" + body[offset:]
-                    offset += 1
+                    body = body[:offset] + eol + body[offset:]
+                    offset += len(eol)
                 break
         else:
             offset = 0
-    marker = f"{STAMP_PREFIX}{_digest(body)} -->\n"
+    marker = f"{STAMP_PREFIX}{_digest(body)} -->{eol}"
     return body[:offset] + marker + body[offset:]
 
 
@@ -1194,11 +1200,10 @@ def _symlink_in_path(repo_dir: Path, rel: str, links: dict = None) -> bool:
 
 def _links_for_files(files: dict) -> dict[str, str]:
     """Infer mirrors for callers that only have the generated files dict."""
-    return {
-        f".claude/skills/{Path(path).parent.name}": f"../../.agents/skills/{Path(path).parent.name}"
-        for path in files
+    return _skill_mirrors(
+        Path(path).parent.name for path in files
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
-    }
+    )
 
 
 def _git_ignored(repo_dir: Path, rel: str) -> bool:
@@ -1884,6 +1889,9 @@ def create_and_push(cfg: dict, files: dict):
 
     if repo_dir.exists() and any(repo_dir.iterdir()):
         _die(f"target directory '{repo_dir}' already exists and is not empty")
+    # Checked before the remote exists, so a failure leaves nothing to clean up.
+    if generate_links(cfg) and (not _ANCHORED_WRITES or os.symlink not in os.supports_dir_fd):
+        _die("this platform cannot create anchored symlinks for the .claude/skills mirrors")
 
     print(f"\nCreating {full} in {repo_dir}/…")
     try:

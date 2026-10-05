@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.0...v0.6.1) (2026-10-05)
+
+
+### Bug Fixes
+
+* keep screenshot privacy and review gates in the AGENTS.md hub ([#56](https://github.com/bydradev/gh-repo-bootstrapper/issues/56)) ([fb5e295](https://github.com/bydradev/gh-repo-bootstrapper/commit/fb5e2956b4da23863c118d1863c8298154ebaca6))
+
 ## [0.6.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.5.5...v0.6.0) (2026-10-03)
 
 

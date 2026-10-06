@@ -180,6 +180,13 @@ last. Detailed procedures live in skills that load when they're relevant:
 | `baseline-process` | `nextjs` |
 | `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
 
+`screenshot-review` carries the shared review process for a deterministic
+capture lane (image classes, complete-set review, acceptance criteria, promotion
+safety) without naming any capture tool. A repository with its own capture lane
+or visual-verification procedure keeps those facts in a repository-owned skill,
+or a section of one, and names it in `## Project specifics`;
+`screenshot-review` tells agents to load that skill first.
+
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
 doesn't scan `.agents/` but does follow symlinked skill folders. Codex,

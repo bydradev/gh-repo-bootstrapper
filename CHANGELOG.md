@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.3...v0.7.0) (2026-10-06)
+
+
+### Features
+
+* route screenshot-review to repository skills and add the capture-lane review process ([#65](https://github.com/bydradev/gh-repo-bootstrapper/issues/65)) ([94a718c](https://github.com/bydradev/gh-repo-bootstrapper/commit/94a718ce90019b01d38423b2af11c43839bc7ecb))
+
 ## [0.6.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.2...v0.6.3) (2026-10-05)
 
 

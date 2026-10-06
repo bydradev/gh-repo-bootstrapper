@@ -738,6 +738,12 @@ def check_markdown_links(label: str, files: dict) -> list:
     return errors
 
 
+def _invented_tooling(text: str) -> list:
+    """Forbidden capture-tooling phrases in text, matched case- and whitespace-insensitively."""
+    normalized = " ".join(text.lower().split())
+    return [phrase for phrase in SCREENSHOT_FORBIDDEN_INVENTED_TOOLING if phrase.lower() in normalized]
+
+
 def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
     """Validate the composed screenshot contract and its type boundaries."""
     errors = []
@@ -775,10 +781,8 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
     if skill is not None:
         if SCREENSHOT_ROUTING not in " ".join(skill.split()):
             errors.append(f"[{label}] {SCREENSHOT_SKILL} is missing its routing {SCREENSHOT_ROUTING!r}")
-        skill_lowered = skill.lower()
-        for phrase in SCREENSHOT_FORBIDDEN_INVENTED_TOOLING:
-            if phrase.lower() in skill_lowered:
-                errors.append(f"[{label}] {SCREENSHOT_SKILL} invents tooling or workflow {phrase!r}")
+        for phrase in _invented_tooling(skill):
+            errors.append(f"[{label}] {SCREENSHOT_SKILL} invents tooling or workflow {phrase!r}")
 
     for heading in SCREENSHOT_HEADINGS + (SCREENSHOT_PLATFORM_HEADINGS[repo_type],):
         if heading not in document:
@@ -790,11 +794,10 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
         return errors
 
     lowered = document.lower()
-    for phrase in SCREENSHOT_FORBIDDEN_INVENTED_TOOLING:
-        if phrase.lower() in lowered:
-            errors.append(
-                f"[{label}] {bootstrap.SCREENSHOT_REVIEW} invents tooling or workflow {phrase!r}"
-            )
+    for phrase in _invented_tooling(document):
+        errors.append(
+            f"[{label}] {bootstrap.SCREENSHOT_REVIEW} invents tooling or workflow {phrase!r}"
+        )
 
     platform_heading = SCREENSHOT_PLATFORM_HEADINGS[repo_type]
     platform_section = document.split(platform_heading, 1)[1].lower()
@@ -1810,6 +1813,18 @@ def run_self_tests() -> list:
         result = check_screenshot_guidance(f"self-test:{repo_type} skill invented tooling", repo_type, skill_invented)
         if not any("screenshot-review/SKILL.md invents tooling" in e for e in result):
             errors.append(f"self-test '{repo_type} skill invented tooling' did not fail as expected: {result}")
+
+        for variant in ("npx  playwright test", "npx\tplaywright test", "npm run\nscreenshots"):
+            spaced = dict(files)
+            spaced[SCREENSHOT_SKILL] += f"\nRun `{variant}` to capture.\n"
+            result = check_screenshot_guidance(f"self-test:{repo_type} skill tooling spacing", repo_type, spaced)
+            if not any("screenshot-review/SKILL.md invents tooling" in e for e in result):
+                errors.append(f"self-test '{repo_type} skill tooling spacing {variant!r}' did not fail as expected: {result}")
+            spaced_doc = dict(files)
+            spaced_doc[bootstrap.SCREENSHOT_REVIEW] += f"\nRun `{variant}` to capture.\n"
+            result = check_screenshot_guidance(f"self-test:{repo_type} document tooling spacing", repo_type, spaced_doc)
+            if not any("screenshot-review.md invents tooling" in e for e in result):
+                errors.append(f"self-test '{repo_type} document tooling spacing {variant!r}' did not fail as expected: {result}")
 
         no_routing = dict(files)
         no_routing[SCREENSHOT_SKILL] = " ".join(files[SCREENSHOT_SKILL].split()).replace("load it first.", "", 1)

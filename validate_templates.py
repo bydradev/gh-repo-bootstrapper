@@ -19,7 +19,8 @@ Checks performed on each generated file:
   - README rendering: every repository type receives its starter, and Swift
     commands retain the safe formatter path and configured test destination
   - shared AGENTS.md guidance: every generated repository type carries the
-    required SDLC, dependency, external-knowledge, and completion guidance,
+    required SDLC, safety-gate, dependency, external-knowledge, and completion
+    guidance,
     each phrase in the hub or in the template-owned skill that now owns it
   - AGENTS.md hub structure: the generated part fits its byte budget, has no
     bare `@path` imports, and points only at skills the render contains;
@@ -168,6 +169,34 @@ SCREENSHOT_ROUTING = (
 AGENTS_COMMON_REQUIREMENTS = (
     ("## Development workflow", HUB),
     ("more-local `AGENTS.md`", HUB),
+    ("A terminal condition does not broaden authorization", HUB),
+    ("not standing authorization to mutate state.", HUB),
+    ("## GitHub operations", HUB),
+    (
+        "Merge only when the user's current request or an approved repository plan "
+        "expressly authorizes autonomous merge; successful checks alone do not authorize it.",
+        HUB,
+    ),
+    (
+        "do not dispatch a release, deployment, provider, or other externally mutating "
+        "workflow without explicit authority.",
+        HUB,
+    ),
+    (
+        "Never bypass required checks, branch protection, or repository policy, and never "
+        "force-push or use administrative bypass without explicit authorization.",
+        HUB,
+    ),
+    ("## Branches", HUB),
+    ("Never commit directly to `main`.", HUB),
+    ("never weaken the required check set", HUB),
+    ("## Preservation and destructive operations", HUB),
+    ("Preserve existing user work and unrelated repository changes.", HUB),
+    (
+        "Do not discard, reset, overwrite, destructively clean, or otherwise destroy existing "
+        "work unless the user's request explicitly requires it",
+        HUB,
+    ),
     ("## Dependencies and external interfaces", HUB),
     ("Prefer the existing stack.", HUB),
     (

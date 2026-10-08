@@ -61,7 +61,7 @@ jobs:
           cache: npm
       - run: npm ci
       # The full run tests every configured project, so it needs every
-      # default browser; the PR run tests Chromium only.
+      # default browser; a non-full E2E run tests Chromium only.
       - if: ${{ inputs.full }}
         run: npx playwright install --with-deps
       - if: ${{ !inputs.full }}

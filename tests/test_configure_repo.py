@@ -42,22 +42,28 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertEqual(secret_names, ["RELEASE_PLEASE_APP_KEY"])
 
     def test_selected_actions_excludes_provider_actions(self):
-        calls = []
+        rust_only = ["dtolnay/rust-toolchain@*", "Swatinem/rust-cache@*"]
+        for repo_type in ("simple", "python", "nextjs", "swift", "rust"):
+            with self.subTest(repo_type=repo_type):
+                calls = []
 
-        def run(command, **kwargs):
-            calls.append((command, kwargs))
-            return subprocess.CompletedProcess(command, 0)
+                def run(command, **kwargs):
+                    calls.append((command, kwargs))
+                    return subprocess.CompletedProcess(command, 0)
 
-        with patch.object(bootstrap.subprocess, "run", side_effect=run):
-            bootstrap.configure_repo(self._config())
+                with patch.object(bootstrap.subprocess, "run", side_effect=run):
+                    bootstrap.configure_repo({**self._config(), "repo_type": repo_type})
 
-        command, kwargs = next(
-            (command, kwargs)
-            for command, kwargs in calls
-            if command[2] == "repos/octocat/example/actions/permissions/selected-actions"
-        )
-        payload = json.loads(kwargs["input"].decode())
-        self.assertEqual(payload["patterns_allowed"], ["amannn/action-semantic-pull-request@*"])
+                command, kwargs = next(
+                    (command, kwargs)
+                    for command, kwargs in calls
+                    if command[2] == "repos/octocat/example/actions/permissions/selected-actions"
+                )
+                payload = json.loads(kwargs["input"].decode())
+                self.assertEqual(
+                    payload["patterns_allowed"],
+                    ["amannn/action-semantic-pull-request@*"] + (rust_only if repo_type == "rust" else []),
+                )
 
     def test_rust_allowlist_covers_every_third_party_action_it_renders(self):
         files = bootstrap.generate_files({**self._config(), "repo_type": "rust", "name": "sample"})

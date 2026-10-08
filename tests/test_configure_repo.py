@@ -252,16 +252,18 @@ class ReleaseGateGuardTests(unittest.TestCase):
                 )
 
     def test_guard_refuses_only_a_pending_merge_it_did_not_test(self):
-        expected_args = (
-            'pr list --repo octocat/sample --state merged --label autorelease: pending '
-            '--json number,mergeCommit --jq .[] | "\\(.number) \\(.mergeCommit.oid)"'
-        )
+        expected_argv = [
+            "pr", "list", "--repo", "octocat/sample", "--state", "merged",
+            "--label", "autorelease: pending", "--json", "number,mergeCommit",
+            "--jq", '.[] | "\\(.number) \\(.mergeCommit.oid)"',
+        ]
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        argv_file = Path(tmp.name) / "gh-argv"
         fake_gh = Path(tmp.name) / "gh"
         fake_gh.write_text(
             "#!/bin/sh\n"
-            '[ "$*" = "$EXPECTED_ARGS" ] || { echo "unexpected gh arguments: $*" >&2; exit 2; }\n'
+            'printf "%s\\0" "$@" > "$ARGV_FILE"\n'
             '[ -z "$FAKE_FAIL" ] || exit 1\n'
             'printf "%s" "$FAKE_PENDING"\n'
         )
@@ -277,6 +279,7 @@ class ReleaseGateGuardTests(unittest.TestCase):
         }
         for repo_type in ("python", "nextjs"):
             guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
+            self.assertEqual(guard.get("id"), "guard")
             for label, (pending, fail, code, release) in cases.items():
                 with self.subTest(repo_type=repo_type, case=label):
                     output.write_text("")
@@ -285,14 +288,14 @@ class ReleaseGateGuardTests(unittest.TestCase):
                         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", guard["run"]],
                         capture_output=True, text=True,
                         env={
-                            "PATH": f"{tmp.name}:/usr/bin:/bin", "EXPECTED_ARGS": expected_args,
+                            "PATH": f"{tmp.name}:/usr/bin:/bin", "ARGV_FILE": str(argv_file),
                             "FAKE_PENDING": pending, "FAKE_FAIL": "1" if fail else "",
                             "REPO": "octocat/sample", "TESTED_SHA": "abc123",
                             "GITHUB_OUTPUT": str(output),
                         },
                     )
                     self.assertEqual(result.returncode, code, result.stdout + result.stderr)
-                    self.assertNotIn("unexpected gh arguments", result.stderr)
+                    self.assertEqual(argv_file.read_text().split("\0")[:-1], expected_argv)
                     if "def456" in pending:
                         self.assertIn("::error::Release PR #72 merged as def456" if "72" in pending
                                       else "::error::Release PR #71 merged as def456", result.stdout)

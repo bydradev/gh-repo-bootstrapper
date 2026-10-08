@@ -15,6 +15,7 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -22,6 +23,10 @@ jobs:
         with:
           client-id: ${{ vars.RELEASE_PLEASE_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_PLEASE_APP_KEY }}
+          # Narrow the installation token to what release-please uses.
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
 
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:

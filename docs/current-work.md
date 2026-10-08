@@ -1,7 +1,8 @@
 # Current work
 
-**Status:** one cross-fleet workflow-compatibility item remains: confirming the
-scheduled review's alert read on a live run (step 4 below).
+**Status:** steps 1 and 2 below are done. Steps 3 and 4 remain: running
+actionlint over the template and rendered workflows with the exception, and
+confirming the scheduled review's alert read on a live run.
 
 ## `baseline-review.yml` and actionlint
 

@@ -39,11 +39,11 @@ anything installed beyond a base Python interpreter.
 - executable workflow gates — every action pinned to a full commit SHA and
   allowed by the Actions policy the script sets; a timeout on every job that
   declares `runs-on`; no job or step set to `continue-on-error` or given an
-  `if:` that can never be true; the Python and Rust suite commands run once,
-  unconditionally; the Next.js e2e runs and browser installs tied to their
-  `full` conditions; the release job waiting for `test` with no condition of
-  its own; the release App token limited to contents and pull requests; and
-  pinned fallback versions of the Python CI tools
+  `if:` that is a falsy literal (`false`, `0`, `null`, `''`); the Python and
+  Rust suite commands run once, unconditionally; the Next.js e2e runs and
+  browser installs tied to their `full` conditions; the release job waiting for
+  `test` with no condition of its own; the release App token limited to contents
+  and pull requests; and pinned fallback versions of the Python CI tools
 - the bootstrapper's own runbook copy and its legacy-digest table
 
 It also runs self-tests that reproduce each past regression from real rendered

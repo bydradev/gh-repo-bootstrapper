@@ -1218,6 +1218,49 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(actions[rel], "refused")
         self.assertEqual((self.repo / rel).read_text(), hidden)
 
+    def test_wildcard_orphan_is_judged_without_its_dirty_sibling(self):
+        files = _render()
+        rel = ".claude/agents/x*.md"
+        sibling = ".claude/agents/x!.md"
+        self._write(rel, bootstrap.stamp("# Retired\n"))
+        self._write(sibling, "Repository-owned agent.\n")
+        self._commit_all()
+        self._write(sibling, "Repository-owned agent, edited.\n")
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "deleted")
+        self.assertEqual((self.repo / sibling).read_text(), "Repository-owned agent, edited.\n")
+
+    def test_orphan_is_not_deleted_when_git_cannot_read_the_repository(self):
+        files = _render()
+        rel = ".claude/agents/retired.md"
+        old = bootstrap.stamp("# Retired\n")
+        self._write(rel, old)
+        self._commit_all()
+        self._write(rel, "# Local edit staged in the index\n")
+        _git(self.repo, "add", rel)
+        self._write(rel, old)
+        # Git's ownership check refuses the repository; isolate it from any
+        # safe.directory the machine's own config might set.
+        refused_by_git = {
+            "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+        with unittest.mock.patch.dict(os.environ, refused_by_git):
+            probe = subprocess.run(["git", "-C", str(self.repo), "status"], capture_output=True)
+            self.assertNotEqual(probe.returncode, 0, "git did not apply its ownership check")
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "refused")
+        self.assertEqual((self.repo / rel).read_text(), old)
+
+    def test_git_state_is_unknown_when_git_cannot_run(self):
+        self._git_init()
+        outside = Path(self._tmp.name) / "not-a-repo"
+        outside.mkdir()
+        with unittest.mock.patch.object(bootstrap.subprocess, "run", side_effect=FileNotFoundError("git")):
+            self.assertEqual(bootstrap._git_file_state(self.repo, "README.md"), "dirty")
+            self.assertEqual(bootstrap._git_file_state(outside, "README.md"), "untracked")
+
     def test_case_differing_hard_links_are_separate_entries(self):
         (self.repo / "case-probe").write_text("")
         if (self.repo / "CASE-PROBE").exists():

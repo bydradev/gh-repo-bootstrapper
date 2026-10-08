@@ -274,7 +274,7 @@ Template-owned files get their own states:
 | `missing` | not present | written |
 | `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
-| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it |
+| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading; any text under it is dropped too, so `--check` prints its line count and first lines |
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
@@ -319,8 +319,9 @@ directory is excluded — so that edit is left to a person.
 The `AGENTS.md` rewrite needs the file tracked by git with no uncommitted
 changes, LF line endings, and UTF-8 text, so the result can be reviewed with
 `git diff` and reverted. An index entry marked `skip-worktree` or
-`assume-unchanged` counts as uncommitted, because `git status` hides its edits. It replaces the file atomically with a new one,
-keeping its permission bits, so a hard link elsewhere keeps its old content; a
+`assume-unchanged` counts as uncommitted, because `git status` hides its
+edits. It replaces the file atomically with a new one, keeping its
+permission bits, so a hard link elsewhere keeps its old content; a
 new file is written in full before it appears, and never replaces one created
 meanwhile. Every write walks from `PATH` one directory at a time without
 following symlinks, so a symlink met on the way is refused; `PATH` itself is

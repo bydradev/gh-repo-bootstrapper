@@ -1501,12 +1501,19 @@ def _git_file_state(repo_dir: Path, rel: str) -> str:
         )
 
     try:
-        if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
-            return "untracked"
+        inside = git("rev-parse", "--is-inside-work-tree")
+    except OSError:
+        inside = None
+    if inside is None or inside.returncode != 0 or inside.stdout.strip() != "true":
+        # Without a usable answer from git (missing, refused by its ownership
+        # check, broken), only a directory with no .git above it is known to be
+        # outside a repository; anything else is unknown, so treat it as dirty.
+        return "dirty" if _has_git_marker(repo_dir) else "untracked"
+    try:
         status = git("status", "--porcelain", "--untracked-files=all", "--", rel)
         listed = git("ls-files", "-v", "--", rel)
     except OSError:
-        return "untracked"
+        return "dirty"
     if status.returncode != 0 or listed.returncode != 0:
         return "dirty"
     # A staged change, including a staged removal of a file still on disk, is
@@ -1520,6 +1527,12 @@ def _git_file_state(repo_dir: Path, rel: str) -> str:
     if "S" in tags or any(tag.islower() for tag in tags):
         return "dirty"
     return "dirty" if lines else "clean"
+
+
+def _has_git_marker(repo_dir: Path) -> bool:
+    """True when repo_dir or a parent holds a .git entry (directory or file)."""
+    path = Path(os.path.abspath(repo_dir))
+    return any(os.path.lexists(directory / ".git") for directory in (path, *path.parents))
 
 
 def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:

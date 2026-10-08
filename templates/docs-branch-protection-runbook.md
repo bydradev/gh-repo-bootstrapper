@@ -80,11 +80,13 @@ These are different states and only one of them is safe:
   receives a check run with `status: completed, conclusion: skipped`. A reported skip counts as
   satisfied. Verified on a protected branch: a release PR with `validate-title` SKIPPED computed
   CLEAN.
-- **Never reports:** if the workflow never triggers, no check run exists and the required context
-  stays pending **forever** — the PR can never merge. This is why any repository whose release PRs
-  are created with the default `secrets.GITHUB_TOKEN` (which triggers no workflows at all) must not
-  have required checks until its release automation uses the GitHub App token shape. Check who
-  authored the release PR and whether its rollup is empty before requiring checks on a repository.
+- **Never reports:** if no run completes, no check run reports and the required context stays
+  pending **forever** — the PR can never merge. Release PRs created or updated with the default
+  `secrets.GITHUB_TOKEN` hit this: their `pull_request` runs are created in an approval-required
+  state, and stay there until someone with write access selects **Approve workflows to run** in
+  the merge box (GitHub docs, "GITHUB_TOKEN", checked 2026-10-09). Such a repository must not have
+  required checks until its release automation uses the GitHub App token shape. Before requiring
+  checks, check who authored the release PR and whether its runs are waiting for approval.
 
 ### Status check context naming for reusable workflows
 
@@ -94,14 +96,14 @@ For workflows that invoke a reusable workflow (such as `ci.yml` or `release-plea
 {caller job} / {reusable job}
 ```
 
-For instance, when `ci.yml` defines the caller job `test:` and invokes reusable jobs `build:` and `e2e:` in `test.yml`, GitHub registers the check contexts as `test / build` and `test / e2e` (and `test / e2e-prod` if configured). Required status checks configured in GitHub branch protection must match this exact `{caller job} / {reusable job}` string rather than the standalone job name within `test.yml`.
+For instance, when `ci.yml` defines the caller job `test:` and invokes reusable jobs `build:` and `e2e:` in `test.yml`, GitHub registers the check contexts as `test / build` and `test / e2e` (and `test / e2e-prod` if configured). That is the Next.js shape; a Python, Swift or Rust repository's single reusable job `test:` registers `test / test`. Required status checks configured in GitHub branch protection must match this exact `{caller job} / {reusable job}` string rather than the standalone job name within `test.yml`.
 
 ## 5. Historical failures in a check rollup do not block
 
 GitHub computes mergeability from the **latest result per check name**. A rollup listing an old
 `FAILURE` next to the current `SUCCESS` for the same check is not a blocked state. Observed, not
-assumed: a PR whose `test / build` had failed twice historically computed CLEAN once the current run
-passed.
+assumed: a PR whose `test / build` (a Next.js check) had failed twice historically computed CLEAN
+once the current run passed.
 
 ## 6. A stuck PR is a pause state, not authority to weaken protection
 

@@ -1,5 +1,7 @@
 """Regression tests for provider-free generated repository configuration."""
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -9,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import yaml
 
 import bootstrap
 
@@ -139,6 +143,197 @@ class ConfigureRepoTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as error:
                     bootstrap.parse_args()
             self.assertEqual(error.exception.code, 2)
+
+
+class ConfigureExistingRepositoryTests(unittest.TestCase):
+    """--configure-only on a repository that already exists."""
+
+    REPO = "repos/octocat/example"
+    # An existing Rust repository with its own checks and a looser Actions policy.
+    CURRENT = {
+        f"{REPO}/actions/permissions": {"enabled": True, "allowed_actions": "all", "sha_pinning_required": False},
+        f"{REPO}/actions/permissions/workflow": {
+            "default_workflow_permissions": "write", "can_approve_pull_request_reviews": False,
+        },
+        f"{REPO}/branches/main/protection": {
+            "required_status_checks": {"strict": True, "contexts": ["Linux (default push CI)"]},
+        },
+    }
+
+    def _configure(self, current, confirm, configure_only=True):
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command[:2] == ["gh", "api"] and "--method" not in command:
+                body = current.get(command[2])
+                if body is None:
+                    return subprocess.CompletedProcess(command, 1, b"", b"Not Found")
+                return subprocess.CompletedProcess(command, 0, json.dumps(body).encode(), b"")
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = {
+            "name": "example", "owner": "octocat", "repo_type": "rust", "private": False,
+            "configure_only": configure_only,
+            "release_please_client_id": "client-id", "release_please_app_key": "private-key",
+        }
+        out = io.StringIO()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(out):
+            bootstrap.configure_repo(cfg, confirm=confirm)
+        writes = [command[2] for command in calls if command[:2] == ["gh", "api"] and "--method" in command]
+        return writes, out.getvalue(), cfg
+
+    def test_existing_protection_is_never_replaced(self):
+        for confirm in (None, lambda: False, lambda: True):
+            with self.subTest(confirm=confirm):
+                writes, out, _ = self._configure(self.CURRENT, confirm)
+                self.assertNotIn(f"{self.REPO}/branches/main/protection", writes)
+                self.assertIn("Linux (default push CI)", out)
+                self.assertIn("docs/branch-protection-runbook.md", out)
+
+    def test_actions_policy_changes_are_listed_and_need_a_yes(self):
+        actions = [endpoint for endpoint, _ in bootstrap.actions_policy_requests(
+            {"owner": "octocat", "name": "example", "repo_type": "rust", "private": False}
+        )]
+        for confirm in (None, lambda: False):
+            with self.subTest(confirm=confirm):
+                writes, out, cfg = self._configure(self.CURRENT, confirm)
+                self.assertEqual(writes, [self.REPO])
+                self.assertIn('allowed_actions: "all" -> "selected"', out)
+                self.assertIn('default_workflow_permissions: "write" -> "read"', out)
+                self.assertTrue(cfg["actions_policy_unchanged"])
+        writes, _, cfg = self._configure(self.CURRENT, lambda: True)
+        self.assertEqual(writes, [self.REPO, *actions])
+        self.assertNotIn("actions_policy_unchanged", cfg)
+
+    def test_matching_actions_policy_asks_nothing(self):
+        requests = bootstrap.actions_policy_requests(
+            {"owner": "octocat", "name": "example", "repo_type": "rust", "private": False}
+        )
+        current = {**self.CURRENT, **dict(requests)}
+
+        def never():
+            raise AssertionError("asked to confirm an unchanged policy")
+
+        writes, out, _ = self._configure(current, never)
+        self.assertEqual(writes, [self.REPO])
+        self.assertIn("already matches the generated policy", out)
+
+    def test_new_repository_still_gets_policy_and_protection(self):
+        writes, _, _ = self._configure({}, None, configure_only=False)
+        self.assertIn(f"{self.REPO}/actions/permissions", writes)
+        self.assertIn(f"{self.REPO}/branches/main/protection", writes)
+
+
+class ReleaseGateGuardTests(unittest.TestCase):
+    """The gated release workflows refuse to tag a release merge they did not test."""
+
+    GUARD = "Refuse to tag an untested release merge"
+
+    def _steps(self, repo_type):
+        files = bootstrap.generate_files(
+            {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        )
+        workflow = yaml.safe_load(files[".github/workflows/release-please.yml"])
+        return workflow["jobs"]["release-please"]["steps"]
+
+    def test_guard_runs_after_the_app_token_and_before_release_please(self):
+        for repo_type in ("nextjs", "python", "swift", "rust"):
+            with self.subTest(repo_type=repo_type):
+                steps = self._steps(repo_type)
+                names = [step.get("name") or step.get("uses", "") for step in steps]
+                guard = names.index(self.GUARD)
+                self.assertEqual(steps[guard - 1].get("id"), "app-token")
+                self.assertTrue(names[guard + 1].startswith("googleapis/release-please-action@"))
+                # release-please may tag only on the run the guard cleared.
+                self.assertEqual(
+                    steps[guard + 1]["with"]["skip-github-release"],
+                    "${{ steps.guard.outputs.release != 'true' }}",
+                )
+
+    def test_guard_refuses_only_a_pending_merge_it_did_not_test(self):
+        expected_argv = [
+            "pr", "list", "--repo", "octocat/sample", "--state", "merged",
+            "--label", "autorelease: pending", "--json", "number,mergeCommit",
+            "--jq", '.[] | "\\(.number) \\(.mergeCommit.oid)"',
+        ]
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        argv_file = Path(tmp.name) / "gh-argv"
+        fake_gh = Path(tmp.name) / "gh"
+        # Records each call's arguments; answers the compare call with how the
+        # pending merge relates to TESTED_SHA (abc123).
+        fake_gh.write_text(
+            "#!/bin/sh\n"
+            'printf "%s\\0" "$@" >> "$ARGV_FILE"; printf "\\n" >> "$ARGV_FILE"\n'
+            '[ -z "$FAKE_FAIL" ] || exit 1\n'
+            'if [ "$1" = api ]; then\n'
+            '  cat > /dev/null\n'  # would swallow the guard's remaining rows without </dev/null
+            '  [ -z "$FAKE_COMPARE_FAIL" ] || exit 1\n'
+            '  case "$2" in\n'
+            '    */compare/abc123...fff999) echo ahead ;;\n'
+            '    */compare/abc123...def456) echo behind ;;\n'
+            '    */compare/abc123...0dd000) echo diverged ;;\n'
+            '    *) echo "unexpected compare: $2" >&2; exit 3 ;;\n'
+            '  esac\n'
+            'else\n'
+            '  printf "%s" "$FAKE_PENDING"\n'
+            'fi\n'
+        )
+        fake_gh.chmod(0o755)
+        output = Path(tmp.name) / "github-output"
+        # (pending rows, gh fails, exit code, release output or None when the step
+        # fails before it, commits compared, message expected in the log)
+        cases = {
+            "no pending release": ("", False, 0, "false", [], None),
+            "pending release is this commit": ("71 abc123", False, 0, "true", [], None),
+            "pending release is an older commit": (
+                "71 def456", False, 1, "false", ["def456"], "::error::Release PR #71 merged as def456"),
+            "pending release merged after this commit": (
+                "71 fff999", False, 0, "false", ["fff999"], "::notice::Release PR #71 merged as fff999"),
+            "pending release on a diverged history": (
+                "71 0dd000", False, 1, "false", ["0dd000"], "::error::Release PR #71 merged as 0dd000"),
+            "this commit and an older one": (
+                "71 abc123\n72 def456", False, 1, "true", ["def456"], "::error::Release PR #72 merged as def456"),
+            "a newer merge, then an older one": (
+                "71 fff999\n72 def456", False, 1, "false", ["fff999", "def456"],
+                "::error::Release PR #72 merged as def456"),
+            "this commit and a newer one": (
+                "71 abc123\n72 fff999", False, 1, "false", ["fff999"], "::error::More than one release PR is pending"),
+            "a newer one and this commit": (
+                "71 fff999\n72 abc123", False, 1, "false", ["fff999"], "::error::More than one release PR is pending"),
+            "the gh query fails": ("", True, 1, None, [], None),
+            "the compare call fails": ("71 def456", "compare", 1, None, ["def456"], None),
+        }
+        for repo_type in ("python", "nextjs"):
+            guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
+            self.assertEqual(guard.get("id"), "guard")
+            for label, (pending, fail, code, release, compared, message) in cases.items():
+                with self.subTest(repo_type=repo_type, case=label):
+                    output.write_text("")
+                    argv_file.write_text("")
+                    # GitHub runs a bash step as `bash --noprofile --norc -eo pipefail {0}`.
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", guard["run"]],
+                        capture_output=True, text=True,
+                        env={
+                            "PATH": f"{tmp.name}:/usr/bin:/bin", "ARGV_FILE": str(argv_file),
+                            "FAKE_PENDING": pending, "FAKE_FAIL": "1" if fail is True else "",
+                            "FAKE_COMPARE_FAIL": "1" if fail == "compare" else "",
+                            "REPO": "octocat/sample", "TESTED_SHA": "abc123",
+                            "GITHUB_OUTPUT": str(output),
+                        },
+                    )
+                    self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                    calls = [line.split("\0")[:-1] for line in argv_file.read_text().split("\n") if line]
+                    self.assertEqual(calls, [expected_argv] + [
+                        ["api", f"repos/octocat/sample/compare/abc123...{oid}", "--jq", ".status"]
+                        for oid in compared
+                    ])
+                    if message:
+                        self.assertIn(message, result.stdout)
+                    expected_output = "" if release is None else f"release={release}\n"
+                    self.assertEqual(output.read_text(), expected_output)
 
 
 if __name__ == "__main__":

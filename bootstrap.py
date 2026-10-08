@@ -2028,10 +2028,81 @@ def selected_action_patterns(repo_type: str) -> list:
     return patterns
 
 
-def configure_repo(cfg: dict):
+def actions_policy_requests(cfg: dict) -> list:
+    """The (endpoint, payload) PUTs that set a repository's Actions policy.
+
+    Only GitHub-owned and Marketplace-verified actions, plus an explicit
+    allowlist for third-party actions the generated workflows depend on;
+    sha_pinning_required rejects any workflow run that references an action
+    by tag or branch rather than a full commit SHA (validate_templates.py's
+    check_sha_pinned_actions() enforces the same rule on generated workflows).
+    """
+    repo = f"{cfg['owner']}/{cfg['name']}"
+    requests = [
+        (f"repos/{repo}/actions/permissions", {
+            "enabled": True,
+            "allowed_actions": "selected",
+            "sha_pinning_required": True,
+        }),
+        (f"repos/{repo}/actions/permissions/selected-actions", {
+            "github_owned_allowed": True,
+            "verified_allowed": True,
+            "patterns_allowed": selected_action_patterns(cfg["repo_type"]),
+        }),
+        # Generated Release Please workflows use a dedicated GitHub App token,
+        # and no generated workflow approves pull requests. Keep the default
+        # GITHUB_TOKEN read-only and unable to approve reviews.
+        (f"repos/{repo}/actions/permissions/workflow", {
+            "default_workflow_permissions": "read",
+            "can_approve_pull_request_reviews": False,
+        }),
+    ]
+    # Fork PR workflow controls only exist as a distinct API for private
+    # repos; public repos gate fork PRs via a separate approval-policy
+    # endpoint instead, which isn't part of what was asked for here.
+    if cfg["private"]:
+        requests.append((f"repos/{repo}/actions/permissions/fork-pr-workflows-private-repos", {
+            "run_workflows_from_fork_pull_requests": False,
+            "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False,
+            "require_approval_for_fork_pr_workflows": False,
+        }))
+    return requests
+
+
+def actions_policy_changes(requests: list, current: dict) -> list:
+    """(setting, current value, new value) rows where current differs from requests.
+
+    current maps each endpoint to its GET response, or None when it could not
+    be read (selected-actions answers 409 unless the policy is already
+    "selected"); every setting of an unreadable endpoint counts as a change.
+    """
+    def comparable(value):
+        return sorted(value) if isinstance(value, list) else value
+
+    changes = []
+    for endpoint, payload in requests:
+        existing = current.get(endpoint) or {}
+        for key, new in payload.items():
+            if comparable(existing.get(key)) != comparable(new):
+                changes.append((key, existing.get(key), new))
+    return changes
+
+
+def configure_repo(cfg: dict, confirm=None):
+    """Apply repository settings.
+
+    For a repository this script just created, every setting is applied. With
+    --configure-only the repository already exists, so its branch protection
+    is never replaced (its required checks must come from its own pull
+    requests; see docs/branch-protection-runbook.md), and Actions policy
+    changes are listed and applied only when confirm() returns true; with no
+    confirm (--non-interactive) they are listed and left unchanged.
+    """
     name = cfg["name"]
     owner = cfg["owner"]
     repo = f"{owner}/{name}"
+    existing = cfg.get("configure_only", False)
 
     def set_var(key: str, value: str):
         if value:
@@ -2062,6 +2133,15 @@ def configure_repo(cfg: dict):
             stderr=stderr,
         )
 
+    def get(endpoint: str):
+        result = subprocess.run(["gh", "api", endpoint], capture_output=True)
+        if result.returncode != 0:
+            return None
+        try:
+            return json.loads(result.stdout)
+        except ValueError:
+            return None
+
     print("\nConfiguring repository…")
 
     # --- variables and secrets ---
@@ -2085,43 +2165,38 @@ def configure_repo(cfg: dict):
     })
 
     # --- actions permissions ---
-    # Only GitHub-owned and Marketplace-verified actions, plus an explicit
-    # allowlist for third-party actions this repo's own workflows depend on
-    # (amannn/action-semantic-pull-request, used by pr-title-check.yml;
-    # sha_pinning_required rejects any workflow run that references an
-    # action by tag or branch rather than a full commit SHA;
-    # validate_templates.py's check_sha_pinned_actions() enforces the same
-    # rule on generated workflows before they ever reach GitHub.
     print("  actions permissions")
-    api("PUT", f"repos/{repo}/actions/permissions", {
-        "enabled": True,
-        "allowed_actions": "selected",
-        "sha_pinning_required": True,
-    })
-    api("PUT", f"repos/{repo}/actions/permissions/selected-actions", {
-        "github_owned_allowed": True,
-        "verified_allowed": True,
-        "patterns_allowed": selected_action_patterns(cfg["repo_type"]),
-    })
-    api("PUT", f"repos/{repo}/actions/permissions/workflow", {
-        "default_workflow_permissions": "read",
-        # Generated Release Please workflows use a dedicated GitHub App token,
-        # and no generated workflow approves pull requests. Keep the default
-        # GITHUB_TOKEN unable to approve reviews.
-        "can_approve_pull_request_reviews": False,
-    })
-    # Fork PR workflow controls only exist as a distinct API for private
-    # repos; public repos gate fork PRs via a separate approval-policy
-    # endpoint instead, which isn't part of what was asked for here.
-    if cfg["private"]:
-        api("PUT", f"repos/{repo}/actions/permissions/fork-pr-workflows-private-repos", {
-            "run_workflows_from_fork_pull_requests": False,
-            "send_write_tokens_to_workflows": False,
-            "send_secrets_and_variables": False,
-            "require_approval_for_fork_pr_workflows": False,
-        })
+    requests = actions_policy_requests(cfg)
+    if existing:
+        # An existing repository may rely on actions or tag pins the generated
+        # policy forbids, or on a writable default token; show before changing.
+        changes = actions_policy_changes(requests, {endpoint: get(endpoint) for endpoint, _ in requests})
+        if not changes:
+            print("    already matches the generated policy")
+            requests = []
+        else:
+            for key, current, new in changes:
+                print(f"    {key}: {json.dumps(current)} -> {json.dumps(new)}")
+            if confirm is None or not confirm():
+                print("    left unchanged")
+                cfg["actions_policy_unchanged"] = True
+                requests = []
+    for endpoint, payload in requests:
+        api("PUT", endpoint, payload)
 
     # --- branch protection on main ---
+    if existing:
+        print("  branch protection (main): left as is on an existing repository")
+        protection = get(f"repos/{repo}/branches/main/protection")
+        if protection is None:
+            print("    none found, or it could not be read")
+        else:
+            contexts = (protection.get("required_status_checks") or {}).get("contexts") or []
+            print(f"    required checks: {', '.join(contexts) or 'none'}")
+        print("    To change it, use the checks this repository's own pull requests report;")
+        print("    see docs/branch-protection-runbook.md.")
+        return
+
     # Required status check names are derived from the job names in the
     # workflow files this script just generated, so they are always correct.
     # The GitHub API accepts these before the checks have run; they show as
@@ -2162,6 +2237,8 @@ def print_success(cfg: dict):
             missing.append("branch protection on main (requires GitHub Pro for private repos)")
         else:
             missing.append("branch protection on main (failed — see warning above for details)")
+    if cfg.get("actions_policy_unchanged"):
+        missing.append("Actions policy (left unchanged; re-run --configure-only interactively to apply it)")
 
     if missing:
         print("\n  Still needs manual setup:")
@@ -2219,14 +2296,20 @@ def main():
         if subprocess.run(["gh", "repo", "view", full], capture_output=True).returncode != 0:
             _die(f"repository '{full}' not found — verify the name and org")
         print(f"\nAbout to configure: {full} ({cfg['repo_type']})")
-        print("  Enforces: squash-merge only, delete branch on merge, required status checks on main")
+        print("  Applies: Release Please credentials, squash-merge only (squash commit title and")
+        print("    message from the PR), delete branch on merge, update-branch button, Projects")
+        print("  Shows Actions policy changes and asks before applying them")
+        print("  Leaves branch protection on main unchanged")
         print("  Note: file generation is skipped — commit CLAUDE.md and AGENTS.md separately if needed")
         if not args.non_interactive:
             if not prompt_yn("\nProceed?", default=True):
                 print("Aborted.")
                 return
+        def confirm_actions_policy():
+            return prompt_yn("    Apply these Actions policy changes?", default=False)
+
         try:
-            configure_repo(cfg)
+            configure_repo(cfg, confirm=None if args.non_interactive else confirm_actions_policy)
             print_success(cfg)
         except subprocess.CalledProcessError as exc:
             print(f"\nerror: command failed: {exc.cmd}", file=sys.stderr)

@@ -194,7 +194,7 @@ LEGACY_LAST_TAG = (0, 6, 0)
 
 def _legacy_tags() -> list[str] | None:
     """Release tags through LEGACY_LAST_TAG, oldest first; None when git cannot list them."""
-    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    env = _git_env()
     try:
         result = subprocess.run(
             ["git", "-C", str(TEMPLATES_DIR.parent), "tag", "--list", "v*"],
@@ -215,7 +215,7 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
     empty, so callers skip the legacy diff instead of failing.
     """
     repo = TEMPLATES_DIR.parent
-    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    env = _git_env()
     refs = _legacy_tags()
     if not refs:
         print(f"notice: no git release tags in {repo}; skipped the diff against legacy template docs",
@@ -258,6 +258,9 @@ def _die(msg: str) -> NoReturn:
 
 
 def _run(cmd: list, **kwargs):
+    # gh and git must act on the repository they name, not on one an inherited
+    # GIT_DIR or GIT_INDEX_FILE points at; `git -C` alone does not prevent that.
+    kwargs.setdefault("env", _git_env())
     subprocess.run(cmd, check=True, **kwargs)
 
 
@@ -1215,7 +1218,7 @@ def _links_for_files(files: dict) -> dict[str, str]:
 
 
 def _git_ignored(repo_dir: Path, rel: str) -> bool:
-    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    env = _git_env()
     result = subprocess.run(
         ["git", "-C", str(repo_dir), "check-ignore", "-q", "--", rel],
         capture_output=True, env=env,
@@ -1276,6 +1279,32 @@ def _skill_name(text: str) -> str | None:
     return plain.group(1) if plain else None
 
 
+def _case_alias(repo_dir: Path, rel: str, files: dict) -> str | None:
+    """The expected path that rel names on a case-insensitive filesystem, if any."""
+    folded = rel.casefold()
+    for expected in files:
+        if expected != rel and expected.casefold() == folded:
+            try:
+                same = os.path.samestat(os.lstat(repo_dir / rel), os.lstat(repo_dir / expected))
+                # Two separate entries (case-differing hard links on a
+                # case-sensitive volume) are not an alias of one another.
+                if same and not _exact_path_exists(repo_dir, expected):
+                    return expected
+            except OSError:
+                continue
+    return None
+
+
+def _exact_path_exists(repo_dir: Path, rel: str) -> bool:
+    """True when every component of rel exists with exactly this spelling."""
+    current = repo_dir
+    for part in Path(rel).parts:
+        if part not in os.listdir(current):
+            return False
+        current = current / part
+    return True
+
+
 def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
     """Find orphaned stamped files and name collisions, without following links."""
     extras = {}
@@ -1292,6 +1321,13 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
                 path = Path(directory) / name
                 rel = path.relative_to(repo_dir).as_posix()
                 if rel in files or path.is_symlink() or not path.is_file():
+                    continue
+                alias = _case_alias(repo_dir, rel, files)
+                if alias:
+                    extras[rel] = (
+                        "shadowed",
+                        f"same file as {alias} under a different case; rename it with `git mv`",
+                    )
                     continue
                 try:
                     text = path.read_bytes().decode("utf-8")
@@ -1448,28 +1484,60 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     return aligned
 
 
-def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
-    """True when rel is tracked by git and has no uncommitted changes.
+def _git_file_state(repo_dir: Path, rel: str) -> str:
+    """"clean", "dirty", or "untracked" (also outside a git work tree).
 
-    Tracked is required, not just absent from `git status`: an ignored,
-    untracked file also produces no status line, but has no committed copy to
-    review the change against or revert to.
+    Tracked is required for "clean", not just absent from `git status`: an
+    ignored, untracked file also produces no status line, but has no committed
+    copy to review the change against or revert to. An index entry marked
+    skip-worktree or assume-unchanged counts as dirty, because `git status`
+    then hides working-tree edits that a rewrite would destroy.
     """
     def git(*args):
+        # Literal pathspecs: a name such as `x*.md` must not match its siblings.
         return subprocess.run(
-            ["git", "-C", str(repo_dir), *args], capture_output=True, text=True,
-            env={k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES},
+            ["git", "--literal-pathspecs", "-C", str(repo_dir), *args], capture_output=True, text=True,
+            env=_git_env(),
         )
 
     try:
-        if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
-            return False
-        if git("ls-files", "--error-unmatch", "--", rel).returncode != 0:
-            return False
-        status = git("status", "--porcelain", "--", rel)
+        inside = git("rev-parse", "--is-inside-work-tree")
     except OSError:
-        return False
-    return status.returncode == 0 and status.stdout.strip() == ""
+        inside = None
+    if inside is None or inside.returncode != 0 or inside.stdout.strip() != "true":
+        # Without a usable answer from git (missing, refused by its ownership
+        # check, broken), only a directory with no .git above it is known to be
+        # outside a repository; anything else is unknown, so treat it as dirty.
+        return "dirty" if _has_git_marker(repo_dir) else "untracked"
+    try:
+        status = git("status", "--porcelain", "--untracked-files=all", "--", rel)
+        listed = git("ls-files", "-v", "--", rel)
+    except OSError:
+        return "dirty"
+    if status.returncode != 0 or listed.returncode != 0:
+        return "dirty"
+    # A staged change, including a staged removal of a file still on disk, is
+    # dirty; only a plain `??` entry is untracked.
+    lines = status.stdout.splitlines()
+    if any(not line.startswith("?? ") for line in lines):
+        return "dirty"
+    if not listed.stdout:
+        return "untracked"
+    tags = {line[:1] for line in listed.stdout.splitlines()}
+    if "S" in tags or any(tag.islower() for tag in tags):
+        return "dirty"
+    return "dirty" if lines else "clean"
+
+
+def _has_git_marker(repo_dir: Path) -> bool:
+    """True when repo_dir or a parent holds a .git entry (directory or file)."""
+    path = Path(os.path.abspath(repo_dir))
+    return any(os.path.lexists(directory / ".git") for directory in (path, *path.parents))
+
+
+def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:
+    """True when rel is tracked by git and has no uncommitted or hidden changes."""
+    return _git_file_state(repo_dir, rel) == "clean"
 
 
 _DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -1708,6 +1776,8 @@ def _adopt_file(
             if status == "orphaned":
                 if _git_ignored(repo_dir, rel):
                     return ("refused", rel, "ignored by git; not deleted")
+                if _git_file_state(repo_dir, rel) == "dirty":
+                    return ("refused", rel, "orphaned file has uncommitted or staged changes; not deleted")
                 try:
                     current = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -1792,6 +1862,14 @@ _GIT_REPOSITORY_CONTEXT_VARIABLES = frozenset({
 })
 
 
+def _git_env() -> dict:
+    """The environment without inherited repository-context overrides.
+
+    Command-scope config such as GIT_CONFIG_COUNT (e.g. safe.directory) is kept.
+    """
+    return {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+
+
 def existing_repository_name(repo_dir: Path) -> str:
     """The name templates render for an existing repository.
 
@@ -1805,7 +1883,7 @@ def existing_repository_name(repo_dir: Path) -> str:
     # Inherited repository-context overrides would make git describe some other
     # repository; drop only those, so command-scope config such as
     # GIT_CONFIG_COUNT (e.g. safe.directory) still applies.
-    env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
+    env = _git_env()
     try:
         r = subprocess.run(
             ["git", "-C", str(repo_dir), "rev-parse", "--show-toplevel", "--git-common-dir"],

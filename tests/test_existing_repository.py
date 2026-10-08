@@ -1159,6 +1159,155 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(next(a for a in actions if a[1] == rel)[0], "refused")
         self.assertEqual((self.repo / rel).read_text(), mine)
 
+    def test_index_flags_that_hide_edits_count_as_uncommitted(self):
+        files = _render()
+        original = self._agents_missing_a_section(files)
+        edited = original.replace("## Branches\n\n", "## Branches\n\nUncommitted local rule.\n\n", 1)
+        self.assertNotEqual(edited, original)
+        for flag in ("--skip-worktree", "--assume-unchanged"):
+            with self.subTest(flag=flag):
+                self.repo = Path(self._tmp.name) / flag.strip("-")
+                self.repo.mkdir()
+                self._write("AGENTS.md", original)
+                self._commit_all()
+                _git(self.repo, "update-index", flag, "AGENTS.md")
+                self._write("AGENTS.md", edited)
+                actions = {
+                    rel: action
+                    for action, rel, _ in bootstrap.adopt_repository(
+                        self.repo, files, True, confirm=lambda sections: True
+                    )
+                }
+                self.assertEqual(actions["AGENTS.md"], "refused")
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
+
+    def test_orphan_with_a_staged_edit_is_not_deleted(self):
+        files = _render()
+        rel = ".claude/agents/retired.md"
+        old = bootstrap.stamp("# Retired\n")
+        self._write(rel, old)
+        self._commit_all()
+        self._write(rel, "# Local edit staged in the index\n")
+        _git(self.repo, "add", rel)
+        self._write(rel, old)
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "refused")
+        self.assertEqual((self.repo / rel).read_text(), old)
+
+    def test_orphan_with_a_staged_removal_is_not_deleted(self):
+        files = _render()
+        rel = ".claude/agents/retired.md"
+        old = bootstrap.stamp("# Retired\n")
+        self._write(rel, old)
+        self._commit_all()
+        _git(self.repo, "rm", "-q", "--cached", rel)
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "refused")
+        self.assertEqual((self.repo / rel).read_text(), old)
+
+    def test_hidden_edit_is_found_for_a_name_that_looks_like_a_pathspec(self):
+        files = _render()
+        rel = ".claude/agents/x*.md"
+        self._write(rel, bootstrap.stamp("# Retired\n"))
+        self._write(".claude/agents/x!.md", "Repository-owned agent.\n")
+        self._commit_all()
+        _git(self.repo, "update-index", "--skip-worktree", rel)
+        hidden = bootstrap.stamp("# Retired, edited locally\n")
+        self._write(rel, hidden)
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "refused")
+        self.assertEqual((self.repo / rel).read_text(), hidden)
+
+    def test_wildcard_orphan_is_judged_without_its_dirty_sibling(self):
+        files = _render()
+        rel = ".claude/agents/x*.md"
+        sibling = ".claude/agents/x!.md"
+        self._write(rel, bootstrap.stamp("# Retired\n"))
+        self._write(sibling, "Repository-owned agent.\n")
+        self._commit_all()
+        self._write(sibling, "Repository-owned agent, edited.\n")
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "deleted")
+        self.assertEqual((self.repo / sibling).read_text(), "Repository-owned agent, edited.\n")
+
+    def test_orphan_is_not_deleted_when_git_cannot_read_the_repository(self):
+        files = _render()
+        rel = ".claude/agents/retired.md"
+        old = bootstrap.stamp("# Retired\n")
+        self._write(rel, old)
+        self._commit_all()
+        self._write(rel, "# Local edit staged in the index\n")
+        _git(self.repo, "add", rel)
+        self._write(rel, old)
+        # Git's ownership check refuses the repository; isolate it from any
+        # safe.directory the machine's own config might set.
+        refused_by_git = {
+            "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+        }
+        with unittest.mock.patch.dict(os.environ, refused_by_git):
+            probe = subprocess.run(["git", "-C", str(self.repo), "status"], capture_output=True)
+            self.assertNotEqual(probe.returncode, 0, "git did not apply its ownership check")
+            actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "refused")
+        self.assertEqual((self.repo / rel).read_text(), old)
+
+    def test_git_state_is_unknown_when_git_cannot_run(self):
+        self._git_init()
+        outside = Path(self._tmp.name) / "not-a-repo"
+        outside.mkdir()
+        with unittest.mock.patch.object(bootstrap.subprocess, "run", side_effect=FileNotFoundError("git")):
+            self.assertEqual(bootstrap._git_file_state(self.repo, "README.md"), "dirty")
+            self.assertEqual(bootstrap._git_file_state(outside, "README.md"), "untracked")
+
+    def test_case_differing_hard_links_are_separate_entries(self):
+        (self.repo / "case-probe").write_text("")
+        if (self.repo / "CASE-PROBE").exists():
+            self.skipTest("needs a case-sensitive filesystem")
+        (self.repo / "case-probe").unlink()
+        files = _render()
+        canonical = ".claude/agents/fresh-eyes-reviewer.md"
+        twin = ".claude/agents/FRESH-EYES-REVIEWER.md"
+        self._write(canonical, files[canonical])
+        os.link(self.repo / canonical, self.repo / twin)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[twin][0], "orphaned")
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[twin], "deleted")
+        self.assertEqual((self.repo / canonical).read_text(), files[canonical])
+
+    def test_case_only_rename_of_a_live_file_is_not_deleted(self):
+        (self.repo / "case-probe").write_text("")
+        if not (self.repo / "CASE-PROBE").exists():
+            self.skipTest("needs a case-insensitive filesystem")
+        (self.repo / "case-probe").unlink()
+        files = _render()
+        renames = {
+            ".claude/agents/fresh-eyes-reviewer.md": ".claude/agents/FRESH-EYES-REVIEWER.md",
+            ".agents/skills/pull-requests/SKILL.md": ".agents/skills/pull-requests/skill.md",
+        }
+        for canonical in renames:
+            self._write(canonical, files[canonical])
+        self._commit_all()
+        for canonical, alias in renames.items():
+            _git(self.repo, "mv", canonical, alias)
+        _git(self.repo, "commit", "-q", "-m", "rename by case")
+        # A directory renamed by case aliases every file below it.
+        skill = ".agents/skills/worktrees-and-scratch/SKILL.md"
+        self._write(skill, files[skill])
+        self._commit_all()
+        os.rename(self.repo / Path(skill).parent, self.repo / ".agents/skills/Worktrees-And-Scratch")
+        renames[skill] = ".agents/skills/Worktrees-And-Scratch/SKILL.md"
+        report = bootstrap.compare_repository(self.repo, files)
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
+        for canonical, alias in renames.items():
+            with self.subTest(alias=alias):
+                self.assertEqual(report[alias][0], "shadowed")
+                self.assertEqual(actions[alias][0], "refused")
+                self.assertIn(canonical, actions[alias][1])
+                self.assertEqual((self.repo / canonical).read_text(), files[canonical])
+
     def test_ignored_orphan_is_refused_and_not_deleted(self):
         files = _render()
         rel = ".agents/skills/old/SKILL.md"

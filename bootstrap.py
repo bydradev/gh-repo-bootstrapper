@@ -1285,11 +1285,24 @@ def _case_alias(repo_dir: Path, rel: str, files: dict) -> str | None:
     for expected in files:
         if expected != rel and expected.casefold() == folded:
             try:
-                if os.path.samestat(os.lstat(repo_dir / rel), os.lstat(repo_dir / expected)):
+                same = os.path.samestat(os.lstat(repo_dir / rel), os.lstat(repo_dir / expected))
+                # Two separate entries (case-differing hard links on a
+                # case-sensitive volume) are not an alias of one another.
+                if same and not _exact_path_exists(repo_dir, expected):
                     return expected
             except OSError:
                 continue
     return None
+
+
+def _exact_path_exists(repo_dir: Path, rel: str) -> bool:
+    """True when every component of rel exists with exactly this spelling."""
+    current = repo_dir
+    for part in Path(rel).parts:
+        if part not in os.listdir(current):
+            return False
+        current = current / part
+    return True
 
 
 def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
@@ -1481,24 +1494,32 @@ def _git_file_state(repo_dir: Path, rel: str) -> str:
     then hides working-tree edits that a rewrite would destroy.
     """
     def git(*args):
+        # Literal pathspecs: a name such as `x*.md` must not match its siblings.
         return subprocess.run(
-            ["git", "-C", str(repo_dir), *args], capture_output=True, text=True,
+            ["git", "--literal-pathspecs", "-C", str(repo_dir), *args], capture_output=True, text=True,
             env=_git_env(),
         )
 
     try:
         if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
             return "untracked"
-        listed = git("ls-files", "-v", "--error-unmatch", "--", rel)
-        if listed.returncode != 0:
-            return "untracked"
-        tag = listed.stdout[:1]
-        if tag == "S" or tag.islower():
-            return "dirty"
-        status = git("status", "--porcelain", "--", rel)
+        status = git("status", "--porcelain", "--untracked-files=all", "--", rel)
+        listed = git("ls-files", "-v", "--", rel)
     except OSError:
         return "untracked"
-    return "clean" if status.returncode == 0 and status.stdout.strip() == "" else "dirty"
+    if status.returncode != 0 or listed.returncode != 0:
+        return "dirty"
+    # A staged change, including a staged removal of a file still on disk, is
+    # dirty; only a plain `??` entry is untracked.
+    lines = status.stdout.splitlines()
+    if any(not line.startswith("?? ") for line in lines):
+        return "dirty"
+    if not listed.stdout:
+        return "untracked"
+    tags = {line[:1] for line in listed.stdout.splitlines()}
+    if "S" in tags or any(tag.islower() for tag in tags):
+        return "dirty"
+    return "dirty" if lines else "clean"
 
 
 def _git_file_is_clean(repo_dir: Path, rel: str) -> bool:

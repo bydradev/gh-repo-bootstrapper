@@ -1429,16 +1429,32 @@ GITHUB_OWNED_ACTION_OWNERS = frozenset({"actions", "github"})
 APP_TOKEN_PERMISSIONS = {"permission-contents": "write", "permission-pull-requests": "write"}
 PYTHON_SUITE_COMMANDS = ("ruff check .", "mypy .", "pytest")
 PYTHON_TOOL_PIN_RE = re.compile(r"\b(ruff|mypy|pytest)==\d+(\.\d+)+\b")
+PYTHON_TOOL_LOOP_RE = re.compile(r"^\s*for tool in ([^;\n]+); do\s*$", re.MULTILINE)
+PYTHON_UNPINNED_INSTALL_RE = re.compile(r"pip install\b[^\n]*\b(ruff|mypy|pytest)\b(?!==)")
 PLAYWRIGHT_INSTALLS = (
     ("${{ inputs.full }}", "npx playwright install --with-deps"),
     ("${{ !inputs.full }}", "npx playwright install --with-deps chromium"),
 )
 
 
+# Falsy literals in GitHub's expression syntax (false, 0, -0, null, ''),
+# checked 2026-10-09 against docs.github.com "Evaluate expressions".
+FALSY_EXPRESSION_LITERALS = frozenset({"false", "0", "-0", "null", "''", '""'})
+
+
 def _never_runs(condition) -> bool:
-    """True for an `if:` that can never be true (a literal false)."""
-    text = str(condition).strip().lower()
-    return condition is False or text in ("false", "${{ false }}", "0", "${{ 0 }}")
+    """True for an `if:` that is a falsy literal, with or without `${{ }}`."""
+    if condition is False or condition is None or condition == 0:
+        return True
+    text = re.sub(r"\s+", "", str(condition)).lower()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    return text in FALSY_EXPRESSION_LITERALS
+
+
+def _executable_lines(script: str) -> list:
+    """Shell lines with whole-line comments removed."""
+    return [line for line in script.splitlines() if not line.strip().startswith("#")]
 
 
 def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
@@ -1451,7 +1467,8 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
     other check green.
     """
     errors = []
-    patterns = [p.removesuffix("@*") for p in bootstrap.selected_action_patterns(repo_type)]
+    # Every generated pattern is `owner/repo@*`: the repository must match exactly.
+    allowed_actions = {p.removesuffix("@*") for p in bootstrap.selected_action_patterns(repo_type)}
     for path in _workflow_paths(files):
         workflow = yaml.safe_load(files[path]) or {}
         for job_id, job in (workflow.get("jobs", {}) or {}).items():
@@ -1490,7 +1507,7 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 owner = action.split("/", 1)[0]
                 if owner in GITHUB_OWNED_ACTION_OWNERS | VERIFIED_ACTION_OWNERS:
                     continue
-                if not any(action == p or action.startswith(p.rstrip("*")) for p in patterns):
+                if action not in allowed_actions:
                     errors.append(
                         f"{where} uses {action}, which the generated Actions policy for "
                         f"{repo_type!r} does not allow (see bootstrap.selected_action_patterns)"
@@ -1502,31 +1519,43 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
         needs = (release_jobs.get("release-please") or {}).get("needs")
         if "test" not in ([needs] if isinstance(needs, str) else (needs or [])):
             errors.append(f"[{label}] release-please.yml job 'release-please' must need 'test'")
+        # Any `if:` here (always(), failure(), !cancelled()) can run the job
+        # after `test` fails; `needs` alone is the success gate.
+        if "if" in (release_jobs.get("release-please") or {}):
+            errors.append(f"[{label}] release-please.yml job 'release-please' must not be conditional")
         if "if" in (release_jobs.get("test") or {}):
             errors.append(f"[{label}] release-please.yml job 'test' must not be conditional")
 
     test = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
     test_jobs = test.get("jobs", {}) or {}
-    if repo_type == "python":
-        steps = (test_jobs.get("test") or {}).get("steps") or []
-        for command in PYTHON_SUITE_COMMANDS:
-            errors += _blocking_step_errors(label, steps, command, f"Python step {command!r}")
-        install = "\n".join(
-            str(step.get("run", "")) for step in steps
-            if isinstance(step, dict) and step.get("name") == "Install dependencies"
-        )
-        pinned = {match.group(1) for match in PYTHON_TOOL_PIN_RE.finditer(install)}
-        if pinned != {"ruff", "mypy", "pytest"}:
-            errors.append(
-                f"[{label}] Python test.yml must install pinned ruff, mypy and pytest versions, "
-                f"found pins for {sorted(pinned)}"
-            )
-    if repo_type == "rust":
-        steps = (test_jobs.get("test") or {}).get("steps") or []
-        for command in RUST_SUITE_STEPS[1:]:
+    if repo_type in ("python", "rust"):
+        suite = test_jobs.get("test") or {}
+        if "if" in suite:
+            errors.append(f"[{label}] {repo_type} test.yml job 'test' must not be conditional")
+        steps = suite.get("steps") or []
+        commands = PYTHON_SUITE_COMMANDS if repo_type == "python" else RUST_SUITE_STEPS[1:]
+        for command in commands:
             matching = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == command]
-            if len(matching) == 1 and "if" in matching[0]:
-                errors.append(f"[{label}] Rust step {command!r} must not be conditional")
+            if len(matching) != 1:
+                errors.append(f"[{label}] {repo_type} suite step {command!r} must run exactly once")
+            elif "if" in matching[0] or matching[0].get("continue-on-error", False) is not False:
+                errors.append(f"[{label}] {repo_type} suite step {command!r} must be unconditional and blocking")
+    if repo_type == "python":
+        install = "\n".join(
+            line
+            for step in (test_jobs.get("test") or {}).get("steps") or []
+            if isinstance(step, dict) and step.get("name") == "Install dependencies"
+            for line in _executable_lines(str(step.get("run", "")))
+        )
+        loop = PYTHON_TOOL_LOOP_RE.search(install)
+        pinned = {m.group(1) for m in PYTHON_TOOL_PIN_RE.finditer(loop.group(1))} if loop else set()
+        unpinned = PYTHON_UNPINNED_INSTALL_RE.search(install)
+        if pinned != {"ruff", "mypy", "pytest"} or unpinned:
+            errors.append(
+                f"[{label}] Python test.yml must install ruff, mypy and pytest only through its "
+                f"pinned fallback loop, found pins for {sorted(pinned)}"
+                + (f" and unpinned {unpinned.group(0)!r}" if unpinned else "")
+            )
     if repo_type == "nextjs":
         steps = (test_jobs.get("e2e") or {}).get("steps") or []
         installs = {
@@ -2847,11 +2876,30 @@ def _structure_self_tests() -> list:
                  .update({"if": False})), "never runs")
     expect("python suite without pytest",
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(
-               step(w, "test", lambda s: s.get("run") == "pytest"))), "Python step 'pytest'")
+               step(w, "test", lambda s: s.get("run") == "pytest"))), "suite step 'pytest' must run exactly once")
+    expect("conditional python suite job",
+           gates("python", test, lambda w: w["jobs"]["test"].update({"if": "github.event_name == 'push'"})),
+           "job 'test' must not be conditional")
+    expect("duplicated conditional cargo test",
+           gates("rust", test, lambda w: w["jobs"]["test"]["steps"].extend(
+               [dict(step(w, "test", lambda s: "cargo test" in str(s.get("run", ""))), **{"if": "github.event_name == 'push'"})] * 2)),
+           "must run exactly once")
+    for falsy in ("${{false}}", "${{  false  }}", "${{ null }}", "${{ '' }}", "${{ -0 }}"):
+        expect(f"cargo test under {falsy}",
+               gates("rust", test, lambda w, falsy=falsy: step(w, "test", lambda s: "cargo test" in str(s.get("run", "")))
+                     .update({"if": falsy})), "never runs")
+    expect("release job that runs after a failed test",
+           gates("nextjs", release, lambda w: w["jobs"]["release-please"].update({"if": "always()"})),
+           "'release-please' must not be conditional")
     expect("python job without timeout",
            gates("python", test, lambda w: w["jobs"]["test"].pop("timeout-minutes")), "timeout-minutes")
     expect("python tools unpinned",
-           gates("python", test, text=lambda t: t.replace("mypy==2.4.0", "mypy")), "pinned ruff, mypy and pytest")
+           gates("python", test, text=lambda t: t.replace("mypy==2.4.0", "mypy")), "pinned fallback loop")
+    expect("python pins only in a comment",
+           gates("python", test, text=lambda t: re.sub(
+               r"( *)for tool in [^\n]*\n[^\n]*\n *done\n",
+               lambda m: f"{m.group(1)}# ruff==0.16.10 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
+               t, count=1)), "pinned fallback loop")
     expect("App token with an extra permission",
            gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(
                "actions/create-github-app-token@"))["with"].update({"permission-workflows": "write"})),
@@ -2862,6 +2910,9 @@ def _structure_self_tests() -> list:
     expect("Rust action on a non-Rust allowlist",
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].append(
                {"uses": "Swatinem/rust-cache@" + "0" * 40})), "does not allow")
+    expect("allowlisted name used as a prefix",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].append(
+               {"uses": "amannn/action-semantic-pull-request-evil@" + "0" * 40})), "does not allow")
     expect("full e2e run with Chromium only",
            gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
@@ -2869,6 +2920,7 @@ def _structure_self_tests() -> list:
 
 
 def main() -> int:
+    STRUCTURE_FIXTURES_RUN[0] = 0
     all_errors = []
     all_errors += run_self_tests()
     all_errors += check_npm_script_assumptions()

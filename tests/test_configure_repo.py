@@ -374,5 +374,44 @@ class ReleaseGateGuardTests(unittest.TestCase):
                     self.assertEqual(output.read_text(), expected_output)
 
 
+class PythonToolInstallTests(unittest.TestCase):
+    """The generated Python suite installs pinned tools only when the project has none."""
+
+    def test_pinned_fallbacks_install_only_missing_tools(self):
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        log = Path(tmp.name) / "pip-log"
+        fake_pip = Path(tmp.name) / "bin" / "pip"
+        fake_pip.parent.mkdir()
+        fake_pip.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = show ]; then case " $INSTALLED " in *" $2 "*) exit 0 ;; *) exit 1 ;; esac; fi\n'
+            'echo "$*" >> "$PIP_LOG"\n'
+            'exit "${PIP_FAIL:-0}"\n'
+        )
+        fake_pip.chmod(0o755)
+        work = Path(tmp.name) / "project"
+        work.mkdir()
+        cases = {
+            "nothing installed": ("", "", 0, ["install ruff==0.16.10", "install mypy==2.4.0", "install pytest==9.1.1"]),
+            "the project pins ruff and pytest": ("ruff pytest", "", 0, ["install mypy==2.4.0"]),
+            "an install fails": ("", "1", 1, ["install ruff==0.16.10"]),
+        }
+        for label, (installed, fail, code, installs) in cases.items():
+            with self.subTest(label):
+                log.write_text("")
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                    cwd=work, capture_output=True, text=True,
+                    env={"PATH": f"{fake_pip.parent}:/usr/bin:/bin", "PIP_LOG": str(log),
+                         "INSTALLED": installed, "PIP_FAIL": fail},
+                )
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertEqual(log.read_text().splitlines(), installs)
+
+
 if __name__ == "__main__":
     unittest.main()

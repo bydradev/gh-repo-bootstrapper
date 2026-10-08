@@ -268,6 +268,8 @@ class ReleaseGateGuardTests(unittest.TestCase):
             'printf "%s\\0" "$@" >> "$ARGV_FILE"; printf "\\n" >> "$ARGV_FILE"\n'
             '[ -z "$FAKE_FAIL" ] || exit 1\n'
             'if [ "$1" = api ]; then\n'
+            '  cat > /dev/null\n'  # would swallow the guard's remaining rows without </dev/null
+            '  [ -z "$FAKE_COMPARE_FAIL" ] || exit 1\n'
             '  case "$2" in\n'
             '    */compare/abc123...fff999) echo ahead ;;\n'
             '    */compare/abc123...def456) echo behind ;;\n'
@@ -293,7 +295,15 @@ class ReleaseGateGuardTests(unittest.TestCase):
                 "71 0dd000", False, 1, "false", ["0dd000"], "::error::Release PR #71 merged as 0dd000"),
             "this commit and an older one": (
                 "71 abc123\n72 def456", False, 1, "true", ["def456"], "::error::Release PR #72 merged as def456"),
+            "a newer merge, then an older one": (
+                "71 fff999\n72 def456", False, 1, "false", ["fff999", "def456"],
+                "::error::Release PR #72 merged as def456"),
+            "this commit and a newer one": (
+                "71 abc123\n72 fff999", False, 1, "false", ["fff999"], "::error::More than one release PR is pending"),
+            "a newer one and this commit": (
+                "71 fff999\n72 abc123", False, 1, "false", ["fff999"], "::error::More than one release PR is pending"),
             "the gh query fails": ("", True, 1, None, [], None),
+            "the compare call fails": ("71 def456", "compare", 1, None, ["def456"], None),
         }
         for repo_type in ("python", "nextjs"):
             guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
@@ -308,7 +318,8 @@ class ReleaseGateGuardTests(unittest.TestCase):
                         capture_output=True, text=True,
                         env={
                             "PATH": f"{tmp.name}:/usr/bin:/bin", "ARGV_FILE": str(argv_file),
-                            "FAKE_PENDING": pending, "FAKE_FAIL": "1" if fail else "",
+                            "FAKE_PENDING": pending, "FAKE_FAIL": "1" if fail is True else "",
+                            "FAKE_COMPARE_FAIL": "1" if fail == "compare" else "",
                             "REPO": "octocat/sample", "TESTED_SHA": "abc123",
                             "GITHUB_OUTPUT": str(output),
                         },

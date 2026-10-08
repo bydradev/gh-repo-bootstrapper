@@ -77,6 +77,7 @@ jobs:
               order=$(gh api "repos/$REPO/compare/$TESTED_SHA...$oid" --jq .status </dev/null)
               if [ "$order" = "ahead" ]; then
                 echo "::notice::Release PR #$number merged as $oid after $TESTED_SHA; that commit's own run releases it."
+                newer=true
                 continue
               fi
               echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). Re-run the workflow run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
@@ -85,6 +86,13 @@ jobs:
             fi
             release=true
           done <<< "$pending"
+          # release-please tags every pending merge at once, so it must not run
+          # while a newer, untested one is pending too.
+          if [ "${release:-false}" = true ] && [ -n "${newer:-}" ]; then
+            echo "::error::More than one release PR is pending, and release-please would tag them all, including a merge this run did not test. Leave 'autorelease: pending' on one of them and re-run that merge's own workflow run."
+            release=false
+            status=1
+          fi
           echo "release=${release:-false}" >> "$GITHUB_OUTPUT"
           exit "$status"
         shell: bash

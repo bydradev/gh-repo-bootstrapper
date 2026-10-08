@@ -255,7 +255,15 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
             "run_workflows_from_fork_pull_requests": False, "send_write_tokens_to_workflows": False,
             "send_secrets_and_variables": False, "require_approval_for_fork_pr_workflows": False,
         })
-        self.assertEqual(payloads[f"{self.REPO}/branches/main/protection"], bootstrap.branch_protection_payload("python"))
+        self.assertEqual(payloads[f"{self.REPO}/branches/main/protection"], {
+            "required_status_checks": {"strict": False, "contexts": ["validate-title", "test / test"]},
+            "enforce_admins": True,
+            "required_pull_request_reviews": {
+                "dismiss_stale_reviews": False, "require_code_owner_reviews": False,
+                "required_approving_review_count": 0,
+            },
+            "restrictions": None,
+        })
 
     def test_new_repository_still_gets_policy_and_protection(self):
         writes, _, _ = self._configure({}, None, configure_only=False)

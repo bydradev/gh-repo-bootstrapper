@@ -1435,6 +1435,14 @@ PLAYWRIGHT_INSTALLS = (
     ("${{ inputs.full }}", "npx playwright install --with-deps"),
     ("${{ !inputs.full }}", "npx playwright install --with-deps chromium"),
 )
+PLAYWRIGHT_RUNS = (
+    ("${{ inputs.full }}", "npm run test:e2e"),
+    ("${{ !inputs.full }}", "npm run test:e2e -- --project=chromium"),
+)
+E2E_JOB_CONDITION = "${{ inputs.e2e || inputs.full }}"
+BRANCH_PROTECTION_KEYS = frozenset({
+    "required_status_checks", "enforce_admins", "required_pull_request_reviews", "restrictions",
+})
 
 
 # Falsy literals in GitHub's expression syntax (false, 0, -0, null, ''),
@@ -1571,16 +1579,25 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 + (f" and unpinned {unpinned.group(0)!r}" if unpinned else "")
             )
     if repo_type == "nextjs":
-        steps = (test_jobs.get("e2e") or {}).get("steps") or []
-        installs = {
+        e2e = test_jobs.get("e2e") or {}
+        if e2e.get("if") != E2E_JOB_CONDITION:
+            errors.append(f"[{label}] Next.js e2e job must run when {E2E_JOB_CONDITION}, got {e2e.get('if')!r}")
+        pairs = [
             (str(step.get("if", "")), str(step.get("run", "")).strip())
-            for step in steps
-            if isinstance(step, dict) and "playwright install" in str(step.get("run", ""))
-        }
-        if installs != set(PLAYWRIGHT_INSTALLS):
+            for step in e2e.get("steps") or []
+            if isinstance(step, dict)
+        ]
+        installs = sorted(pair for pair in pairs if "playwright install" in pair[1])
+        if installs != sorted(PLAYWRIGHT_INSTALLS):
             errors.append(
                 f"[{label}] Next.js e2e must install every default browser for full runs and "
-                f"Chromium otherwise, got {sorted(installs)}"
+                f"Chromium otherwise, got {installs}"
+            )
+        runs = sorted(pair for pair in pairs if "test:e2e" in pair[1])
+        if runs != sorted(PLAYWRIGHT_RUNS):
+            errors.append(
+                f"[{label}] Next.js e2e must run every project on full runs and Chromium "
+                f"otherwise, got {runs}"
             )
     return errors
 
@@ -1756,6 +1773,12 @@ def check_branch_protection_payload(label: str, repo_type: str, payload: dict = 
         )
     if payload.get("restrictions") is not None:
         errors.append(f"[{label}] branch protection must not add push restrictions")
+    # Any other key (allow_force_pushes, allow_deletions, ...) changes the policy.
+    if set(payload) != BRANCH_PROTECTION_KEYS:
+        errors.append(
+            f"[{label}] branch protection must set exactly {sorted(BRANCH_PROTECTION_KEYS)}, "
+            f"got {sorted(payload)}"
+        )
     return errors
 
 
@@ -2931,6 +2954,17 @@ def _structure_self_tests() -> list:
     expect("allowlisted name used as a prefix",
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].append(
                {"uses": "amannn/action-semantic-pull-request-evil@" + "0" * 40})), "does not allow")
+    expect("full e2e test run limited to Chromium",
+           gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npm run test:e2e")
+                 .update({"if": "${{ !inputs.full }}"})), "run every project on full runs")
+    expect("e2e job that no longer runs on full runs",
+           gates("nextjs", test, lambda w: w["jobs"]["e2e"].update({"if": "${{ inputs.e2e }}"})),
+           "e2e job must run when")
+    for key in ("allow_force_pushes", "allow_deletions"):
+        payload = bootstrap.branch_protection_payload("nextjs")
+        payload[key] = True
+        expect(f"protection with {key}", check_branch_protection_payload("self-test:bp", "nextjs", payload),
+               "must set exactly")
     expect("full e2e run with Chromium only",
            gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")

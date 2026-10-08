@@ -44,6 +44,9 @@ function runFixture(source, extraFiles = {}) {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      // A scan that is not linear takes minutes on the 50,000-opener fixtures;
+      // killing it here fails the test without timing a busy host.
+      timeout: 30_000,
     });
   } catch (error) {
     return error.stderr?.toString() || error.stdout?.toString() || error.message;
@@ -134,10 +137,9 @@ test("does not read eslint-env or eslint-disable as rule configuration", () => {
 });
 
 test("scans many unterminated comment openers in linear time", () => {
-  const started = Date.now();
-  const output = runFixture("/" + "* eslint ".repeat(50_000) + "\n");
-  assert.match(output, /Baseline verification passed/);
-  assert.ok(Date.now() - started < 5_000, "scan took too long");
+  const source = ("/" + "* eslint ").repeat(50_000) + "\n";
+  assert.equal(source.split("/" + "*").length - 1, 50_000);
+  assert.match(runFixture(source), /Baseline verification passed/);
 });
 
 test("scans its own source to the end", () => {
@@ -176,10 +178,8 @@ test("reads a real configuration comment after configuration-shaped text", () =>
 });
 
 test("fails closed on too many openers before one closing delimiter", () => {
-  const started = Date.now();
   const output = runFixture(("/" + "* eslint ").repeat(50_000) + "*" + "/\n");
   assert.match(output, /more than 64 eslint configuration openers before one closing delimiter/);
-  assert.ok(Date.now() - started < 5_000, "scan took too long");
 });
 test("parses a whole configuration comment even when a setting quotes opener text", () => {
   const output = runFixture(

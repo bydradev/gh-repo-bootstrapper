@@ -61,7 +61,12 @@ jobs:
               pip install -e .
             fi
           fi
-          pip install ruff mypy pytest
+          # Pinned fallbacks (PyPI, 2026-10-08), so the suite does not change
+          # with each upstream release; a version the project already installed
+          # from its own dependencies is kept.
+          for tool in ruff==0.16.10 mypy==2.4.0 pytest==9.1.1; do
+            pip show "${tool%%==*}" > /dev/null 2>&1 || pip install "$tool"
+          done
       - run: ruff check .
       - run: mypy .
       - run: pytest

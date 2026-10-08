@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.7.0...v0.8.0) (2026-10-08)
+
+
+### Features
+
+* **templates:** add indexing guidance to the local-validation-nextjs skill ([#68](https://github.com/bydradev/gh-repo-bootstrapper/issues/68)) ([1746c55](https://github.com/bydradev/gh-repo-bootstrapper/commit/1746c557db1a3d7ae2bf59977853e329076b165c))
+
 ## [0.7.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.6.3...v0.7.0) (2026-10-06)
 
 

@@ -1439,17 +1439,29 @@ PLAYWRIGHT_INSTALLS = (
 
 # Falsy literals in GitHub's expression syntax (false, 0, -0, null, ''),
 # checked 2026-10-09 against docs.github.com "Evaluate expressions".
-FALSY_EXPRESSION_LITERALS = frozenset({"false", "0", "-0", "null", "''", '""'})
+FALSY_EXPRESSION_LITERALS = frozenset({"false", "null", "''"})
+HEX_LITERAL_RE = re.compile(r"[-+]?0x[0-9a-f]+")
 
 
 def _never_runs(condition) -> bool:
-    """True for an `if:` that is a falsy literal, with or without `${{ }}`."""
+    """True for an `if:` that is a falsy literal, with or without `${{ }}`.
+
+    Only the expression's outer whitespace is trimmed: `' '` is a non-empty,
+    truthy string. Numbers are compared by value, so 0, -0, 0.0, 0e0 and 0x0
+    all count as zero.
+    """
     if condition is False or condition is None or condition == 0:
         return True
-    text = re.sub(r"\s+", "", str(condition)).lower()
+    text = str(condition).strip()
     if text.startswith("${{") and text.endswith("}}"):
-        text = text[3:-2]
-    return text in FALSY_EXPRESSION_LITERALS
+        text = text[3:-2].strip()
+    text = text.lower()
+    if text in FALSY_EXPRESSION_LITERALS:
+        return True
+    try:
+        return (int(text, 16) if HEX_LITERAL_RE.fullmatch(text) else float(text)) == 0
+    except ValueError:
+        return False
 
 
 def _executable_lines(script: str) -> list:
@@ -1520,7 +1532,9 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
         if "test" not in ([needs] if isinstance(needs, str) else (needs or [])):
             errors.append(f"[{label}] release-please.yml job 'release-please' must need 'test'")
         # Any `if:` here (always(), failure(), !cancelled()) can run the job
-        # after `test` fails; `needs` alone is the success gate.
+        # after `test` fails; `needs` alone is the success gate. Deliberately
+        # strict: even a safe condition such as success() needs this rule
+        # changed first, so no release condition lands without review.
         if "if" in (release_jobs.get("release-please") or {}):
             errors.append(f"[{label}] release-please.yml job 'release-please' must not be conditional")
         if "if" in (release_jobs.get("test") or {}):
@@ -2884,7 +2898,11 @@ def _structure_self_tests() -> list:
            gates("rust", test, lambda w: w["jobs"]["test"]["steps"].extend(
                [dict(step(w, "test", lambda s: "cargo test" in str(s.get("run", ""))), **{"if": "github.event_name == 'push'"})] * 2)),
            "must run exactly once")
-    for falsy in ("${{false}}", "${{  false  }}", "${{ null }}", "${{ '' }}", "${{ -0 }}"):
+    expect("a whitespace string is truthy",
+           gates("python", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("actions/checkout@"))
+                 .update({"if": "${{ ' ' }}"})), None)
+    for falsy in ("${{false}}", "${{  false  }}", "${{ null }}", "${{ '' }}", "${{ -0 }}",
+                  "${{ 0.0 }}", "${{ 0e0 }}", "${{ 0x0 }}"):
         expect(f"cargo test under {falsy}",
                gates("rust", test, lambda w, falsy=falsy: step(w, "test", lambda s: "cargo test" in str(s.get("run", "")))
                      .update({"if": falsy})), "never runs")

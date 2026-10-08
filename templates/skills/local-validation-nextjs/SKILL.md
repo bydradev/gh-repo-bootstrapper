@@ -1,6 +1,6 @@
 ---
 name: local-validation-nextjs
-description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, or Playwright E2E. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev`, `EMFILE` fallbacks, Playwright traces and flaky results, the CI validation tiers, and how a worktree gets its dependencies."
+description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, or Playwright E2E. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev`, `EMFILE` fallbacks, Playwright traces and flaky results, the CI validation tiers, how a worktree gets its dependencies, and the indexing files a public site ships (`robots.txt`, sitemap, noindex on non-canonical hostnames)."
 ---
 
 # Local validation for Next.js
@@ -81,6 +81,22 @@ In CI, automated validation runs in three tiers:
 - **Pull requests (`ci.yml`):** Runs fast validation (`build` only: lint, format, typecheck, unit tests, verify baselines, production build) with browser E2E skipped for rapid feedback (< 2 mins).
 - **Push to `main` (`release-please.yml`):** Runs the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
 - **Release Please PR merge (`chore(main): release`):** Runs the full validation suite, including the complete browser E2E matrix and any configured production/runtime checks.
+
+## Indexing and crawlers
+
+A public site serves `robots.txt` and a sitemap from the App Router metadata
+files `robots.ts` and `sitemap.ts`. Allow all crawlers and link the sitemap;
+disallow only paths with a reason, such as API routes that are not pages. Give
+personal or search-result pages `robots: { index: false, follow: true }` in
+their metadata, and leave them out of the sitemap.
+
+Set AI crawler policy in the hosting platform's bot controls, not with per-bot
+rules in `robots.txt`, so the policy lives in one place.
+
+When the host also serves the site on a default or per-deployment hostname,
+turn those hostnames off and send `X-Robots-Tag: noindex, nofollow` on them as
+a backstop, so only the canonical domain is indexed. For a static export, make
+the CI export check require `out/robots.txt` and `out/sitemap.xml`.
 
 ## Worktrees
 

@@ -115,7 +115,7 @@ confirm before creating anything.
 | `--scheme TEXT` | Xcode scheme name for `xcodebuild test` (swift only) |
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
-| `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Cannot be combined with `--dry-run` |
+| `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run; without `--org`, a placeholder owner is used since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
 | `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` and the type options the repository was generated with |
@@ -164,7 +164,8 @@ confirm before creating anything.
 
 `bootstrap.py` generates a repository once. Templates change afterwards, so
 `--check` and `--adopt` bring an existing local checkout back in line. Neither
-contacts GitHub; follow with `--configure-only` for repository settings.
+contacts GitHub; follow with `--configure-only` for repository settings, which
+keeps the repository's own branch protection.
 
 ### Generated agent layout
 
@@ -378,7 +379,8 @@ release-triggered deployment workflow.
 CI pipeline for Python projects.
 
 - `pr-title-check.yml`
-- `release-please.yml` — test gate → release-please (no deploy)
+- `release-please.yml` — test gate → release-please (no deploy); refuses to
+  tag a release merge whose own test run failed
 - `ci.yml` — runs the test suite on every PR
 - `test.yml` — ruff (lint), mypy (type check), pytest; auto-detects and installs
   `requirements-dev.txt`, `requirements.txt`, or `pyproject.toml` extras
@@ -393,7 +395,8 @@ CI pipeline for Python projects.
 CI pipeline for Swift/Xcode projects.
 
 - `pr-title-check.yml`
-- `release-please.yml` — test gate → release-please (no deploy)
+- `release-please.yml` — test gate → release-please (no deploy); refuses to
+  tag a release merge whose own test run failed
 - `ci.yml` — runs the test suite on every PR
 - `test.yml` — `swift-format lint --recursive --strict` (formatting gate) then
   `xcodebuild test` on `macos-26`; scheme set from `--scheme`, destination
@@ -429,7 +432,8 @@ and to check before pushing.
 CI pipeline for Rust crates and workspaces.
 
 - `pr-title-check.yml`
-- `release-please.yml` — test gate → release-please (no deploy)
+- `release-please.yml` — test gate → release-please (no deploy); refuses to
+  tag a release merge whose own test run failed
 - `ci.yml` — runs the test suite on every PR
 - `test.yml` — `cargo fmt --check`, `cargo clippy -D warnings`, and
   `cargo test` across the workspace; fails with a clear error until a root
@@ -493,6 +497,15 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   those checks — most often release PRs — lives at
   [`docs/branch-protection-runbook.md`](docs/branch-protection-runbook.md)
   and ships into every generated repository.
+
+With `--configure-only` the repository already exists, so two of these are
+handled differently. Branch protection on `main` is never replaced: the script
+prints the required checks it finds and points to the runbook, because an
+existing repository's checks must come from its own pull requests, not from
+`--type`. The Actions settings (allowlist, SHA pinning, default token
+permissions and, for private repositories, fork PR controls) are compared with
+the generated policy; any difference is listed and applied only after you
+confirm, and `--non-interactive` lists it and leaves it unchanged.
 
   Note that GitHub requires a paid plan for branch protection on **private**
   repositories. The script detects that case and reports it as manual follow-up

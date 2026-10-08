@@ -1159,6 +1159,65 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(next(a for a in actions if a[1] == rel)[0], "refused")
         self.assertEqual((self.repo / rel).read_text(), mine)
 
+    def test_index_flags_that_hide_edits_count_as_uncommitted(self):
+        files = _render()
+        original = self._agents_missing_a_section(files)
+        edited = original.replace("## Branches\n\n", "## Branches\n\nUncommitted local rule.\n\n", 1)
+        self.assertNotEqual(edited, original)
+        for flag in ("--skip-worktree", "--assume-unchanged"):
+            with self.subTest(flag=flag):
+                self.repo = Path(self._tmp.name) / flag.strip("-")
+                self.repo.mkdir()
+                self._write("AGENTS.md", original)
+                self._commit_all()
+                _git(self.repo, "update-index", flag, "AGENTS.md")
+                self._write("AGENTS.md", edited)
+                actions = {
+                    rel: action
+                    for action, rel, _ in bootstrap.adopt_repository(
+                        self.repo, files, True, confirm=lambda sections: True
+                    )
+                }
+                self.assertEqual(actions["AGENTS.md"], "refused")
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
+
+    def test_orphan_with_a_staged_edit_is_not_deleted(self):
+        files = _render()
+        rel = ".claude/agents/retired.md"
+        old = bootstrap.stamp("# Retired\n")
+        self._write(rel, old)
+        self._commit_all()
+        self._write(rel, "# Local edit staged in the index\n")
+        _git(self.repo, "add", rel)
+        self._write(rel, old)
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "refused")
+        self.assertEqual((self.repo / rel).read_text(), old)
+
+    def test_case_only_rename_of_a_live_file_is_not_deleted(self):
+        (self.repo / "case-probe").write_text("")
+        if not (self.repo / "CASE-PROBE").exists():
+            self.skipTest("needs a case-insensitive filesystem")
+        (self.repo / "case-probe").unlink()
+        files = _render()
+        renames = {
+            ".claude/agents/fresh-eyes-reviewer.md": ".claude/agents/FRESH-EYES-REVIEWER.md",
+            ".agents/skills/pull-requests/SKILL.md": ".agents/skills/pull-requests/skill.md",
+        }
+        for canonical in renames:
+            self._write(canonical, files[canonical])
+        self._commit_all()
+        for canonical, alias in renames.items():
+            _git(self.repo, "mv", canonical, alias)
+        report = bootstrap.compare_repository(self.repo, files)
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
+        for canonical, alias in renames.items():
+            with self.subTest(alias=alias):
+                self.assertEqual(report[alias][0], "shadowed")
+                self.assertEqual(actions[alias][0], "refused")
+                self.assertIn(canonical, actions[alias][1])
+                self.assertEqual((self.repo / canonical).read_text(), files[canonical])
+
     def test_ignored_orphan_is_refused_and_not_deleted(self):
         files = _render()
         rel = ".agents/skills/old/SKILL.md"

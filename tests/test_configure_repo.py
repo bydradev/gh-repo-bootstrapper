@@ -1,10 +1,13 @@
 """Regression tests for provider-free generated repository configuration."""
 
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import bootstrap
@@ -40,6 +43,25 @@ class ConfigureRepoTests(unittest.TestCase):
         ]
         self.assertEqual(variable_names, ["RELEASE_PLEASE_CLIENT_ID"])
         self.assertEqual(secret_names, ["RELEASE_PLEASE_APP_KEY"])
+
+    def test_creation_commands_ignore_an_inherited_index_override(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        other, target = Path(tmp.name) / "other", Path(tmp.name) / "target"
+        for repo in (other, target):
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=bootstrap._git_env())
+        (target / "generated.txt").write_text("x\n")
+        with patch.dict(os.environ, {"GIT_INDEX_FILE": str(other / ".git" / "index")}):
+            bootstrap._run(["git", "-C", str(target), "add", "."])
+
+        def tracked(repo):
+            return subprocess.run(
+                ["git", "-C", str(repo), "ls-files"],
+                capture_output=True, text=True, check=True, env=bootstrap._git_env(),
+            ).stdout
+
+        self.assertEqual(tracked(target), "generated.txt\n")
+        self.assertEqual(tracked(other), "")
 
     def test_selected_actions_excludes_provider_actions(self):
         rust_only = ["dtolnay/rust-toolchain@*", "Swatinem/rust-cache@*"]

@@ -169,7 +169,8 @@ def stamp_is_valid(text: str) -> bool:
     return digest is not None and digest == _digest(body)
 
 
-# Rebuilt by compute_legacy_digests(), from every vX.Y.Z release tag.
+# Rebuilt by compute_legacy_digests(), from the vX.Y.Z release tags through
+# LEGACY_LAST_TAG.
 LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
     "docs/branch-protection-runbook.md": frozenset({
         "1f4ce79e3a984e4e76dfdee4b3ca655c6911825eabee6a92dd5a3c76a9526dc1",
@@ -185,8 +186,14 @@ LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
 }
 
 
+# Ownership stamps arrived in v0.6.0, so later releases ship stamped docs that
+# stamp_is_valid() classifies. Only renders through this tag can appear
+# unstamped, and stopping here keeps later doc edits from changing the table.
+LEGACY_LAST_TAG = (0, 6, 0)
+
+
 def _legacy_tags() -> list[str] | None:
-    """The bootstrapper's vX.Y.Z release tags, oldest first; None when git cannot list them."""
+    """Release tags through LEGACY_LAST_TAG, oldest first; None when git cannot list them."""
     env = {k: v for k, v in os.environ.items() if k not in _GIT_REPOSITORY_CONTEXT_VARIABLES}
     try:
         result = subprocess.run(
@@ -196,7 +203,8 @@ def _legacy_tags() -> list[str] | None:
     except (OSError, subprocess.CalledProcessError):
         return None
     tags = [tag for tag in result.stdout.splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", tag)]
-    return sorted(tags, key=lambda tag: tuple(int(part) for part in tag[1:].split(".")))
+    versions = {tag: tuple(int(part) for part in tag[1:].split(".")) for tag in tags}
+    return sorted((tag for tag in tags if versions[tag] <= LEGACY_LAST_TAG), key=versions.__getitem__)
 
 
 def _legacy_template_bodies() -> dict[str, list[str]]:
@@ -1930,6 +1938,18 @@ def create_and_push(cfg: dict, files: dict):
     cfg["files_pushed"] = True
 
 
+def selected_action_patterns(repo_type: str) -> list:
+    """Third-party actions the generated workflows use outside the verified-creator rule.
+
+    `verified_allowed` covers only GitHub Marketplace verified creators, which are
+    organizations; these actions are user-owned, so each needs an explicit pattern.
+    """
+    patterns = ["amannn/action-semantic-pull-request@*"]
+    if repo_type == "rust":
+        patterns += ["dtolnay/rust-toolchain@*", "Swatinem/rust-cache@*"]
+    return patterns
+
+
 def configure_repo(cfg: dict):
     name = cfg["name"]
     owner = cfg["owner"]
@@ -2003,9 +2023,7 @@ def configure_repo(cfg: dict):
     api("PUT", f"repos/{repo}/actions/permissions/selected-actions", {
         "github_owned_allowed": True,
         "verified_allowed": True,
-        "patterns_allowed": [
-            "amannn/action-semantic-pull-request@*",
-        ],
+        "patterns_allowed": selected_action_patterns(cfg["repo_type"]),
     })
     api("PUT", f"repos/{repo}/actions/permissions/workflow", {
         "default_workflow_permissions": "read",

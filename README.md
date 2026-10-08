@@ -418,8 +418,9 @@ bootstrapper never renders it.
 
 Formatting is enforced from the first commit: `test.yml` fails CI on any
 `swift-format lint --recursive --strict` violation, and the generated
-`AGENTS.md` tells agents to run `swift-format format --recursive --in-place .`
-after editing Swift files and to check before pushing.
+`AGENTS.md` tells agents to run
+`xcrun swift-format format --recursive --in-place .` after editing Swift files
+and to check before pushing.
 
 ### `rust`
 
@@ -472,7 +473,9 @@ Beyond file generation, the script applies GitHub configuration to the repo:
 - **Projects** — enabled
 - **Actions permissions** — restricted to GitHub-owned and Marketplace-verified
   actions, plus an explicit allowlist for `amannn/action-semantic-pull-request`
-  (used by `pr-title-check.yml`)
+  (used by `pr-title-check.yml`) and, for `--type rust`, `dtolnay/rust-toolchain`
+  and `Swatinem/rust-cache` (used by `test.yml`; both are user-owned, so the
+  verified-creator rule does not cover them)
 - **Workflow permissions** — default `read`, with GitHub Actions unable to
   approve pull requests. Release Please uses its dedicated GitHub App token.
 - **Fork PR workflows** — disabled for private repos (no separate control

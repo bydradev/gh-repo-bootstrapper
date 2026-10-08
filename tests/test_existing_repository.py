@@ -665,7 +665,10 @@ class ExistingRepositoryTests(unittest.TestCase):
             runbook.write_text(runbook.read_text(encoding="utf-8") + "\nA later release.\n", encoding="utf-8")
             _git(templates.parent, "commit", "-q", "-am", "v1.0.0")
             _git(templates.parent, "tag", "v1.0.0")
-            errors = validate_templates.check_legacy_digests()
+            # Releases after LEGACY_LAST_TAG ship stamped docs and never join the table.
+            self.assertEqual(validate_templates.check_legacy_digests(), [])
+            with unittest.mock.patch.object(bootstrap, "LEGACY_LAST_TAG", (1, 0, 0)):
+                errors = validate_templates.check_legacy_digests()
         self.assertTrue(any("LEGACY_TEMPLATE_DIGESTS is stale" in error for error in errors), errors)
 
     def test_legacy_diff_is_skipped_with_a_notice_without_git_or_tags(self):

@@ -34,6 +34,28 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
+      # A release PR whose merge failed `test` keeps its "autorelease: pending"
+      # label, and release-please would tag that untested merge on the next
+      # passing push. Refuse unless the pending release merge is this commit.
+      - name: Refuse to tag an untested release merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          pending=$(gh pr list --repo "$REPO" --state merged --label "autorelease: pending" \
+            --json number,mergeCommit --jq '.[] | "\(.number) \(.mergeCommit.oid)"')
+          status=0
+          while read -r number oid; do
+            [ -n "$number" ] || continue
+            if [ "$oid" != "$TESTED_SHA" ]; then
+              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). Re-run the workflow run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
+              status=1
+            fi
+          done <<< "$pending"
+          exit "$status"
+        shell: bash
+
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:

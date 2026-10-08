@@ -517,10 +517,12 @@ def check_agents_guidance(label: str, files: dict) -> list:
 
 
 def _hub_generated_part(agents: str) -> str:
-    """The hub above `## Project specifics`, with the `next dev` block masked."""
-    masked = bootstrap._mask_nextjs_rules(agents)
-    match = re.search(r"^" + re.escape(PROJECT_SPECIFICS_HEADING) + r"[ \t]*$", masked, re.MULTILINE)
-    return masked[: match.start()] if match else masked
+    """The hub above `## Project specifics`, with the `next dev` block masked.
+
+    Uses bootstrap's fence-aware splitter, so a `## Project specifics` line
+    inside a fenced example does not end the generated part early.
+    """
+    return bootstrap._split_project_specifics(bootstrap._mask_nextjs_rules(agents))[0]
 
 
 def check_hub_budget(label: str, files: dict) -> list:
@@ -1417,6 +1419,189 @@ def check_sha_pinned_actions(label: str, files: dict) -> list:
     return errors
 
 
+# Marketplace verified creators whose actions the generated workflows use.
+# verified_allowed covers them, so they need no explicit pattern; every other
+# third-party action must match bootstrap.selected_action_patterns().
+# googleapis: "GitHub has manually verified the creator" on the
+# release-please-action Marketplace page, checked 2026-10-08.
+VERIFIED_ACTION_OWNERS = frozenset({"googleapis"})
+GITHUB_OWNED_ACTION_OWNERS = frozenset({"actions", "github"})
+APP_TOKEN_PERMISSIONS = {"permission-contents": "write", "permission-pull-requests": "write"}
+PYTHON_SUITE_COMMANDS = ("ruff check .", "mypy .", "pytest")
+PYTHON_TOOL_PIN_RE = re.compile(r"\b(ruff|mypy|pytest)==\d+(\.\d+)+\b")
+PYTHON_TOOL_LOOP_RE = re.compile(r"^\s*for tool in ([^;\n]+); do\s*$", re.MULTILINE)
+PYTHON_UNPINNED_INSTALL_RE = re.compile(r"pip install\b[^\n]*\b(ruff|mypy|pytest)\b(?!==)")
+PLAYWRIGHT_INSTALLS = (
+    ("${{ inputs.full }}", "npx playwright install --with-deps"),
+    ("${{ !inputs.full }}", "npx playwright install --with-deps chromium"),
+)
+PLAYWRIGHT_RUNS = (
+    ("${{ inputs.full }}", "npm run test:e2e"),
+    ("${{ !inputs.full }}", "npm run test:e2e -- --project=chromium"),
+)
+E2E_JOB_CONDITION = "${{ inputs.e2e || inputs.full }}"
+BRANCH_PROTECTION_KEYS = frozenset({
+    "required_status_checks", "enforce_admins", "required_pull_request_reviews", "restrictions",
+})
+
+
+# Falsy literals in GitHub's expression syntax (false, 0, -0, null, ''),
+# checked 2026-10-09 against docs.github.com "Evaluate expressions".
+FALSY_EXPRESSION_LITERALS = frozenset({"false", "null", "''"})
+HEX_LITERAL_RE = re.compile(r"[-+]?0x[0-9a-f]+")
+
+
+def _never_runs(condition) -> bool:
+    """True for an `if:` that is a falsy literal, with or without `${{ }}`.
+
+    Only the expression's outer whitespace is trimmed: `' '` is a non-empty,
+    truthy string. Numbers are compared by value, so 0, -0, 0.0, 0e0 and 0x0
+    all count as zero.
+    """
+    if condition is False or condition is None or condition == 0:
+        return True
+    text = str(condition).strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    text = text.lower()
+    if text in FALSY_EXPRESSION_LITERALS:
+        return True
+    try:
+        return (int(text, 16) if HEX_LITERAL_RE.fullmatch(text) else float(text)) == 0
+    except ValueError:
+        return False
+
+
+def _executable_lines(script: str) -> list:
+    """Shell lines with whole-line comments removed."""
+    return [line for line in script.splitlines() if not line.strip().startswith("#")]
+
+
+def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
+    """Executable gates the phrase and context checks cannot see.
+
+    A release that no longer waits for `test`, a suite step that cannot fail
+    or never runs, a job without a timeout, a third-party action the generated
+    Actions policy would block, an App token wider than release-please needs,
+    or an e2e run whose browsers do not match its projects all leave every
+    other check green.
+    """
+    errors = []
+    # Every generated pattern is `owner/repo@*`: the repository must match exactly.
+    allowed_actions = {p.removesuffix("@*") for p in bootstrap.selected_action_patterns(repo_type)}
+    for path in _workflow_paths(files):
+        workflow = yaml.safe_load(files[path]) or {}
+        for job_id, job in (workflow.get("jobs", {}) or {}).items():
+            if not isinstance(job, dict):
+                continue
+            where = f"[{label}] {path} job '{job_id}'"
+            if job.get("continue-on-error", False) is not False:
+                errors.append(f"{where} must not set continue-on-error")
+            if "if" in job and _never_runs(job["if"]):
+                errors.append(f"{where} has an `if:` that never runs")
+            if "runs-on" in job:
+                timeout = job.get("timeout-minutes")
+                if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+                    errors.append(f"{where} needs a positive integer timeout-minutes")
+            uses_refs = [job["uses"]] if isinstance(job.get("uses"), str) else []
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict):
+                    continue
+                name = step.get("name") or step.get("run") or step.get("uses")
+                if step.get("continue-on-error", False) is not False:
+                    errors.append(f"{where} step {name!r} must not set continue-on-error")
+                if "if" in step and _never_runs(step["if"]):
+                    errors.append(f"{where} step {name!r} has an `if:` that never runs")
+                if isinstance(step.get("uses"), str):
+                    uses_refs.append(step["uses"])
+                    if step["uses"].startswith("actions/create-github-app-token@"):
+                        granted = {k: v for k, v in (step.get("with") or {}).items() if k.startswith("permission-")}
+                        if granted != APP_TOKEN_PERMISSIONS:
+                            errors.append(
+                                f"{where} App token must request exactly {APP_TOKEN_PERMISSIONS}, got {granted}"
+                            )
+            for uses in uses_refs:
+                if uses.startswith("./"):
+                    continue
+                action = uses.split("@", 1)[0]
+                owner = action.split("/", 1)[0]
+                if owner in GITHUB_OWNED_ACTION_OWNERS | VERIFIED_ACTION_OWNERS:
+                    continue
+                if action not in allowed_actions:
+                    errors.append(
+                        f"{where} uses {action}, which the generated Actions policy for "
+                        f"{repo_type!r} does not allow (see bootstrap.selected_action_patterns)"
+                    )
+
+    release = yaml.safe_load(files.get(".github/workflows/release-please.yml", "")) or {}
+    release_jobs = release.get("jobs", {}) or {}
+    if repo_type in ("nextjs", "python", "swift", "rust"):
+        needs = (release_jobs.get("release-please") or {}).get("needs")
+        if "test" not in ([needs] if isinstance(needs, str) else (needs or [])):
+            errors.append(f"[{label}] release-please.yml job 'release-please' must need 'test'")
+        # Any `if:` here (always(), failure(), !cancelled()) can run the job
+        # after `test` fails; `needs` alone is the success gate. Deliberately
+        # strict: even a safe condition such as success() needs this rule
+        # changed first, so no release condition lands without review.
+        if "if" in (release_jobs.get("release-please") or {}):
+            errors.append(f"[{label}] release-please.yml job 'release-please' must not be conditional")
+        if "if" in (release_jobs.get("test") or {}):
+            errors.append(f"[{label}] release-please.yml job 'test' must not be conditional")
+
+    test = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
+    test_jobs = test.get("jobs", {}) or {}
+    if repo_type in ("python", "rust"):
+        suite = test_jobs.get("test") or {}
+        if "if" in suite:
+            errors.append(f"[{label}] {repo_type} test.yml job 'test' must not be conditional")
+        steps = suite.get("steps") or []
+        commands = PYTHON_SUITE_COMMANDS if repo_type == "python" else RUST_SUITE_STEPS[1:]
+        for command in commands:
+            matching = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == command]
+            if len(matching) != 1:
+                errors.append(f"[{label}] {repo_type} suite step {command!r} must run exactly once")
+            elif "if" in matching[0] or matching[0].get("continue-on-error", False) is not False:
+                errors.append(f"[{label}] {repo_type} suite step {command!r} must be unconditional and blocking")
+    if repo_type == "python":
+        install = "\n".join(
+            line
+            for step in (test_jobs.get("test") or {}).get("steps") or []
+            if isinstance(step, dict) and step.get("name") == "Install dependencies"
+            for line in _executable_lines(str(step.get("run", "")))
+        )
+        loop = PYTHON_TOOL_LOOP_RE.search(install)
+        pinned = {m.group(1) for m in PYTHON_TOOL_PIN_RE.finditer(loop.group(1))} if loop else set()
+        unpinned = PYTHON_UNPINNED_INSTALL_RE.search(install)
+        if pinned != {"ruff", "mypy", "pytest"} or unpinned:
+            errors.append(
+                f"[{label}] Python test.yml must install ruff, mypy and pytest only through its "
+                f"pinned fallback loop, found pins for {sorted(pinned)}"
+                + (f" and unpinned {unpinned.group(0)!r}" if unpinned else "")
+            )
+    if repo_type == "nextjs":
+        e2e = test_jobs.get("e2e") or {}
+        if e2e.get("if") != E2E_JOB_CONDITION:
+            errors.append(f"[{label}] Next.js e2e job must run when {E2E_JOB_CONDITION}, got {e2e.get('if')!r}")
+        pairs = [
+            (str(step.get("if", "")), str(step.get("run", "")).strip())
+            for step in e2e.get("steps") or []
+            if isinstance(step, dict)
+        ]
+        installs = sorted(pair for pair in pairs if "playwright install" in pair[1])
+        if installs != sorted(PLAYWRIGHT_INSTALLS):
+            errors.append(
+                f"[{label}] Next.js e2e must install every default browser for full runs and "
+                f"Chromium otherwise, got {installs}"
+            )
+        runs = sorted(pair for pair in pairs if "test:e2e" in pair[1])
+        if runs != sorted(PLAYWRIGHT_RUNS):
+            errors.append(
+                f"[{label}] Next.js e2e must run every project on full runs and Chromium "
+                f"otherwise, got {runs}"
+            )
+    return errors
+
+
 def _own_workflow_files() -> dict:
     return {
         f".github/workflows/{path.name}": path.read_text()
@@ -1579,8 +1764,21 @@ def check_branch_protection_payload(label: str, repo_type: str, payload: dict = 
         errors.append(
             f"[{label}] branch protection must require a PR with zero required approvals"
         )
+    if isinstance(reviews, dict) and (
+        reviews.get("dismiss_stale_reviews") is not False
+        or reviews.get("require_code_owner_reviews") is not False
+    ):
+        errors.append(
+            f"[{label}] branch protection must not dismiss stale reviews or require code owners"
+        )
     if payload.get("restrictions") is not None:
         errors.append(f"[{label}] branch protection must not add push restrictions")
+    # Any other key (allow_force_pushes, allow_deletions, ...) changes the policy.
+    if set(payload) != BRANCH_PROTECTION_KEYS:
+        errors.append(
+            f"[{label}] branch protection must set exactly {sorted(BRANCH_PROTECTION_KEYS)}, "
+            f"got {sorted(payload)}"
+        )
     return errors
 
 
@@ -2668,10 +2866,113 @@ def _structure_self_tests() -> list:
         check_legacy_digests(computed={"docs/x.md": {"a"}}, recorded={"docs/x.md": {"b"}}),
         "LEGACY_TEMPLATE_DIGESTS is stale",
     )
+
+    # Budget edges: one byte over the budget fails, and a fenced example of the
+    # `## Project specifics` heading does not end the generated part early.
+    over_budget = {HUB: "x" * HUB_BUDGET_BYTES + "\n## Project specifics\n"}
+    if len(_hub_generated_part(over_budget[HUB]).encode()) != HUB_BUDGET_BYTES + 1:
+        errors.append("self-test 'hub one byte over budget' fixture is not HUB_BUDGET_BYTES + 1 bytes")
+    expect("hub one byte over budget", check_hub_budget("self-test:hub", over_budget), "hub budget")
+    fenced = {HUB: "# Hub\n\n```markdown\n## Project specifics\n```\n\n" + "x" * HUB_CEILING_BYTES + "\n\n## Project specifics\n"}
+    expect("fenced Project specifics example", check_hub_budget("self-test:hub", fenced), "hub budget")
+
+    # Branch protection: review dismissal and code-owner settings are pinned.
+    for key in ("dismiss_stale_reviews", "require_code_owner_reviews"):
+        payload = bootstrap.branch_protection_payload("nextjs")
+        payload["required_pull_request_reviews"][key] = True
+        expect(f"protection with {key}", check_branch_protection_payload("self-test:bp", "nextjs", payload),
+               "must not dismiss stale reviews or require code owners")
+
+    # Workflow gates: each executable gate fails when broken.
+    def gates(repo_type, path=None, change=None, text=None):
+        render = bootstrap.generate_files(dict(next(c for _, c in configurations() if c["repo_type"] == repo_type)))
+        if change is not None:
+            workflow = yaml.safe_load(render[path])
+            change(workflow)
+            render[path] = yaml.safe_dump(workflow, sort_keys=False)
+        if text is not None:
+            render[path] = text(render[path])
+        return check_workflow_gates("self-test:gates", repo_type, render)
+
+    def step(workflow, job, predicate):
+        return next(s for s in workflow["jobs"][job]["steps"] if predicate(s))
+
+    release, test = ".github/workflows/release-please.yml", ".github/workflows/test.yml"
+    for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+        expect(f"gates on a clean {repo_type} render", gates(repo_type), None)
+    expect("release without needs: test",
+           gates("python", release, lambda w: w["jobs"]["release-please"].pop("needs")), "must need 'test'")
+    expect("conditional release test job",
+           gates("rust", release, lambda w: w["jobs"]["test"].update({"if": "github.event_name == 'push'"})),
+           "'test' must not be conditional")
+    expect("cargo test allowed to fail",
+           gates("rust", test, lambda w: step(w, "test", lambda s: "cargo test" in str(s.get("run", "")))
+                 .update({"continue-on-error": True})), "continue-on-error")
+    expect("cargo test never runs",
+           gates("rust", test, lambda w: step(w, "test", lambda s: "cargo test" in str(s.get("run", "")))
+                 .update({"if": False})), "never runs")
+    expect("python suite without pytest",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(
+               step(w, "test", lambda s: s.get("run") == "pytest"))), "suite step 'pytest' must run exactly once")
+    expect("conditional python suite job",
+           gates("python", test, lambda w: w["jobs"]["test"].update({"if": "github.event_name == 'push'"})),
+           "job 'test' must not be conditional")
+    expect("duplicated conditional cargo test",
+           gates("rust", test, lambda w: w["jobs"]["test"]["steps"].extend(
+               [dict(step(w, "test", lambda s: "cargo test" in str(s.get("run", ""))), **{"if": "github.event_name == 'push'"})] * 2)),
+           "must run exactly once")
+    expect("a whitespace string is truthy",
+           gates("python", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("actions/checkout@"))
+                 .update({"if": "${{ ' ' }}"})), None)
+    for falsy in ("${{false}}", "${{  false  }}", "${{ null }}", "${{ '' }}", "${{ -0 }}",
+                  "${{ 0.0 }}", "${{ 0e0 }}", "${{ 0x0 }}"):
+        expect(f"cargo test under {falsy}",
+               gates("rust", test, lambda w, falsy=falsy: step(w, "test", lambda s: "cargo test" in str(s.get("run", "")))
+                     .update({"if": falsy})), "never runs")
+    expect("release job that runs after a failed test",
+           gates("nextjs", release, lambda w: w["jobs"]["release-please"].update({"if": "always()"})),
+           "'release-please' must not be conditional")
+    expect("python job without timeout",
+           gates("python", test, lambda w: w["jobs"]["test"].pop("timeout-minutes")), "timeout-minutes")
+    expect("python tools unpinned",
+           gates("python", test, text=lambda t: t.replace("mypy==2.4.0", "mypy")), "pinned fallback loop")
+    expect("python pins only in a comment",
+           gates("python", test, text=lambda t: re.sub(
+               r"( *)for tool in [^\n]*\n[^\n]*\n *done\n",
+               lambda m: f"{m.group(1)}# ruff==0.16.10 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
+               t, count=1)), "pinned fallback loop")
+    expect("App token with an extra permission",
+           gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(
+               "actions/create-github-app-token@"))["with"].update({"permission-workflows": "write"})),
+           "App token must request exactly")
+    expect("third-party action outside the allowlist",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].append(
+               {"uses": "someone/thing@" + "0" * 40})), "does not allow")
+    expect("Rust action on a non-Rust allowlist",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].append(
+               {"uses": "Swatinem/rust-cache@" + "0" * 40})), "does not allow")
+    expect("allowlisted name used as a prefix",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].append(
+               {"uses": "amannn/action-semantic-pull-request-evil@" + "0" * 40})), "does not allow")
+    expect("full e2e test run limited to Chromium",
+           gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npm run test:e2e")
+                 .update({"if": "${{ !inputs.full }}"})), "run every project on full runs")
+    expect("e2e job that no longer runs on full runs",
+           gates("nextjs", test, lambda w: w["jobs"]["e2e"].update({"if": "${{ inputs.e2e }}"})),
+           "e2e job must run when")
+    for key in ("allow_force_pushes", "allow_deletions"):
+        payload = bootstrap.branch_protection_payload("nextjs")
+        payload[key] = True
+        expect(f"protection with {key}", check_branch_protection_payload("self-test:bp", "nextjs", payload),
+               "must set exactly")
+    expect("full e2e run with Chromium only",
+           gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
+                 .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
     return errors
 
 
 def main() -> int:
+    STRUCTURE_FIXTURES_RUN[0] = 0
     all_errors = []
     all_errors += run_self_tests()
     all_errors += check_npm_script_assumptions()
@@ -2697,6 +2998,7 @@ def main() -> int:
         all_errors += check_workflow_job_consistency(label, cfg["repo_type"], files)
         all_errors += check_workflow_permissions(label, files)
         all_errors += check_sha_pinned_actions(label, files)
+        all_errors += check_workflow_gates(label, cfg["repo_type"], files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
@@ -2716,7 +3018,10 @@ def main() -> int:
         _read_file_or_none(TEMPLATE_RUNBOOK_PATH),
     )
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())
+    all_errors += check_workflow_gates("bootstrapper own workflows", "simple", _own_workflow_files())
     all_errors += check_legacy_digests()
+    if STRUCTURE_FIXTURES_RUN[0] == 0:
+        all_errors.append("no hub/skill/stamp self-test fixture ran; run_self_tests() is not wired in")
 
     if all_errors:
         print(f"FAILED — {len(all_errors)} error(s) across {total} configuration(s):\n")

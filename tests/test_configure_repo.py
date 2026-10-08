@@ -219,6 +219,52 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(writes, [self.REPO])
         self.assertIn("already matches the generated policy", out)
 
+    def test_security_settings_are_pinned(self):
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = {
+            "name": "example", "owner": "octocat", "repo_type": "python", "private": True,
+            "release_please_client_id": "", "release_please_app_key": "",
+        }
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.configure_repo(cfg)
+        payloads = {
+            command[2]: json.loads(kwargs["input"].decode())
+            for command, kwargs in calls if command[:2] == ["gh", "api"]
+        }
+        self.assertEqual(payloads[self.REPO], {
+            "allow_squash_merge": True, "allow_merge_commit": False, "allow_rebase_merge": False,
+            "delete_branch_on_merge": True, "squash_merge_commit_title": "PR_TITLE",
+            "squash_merge_commit_message": "PR_BODY", "allow_update_branch": True, "has_projects": True,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions"], {
+            "enabled": True, "allowed_actions": "selected", "sha_pinning_required": True,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions/selected-actions"], {
+            "github_owned_allowed": True, "verified_allowed": True,
+            "patterns_allowed": ["amannn/action-semantic-pull-request@*"],
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions/workflow"], {
+            "default_workflow_permissions": "read", "can_approve_pull_request_reviews": False,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions/fork-pr-workflows-private-repos"], {
+            "run_workflows_from_fork_pull_requests": False, "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False, "require_approval_for_fork_pr_workflows": False,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/branches/main/protection"], {
+            "required_status_checks": {"strict": False, "contexts": ["validate-title", "test / test"]},
+            "enforce_admins": True,
+            "required_pull_request_reviews": {
+                "dismiss_stale_reviews": False, "require_code_owner_reviews": False,
+                "required_approving_review_count": 0,
+            },
+            "restrictions": None,
+        })
+
     def test_new_repository_still_gets_policy_and_protection(self):
         writes, _, _ = self._configure({}, None, configure_only=False)
         self.assertIn(f"{self.REPO}/actions/permissions", writes)
@@ -334,6 +380,45 @@ class ReleaseGateGuardTests(unittest.TestCase):
                         self.assertIn(message, result.stdout)
                     expected_output = "" if release is None else f"release={release}\n"
                     self.assertEqual(output.read_text(), expected_output)
+
+
+class PythonToolInstallTests(unittest.TestCase):
+    """The generated Python suite installs pinned tools only when the project has none."""
+
+    def test_pinned_fallbacks_install_only_missing_tools(self):
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        log = Path(tmp.name) / "pip-log"
+        fake_pip = Path(tmp.name) / "bin" / "pip"
+        fake_pip.parent.mkdir()
+        fake_pip.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = show ]; then case " $INSTALLED " in *" $2 "*) exit 0 ;; *) exit 1 ;; esac; fi\n'
+            'echo "$*" >> "$PIP_LOG"\n'
+            'exit "${PIP_FAIL:-0}"\n'
+        )
+        fake_pip.chmod(0o755)
+        work = Path(tmp.name) / "project"
+        work.mkdir()
+        cases = {
+            "nothing installed": ("", "", 0, ["install ruff==0.16.10", "install mypy==2.4.0", "install pytest==9.1.1"]),
+            "the project pins ruff and pytest": ("ruff pytest", "", 0, ["install mypy==2.4.0"]),
+            "an install fails": ("", "1", 1, ["install ruff==0.16.10"]),
+        }
+        for label, (installed, fail, code, installs) in cases.items():
+            with self.subTest(label):
+                log.write_text("")
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                    cwd=work, capture_output=True, text=True,
+                    env={"PATH": f"{fake_pip.parent}:/usr/bin:/bin", "PIP_LOG": str(log),
+                         "INSTALLED": installed, "PIP_FAIL": fail},
+                )
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                self.assertEqual(log.read_text().splitlines(), installs)
 
 
 if __name__ == "__main__":

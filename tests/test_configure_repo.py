@@ -261,28 +261,47 @@ class ReleaseGateGuardTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         argv_file = Path(tmp.name) / "gh-argv"
         fake_gh = Path(tmp.name) / "gh"
+        # Records each call's arguments; answers the compare call with how the
+        # pending merge relates to TESTED_SHA (abc123).
         fake_gh.write_text(
             "#!/bin/sh\n"
-            'printf "%s\\0" "$@" > "$ARGV_FILE"\n'
+            'printf "%s\\0" "$@" >> "$ARGV_FILE"; printf "\\n" >> "$ARGV_FILE"\n'
             '[ -z "$FAKE_FAIL" ] || exit 1\n'
-            'printf "%s" "$FAKE_PENDING"\n'
+            'if [ "$1" = api ]; then\n'
+            '  case "$2" in\n'
+            '    */compare/abc123...fff999) echo ahead ;;\n'
+            '    */compare/abc123...def456) echo behind ;;\n'
+            '    */compare/abc123...0dd000) echo diverged ;;\n'
+            '    *) echo "unexpected compare: $2" >&2; exit 3 ;;\n'
+            '  esac\n'
+            'else\n'
+            '  printf "%s" "$FAKE_PENDING"\n'
+            'fi\n'
         )
         fake_gh.chmod(0o755)
         output = Path(tmp.name) / "github-output"
-        # (pending rows, gh fails, exit code, release output or None when the step fails before it)
+        # (pending rows, gh fails, exit code, release output or None when the step
+        # fails before it, commits compared, message expected in the log)
         cases = {
-            "no pending release": ("", False, 0, "false"),
-            "pending release is this commit": ("71 abc123", False, 0, "true"),
-            "pending release is an older commit": ("71 def456", False, 1, "false"),
-            "this commit and an older one": ("71 abc123\n72 def456", False, 1, "true"),
-            "the gh query fails": ("", True, 1, None),
+            "no pending release": ("", False, 0, "false", [], None),
+            "pending release is this commit": ("71 abc123", False, 0, "true", [], None),
+            "pending release is an older commit": (
+                "71 def456", False, 1, "false", ["def456"], "::error::Release PR #71 merged as def456"),
+            "pending release merged after this commit": (
+                "71 fff999", False, 0, "false", ["fff999"], "::notice::Release PR #71 merged as fff999"),
+            "pending release on a diverged history": (
+                "71 0dd000", False, 1, "false", ["0dd000"], "::error::Release PR #71 merged as 0dd000"),
+            "this commit and an older one": (
+                "71 abc123\n72 def456", False, 1, "true", ["def456"], "::error::Release PR #72 merged as def456"),
+            "the gh query fails": ("", True, 1, None, [], None),
         }
         for repo_type in ("python", "nextjs"):
             guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
             self.assertEqual(guard.get("id"), "guard")
-            for label, (pending, fail, code, release) in cases.items():
+            for label, (pending, fail, code, release, compared, message) in cases.items():
                 with self.subTest(repo_type=repo_type, case=label):
                     output.write_text("")
+                    argv_file.write_text("")
                     # GitHub runs a bash step as `bash --noprofile --norc -eo pipefail {0}`.
                     result = subprocess.run(
                         ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", guard["run"]],
@@ -295,10 +314,13 @@ class ReleaseGateGuardTests(unittest.TestCase):
                         },
                     )
                     self.assertEqual(result.returncode, code, result.stdout + result.stderr)
-                    self.assertEqual(argv_file.read_text().split("\0")[:-1], expected_argv)
-                    if "def456" in pending:
-                        self.assertIn("::error::Release PR #72 merged as def456" if "72" in pending
-                                      else "::error::Release PR #71 merged as def456", result.stdout)
+                    calls = [line.split("\0")[:-1] for line in argv_file.read_text().split("\n") if line]
+                    self.assertEqual(calls, [expected_argv] + [
+                        ["api", f"repos/octocat/sample/compare/abc123...{oid}", "--jq", ".status"]
+                        for oid in compared
+                    ])
+                    if message:
+                        self.assertIn(message, result.stdout)
                     expected_output = "" if release is None else f"release={release}\n"
                     self.assertEqual(output.read_text(), expected_output)
 

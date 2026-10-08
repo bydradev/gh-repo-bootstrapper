@@ -36,9 +36,10 @@ jobs:
 
       # A release PR whose merge failed `test` keeps its "autorelease: pending"
       # label, and release-please would tag that untested merge on the next
-      # passing push. Refuse unless the pending release merge is this commit,
-      # and let release-please tag only on that commit's own run, so a release
-      # PR merged while this run is in flight waits for its own tested run.
+      # passing push. Refuse when the pending release merge is older than this
+      # commit, and let release-please tag only on that merge's own run, so a
+      # release PR merged while this run is in flight waits for its own tested
+      # run.
       - name: Refuse to tag an untested release merge
         id: guard
         env:
@@ -52,6 +53,13 @@ jobs:
           while read -r number oid; do
             [ -n "$number" ] || continue
             if [ "$oid" != "$TESTED_SHA" ]; then
+              # A release merged after this commit is still queued behind this
+              # run; its own run tests and releases it.
+              order=$(gh api "repos/$REPO/compare/$TESTED_SHA...$oid" --jq .status </dev/null)
+              if [ "$order" = "ahead" ]; then
+                echo "::notice::Release PR #$number merged as $oid after $TESTED_SHA; that commit's own run releases it."
+                continue
+              fi
               echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). Re-run the workflow run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
               status=1
               continue

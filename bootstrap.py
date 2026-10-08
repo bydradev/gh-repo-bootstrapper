@@ -2296,7 +2296,8 @@ def main():
         if subprocess.run(["gh", "repo", "view", full], capture_output=True).returncode != 0:
             _die(f"repository '{full}' not found — verify the name and org")
         print(f"\nAbout to configure: {full} ({cfg['repo_type']})")
-        print("  Applies: Release Please credentials, squash-merge only, delete branch on merge")
+        print("  Applies: Release Please credentials, squash-merge only (squash commit title and")
+        print("    message from the PR), delete branch on merge, update-branch button, Projects")
         print("  Shows Actions policy changes and asks before applying them")
         print("  Leaves branch protection on main unchanged")
         print("  Note: file generation is skipped — commit CLAUDE.md and AGENTS.md separately if needed")

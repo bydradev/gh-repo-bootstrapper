@@ -219,6 +219,44 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(writes, [self.REPO])
         self.assertIn("already matches the generated policy", out)
 
+    def test_security_settings_are_pinned(self):
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = {
+            "name": "example", "owner": "octocat", "repo_type": "python", "private": True,
+            "release_please_client_id": "", "release_please_app_key": "",
+        }
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.configure_repo(cfg)
+        payloads = {
+            command[2]: json.loads(kwargs["input"].decode())
+            for command, kwargs in calls if command[:2] == ["gh", "api"]
+        }
+        self.assertEqual(payloads[self.REPO], {
+            "allow_squash_merge": True, "allow_merge_commit": False, "allow_rebase_merge": False,
+            "delete_branch_on_merge": True, "squash_merge_commit_title": "PR_TITLE",
+            "squash_merge_commit_message": "PR_BODY", "allow_update_branch": True, "has_projects": True,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions"], {
+            "enabled": True, "allowed_actions": "selected", "sha_pinning_required": True,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions/selected-actions"], {
+            "github_owned_allowed": True, "verified_allowed": True,
+            "patterns_allowed": ["amannn/action-semantic-pull-request@*"],
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions/workflow"], {
+            "default_workflow_permissions": "read", "can_approve_pull_request_reviews": False,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/actions/permissions/fork-pr-workflows-private-repos"], {
+            "run_workflows_from_fork_pull_requests": False, "send_write_tokens_to_workflows": False,
+            "send_secrets_and_variables": False, "require_approval_for_fork_pr_workflows": False,
+        })
+        self.assertEqual(payloads[f"{self.REPO}/branches/main/protection"], bootstrap.branch_protection_payload("python"))
+
     def test_new_repository_still_gets_policy_and_protection(self):
         writes, _, _ = self._configure({}, None, configure_only=False)
         self.assertIn(f"{self.REPO}/actions/permissions", writes)

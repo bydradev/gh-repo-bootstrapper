@@ -397,6 +397,26 @@ class ExistingRepositoryTests(unittest.TestCase):
         actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
         self.assertEqual(actions["AGENTS.md"], "refused")
         self.assertEqual((self.repo / "AGENTS.md").read_text(), original + "\nUncommitted.\n")
+    def test_adopt_refuses_text_before_the_first_heading(self):
+        files = _render()
+        original = "Local preface the template does not have.\n\n" + self._agents_missing_a_section(files)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), original)
+
+    def test_adopt_refuses_a_duplicated_generated_heading(self):
+        files = _render()
+        agents = self._agents_missing_a_section(files)
+        original = agents.replace("## Commits\n", "## Branches\n\nLocal duplicate rule.\n\n## Commits\n", 1)
+        self.assertNotEqual(original, agents)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), original)
+
     def test_adopt_never_writes_through_symlinks(self):
         files = _render()
         outside = Path(self._tmp.name) / "outside.md"

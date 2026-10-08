@@ -37,10 +37,13 @@ anything installed beyond a base Python interpreter.
   ceiling), its pinned safety gates, skill pointers and frontmatter, reviewer
   agents, and the ownership stamps on template-owned files
 - executable workflow gates — every action pinned to a full commit SHA and
-  allowed by the Actions policy the script sets, every job with a timeout, no
-  suite step that can be skipped or allowed to fail, the release job waiting
-  for `test`, the release App token limited to contents and pull requests,
-  and pinned Python CI tools
+  allowed by the Actions policy the script sets; a timeout on every job that
+  declares `runs-on`; no job or step set to `continue-on-error` or given an
+  `if:` that can never be true; the Python and Rust suite commands run once,
+  unconditionally; the Next.js e2e runs and browser installs tied to their
+  `full` conditions; the release job waiting for `test` with no condition of
+  its own; the release App token limited to contents and pull requests; and
+  pinned fallback versions of the Python CI tools
 - the bootstrapper's own runbook copy and its legacy-digest table
 
 It also runs self-tests that reproduce each past regression from real rendered
@@ -450,10 +453,9 @@ CI pipeline for Rust crates and workspaces.
 - `test.yml` — `cargo fmt --check`, `cargo clippy -D warnings`, and
   `cargo test` across the workspace; fails with a clear error until a root
   `Cargo.toml` exists
-- `dependabot.yml` — GitHub Actions updates only; the generated `README.md`
-  and `local-validation-rust` skill say to add a `cargo` entry once
-  `Cargo.toml` is committed, since a new repository has no manifest for
-  Dependabot to read
+- `dependabot.yml` — GitHub Actions updates only; the generated
+  `local-validation-rust` skill says to add a `cargo` entry once `Cargo.toml`
+  is committed, since a new repository has no manifest for Dependabot to read
 - `.gitignore` — adds Cargo's `/target/` build output
 - `README.md` — project starter with rustup setup and the CI commands
 - `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
@@ -466,8 +468,8 @@ the `rust` release type or the `cargo-workspace` plugin.
 The bootstrapper does not run `cargo init` or choose a crate layout. The
 generated `local-validation-rust` skill tells agents to share one
 `CARGO_TARGET_DIR` per repository across worktrees, so each worktree does not
-build its own multi-gigabyte `target/`. It lives beside those worktrees and is deleted with
-the last of them.
+build its own multi-gigabyte `target/`. It lives beside those worktrees and is
+deleted with the last of them.
 
 ### `simple`
 
@@ -485,8 +487,8 @@ test suite.
 Beyond file generation, the script applies GitHub configuration to the repo:
 
 - **Merge strategy** — squash-merge only; merge commits and rebase disabled,
-  and the squash commit takes its title from the PR title and its message from
-  the PR body (the Conventional Commits text Release Please parses)
+  and the default squash commit title and message are set to the PR title and
+  body (the Conventional Commits text Release Please parses)
 - **Delete branch on merge** — enabled automatically
 - **Always suggest updating pull request branches** — enabled
 - **Projects** — enabled

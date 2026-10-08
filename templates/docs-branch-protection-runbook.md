@@ -73,20 +73,22 @@ benefits. The operational rule:
 
 ## 4. A reported `skipped` conclusion satisfies a required check; a check that never reports blocks forever
 
-These are different states and only one of them is safe:
+These states differ, and only a reported skip is safe on its own:
 
 - **Skipped:** `pr-title-check.yml` gates at the job level
   (`if: !startsWith(github.head_ref, 'release-please--')`), so the workflow still triggers and GitHub
   receives a check run with `status: completed, conclusion: skipped`. A reported skip counts as
   satisfied. Verified on a protected branch: a release PR with `validate-title` SKIPPED computed
   CLEAN.
-- **Never reports:** if no run completes, no check run reports and the required context stays
-  pending **forever** — the PR can never merge. Release PRs created or updated with the default
-  `secrets.GITHUB_TOKEN` hit this: their `pull_request` runs are created in an approval-required
-  state, and stay there until someone with write access selects **Approve workflows to run** in
-  the merge box (GitHub docs, "GITHUB_TOKEN", checked 2026-10-09). Such a repository must not have
-  required checks until its release automation uses the GitHub App token shape. Before requiring
-  checks, check who authored the release PR and whether its runs are waiting for approval.
+- **Never reports:** if no run is ever created, no check run reports and the required context
+  stays pending **forever** — the PR can never merge.
+- **Waiting for approval:** release PRs created or updated with the default `secrets.GITHUB_TOKEN`
+  get `pull_request` runs in an approval-required state (GitHub docs, "GITHUB_TOKEN", checked
+  2026-10-09). Their required checks stay pending until someone with write access selects
+  **Approve workflows to run** in the merge box; once approved, the runs report as usual. Keep the
+  required checks (see section 6): approve the runs, or move the release automation to the GitHub
+  App token so they start unattended. For a stuck release PR, check who authored it and whether
+  its runs are waiting for approval.
 
 ### Status check context naming for reusable workflows
 

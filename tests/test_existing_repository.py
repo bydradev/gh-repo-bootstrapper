@@ -1250,6 +1250,12 @@ class ExistingRepositoryTests(unittest.TestCase):
         for canonical, alias in renames.items():
             _git(self.repo, "mv", canonical, alias)
         _git(self.repo, "commit", "-q", "-m", "rename by case")
+        # A directory renamed by case aliases every file below it.
+        skill = ".agents/skills/worktrees-and-scratch/SKILL.md"
+        self._write(skill, files[skill])
+        self._commit_all()
+        os.rename(self.repo / Path(skill).parent, self.repo / ".agents/skills/Worktrees-And-Scratch")
+        renames[skill] = ".agents/skills/Worktrees-And-Scratch/SKILL.md"
         report = bootstrap.compare_repository(self.repo, files)
         actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
         for canonical, alias in renames.items():

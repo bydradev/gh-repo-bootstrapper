@@ -6,7 +6,7 @@
 ```sh
 # <<XCODEGEN_GENERATE_STEP>>
 xcodebuild test -scheme __SCHEME__ -destination "__DESTINATION_EXAMPLE__"
-swift-format lint --recursive --strict .
+xcrun swift-format lint --recursive --strict .
 ```
 
-Run `swift-format format --recursive --in-place .` after changing any Swift file.
+Run `xcrun swift-format format --recursive --in-place .` after changing any Swift file.

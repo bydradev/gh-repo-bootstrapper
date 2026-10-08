@@ -245,29 +245,59 @@ class ReleaseGateGuardTests(unittest.TestCase):
                 guard = names.index(self.GUARD)
                 self.assertEqual(steps[guard - 1].get("id"), "app-token")
                 self.assertTrue(names[guard + 1].startswith("googleapis/release-please-action@"))
+                # release-please may tag only on the run the guard cleared.
+                self.assertEqual(
+                    steps[guard + 1]["with"]["skip-github-release"],
+                    "${{ steps.guard.outputs.release != 'true' }}",
+                )
 
     def test_guard_refuses_only_a_pending_merge_it_did_not_test(self):
-        guard = next(step for step in self._steps("python") if step.get("name") == self.GUARD)
+        expected_args = (
+            'pr list --repo octocat/sample --state merged --label autorelease: pending '
+            '--json number,mergeCommit --jq .[] | "\\(.number) \\(.mergeCommit.oid)"'
+        )
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         fake_gh = Path(tmp.name) / "gh"
-        fake_gh.write_text('#!/bin/sh\nprintf "%s" "$FAKE_PENDING"\n')
+        fake_gh.write_text(
+            "#!/bin/sh\n"
+            '[ "$*" = "$EXPECTED_ARGS" ] || { echo "unexpected gh arguments: $*" >&2; exit 2; }\n'
+            '[ -z "$FAKE_FAIL" ] || exit 1\n'
+            'printf "%s" "$FAKE_PENDING"\n'
+        )
         fake_gh.chmod(0o755)
+        output = Path(tmp.name) / "github-output"
+        # (pending rows, gh fails, exit code, release output or None when the step fails before it)
         cases = {
-            "no pending release": ("", 0),
-            "pending release is this commit": ("71 abc123", 0),
-            "pending release is an older commit": ("71 def456", 1),
+            "no pending release": ("", False, 0, "false"),
+            "pending release is this commit": ("71 abc123", False, 0, "true"),
+            "pending release is an older commit": ("71 def456", False, 1, "false"),
+            "this commit and an older one": ("71 abc123\n72 def456", False, 1, "true"),
+            "the gh query fails": ("", True, 1, None),
         }
-        for label, (pending, expected) in cases.items():
-            with self.subTest(label):
-                result = subprocess.run(
-                    ["bash", "-c", guard["run"]], capture_output=True, text=True,
-                    env={"PATH": f"{tmp.name}:/usr/bin:/bin", "FAKE_PENDING": pending,
-                         "REPO": "octocat/sample", "TESTED_SHA": "abc123"},
-                )
-                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
-                if expected:
-                    self.assertIn("::error::Release PR #71 merged as def456", result.stdout)
+        for repo_type in ("python", "nextjs"):
+            guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
+            for label, (pending, fail, code, release) in cases.items():
+                with self.subTest(repo_type=repo_type, case=label):
+                    output.write_text("")
+                    # GitHub runs a bash step as `bash --noprofile --norc -eo pipefail {0}`.
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", guard["run"]],
+                        capture_output=True, text=True,
+                        env={
+                            "PATH": f"{tmp.name}:/usr/bin:/bin", "EXPECTED_ARGS": expected_args,
+                            "FAKE_PENDING": pending, "FAKE_FAIL": "1" if fail else "",
+                            "REPO": "octocat/sample", "TESTED_SHA": "abc123",
+                            "GITHUB_OUTPUT": str(output),
+                        },
+                    )
+                    self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                    self.assertNotIn("unexpected gh arguments", result.stderr)
+                    if "def456" in pending:
+                        self.assertIn("::error::Release PR #72 merged as def456" if "72" in pending
+                                      else "::error::Release PR #71 merged as def456", result.stdout)
+                    expected_output = "" if release is None else f"release={release}\n"
+                    self.assertEqual(output.read_text(), expected_output)
 
 
 if __name__ == "__main__":

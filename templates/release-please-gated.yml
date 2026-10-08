@@ -55,8 +55,11 @@ jobs:
 
       # A release PR whose merge failed `test` keeps its "autorelease: pending"
       # label, and release-please would tag that untested merge on the next
-      # passing push. Refuse unless the pending release merge is this commit.
+      # passing push. Refuse unless the pending release merge is this commit,
+      # and let release-please tag only on that commit's own run, so a release
+      # PR merged while this run is in flight waits for its own tested run.
       - name: Refuse to tag an untested release merge
+        id: guard
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
@@ -70,8 +73,11 @@ jobs:
             if [ "$oid" != "$TESTED_SHA" ]; then
               echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). Re-run the workflow run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
               status=1
+              continue
             fi
+            release=true
           done <<< "$pending"
+          echo "release=${release:-false}" >> "$GITHUB_OUTPUT"
           exit "$status"
         shell: bash
 
@@ -79,5 +85,6 @@ jobs:
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
+          skip-github-release: ${{ steps.guard.outputs.release != 'true' }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

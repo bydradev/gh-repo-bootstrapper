@@ -8,7 +8,9 @@ import zlib
 import io
 import subprocess
 import sys
+import shutil
 import tempfile
+import threading
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -416,6 +418,195 @@ class ExistingRepositoryTests(unittest.TestCase):
         actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
         self.assertEqual(actions["AGENTS.md"], "refused")
         self.assertEqual((self.repo / "AGENTS.md").read_text(), original)
+
+    def test_indented_project_specifics_line_is_not_the_boundary(self):
+        files = _render()
+        agents = self._agents_missing_a_section(files)
+        original = agents.replace("## Branches\n\n", "## Branches\n\n    ## Project specifics\n\n", 1)
+        self.assertNotEqual(original, agents)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        bootstrap.adopt_repository(self.repo, files, True, confirm=lambda sections: True)
+        result = (self.repo / "AGENTS.md").read_text()
+        for heading in ("## Commits", "## Skills", "## Project specifics"):
+            self.assertEqual(result.count(f"\n{heading}\n"), 1, heading)
+
+    def test_moved_next_dev_block_is_reported_and_refused(self):
+        files = _render("nextjs")
+        block = bootstrap._nextjs_rules_block(files["AGENTS.md"])
+        moved = files["AGENTS.md"].replace(block, "", 1).lstrip("\n") + "\n" + block + "\n"
+        self._write("AGENTS.md", moved)
+        self._commit_all()
+        status, rows = bootstrap.compare_repository(self.repo, files)["AGENTS.md"]
+        self.assertEqual(status, "differs")
+        self.assertIn(("local", bootstrap.NEXTJS_BLOCK_MOVED), rows)
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files, True)}
+        self.assertEqual(actions["AGENTS.md"][0], "refused")
+        self.assertIn("back to the top", actions["AGENTS.md"][1])
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), moved)
+
+    def test_missing_next_dev_block_is_restored(self):
+        files = _render("nextjs")
+        block = bootstrap._nextjs_rules_block(files["AGENTS.md"])
+        self._write("AGENTS.md", files["AGENTS.md"].replace(block, "", 1).lstrip("\n"))
+        self._commit_all()
+        status, rows = bootstrap.compare_repository(self.repo, files)["AGENTS.md"]
+        self.assertIn(("missing", "(`next dev` block)"), rows)
+        bootstrap.adopt_repository(self.repo, files)
+        self.assertTrue((self.repo / "AGENTS.md").read_text().startswith(block))
+
+    def test_dangling_skill_mirrors_are_reported_and_removed(self):
+        files = _render()
+        mirrors = self.repo / ".claude/skills"
+        mirrors.mkdir(parents=True)
+        (mirrors / "retired-skill").symlink_to("../../.agents/skills/retired-skill")
+        (mirrors / "elsewhere").symlink_to("../../no/such/place")
+        self._write(".agents/skills/repo-skill/SKILL.md", "---\nname: repo-skill\n---\n# Ours\n")
+        (mirrors / "repo-skill").symlink_to("../../.agents/skills/repo-skill")
+        self._commit_all()
+        report = bootstrap.compare_repository(self.repo, files)
+        self.assertEqual(report[".claude/skills/retired-skill"][0], "dangling")
+        self.assertEqual(report[".claude/skills/elsewhere"][0], "dangling")
+        self.assertNotIn(".claude/skills/repo-skill", report)
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".claude/skills/retired-skill"], "deleted")
+        self.assertFalse((mirrors / "retired-skill").is_symlink())
+        self.assertEqual(actions[".claude/skills/elsewhere"], "refused")
+        self.assertTrue((mirrors / "elsewhere").is_symlink())
+        self.assertTrue((mirrors / "repo-skill").is_symlink())
+
+    def test_wrong_type_is_refused_before_anything_changes(self):
+        nextjs = _render("nextjs")
+        for rel, content in nextjs.items():
+            self._write(rel, content)
+        self._commit_all()
+        before = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain"],
+                                capture_output=True, text=True, check=True).stdout
+        files = _render("simple")
+        report = bootstrap.compare_repository(self.repo, files)
+        self.assertIn(".agents/skills/local-validation-nextjs/SKILL.md", report[bootstrap.TYPE_MISMATCH][1])
+        actions = bootstrap.adopt_repository(self.repo, files)
+        self.assertEqual([(action, rel) for action, rel, _ in actions], [("refused", bootstrap.TYPE_MISMATCH)])
+        self.assertTrue((self.repo / ".agents/skills/local-validation-nextjs/SKILL.md").is_file())
+        after = subprocess.run(["git", "-C", str(self.repo), "status", "--porcelain"],
+                               capture_output=True, text=True, check=True).stdout
+        self.assertEqual(after, before)
+
+    def test_type_check_finds_another_types_skills_wherever_the_scan_would_delete_them(self):
+        simple, nextjs = _render("simple"), _render("nextjs")
+        skill = nextjs[".agents/skills/local-validation-nextjs/SKILL.md"]
+        cases = {
+            "canonical path": (".agents/skills/local-validation-nextjs/SKILL.md", skill, True),
+            "relocated folder": (".agents/skills/nextjs-checks/SKILL.md", skill, True),
+            "nested folder": (".agents/skills/old/local-validation-nextjs/SKILL.md", skill, True),
+            "stamp past 1 MiB": (".agents/skills/big/SKILL.md", skill + "x" * (1 << 20) + "\n", True),
+            "repository's own folder": (
+                ".agents/skills/local-validation-nextjs/SKILL.md",
+                "---\nname: local-validation-nextjs\n---\nExample: " + bootstrap.STAMP_PREFIX + "0" * 64 + " -->\n",
+                False),
+        }
+        for label, (rel, content, mismatch) in cases.items():
+            with self.subTest(label):
+                shutil.rmtree(self.repo / ".agents", ignore_errors=True)
+                self._write(rel, content)
+                report = bootstrap.compare_repository(self.repo, simple)
+                self.assertEqual(bootstrap.TYPE_MISMATCH in report, mismatch, report.get(bootstrap.TYPE_MISMATCH))
+
+    def test_unreadable_other_type_skill_is_not_deleted(self):
+        nextjs, simple = _render("nextjs"), _render("simple")
+        rel = ".agents/skills/local-validation-nextjs/SKILL.md"
+        self._write(rel, nextjs[rel])
+        self._commit_all()
+        (self.repo / rel).chmod(0)
+        try:
+            actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, simple)}
+        finally:
+            (self.repo / rel).chmod(0o644)
+        self.assertEqual(actions[rel], "refused")
+        self.assertTrue((self.repo / rel).is_file())
+
+    def test_unreachable_skill_target_is_not_dangling(self):
+        files = _render()
+        self._write(".agents/skills/repo-skill/SKILL.md", "---\nname: repo-skill\n---\n# Ours\n")
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / ".claude/skills/repo-skill").symlink_to("../../.agents/skills/repo-skill")
+        self._commit_all()
+        skills = self.repo / ".agents/skills"
+        skills.chmod(0)
+        try:
+            self.assertNotIn(".claude/skills/repo-skill", bootstrap._dangling_mirrors(self.repo, {}))
+        finally:
+            skills.chmod(0o755)
+        self.assertTrue((self.repo / ".claude/skills/repo-skill").is_symlink())
+
+    def test_symlinked_skill_read_does_not_block_on_a_fifo(self):
+        files = _render()
+        outside = Path(self._tmp.name) / "fifo-skill"
+        outside.mkdir()
+        os.mkfifo(outside / "SKILL.md")
+        (self.repo / ".agents/skills").mkdir(parents=True)
+        (self.repo / ".agents/skills/custom").symlink_to(outside)
+        done = []
+        worker = threading.Thread(target=lambda: done.append(bootstrap.compare_repository(self.repo, files)), daemon=True)
+        worker.start()
+        worker.join(10)
+        self.assertTrue(done, "compare_repository blocked on a FIFO behind a symlinked skill")
+        self.assertNotIn(".agents/skills/custom", done[0])
+
+    def test_symlinked_skill_names_survive_crlf_and_a_cut_character(self):
+        files = _render()
+        cases = {
+            "crlf": "---\r\nname: pull-requests\r\n---\r\n# Not the template\r\n",
+            "cut multibyte": "---\nname: pull-requests\n---\n" + "\u00e9" * 40,
+        }
+        (self.repo / ".agents/skills").mkdir(parents=True)
+        for label, text in cases.items():
+            with self.subTest(label):
+                outside = Path(self._tmp.name) / f"skill-{label.replace(' ', '-')}"
+                outside.mkdir()
+                (outside / "SKILL.md").write_bytes(text.encode())
+                link = self.repo / ".agents/skills/custom"
+                if link.is_symlink():
+                    link.unlink()
+                link.symlink_to(outside)
+                with unittest.mock.patch.object(bootstrap, "SYMLINKED_SKILL_READ_LIMIT", 33):
+                    report = bootstrap.compare_repository(self.repo, files)
+                self.assertEqual(report[".agents/skills/custom"][0], "shadowed")
+
+    def test_symlinked_skill_folder_with_a_template_name_is_shadowed(self):
+        files = _render()
+        outside = Path(self._tmp.name) / "shared-skill"
+        outside.mkdir()
+        (outside / "SKILL.md").write_text("---\nname: pull-requests\n---\n# Not the template\n")
+        (self.repo / ".agents/skills").mkdir(parents=True)
+        (self.repo / ".agents/skills/custom").symlink_to(outside)
+        report = bootstrap.compare_repository(self.repo, files)
+        self.assertEqual(report[".agents/skills/custom"][0], "shadowed")
+        self.assertEqual(report[".agents/skills/pull-requests/SKILL.md"][0], "shadowed")
+        actions = {rel: action for action, rel, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[".agents/skills/custom"], "refused")
+        self.assertEqual((outside / "SKILL.md").read_text(), "---\nname: pull-requests\n---\n# Not the template\n")
+
+    def test_non_utf8_locale_renders_and_reports_cleanly(self):
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LC_ALL": "en_US.ISO8859-1",
+            "LANG": "en_US.ISO8859-1", "PYTHONUTF8": "0", "PYTHONIOENCODING": "",
+        }
+        root = Path(bootstrap.__file__).resolve().parent
+        script = (
+            "import bootstrap\n"
+            "f = bootstrap.generate_files({'name': 's', 'repo_type': 'simple', 'postgres': False})\n"
+            "assert '\\u2014' in f['AGENTS.md'] and '\\u00e2\\u20ac' not in f['AGENTS.md']\n"
+        )
+        render = subprocess.run([sys.executable, "-c", script], cwd=root, env=env, capture_output=True)
+        self.assertEqual(render.returncode, 0, render.stderr.decode(errors="replace"))
+        # The --check report prints an em dash on its first line.
+        check = subprocess.run(
+            [sys.executable, str(root / "bootstrap.py"), "--check", str(self.repo), "--type", "simple"],
+            env=env, capture_output=True,
+        )
+        self.assertIn(check.returncode, (0, 1), check.stderr.decode(errors="replace"))
+        self.assertNotIn(b"Traceback", check.stderr)
 
     def test_adopt_never_writes_through_symlinks(self):
         files = _render()

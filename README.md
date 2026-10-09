@@ -412,6 +412,11 @@ CI pipeline for Python projects.
   standard-library `venv` alternative
 - `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
 
+**Upgrading to 0.8.1:** `test.yml` now runs `ruff format --check .`, so CI
+fails on unformatted code. When you `--adopt` 0.8.1 into an existing Python
+repository, run `ruff format .` and commit the result in the same pull
+request.
+
 ### `swift`
 
 CI pipeline for Swift/Xcode projects.

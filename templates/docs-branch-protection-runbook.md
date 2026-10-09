@@ -76,7 +76,7 @@ benefits. The operational rule:
 These states differ, and only a reported skip is safe on its own:
 
 - **Skipped:** `pr-title-check.yml` gates at the job level
-  (`if: !startsWith(github.head_ref, 'release-please--')`), so the workflow still triggers and GitHub
+  (it skips a bot's `release-please--*` PR from the repository itself), so the workflow still triggers and GitHub
   receives a check run with `status: completed, conclusion: skipped`. A reported skip counts as
   satisfied. Verified on a protected branch: a release PR with `validate-title` SKIPPED computed
   CLEAN.

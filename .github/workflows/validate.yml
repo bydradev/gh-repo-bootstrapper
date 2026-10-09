@@ -19,11 +19,12 @@ permissions:
   contents: read
 
 # Rapid pushes to a PR should not queue obsolete validation runs, as in the
-# generated ci.yml and pr-title-check.yml. Runs on main are never cancelled:
-# each merge commit keeps its own result.
+# generated ci.yml and pr-title-check.yml. A push to main gets a group of its
+# own, so neither a running nor a pending run on main is ever cancelled: each
+# merge commit keeps its own result.
 concurrency:
-  group: validate-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: validate-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   validate-templates:

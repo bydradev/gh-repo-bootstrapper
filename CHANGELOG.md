@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.8.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.8.0...v0.8.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* add job timeouts to generated and own workflows ([abe9958](https://github.com/bydradev/gh-repo-bootstrapper/commit/abe9958dae96bb71f749dd0010a7557d5947051d))
+* allow the rust actions the generated test workflow uses ([#70](https://github.com/bydradev/gh-repo-bootstrapper/issues/70)) ([abe9958](https://github.com/bydradev/gh-repo-bootstrapper/commit/abe9958dae96bb71f749dd0010a7557d5947051d))
+* ask before changing an existing repository's actions policy ([eab8141](https://github.com/bydradev/gh-repo-bootstrapper/commit/eab81414334bfcfffb84555b8751d5fe81ea02a1))
+* check every generated skill has a row in the hub's skills table ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* check python formatting in the generated test workflow ([#77](https://github.com/bydradev/gh-repo-bootstrapper/issues/77)) ([52939a2](https://github.com/bydradev/gh-repo-bootstrapper/commit/52939a2bd2c271e0025235d9e776a385a8389afd))
+* check release-please branch titles unless the release bot opened them ([6c036d8](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c036d85282e3309f8e8dd14b1c401845b195ab5))
+* count only a real project specifics heading as the boundary ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* install every default playwright browser for the full e2e run ([abe9958](https://github.com/bydradev/gh-repo-bootstrapper/commit/abe9958dae96bb71f749dd0010a7557d5947051d))
+* keep an existing repository's branch protection in configure-only ([#73](https://github.com/bydradev/gh-repo-bootstrapper/issues/73)) ([eab8141](https://github.com/bydradev/gh-repo-bootstrapper/commit/eab81414334bfcfffb84555b8751d5fe81ea02a1))
+* keep the github token out of generated workflow checkouts ([#79](https://github.com/bydradev/gh-repo-bootstrapper/issues/79)) ([6c036d8](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c036d85282e3309f8e8dd14b1c401845b195ab5))
+* list omo and shorten the hub's commit trailer examples ([52939a2](https://github.com/bydradev/gh-repo-bootstrapper/commit/52939a2bd2c271e0025235d9e776a385a8389afd))
+* pin the python ci tools in the generated test workflow ([9a3316c](https://github.com/bydradev/gh-repo-bootstrapper/commit/9a3316c83a9904c71f395f014d3abf4b01ce88a4))
+* pin the rust toolchain action to a commit that stays on master ([6c036d8](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c036d85282e3309f8e8dd14b1c401845b195ab5))
+* read and write templates as utf-8 under any locale ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* refuse adopt rewrites hidden by skip-worktree or assume-unchanged ([#72](https://github.com/bydradev/gh-repo-bootstrapper/issues/72)) ([54510c9](https://github.com/bydradev/gh-repo-bootstrapper/commit/54510c96ee201c98727fd3527ca0fe6f105321f3))
+* refuse adopt under a wrong type instead of deleting that type's skills ([#76](https://github.com/bydradev/gh-repo-bootstrapper/issues/76)) ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* refuse deleting an orphan with uncommitted or staged changes ([54510c9](https://github.com/bydradev/gh-repo-bootstrapper/commit/54510c96ee201c98727fd3527ca0fe6f105321f3))
+* refuse orphan deletion when git cannot read the repository ([54510c9](https://github.com/bydradev/gh-repo-bootstrapper/commit/54510c96ee201c98727fd3527ca0fe6f105321f3))
+* refuse to tag a release merge whose own test run failed ([eab8141](https://github.com/bydradev/gh-repo-bootstrapper/commit/eab81414334bfcfffb84555b8751d5fe81ea02a1))
+* report a moved or missing next dev block ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* report and remove dangling claude skill mirrors ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* report symlinked skill folders that reuse a template skill name ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+* run creation git and gh commands without inherited repository overrides ([54510c9](https://github.com/bydradev/gh-repo-bootstrapper/commit/54510c96ee201c98727fd3527ca0fe6f105321f3))
+* run swift-format through xcrun in the swift hub and skill ([abe9958](https://github.com/bydradev/gh-repo-bootstrapper/commit/abe9958dae96bb71f749dd0010a7557d5947051d))
+* say nothing changed when adopt only kept or refused files ([3aebcd6](https://github.com/bydradev/gh-repo-bootstrapper/commit/3aebcd6d71b41650dcd16489afdb7be966b1daab))
+* scope release-please app tokens to contents and pull requests ([abe9958](https://github.com/bydradev/gh-repo-bootstrapper/commit/abe9958dae96bb71f749dd0010a7557d5947051d))
+* stop adopt deleting a case-renamed live file as an orphan ([54510c9](https://github.com/bydradev/gh-repo-bootstrapper/commit/54510c96ee201c98727fd3527ca0fe6f105321f3))
+* stop the legacy digest walk at v0.6.0 ([abe9958](https://github.com/bydradev/gh-repo-bootstrapper/commit/abe9958dae96bb71f749dd0010a7557d5947051d))
+* validate the github owner like the repository name ([ce2aeda](https://github.com/bydradev/gh-repo-bootstrapper/commit/ce2aeda11cb85f1792b7361c72250e90694c52d5))
+
 ## [0.8.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.7.0...v0.8.0) (2026-10-08)
 
 

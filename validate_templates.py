@@ -2923,11 +2923,17 @@ def _structure_self_tests() -> list:
 
     # Prose pins survive rewrapping; a missing screenshot document keeps the
     # earlier pointer error instead of replacing it.
-    runbook_phrase = next(p for p in RUNBOOK_REQUIRED_PHRASES if " " in p and p in files[BRANCH_PROTECTION_RUNBOOK])
-    rewrapped = dict(files)
-    rewrapped[BRANCH_PROTECTION_RUNBOOK] = files[BRANCH_PROTECTION_RUNBOOK].replace(
-        runbook_phrase, runbook_phrase.replace(" ", "\n", 1), 1)
-    expect("rewrapped runbook phrase", check_runbook("self-test:runbook", rewrapped), None)
+    # A synthetic runbook, independent of the template's own wrapping: every
+    # required phrase broken at each space still passes, and dropping a
+    # multi-word phrase still fails.
+    wrapped = ["\n".join(p.split()) for p in RUNBOOK_REQUIRED_PHRASES]
+    rewrapped = {BRANCH_PROTECTION_RUNBOOK: "# Runbook\n\n" + "\n\n".join(wrapped) + "\n"}
+    expect("rewrapped runbook phrases", check_runbook("self-test:runbook", rewrapped), None)
+    dropped = next(i for i, p in enumerate(RUNBOOK_REQUIRED_PHRASES) if " " in p)
+    rewrapped[BRANCH_PROTECTION_RUNBOOK] = "# Runbook\n\n" + "\n\n".join(
+        w for i, w in enumerate(wrapped) if i != dropped) + "\n"
+    expect("rewrapped runbook missing a phrase", check_runbook("self-test:runbook", rewrapped),
+           repr(RUNBOOK_REQUIRED_PHRASES[dropped]))
     bare = {k: v for k, v in files.items() if k != bootstrap.SCREENSHOT_REVIEW}
     bare[HUB] = files[HUB].replace(HUB_SCREENSHOT_POINTER, "", 1)
     both = check_screenshot_guidance("self-test:shot", "nextjs", bare)

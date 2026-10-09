@@ -91,6 +91,25 @@ class ValidatorWiringTests(unittest.TestCase):
             errors = validate_templates.check_branch_protection_payload("probe", "nextjs")
         self.assertTrue(any("do not match" in error for error in errors), errors)
 
+    def test_rewrapped_runbook_passes_the_whole_validator(self):
+        original = validate_templates.bootstrap.generate_files
+        path = validate_templates.BRANCH_PROTECTION_RUNBOOK
+
+        def rewrapped(cfg):
+            files = original(cfg)
+            body = validate_templates.bootstrap.read_stamp(files[path])[1]
+            for phrase in validate_templates.RUNBOOK_REQUIRED_PHRASES:
+                body = body.replace(phrase, phrase.replace(" ", "\n"))
+            # A real template rewrap is re-stamped, so the stamp check still holds.
+            files[path] = validate_templates.bootstrap.stamp(body)
+            return files
+
+        out = io.StringIO()
+        with patch.object(validate_templates.bootstrap, "generate_files", side_effect=rewrapped), \
+                contextlib.redirect_stdout(out):
+            code = validate_templates.main()
+        self.assertEqual(code, 0, out.getvalue())
+
     def test_invalid_yaml_is_reported_without_crashing(self):
         original = validate_templates.bootstrap.generate_files
 

@@ -60,14 +60,14 @@ with AI assistance must include a
 `Co-Authored-By: <Tool> (<model-name>) <tool-noreply-address>` trailer, where
 `<Tool>` is the tool's name, not a persona or agent nickname, and
 `<model-name>` is the model actually running the commit, never hard-coded.
-Examples (not exhaustive):
+Examples of `<Tool>` and its address (not exhaustive):
 
-- **Codex** — `Co-Authored-By: Codex (<model-name>) <noreply@openai.com>`
+- **Codex** — `noreply@openai.com`
+- **Antigravity CLI** — `224641728+gemini-cli-robot@users.noreply.github.com`
+- **OpenCode** — `noreply@opencode.ai`
+- **OMP** — `noreply@omp.sh`
+- **OMO** — `noreply@omo.dev`
 - **Claude Code** — use its default `Co-Authored-By:` trailer as emitted.
-- **Antigravity CLI** —
-  `Co-Authored-By: Antigravity CLI (<model-name>) <224641728+gemini-cli-robot@users.noreply.github.com>`
-- **OpenCode** — `Co-Authored-By: OpenCode (<model-name>) <noreply@opencode.ai>`
-- **OMP** — `Co-Authored-By: OMP (<model-name>) <noreply@omp.sh>`
 
 Never use the trailer format in pull request descriptions; a PR an AI harness
 creates or updates ends with this footer:

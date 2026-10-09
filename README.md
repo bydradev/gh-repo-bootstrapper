@@ -403,8 +403,9 @@ CI pipeline for Python projects.
 - `release-please.yml` — test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
 - `ci.yml` — runs the test suite on every PR
-- `test.yml` — ruff (lint), mypy (type check), pytest; auto-detects and installs
-  `requirements-dev.txt`, `requirements.txt`, or `pyproject.toml` extras
+- `test.yml` — ruff format check, ruff (lint), mypy (type check), pytest;
+  auto-detects and installs `requirements-dev.txt`, `requirements.txt`, or
+  `pyproject.toml` extras
 - `dependabot.yml` — weekly pip + GitHub Actions updates
 - `.python-version`
 - `README.md` — project starter with a preferred `uv venv` setup and a

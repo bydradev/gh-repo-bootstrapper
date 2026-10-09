@@ -44,7 +44,7 @@ Install the project’s declared dependencies after activating the environment.
 ## Verification
 
 Once the project has code and tests, run the local quality checks below. CI
-runs `ruff check`, `mypy`, and `pytest`.
+runs all four.
 
 ```sh
 ruff format --check .

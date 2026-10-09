@@ -1439,7 +1439,7 @@ def check_sha_pinned_actions(label: str, files: dict) -> list:
 VERIFIED_ACTION_OWNERS = frozenset({"googleapis"})
 GITHUB_OWNED_ACTION_OWNERS = frozenset({"actions", "github"})
 APP_TOKEN_PERMISSIONS = {"permission-contents": "write", "permission-pull-requests": "write"}
-PYTHON_SUITE_COMMANDS = ("ruff check .", "mypy .", "pytest")
+PYTHON_SUITE_COMMANDS = ("ruff format --check .", "ruff check .", "mypy .", "pytest")
 PYTHON_TOOL_PIN_RE = re.compile(r"\b(ruff|mypy|pytest)==\d+(\.\d+)+\b")
 PYTHON_TOOL_LOOP_RE = re.compile(r"^\s*for tool in ([^;\n]+); do\s*$", re.MULTILINE)
 PYTHON_UNPINNED_INSTALL_RE = re.compile(r"pip install\b[^\n]*\b(ruff|mypy|pytest)\b(?!==)")
@@ -2947,6 +2947,10 @@ def _structure_self_tests() -> list:
     expect("release job that runs after a failed test",
            gates("nextjs", release, lambda w: w["jobs"]["release-please"].update({"if": "always()"})),
            "'release-please' must not be conditional")
+    expect("python suite without the format check",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(
+               step(w, "test", lambda s: s.get("run") == "ruff format --check ."))),
+           "suite step 'ruff format --check .' must run exactly once")
     expect("python job without timeout",
            gates("python", test, lambda w: w["jobs"]["test"].pop("timeout-minutes")), "timeout-minutes")
     expect("python tools unpinned",

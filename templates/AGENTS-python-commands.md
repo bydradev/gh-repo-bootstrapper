@@ -4,7 +4,7 @@
 Run all checks before pushing:
 
 ```sh
-ruff format .   # format
+ruff format .   # format (CI runs ruff format --check .)
 ruff check .    # lint (matches CI)
 mypy .          # type check
 pytest          # tests

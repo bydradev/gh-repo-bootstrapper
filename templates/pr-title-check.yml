@@ -18,13 +18,17 @@ jobs:
     # already-merged PRs (editing the body — e.g. ticking a task-list box —
     # re-fires `edited`, but the squash subject is already in history and
     # cannot change), Release Please PRs (machine-generated titles, and rapid
-    # events trip cancel-in-progress into spurious failures), and Dependabot
+    # events trip cancel-in-progress into spurious failures; only a bot's PR
+    # from this repository counts, so a human branch named release-please--*
+    # is still checked), and Dependabot
     # PRs (its grouped-update subject is capitalised, so the lowercase-subject
     # rule is deliberately limited to human-authored titles).
     if: >-
       github.event.pull_request.merged == false &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
-      !startsWith(github.head_ref, 'release-please--')
+      !(startsWith(github.head_ref, 'release-please--') &&
+        github.event.pull_request.user.type == 'Bot' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

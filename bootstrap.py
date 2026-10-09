@@ -177,13 +177,15 @@ def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
     return (YAML_STAMP_PREFIX if is_yaml else STAMP_PREFIX) in text
 
 
-# A step's or job's `uses: owner/repo[/path]@<ref>`, optionally quoted, with
-# any trailing spaces or comment: the part Dependabot rewrites. Local
-# (`./`) and `docker://` references never match.
+# A step's or job's `uses: owner/repo[/path]@<ref>`, with any trailing spaces
+# or whitespace-separated comment: the part Dependabot rewrites. Only plain
+# characters are allowed, so a tolerated line can never open a quoted scalar,
+# flow collection or escape that changes how later lines parse. Quoted,
+# local (`./`) and `docker://` references never match and compare exactly.
 _USES_RE = re.compile(
-    r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]*)(?P<q>['\"]?)"
-    r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[^@\s#'\"{}\[\],]+)@(?P<ref>[^\s#'\"{}\[\],]+)(?P=q)"
-    r"(?P<tail>[ \t]*(?:#[^\r\n]*)?)(?P<eol>\r?\n)?"
+    r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]+)(?P<q>)"
+    r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_./-]+)@(?P<ref>[A-Za-z0-9_./-]+)"
+    r"(?P<tail>[ \t]+#[^\r\n]*|[ \t]*)(?P<eol>\r?\n)?"
 )
 # A key whose value is a block scalar (`run: |`); its content lines are text.
 _BLOCK_SCALAR_RE = re.compile(r"(?P<key>[ \t]*(?:-[ \t]+)?)[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
@@ -1453,67 +1455,34 @@ def _indent(line: str) -> int:
 
 
 _UNVERIFIABLE = object()
-_PLAIN_KEY_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 
 
-def _scalar_end(text: str) -> int | None:
-    """Length of the single-line scalar or flow collection that opens `text`,
-    or None when it does not close on this line."""
-    if text[:1] == '"':
-        i = 1
-        while i < len(text):
-            if text[i] == "\\":
-                i += 2
-                continue
-            if text[i] == '"':
-                return i + 1
-            i += 1
-        return None
-    if text[:1] == "'":
-        i = 1
-        while i < len(text):
-            if text[i] == "'":
-                if text[i + 1:i + 2] == "'":
-                    i += 2
-                    continue
-                return i + 1
-            i += 1
-        return None
-    if text[:1] in "[{":
-        depth, i = 0, 0
-        while i < len(text):
-            char = text[i]
-            if char in "\"'":
-                end = _scalar_end(text[i:])
-                if end is None:
-                    return None
-                i += end
-                continue
-            depth += char in "[{"
-            depth -= char in "]}"
-            if depth == 0:
-                return i + 1
-            i += 1
-        return None
-    comment = re.search(r"[ \t]#", text)
-    return comment.start() if comment else len(text)
+# The only flow collections the reader admits: `{}`, `[]`, or a list of plain words.
+_FLOW_VALUE_RE = re.compile(r"\{\s*\}|\[\s*(?:[A-Za-z0-9_./-]+(?:\s*,\s*[A-Za-z0-9_./-]+)*)?\s*\]")
 
 
 def _value(text: str) -> str | None:
-    """A single-line value without its comment, or None outside the modelled subset."""
+    """A single-line value without its comment, or None outside the modelled subset.
+
+    Admitted: plain scalars, quoted scalars without escapes, and the flow
+    collections _FLOW_VALUE_RE describes. Anchors, aliases, tags, escapes,
+    other flow collections and indicator-led plain scalars are refused.
+    """
     text = text.strip()
     if not text or text.startswith("#"):
         return ""
-    if text[0] in "&*!%@`":
-        return None  # anchors, aliases, tags and reserved indicators
-    end = _scalar_end(text)
-    if end is None:
+    if text[0] in "&*!%@`|>" or text in ("-", "?", ":") or text.startswith(("- ", "? ", ": ")):
         return None
-    rest = text[end:].strip()
-    if rest and not rest.startswith("#"):
-        return None
-    value = text[:end].rstrip()
-    if value[0] not in "\"'[{" and (": " in value or value.endswith(":")):
+    if text[0] in "\"'[{":
+        pattern = {'"': r'"[^"\\]*"', "'": r"'[^']*'(?!')"}.get(text[0], _FLOW_VALUE_RE.pattern)
+        match = re.match(pattern, text)
+        if match is None:
+            return None
+        rest = text[match.end():].strip()
+        return match.group(0) if not rest or rest.startswith("#") else None
+    comment = re.search(r"[ \t]#", text)
+    value = text[: comment.start()].rstrip() if comment else text
+    if ": " in value or value.endswith(":"):
         return None
     return value
 
@@ -1561,7 +1530,7 @@ def _structural_lines(text: str) -> list | None:
         key = key_match.group(1)
         key = key[1:-1] if key[0] in "\"'" else key
         raw = body[key_match.end():]
-        if re.fullmatch(r"[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?", raw):
+        if re.fullmatch(r"[ \t]*[|>](?:[1-9][-+]?|[-+][1-9]?)?(?:[ \t]+#.*)?[ \t]*", raw):
             rows.append((indent, key, "|"))
             block = indent
             continue
@@ -1616,9 +1585,13 @@ def _declared_inputs(text: str):
         return _UNVERIFIABLE
     k, value = on
     if value:
-        events = value.strip("[]").replace(" ", "").split(",") if value[0] != "{" else None
-        if events is None or not all(_PLAIN_KEY_RE.fullmatch(event) for event in events):
-            return _UNVERIFIABLE
+        # A scalar names one event exactly; only a flow list names several.
+        if value.startswith("["):
+            events = [event.strip() for event in value[1:-1].split(",") if event.strip()]
+        elif value.startswith("{"):
+            events = []
+        else:
+            events = [value[1:-1] if value[0] in "\"'" else value]
         return [] if "workflow_call" in events else None
     events = _children(rows, k)
     if events is _UNVERIFIABLE:
@@ -2450,11 +2423,10 @@ def _adopt_file(
                 return ("refused", rel, "edited locally since the scan; not overwritten")
             if _git_ignored(repo_dir, rel):
                 return ("refused", rel, "ignored by git")
-            if _is_yaml(rel):
+            if rel in TEMPLATE_OWNED_WORKFLOWS:
                 problems = _undeclared_inputs(repo_dir, expected)
                 if problems:
-                    return ("refused", rel, "; ".join(problems)
-                            + "; add them to that workflow first, then re-run --adopt")
+                    return ("refused", rel, "; ".join(problems) + "; fix that, then re-run --adopt")
                 # Keep the repository's action pins; Dependabot moves those.
                 expected = _carry_pins(expected, current)
             _replace_anchored(parent, name, expected, identity)
@@ -2464,9 +2436,9 @@ def _adopt_file(
     if status == "missing":
         if read_stamp(expected, _is_yaml(rel))[0] is not None and _git_ignored(repo_dir, rel):
             return ("refused", rel, "ignored by git")
-        problems = _undeclared_inputs(repo_dir, expected) if _is_yaml(rel) else []
+        problems = _undeclared_inputs(repo_dir, expected) if rel in TEMPLATE_OWNED_WORKFLOWS else []
         if problems:
-            return ("refused", rel, "; ".join(problems) + "; add them to that workflow first, then re-run --adopt")
+            return ("refused", rel, "; ".join(problems) + "; fix that, then re-run --adopt")
         created = []
         try:
             parent = _open_parent(repo_dir, rel, create=True, created=created)

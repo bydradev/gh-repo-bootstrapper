@@ -1000,7 +1000,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         stamped = bootstrap.stamp(base, is_yaml=True)
         cases = {
             "bumped pin and comment": ("actions/checkout@aaaa # v1", "actions/checkout@eeee # v2", True),
-            "bumped quoted pin": ('"owner/tool@bbbb"', '"owner/tool@ffff"', True),
+            "bumped quoted pin": ('"owner/tool@bbbb"', '"owner/tool@ffff"', False),
             "trailing spaces": ("actions/checkout@aaaa # v1", "actions/checkout@eeee   ", True),
             "swapped owner": ("actions/checkout@aaaa", "evil/checkout@aaaa", False),
             "local action path": ("./actions/local@cccc", "./actions/local@zzzz", False),
@@ -1009,6 +1009,15 @@ class ExistingRepositoryTests(unittest.TestCase):
         for label, (old, new, valid) in cases.items():
             with self.subTest(label):
                 self.assertEqual(bootstrap.stamp_is_valid(stamped.replace(old, new, 1), True), valid)
+        # Quote and escape edits on two action lines would fold the lines
+        # between them into one scalar in the shipped baseline workflow.
+        baseline = _render("nextjs")[bootstrap.NEXTJS_BASELINE_REVIEW_WORKFLOW]
+        lines = baseline.splitlines(keepends=True)
+        actions = sorted(bootstrap._uses_lines(lines))
+        first, second = lines[actions[0]], lines[actions[1]]
+        lines[actions[0]] = first[: first.index("uses: ") + 6] + '"actions/checkout@x\\" #\n'
+        lines[actions[1]] = second[: second.index("uses: ") + 6] + 'actions/setup-node@x # "\n'
+        self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
 
     def test_each_file_type_reads_only_its_own_stamp_form(self):
         example = "```text\n" + bootstrap.YAML_STAMP_PREFIX + "0" * 64 + "\n```\n"
@@ -1103,6 +1112,13 @@ class ExistingRepositoryTests(unittest.TestCase):
             head + '      e2e:\n        description: "a # b: c"\n      full: {}\n',
             "true:\n  workflow_call:\n    inputs:\n      full: {}\n",
             '"on":\n  workflow_call:\n    inputs:\n      full: {}\n',
+            head + "      e2e: {type: boolean]\n      full: {type: boolean}\n",
+            head + "      e2e: {type: *a}\n",
+            head + '      e2e:\n        description: "a\\q"\n',
+            head + "      e2e:\n        description: |0\n          x\n",
+            head + "      e2e:\n        description: |++\n          x\n",
+            "on: push, workflow_call\n",
+            "on: work flow_call\n",
             "on: [push, workflow_call]\n",
             "on: push\n",
             "on:\n  workflow_call:\n    inputs:\n      e2e: {}\njobs:\n  a:\n    steps:\n      - run: |\n          inputs:\n      - name: x\n",

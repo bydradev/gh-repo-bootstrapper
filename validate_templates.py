@@ -674,6 +674,11 @@ def check_template_stamps(label: str, cfg: dict, files: dict) -> list:
         elif bootstrap._is_yaml(path):
             tolerant = set(bootstrap._uses_lines(files[path].splitlines(keepends=True)))
             real = _action_reference_lines(files[path])
+            if bootstrap._passed_inputs(bootstrap.read_stamp(files[path], True)[1]) is None:
+                errors.append(
+                    f"[{label}] template-owned {path} is outside the YAML subset bootstrap.py reads, "
+                    f"so --adopt could not check the inputs it passes"
+                )
             if tolerant != real:
                 errors.append(
                     f"[{label}] template-owned {path}: pin-tolerant lines {sorted(n + 1 for n in tolerant)} "

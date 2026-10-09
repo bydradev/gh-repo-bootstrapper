@@ -273,7 +273,15 @@ equals one a release through v0.8.1 shipped is `stale`, so `--adopt`
 upgrades it. One with local changes is `local-modified` and is never
 overwritten: move the repository's own jobs or steps into a separate
 workflow file, delete the old file, and run `--adopt` to write the stamped
-version.
+version. A v0.1.0 Next.js release workflow with a provider deploy job is
+always `local-modified`: upgrading it would drop the deploy job.
+
+Before `--adopt` writes a workflow that calls one of the repository's own
+reusable workflows (`release-please.yml` calls `test.yml`), it checks that the
+called file declares every input passed to it, because GitHub fails a run that
+passes an undeclared input. A repository-owned `test.yml` from an older
+template may lack one; `--adopt` then refuses and names the missing inputs, so
+add them to `test.yml` and re-run.
 
 Dependabot keeps updating the actions these workflows use. A workflow's
 digest ignores the version after `@` on each `uses:` line and the comment

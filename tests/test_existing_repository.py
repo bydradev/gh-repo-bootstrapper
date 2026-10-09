@@ -864,12 +864,12 @@ class ExistingRepositoryTests(unittest.TestCase):
                    "scheme": "My App", "destination": "macos", "xcodegen": True}
             files = bootstrap.generate_files(cfg)
             owned = bootstrap.template_owned_paths(cfg)
-            self.assertEqual({path for path, text in files.items() if bootstrap.read_stamp(text)[0]},
+            self.assertEqual({path for path, text in files.items() if bootstrap.read_stamp(text, bootstrap._is_yaml(path))[0]},
                              set(owned))
             self.assertNotIn("docs/lint-baseline.md", owned)
             self.assertNotIn("docs/advisory-baseline.md", owned)
             for path in owned:
-                self.assertTrue(bootstrap.stamp_is_valid(files[path]), path)
+                self.assertTrue(bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)), path)
                 self.assertNotRegex(files[path], r"__[A-Z_]+__|# <<[A-Z_]+>>")
             self.assertEqual(bootstrap.generate_links(cfg), bootstrap._links_for_files(files))
 
@@ -888,11 +888,11 @@ class ExistingRepositoryTests(unittest.TestCase):
             for path in owned:
                 with self.subTest(repo_type=repo_type, path=path):
                     self.assertTrue(files[path].startswith(bootstrap.YAML_STAMP_PREFIX), path)
-                    self.assertTrue(bootstrap.stamp_is_valid(files[path]))
+                    self.assertTrue(bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)))
                     self.assertNotIn("<!--", files[path].splitlines()[0])
         crlf = bootstrap.stamp("name: x\r\non: push\r\n", is_yaml=True)
         self.assertTrue(crlf.split("\n", 1)[0].endswith("\r"))
-        self.assertEqual(bootstrap.read_stamp(crlf)[1], "name: x\r\non: push\r\n")
+        self.assertEqual(bootstrap.read_stamp(crlf, True)[1], "name: x\r\non: push\r\n")
 
     def test_released_workflow_bodies_are_stale_and_customised_ones_are_kept(self):
         files = _render("simple")
@@ -923,7 +923,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
         bumped = files[rel].replace(f"@{pin[2]} # {pin[3]}", "@" + "a" * 40 + " # v99.0.0", 1)
         self.assertNotEqual(bumped, files[rel])
-        self.assertTrue(bootstrap.stamp_is_valid(bumped))
+        self.assertTrue(bootstrap.stamp_is_valid(bumped, True))
         self._write(rel, bumped)
         self._commit_all()
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "same")
@@ -943,12 +943,97 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(actions[rel], "updated")
         written = (self.repo / rel).read_text()
         self.assertIn("@" + "b" * 40 + " # v98.0.0", written)
-        self.assertTrue(bootstrap.stamp_is_valid(written))
+        self.assertTrue(bootstrap.stamp_is_valid(written, True))
         self.assertEqual(bootstrap._unpinned(written), bootstrap._unpinned(files[rel]))
         # Any other edit still breaks ownership.
         self._write(rel, written.replace("timeout-minutes: 5", "timeout-minutes: 50"))
         self._commit_all()
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "local-modified")
+
+    def test_unstamped_reviewer_agent_is_classified_without_a_legacy_row(self):
+        files = _render()
+        rel = ".claude/agents/fresh-eyes-reviewer.md"
+        body = bootstrap.read_stamp(files[rel])[1]
+        for text, state in ((body, "stale"), (body + "\nOurs.\n", "local-modified")):
+            with self.subTest(state):
+                self._write(rel, text)
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], state)
+
+    def test_adopt_refuses_a_release_workflow_whose_called_test_lacks_an_input(self):
+        files = _render("nextjs")
+        rel = ".github/workflows/release-please.yml"
+        old_test = "name: test\non:\n  workflow_call:\n    inputs:\n      full:\n        type: boolean\njobs: {}\n"
+        self._write(".github/workflows/test.yml", old_test)
+        self._write(rel, bootstrap.read_stamp(files[rel], True)[1])
+        self._commit_all()
+        before = (self.repo / rel).read_text()
+        rows = {path: (action, detail) for action, path, detail in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(rows[rel][0], "refused")
+        self.assertIn("does not declare input(s)", rows[rel][1])
+        self.assertEqual((self.repo / rel).read_text(), before)
+        self._write(".github/workflows/test.yml", files[".github/workflows/test.yml"])
+        self._commit_all()
+        rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(rows[rel], "updated")
+
+    def test_v0_1_0_default_release_workflow_is_recognised(self):
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.1.0:templates/release-please-nextjs.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        default = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", released.stdout)
+        files = _render("nextjs")
+        rel = ".github/workflows/release-please.yml"
+        self._write(rel, default)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+
+    def test_pin_tolerance_covers_only_real_action_refs(self):
+        base = (
+            "name: x\njobs:\n  a:\n    steps:\n"
+            "      - uses: actions/checkout@aaaa # v1\n"
+            "      - uses: \"owner/tool@bbbb\"\n"
+            "      - uses: ./actions/local@cccc\n"
+            "      - run: |\n          echo uses: owner/x@dddd\n"
+        )
+        stamped = bootstrap.stamp(base, is_yaml=True)
+        cases = {
+            "bumped pin and comment": ("actions/checkout@aaaa # v1", "actions/checkout@eeee # v2", True),
+            "bumped quoted pin": ('"owner/tool@bbbb"', '"owner/tool@ffff"', True),
+            "trailing spaces": ("actions/checkout@aaaa # v1", "actions/checkout@eeee   ", True),
+            "swapped owner": ("actions/checkout@aaaa", "evil/checkout@aaaa", False),
+            "local action path": ("./actions/local@cccc", "./actions/local@zzzz", False),
+            "text inside run": ("owner/x@dddd", "owner/x@zzzz", False),
+        }
+        for label, (old, new, valid) in cases.items():
+            with self.subTest(label):
+                self.assertEqual(bootstrap.stamp_is_valid(stamped.replace(old, new, 1), True), valid)
+
+    def test_each_file_type_reads_only_its_own_stamp_form(self):
+        example = "```text\n" + bootstrap.YAML_STAMP_PREFIX + "0" * 64 + "\n```\n"
+        markdown = bootstrap.stamp("# Doc\n\n" + example)
+        self.assertIn(example, markdown)
+        self.assertTrue(bootstrap.stamp_is_valid(markdown))
+        workflow = bootstrap.stamp("name: x\n", is_yaml=True)
+        moved = "on: push\n" + workflow
+        self.assertFalse(bootstrap.stamp_is_valid(moved, True))
+        self.assertFalse(bootstrap.stamp_is_valid(workflow))
+
+    def test_carried_pins_never_reach_a_new_occurrence(self):
+        expected = "steps:\n  - uses: a/b@new1 # v2\n  - uses: a/b@new2 # v2\n"
+        current = "steps:\n  - uses: a/b@mine # v3\n"
+        self.assertEqual(
+            bootstrap._carry_pins(expected, current),
+            "steps:\n  - uses: a/b@mine # v3\n  - uses: a/b@new2 # v2\n",
+        )
+
+    def test_yaml_stamp_keeps_a_bom_at_the_start(self):
+        body = "\ufeffname: x\non: push\n"
+        stamped = bootstrap.stamp(body, is_yaml=True)
+        self.assertTrue(stamped.startswith("\ufeff" + bootstrap.YAML_STAMP_PREFIX))
+        self.assertEqual(bootstrap.read_stamp(stamped, True)[1], body)
+        self.assertTrue(bootstrap.stamp_is_valid(stamped, True))
 
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
@@ -972,7 +1057,8 @@ class ExistingRepositoryTests(unittest.TestCase):
             _git(repo, "tag", ref)
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
             table = bootstrap.compute_legacy_digests()
-        expected = {bootstrap._digest(releases[ref]) for ref in ("v0.7.0", "v0.8.1")}
+        # v0.1.0's default render left its marker lines empty; v0.9.0 is stamped.
+        expected = {bootstrap._digest(body) for body in ("name: release\n", releases["v0.7.0"], releases["v0.8.1"])}
         self.assertEqual(table[".github/workflows/release-please.yml"], expected)
 
     def test_validator_flags_a_release_missing_from_the_legacy_table(self):

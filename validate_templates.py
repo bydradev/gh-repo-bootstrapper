@@ -639,7 +639,7 @@ def check_template_stamps(label: str, cfg: dict, files: dict) -> list:
     for path in sorted(bootstrap.template_owned_paths(cfg)):
         if path not in files:
             errors.append(f"[{label}] template-owned {path} is not generated")
-        elif not bootstrap.stamp_is_valid(files[path]):
+        elif not bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)):
             prefix = bootstrap.YAML_STAMP_PREFIX if path.endswith(".yml") else bootstrap.STAMP_PREFIX
             errors.append(f"[{label}] template-owned {path} has no valid {prefix!r} stamp")
     return errors

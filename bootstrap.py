@@ -146,68 +146,100 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _find_stamp(text: str) -> tuple[int, str, bool] | None:
-    """(line index, digest, is_yaml) of the single stamp line, or None."""
+def _is_yaml(rel: str) -> bool:
+    return rel.endswith((".yml", ".yaml"))
+
+
+def _find_stamp(text: str, is_yaml: bool = False) -> tuple[int, str] | None:
+    """(line index, digest) of the file's single stamp line, or None.
+
+    The file type picks the form: a workflow's stamp is a YAML comment and
+    must be line 1 (after any BOM); a Markdown stamp is an HTML comment on
+    exactly one line. The other form is ordinary content.
+    """
+    lines = text.splitlines(keepends=True)
+    if is_yaml:
+        if not lines:
+            return None
+        match = _YAML_STAMP_RE.fullmatch(lines[0].lstrip("\ufeff").rstrip("\r\n"))
+        later = any(line.lstrip().startswith(YAML_STAMP_PREFIX) for line in lines[1:])
+        return (0, match.group(1)) if match and not later else None
     stamps = []
-    for i, line in enumerate(text.splitlines(keepends=True)):
-        bare = line.rstrip("\r\n")
-        for pattern, is_yaml in ((_STAMP_RE, False), (_YAML_STAMP_RE, True)):
-            match = pattern.fullmatch(bare)
-            if match:
-                stamps.append((i, match.group(1), is_yaml))
+    for i, line in enumerate(lines):
+        match = _STAMP_RE.fullmatch(line.rstrip("\r\n"))
+        if match:
+            stamps.append((i, match.group(1)))
     return stamps[0] if len(stamps) == 1 else None
 
 
-def has_stamp_text(text: str) -> bool:
-    """Whether stamp-like text appears at all, valid or not."""
-    return STAMP_PREFIX in text or YAML_STAMP_PREFIX in text
+def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
+    """Whether this file type's stamp text appears at all, valid or not."""
+    return (YAML_STAMP_PREFIX if is_yaml else STAMP_PREFIX) in text
 
 
-# A `uses: owner/action@<ref> # <comment>` line, the part Dependabot rewrites.
+# A step's or job's `uses: owner/repo[/path]@<ref>`, optionally quoted, with
+# any trailing spaces or comment: the part Dependabot rewrites. Local
+# (`./`) and `docker://` references never match.
 _USES_RE = re.compile(
-    r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]*)(?P<action>[^@\s#'\"]+)@(?P<ref>[^\s#]+)"
-    r"(?P<tail>[ \t]+#[^\r\n]*)?(?P<eol>\r?\n)?"
+    r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]*)(?P<q>['\"]?)"
+    r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[^@\s#'\"]+)@(?P<ref>[^\s#'\"]+)(?P=q)"
+    r"(?P<tail>[ \t]*(?:#[^\r\n]*)?)(?P<eol>\r?\n)?"
 )
+# A key whose value is a block scalar (`run: |`); its content lines are text.
+_BLOCK_SCALAR_RE = re.compile(r"(?P<indent>[ \t]*)(?:-[ \t]+)?[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
+
+
+def _uses_lines(lines: list) -> dict:
+    """{line index: match} for real `uses:` lines, skipping block-scalar text."""
+    found, block = {}, None
+    for i, line in enumerate(lines):
+        bare = line.rstrip("\r\n")
+        if block is not None:
+            if not bare.strip() or len(bare) - len(bare.lstrip(" ")) > block:
+                continue
+            block = None
+        match = _USES_RE.fullmatch(line)
+        if match:
+            found[i] = match
+        scalar = _BLOCK_SCALAR_RE.fullmatch(bare)
+        if scalar:
+            block = len(scalar["indent"])
+    return found
 
 
 def _unpinned(text: str) -> str:
-    """Workflow text with every action's ref and trailing comment removed.
+    """Workflow text with every action's ref, quotes and trailing comment removed.
 
     Generated repositories run Dependabot on their workflows, and a bump
     rewrites only these. Ignoring them keeps a bumped template-owned workflow
     valid and unchanged, while any other edit still counts.
     """
-    out = []
-    for line in text.splitlines(keepends=True):
-        match = _USES_RE.fullmatch(line)
-        out.append(f"{match['lead']}{match['action']}@{match['eol'] or ''}" if match else line)
-    return "".join(out)
+    lines = text.splitlines(keepends=True)
+    for i, match in _uses_lines(lines).items():
+        lines[i] = f"{match['lead']}{match['action']}@{match['eol'] or ''}"
+    return "".join(lines)
 
 
 def _carry_pins(expected: str, current: str) -> str:
     """expected, with each action's ref and comment taken from current.
 
     An action keeps the repository's own pin (Dependabot may have bumped it),
-    matched by the action's occurrence order; an action current lacks keeps
-    the template's pin. The stamp ignores pins, so it stays valid.
+    matched by the action's occurrence order; an occurrence current lacks
+    keeps the template's pin. The stamp ignores pins, so it stays valid.
     """
     pins = {}
-    for line in current.splitlines(keepends=True):
-        match = _USES_RE.fullmatch(line)
-        if match:
-            pins.setdefault(match["action"], []).append((match["ref"], match["tail"] or ""))
+    for match in _uses_lines(current.splitlines(keepends=True)).values():
+        pins.setdefault(match["action"], []).append((match["q"], match["ref"], match["tail"]))
+    lines = expected.splitlines(keepends=True)
     seen = {}
-    out = []
-    for line in expected.splitlines(keepends=True):
-        match = _USES_RE.fullmatch(line)
-        if match and match["action"] in pins:
-            refs = pins[match["action"]]
-            index = seen.get(match["action"], 0)
-            seen[match["action"]] = index + 1
-            ref, tail = refs[min(index, len(refs) - 1)]
-            line = f"{match['lead']}{match['action']}@{ref}{tail}{match['eol'] or ''}"
-        out.append(line)
-    return "".join(out)
+    for i, match in _uses_lines(lines).items():
+        index = seen.get(match["action"], 0)
+        seen[match["action"]] = index + 1
+        refs = pins.get(match["action"], [])
+        if index < len(refs):
+            q, ref, tail = refs[index]
+            lines[i] = f"{match['lead']}{q}{match['action']}@{ref}{q}{tail}{match['eol'] or ''}"
+    return "".join(lines)
 
 
 def _stamp_digest(body: str, is_yaml: bool) -> str:
@@ -215,23 +247,26 @@ def _stamp_digest(body: str, is_yaml: bool) -> str:
     return _digest(_unpinned(body) if is_yaml else body)
 
 
-def read_stamp(text: str) -> tuple[str | None, str]:
+def read_stamp(text: str, is_yaml: bool = False) -> tuple[str | None, str]:
     """Return the single stamp digest and the exact body, without its line."""
-    found = _find_stamp(text)
+    found = _find_stamp(text, is_yaml)
     if found is None:
         return None, text
-    index, digest, _ = found
+    index, digest = found
     lines = text.splitlines(keepends=True)
-    return digest, "".join(lines[:index] + lines[index + 1:])
+    bom = "\ufeff" if is_yaml and lines[0].startswith("\ufeff") else ""
+    return digest, bom + "".join(lines[:index] + lines[index + 1:])
 
 
 def stamp(text: str, is_yaml: bool = False) -> str:
-    """Stamp a body: a YAML file on its first line as a comment; Markdown after
-    closed YAML frontmatter, or on its first line."""
-    _, body = read_stamp(text)
+    """Stamp a body: a workflow on line 1 (after any BOM) as a YAML comment;
+    Markdown after closed YAML frontmatter, or on its first line."""
+    _, body = read_stamp(text, is_yaml)
     if is_yaml:
-        eol = "\r\n" if body.split("\n", 1)[0].endswith("\r") else "\n"
-        return f"{YAML_STAMP_PREFIX}{_stamp_digest(body, True)}{eol}" + body
+        bom = "\ufeff" if body.startswith("\ufeff") else ""
+        rest = body[len(bom):]
+        eol = "\r\n" if rest.split("\n", 1)[0].endswith("\r") else "\n"
+        return f"{bom}{YAML_STAMP_PREFIX}{_stamp_digest(body, True)}{eol}{rest}"
     offset = 0
     eol = "\n"
     bom = "\ufeff" if body.startswith("\ufeff") else ""
@@ -253,12 +288,9 @@ def stamp(text: str, is_yaml: bool = False) -> str:
     return body[:offset] + marker + body[offset:]
 
 
-def stamp_is_valid(text: str) -> bool:
-    found = _find_stamp(text)
-    if found is None:
-        return False
-    _, digest, is_yaml = found
-    return digest == _stamp_digest(read_stamp(text)[1], is_yaml)
+def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
+    found = _find_stamp(text, is_yaml)
+    return found is not None and found[1] == _stamp_digest(read_stamp(text, is_yaml)[1], is_yaml)
 
 
 # Rebuilt by compute_legacy_digests(), from the vX.Y.Z release tags through
@@ -275,6 +307,7 @@ LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
     ".github/workflows/release-please.yml": frozenset({
         "23c11b24a99c6b1d9dd76853c06a6cb5974a8f19d07b9cbbb4a492e4b1f51a78",
         "24fbd2aab77a28a06793fdef0aec5fda0d97768a5d015922b749e0e0fc4e8260",
+        "31f630d6f91a1a5c664822e793aec1776a853ef5e7a634fefdfdf2650093bf8e",
         "328d8ef692fbcc15b689f1a6bf131c8d2b8f9080f5fe9a097228f2ea65584b81",
         "3db35e107cf0e0f5abe24aad85b9d90828318f3d91070c46319aa880119e9f87",
         "499012ae0990c745a840a06f46d849e0c3ce9a9176a064d6f9551531c6338e3d",
@@ -360,10 +393,14 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
         for rel, names in _LEGACY_WORKFLOW_SOURCES.items():
             for name in names:
                 body = source(name)
-                # v0.1.0 spliced a deploy job into the Next.js release workflow
-                # at a <<MARKER>>; that raw file was never shipped as is.
-                if body is not None and not re.search(r"<<[A-Z_]+>>", body):
-                    bodies.setdefault(rel, []).append(body)
+                if body is None:
+                    continue
+                # v0.1.0 spliced optional deploy jobs into the Next.js release
+                # workflow at `# <<MARKER>>` lines. Its default render left them
+                # empty; a deploy variant is the repository's own and stays
+                # local-modified, since upgrading it would drop the deploy job.
+                body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", body)
+                bodies.setdefault(rel, []).append(body)
         if _tag_version(ref) > LEGACY_LAST_TAG:
             continue
         runbook = source("docs-branch-protection-runbook.md")
@@ -1095,7 +1132,7 @@ def generate_files(cfg: dict) -> dict:
     for path, source in _TEMPLATE_AGENTS.items():
         files[path] = _load(source)
     for path in template_owned_paths(cfg):
-        files[path] = stamp(files[path], is_yaml=path.endswith(".yml"))
+        files[path] = stamp(files[path], is_yaml=_is_yaml(path))
     return files
 
 
@@ -1391,22 +1428,88 @@ def _git_ignored(repo_dir: Path, rel: str) -> bool:
     return result.returncode == 0
 
 
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _child_keys(lines: list, i: int) -> list:
+    """Keys of the block mapping nested directly under lines[i]."""
+    keys, child = [], None
+    for line in lines[i + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if _indent(line) <= _indent(lines[i]):
+            break
+        child = _indent(line) if child is None else child
+        if _indent(line) == child:
+            match = re.match(r"\s*([A-Za-z0-9_-]+)\s*:", line)
+            if match:
+                keys.append(match.group(1))
+    return keys
+
+
+def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
+    """Problems with `workflow`'s calls to the repository's own reusable workflows.
+
+    A called workflow must declare every input passed to it, or GitHub fails
+    the run; a repository-owned test.yml from an older template may lack one
+    a newer release workflow passes. A called file that does not exist yet is
+    written by --adopt from the same render, so it is not checked. bootstrap.py
+    has no YAML parser, so this reads block-style YAML by indentation, which
+    is how every template is written.
+    """
+    problems = []
+    lines = workflow.splitlines()
+    for i, line in enumerate(lines):
+        call = re.fullmatch(r"(\s*)uses:\s*\./(\.github/workflows/[\w.-]+\.ya?ml)\s*(?:#.*)?", line)
+        if not call:
+            continue
+        passed = []
+        for j in range(i + 1, len(lines)):
+            if lines[j].strip() and _indent(lines[j]) < len(call.group(1)):
+                break
+            if re.fullmatch(rf"{call.group(1)}with:\s*(?:#.*)?", lines[j]):
+                passed = _child_keys(lines, j)
+        called = repo_dir / call.group(2)
+        if _symlink_in_path(repo_dir, call.group(2)) or not called.is_file():
+            continue
+        try:
+            target = called.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            problems.append(f"cannot read {call.group(2)} to check the inputs passed to it")
+            continue
+        declared = None
+        for k, target_line in enumerate(target):
+            if re.fullmatch(r"\s*workflow_call:\s*(?:#.*)?", target_line):
+                declared = []
+                for m in range(k + 1, len(target)):
+                    if target[m].strip() and _indent(target[m]) <= _indent(target_line):
+                        break
+                    if re.fullmatch(r"\s*inputs:\s*(?:#.*)?", target[m]):
+                        declared = _child_keys(target, m)
+                break
+        missing = [name for name in passed if declared is None or name not in declared]
+        if missing:
+            problems.append(f"{call.group(2)} does not declare input(s) {', '.join(missing)}")
+    return problems
+
+
 def _template_file_state(rel: str, expected: str, actual: str) -> str:
     """Classify exact bytes, not newline-normalized text."""
-    digest, body = read_stamp(actual)
+    is_yaml = _is_yaml(rel)
+    digest, body = read_stamp(actual, is_yaml)
     if digest is None:
-        if has_stamp_text(actual):
+        if has_stamp_text(actual, is_yaml):
             return "local-modified"
         if rel.startswith(".agents/skills/"):
             return "shadowed"
-        is_yaml = rel.endswith(".yml")
-        legacy = LEGACY_TEMPLATE_DIGESTS.get(rel, ())
-        if _stamp_digest(body, is_yaml) in legacy | {_stamp_digest(read_stamp(expected)[1], is_yaml)}:
-            return "stale"
+        known = LEGACY_TEMPLATE_DIGESTS.get(rel, frozenset()) | {
+            _stamp_digest(read_stamp(expected, is_yaml)[1], is_yaml)
+        }
+        return "stale" if _stamp_digest(body, is_yaml) in known else "local-modified"
+    if not stamp_is_valid(actual, is_yaml):
         return "local-modified"
-    if not stamp_is_valid(actual):
-        return "local-modified"
-    if rel.endswith(".yml"):
+    if is_yaml:
         # Pins are Dependabot's to move: a workflow that differs only there is current.
         return "same" if _unpinned(actual) == _unpinned(expected) else "stale"
     return "same" if actual == expected else "stale"
@@ -1652,7 +1755,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
-        owned = read_stamp(expected)[0] is not None
+        owned = read_stamp(expected, _is_yaml(rel))[0] is not None
         if owned and _git_ignored(repo_dir, rel):
             report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
             continue
@@ -1667,7 +1770,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         if owned:
             status = _template_file_state(rel, expected, actual)
             detail = None
-            if status == "local-modified" and read_stamp(actual)[0] is None and rel in LEGACY_TEMPLATE_DIGESTS:
+            if status == "local-modified" and read_stamp(actual, _is_yaml(rel))[0] is None and rel in LEGACY_TEMPLATE_DIGESTS:
                 if legacy_bodies is None:
                     legacy_bodies = _legacy_template_bodies()
                 candidates = legacy_bodies.get(rel, [])
@@ -2130,7 +2233,11 @@ def _adopt_file(
                 return ("refused", rel, "edited locally since the scan; not overwritten")
             if _git_ignored(repo_dir, rel):
                 return ("refused", rel, "ignored by git")
-            if rel.endswith(".yml"):
+            if _is_yaml(rel):
+                problems = _undeclared_inputs(repo_dir, expected)
+                if problems:
+                    return ("refused", rel, "; ".join(problems)
+                            + "; add them to that workflow first, then re-run --adopt")
                 # Keep the repository's action pins; Dependabot moves those.
                 expected = _carry_pins(expected, current)
             _replace_anchored(parent, name, expected, identity)
@@ -2138,8 +2245,11 @@ def _adopt_file(
         finally:
             os.close(parent)
     if status == "missing":
-        if read_stamp(expected)[0] is not None and _git_ignored(repo_dir, rel):
+        if read_stamp(expected, _is_yaml(rel))[0] is not None and _git_ignored(repo_dir, rel):
             return ("refused", rel, "ignored by git")
+        problems = _undeclared_inputs(repo_dir, expected) if _is_yaml(rel) else []
+        if problems:
+            return ("refused", rel, "; ".join(problems) + "; add them to that workflow first, then re-run --adopt")
         created = []
         try:
             parent = _open_parent(repo_dir, rel, create=True, created=created)

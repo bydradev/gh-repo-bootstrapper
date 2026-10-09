@@ -185,7 +185,7 @@ def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
 _USES_RE = re.compile(
     r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]+)(?P<q>)"
     r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_./-]+)@(?P<ref>[A-Za-z0-9_./-]+)"
-    r"(?P<tail>[ \t]+#[^\r\n]*|[ \t]*)(?P<eol>\r?\n)?"
+    r"(?P<tail>[ \t]+#[^\x00-\x08\x0a-\x1f\x7f]*|[ \t]*)(?P<eol>\r?\n)?"
 )
 # A key whose value is a block scalar (`run: |`); its content lines are text.
 _BLOCK_SCALAR_RE = re.compile(r"(?P<key>[ \t]*(?:-[ \t]+)?)[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
@@ -1471,7 +1471,9 @@ def _value(text: str) -> str | None:
     text = text.strip()
     if not text or text.startswith("#"):
         return ""
-    if text[0] in "&*!%@`|>" or text in ("-", "?", ":") or text.startswith(("- ", "? ", ": ")):
+    if "\t" in text or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", text):
+        return None
+    if text[0] in "&*!%@`|>]},#" or text in ("-", "?", ":") or text.startswith(("- ", "? ", ": ")):
         return None
     if text[0] in "\"'[{":
         pattern = {'"': r'"[^"\\]*"', "'": r"'[^']*'(?!')"}.get(text[0], _FLOW_VALUE_RE.pattern)
@@ -1487,6 +1489,11 @@ def _value(text: str) -> str | None:
     return value
 
 
+_IMPLICIT_KEY_RE = re.compile(
+    r"(?i:y|yes|n|no|true|false|on|off|null|~)|[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
+)
+
+
 def _structural_lines(text: str) -> list | None:
     """(indent, key, value) rows of a workflow in a strict YAML subset, or None.
 
@@ -1497,13 +1504,17 @@ def _structural_lines(text: str) -> list | None:
     next line, tabs, several documents) returns None, so callers refuse
     instead of guessing. Sequence entries are rows with key None.
     """
-    rows, block = [], None
+    rows, block, content = [], None, None
     for line in text.splitlines():
         if not line.strip():
             continue
         indent = _indent(line)
         if block is not None:
             if indent > block:
+                # Content keeps the first content line's indentation or more.
+                if content is not None and indent < content:
+                    return None
+                content = indent if content is None else content
                 continue
             block = None
         body = line[indent:]
@@ -1528,11 +1539,13 @@ def _structural_lines(text: str) -> list | None:
                 return None
             continue
         key = key_match.group(1)
+        if key[0] not in "\"'" and key != "on" and _IMPLICIT_KEY_RE.fullmatch(key):
+            return None  # a YAML 1.1 parser reads it as a boolean, null or number
         key = key[1:-1] if key[0] in "\"'" else key
         raw = body[key_match.end():]
-        if re.fullmatch(r"[ \t]*[|>](?:[1-9][-+]?|[-+][1-9]?)?(?:[ \t]+#.*)?[ \t]*", raw):
+        if re.fullmatch(r"[ \t]*[|>][-+]?(?:[ \t]+#.*)?[ \t]*", raw):
             rows.append((indent, key, "|"))
-            block = indent
+            block, content = indent, None
             continue
         value = _value(raw)
         if value is None:
@@ -1594,7 +1607,7 @@ def _declared_inputs(text: str):
             events = [value[1:-1] if value[0] in "\"'" else value]
         return [] if "workflow_call" in events else None
     events = _children(rows, k)
-    if events is _UNVERIFIABLE:
+    if events is _UNVERIFIABLE or any(key is None for _, key, _ in events):
         return _UNVERIFIABLE
     call = _only(events, "workflow_call")
     if call is None:

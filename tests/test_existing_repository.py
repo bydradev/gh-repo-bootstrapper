@@ -1018,6 +1018,10 @@ class ExistingRepositoryTests(unittest.TestCase):
         lines[actions[0]] = first[: first.index("uses: ") + 6] + '"actions/checkout@x\\" #\n'
         lines[actions[1]] = second[: second.index("uses: ") + 6] + 'actions/setup-node@x # "\n'
         self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
+        # A control character in a tolerated comment would make the file unparsable.
+        lines = baseline.splitlines(keepends=True)
+        lines[actions[0]] = lines[actions[0]].rstrip("\n") + "\x00\n"
+        self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
 
     def test_each_file_type_reads_only_its_own_stamp_form(self):
         example = "```text\n" + bootstrap.YAML_STAMP_PREFIX + "0" * 64 + "\n```\n"
@@ -1118,6 +1122,14 @@ class ExistingRepositoryTests(unittest.TestCase):
             head + "      e2e:\n        description: |0\n          x\n",
             head + "      e2e:\n        description: |++\n          x\n",
             "on: push, workflow_call\n",
+            head + "      e2e:\n        type: boolean\n        description: |9\n          x\n      full:\n        type: boolean\n",
+            head + "      e2e:\n        description: |\n            x\n          y\n      full: {}\n",
+            head + "      e2e:\n        description: ]\n      full: {}\n",
+            head + "      e2e:\n        description: foo:\tbar\n      full: {}\n",
+            head + "      e2e:\n        description: -\tfoo\n      full: {}\n",
+            head + "      e2e: {}\n      full: {}\ntrue: push\n",
+            head + "      true: {}\n",
+            "on:\n  - push\n  - workflow_call\n",
             "on: work flow_call\n",
             "on: [push, workflow_call]\n",
             "on: push\n",

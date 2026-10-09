@@ -7,11 +7,12 @@ on:
     inputs:
       full:
         description: >-
-          Run xcodebuild test (macos-26, billed at a 10x Linux-runner
-          multiplier). false runs only swift-format lint — used for ordinary
-          main pushes and, per-repo opt-in, for PRs too when the full suite's
-          macOS cost is disproportionate. release-please.yml passes true only
-          for the commit that is the Release Please PR merging.
+          Run xcodebuild test (macos-26, billed at about ten times the Linux
+          rate: $0.062 against $0.006 a minute, GitHub runner pricing,
+          2026-10-09). false runs only swift-format lint: ci.yml passes false
+          for pull requests, and release-please.yml passes false for ordinary
+          pushes to main. release-please.yml passes true for a manual dispatch
+          and for the commit that is the Release Please PR merging.
         type: boolean
         default: true
 

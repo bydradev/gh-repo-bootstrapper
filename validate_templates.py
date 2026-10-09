@@ -927,7 +927,8 @@ def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
 
     for path in expected & actual:
         for phrase in BASELINE_DOCUMENT_REQUIREMENTS[path]:
-            if not _contains_prose(files[path], phrase):
+            found = phrase in files[path] if phrase in BASELINE_COMMAND_PHRASES else _contains_prose(files[path], phrase)
+            if not found:
                 errors.append(f"[{label}] {path} is missing required policy text {phrase!r}")
 
     if repo_type == "nextjs":
@@ -1026,7 +1027,7 @@ def check_readme(label: str, cfg: dict, files: dict) -> list:
     errors = [
         f"[{label}] README.md is missing {phrase!r}"
         for phrase in README_REQUIREMENTS[repo_type]
-        if not _contains_prose(readme, phrase)
+        if phrase not in readme  # headings and shell commands: a line break changes them
     ]
     if repo_type == "swift":
         destination = cfg.get("destination") or "iphone"
@@ -1755,6 +1756,10 @@ EXPECTED_PROTECTION_CONTEXTS = {
     "rust": ["validate-title", "test / test"],
     "simple": ["validate-title"],
 }
+
+
+# Baseline requirements that are shell commands; a line break would break them.
+BASELINE_COMMAND_PHRASES = frozenset({"npm audit --omit=dev", "npm run audit:production"})
 
 
 def _contains_prose(text: str, phrase: str) -> bool:
@@ -3024,19 +3029,22 @@ def _structure_self_tests() -> list:
 def main() -> int:
     STRUCTURE_FIXTURES_RUN[0] = 0
     all_errors = []
+    # Syntax first: the self-tests and every later check parse the rendered
+    # files, so a template that renders invalid YAML must be reported here
+    # rather than end the run with a parser exception.
+    rendered = [(label, cfg, bootstrap.generate_files(cfg)) for label, cfg in configurations()]
+    syntax_errors = [error for label, _, files in rendered for error in check_syntax(label, files)]
+    if syntax_errors:
+        print(f"FAILED — {len(syntax_errors)} syntax error(s); fix them before the other checks run:\n")
+        for err in syntax_errors:
+            print(f"  {err}")
+        return 1
     all_errors += run_self_tests()
     all_errors += check_npm_script_assumptions()
 
     total = 0
-    for label, cfg in configurations():
+    for label, cfg, files in rendered:
         total += 1
-        files = bootstrap.generate_files(cfg)
-        syntax_errors = check_syntax(label, files)
-        all_errors += syntax_errors
-        if syntax_errors:
-            # Every later check parses these files; report the syntax error
-            # instead of letting a parser exception end the whole run.
-            continue
         all_errors += check_nextjs_provider_free(label, cfg["repo_type"], files)
         all_errors += check_markers(label, files)
         all_errors += check_markdown_blank_lines(label, files)

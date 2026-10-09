@@ -101,8 +101,8 @@ class ValidatorWiringTests(unittest.TestCase):
             return files
 
         out = io.StringIO()
+        # The real self-tests run too: they parse renders before any check does.
         with patch.object(validate_templates.bootstrap, "generate_files", side_effect=broken), \
-                patch.object(validate_templates, "run_self_tests", return_value=[]), \
                 contextlib.redirect_stdout(out):
             code = validate_templates.main()
         self.assertEqual(code, 1)

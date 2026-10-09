@@ -1802,6 +1802,25 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("non-empty PATH", result.stderr)
 
+    def test_adopt_summary_matches_what_was_written(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cases = {
+            "kept and refused only": (
+                [("kept", "README.md", "differs"), ("refused", "AGENTS.md", "edited")], "Nothing was changed."),
+            "something written": (
+                [("wrote", "LICENSE", ""), ("refused", "AGENTS.md", "edited")], "Review the changes"),
+        }
+        for label, (actions, expected) in cases.items():
+            with self.subTest(label):
+                argv = ["bootstrap.py", "--adopt", tmp.name, "--type", "simple", "--non-interactive"]
+                out = io.StringIO()
+                with unittest.mock.patch.object(sys, "argv", argv), \
+                        unittest.mock.patch.object(bootstrap, "adopt_repository", return_value=actions), \
+                        contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                    bootstrap.main()
+                self.assertIn(expected, out.getvalue())
+
     def test_adopt_exits_nonzero_when_it_refuses(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "AGENTS.md").write_text("## Ours\n")  # not in git: refused

@@ -1,6 +1,6 @@
 ---
 name: local-validation-swift
-description: "Use before running local validation in this Swift repository: `xcodebuild test`, simulator destinations, `swift-format`, derived data in a worktree, or result bundles. Covers how CI picks a simulator, project and dependency setup, the fixed `-derivedDataPath` rule, what Release Please does and does not version, and the formatter rules."
+description: "Use before running local validation in this Swift repository: `xcodebuild test`, simulator destinations, `swift-format`, derived data in a worktree, or result bundles. Covers how CI picks a simulator, which CI runs test and which only lint, project and dependency setup, the fixed `-derivedDataPath` rule, what Release Please does and does not version, and the formatter rules."
 ---
 
 # Local validation for Swift
@@ -14,6 +14,16 @@ resolves an available simulator's UDID at run time (via `xcrun simctl`) and
 passes `-destination "platform=iOS Simulator,id=<udid>"` — a UDID rather than
 a `name=` destination, since simulator names aren't unique across installed
 runtimes.
+
+## CI validation tiers
+
+- **Pull requests (`ci.yml`) and ordinary pushes to `main`:** run only
+  `xcrun swift-format lint --recursive --strict .`. `xcodebuild test` is
+  skipped, so a green pull request does not mean the tests passed; run them
+  locally first.
+- **Release Please merge (`chore(main): release`) and a manual dispatch of
+  `release-please.yml`:** run the formatter and `xcodebuild test`. A release
+  is tagged only after this passes.
 
 ## Dependencies
 

@@ -30,6 +30,12 @@ xcodebuild test \
   -destination "__DESTINATION_EXAMPLE__"
 ```
 
+CI runs them in two tiers, because macOS runners bill at a multiple of Linux
+ones. Pull requests and ordinary pushes to `main` run only the formatting
+check. `xcodebuild test` runs on the Release Please merge and on a manual
+dispatch of `release-please.yml`. A green pull request therefore does not mean
+the tests passed; run `xcodebuild test` locally before opening one.
+
 ## Project guide
 
 - `AGENTS.md` — branch, commit, pull-request, and validation workflow.

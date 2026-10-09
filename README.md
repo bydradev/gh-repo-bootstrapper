@@ -33,6 +33,18 @@ anything installed beyond a base Python interpreter.
   mechanism for keeping a worktree's dependencies and build output from
   multiplying, `## Project specifics` as the last section, and the Next.js
   App Router note sitting outside the `next dev`-managed markers
+- the hub's size (an 8,000 B budget for its generated part, a 10,000 B
+  ceiling), its pinned safety gates, skill pointers and frontmatter, reviewer
+  agents, and the ownership stamps on template-owned files
+- executable workflow gates — every action pinned to a full commit SHA and
+  allowed by the Actions policy the script sets; a timeout on every job that
+  declares `runs-on`; no job or step set to `continue-on-error` or given an
+  `if:` that is a falsy literal (`false`, `0`, `null`, `''`); the Python and
+  Rust suite commands run once, unconditionally; the Next.js e2e runs and
+  browser installs tied to their `full` conditions; the release job waiting for
+  `test` with no condition of its own; the release App token limited to contents
+  and pull requests; and pinned fallback versions of the Python CI tools
+- the bootstrapper's own runbook copy and its legacy-digest table
 
 It also runs self-tests that reproduce each past regression from real rendered
 output, so a check that stops firing turns the suite red rather than passing
@@ -116,7 +128,7 @@ confirm before creating anything.
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
-| `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run; without `--org`, a placeholder owner is used since nothing downstream contacts GitHub |
+| `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
 | `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` and the type options the repository was generated with |
 | `--adopt PATH` | Bring an existing local repository in line without contacting GitHub — see [Existing repositories](#existing-repositories) |
@@ -352,7 +364,9 @@ Full CI pipeline for Next.js applications.
 
 - `pr-title-check.yml` — Conventional Commits validation on PR titles
 - `release-please.yml` — test → release-please; deployment remains application-owned
-- `ci.yml` — runs the full test suite on every PR
+- `ci.yml` — runs the suite on every PR without the browser e2e lane; pushes
+  to `main` add Chromium, and the Release Please merge runs every Playwright
+  project
 - `test.yml` — reusable suite: enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e
 - `baseline-review.yml` — weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml` — weekly npm + GitHub Actions updates
@@ -360,7 +374,6 @@ Full CI pipeline for Next.js applications.
 - `docs/lint-baseline.md` — policy and an empty table for our own inline lint/type suppressions
 - `docs/advisory-baseline.md` — policy and an empty table for accepted dependency advisories
 - `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
-- `docs/current-work.md` — forward-looking bootstrapper compatibility work
 - `scripts/baseline-table.mjs`, `scripts/verify-baselines.mjs`, and `scripts/audit-production.mjs` — shared parser plus fail-closed baseline and production-audit checkers
 - `scripts/*-baselines.test.mjs` and `scripts/audit-production.test.mjs` — regression tests for the baseline verifier, scheduled review, and production audit
 - `README.md` and `AGENTS.md` — project starter, quality-baseline pointers, and contribution guidance
@@ -397,7 +410,9 @@ CI pipeline for Swift/Xcode projects.
 - `pr-title-check.yml`
 - `release-please.yml` — test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
-- `ci.yml` — runs the test suite on every PR
+- `ci.yml` — runs the `swift-format` lint on every PR; `xcodebuild test` runs
+  only on the Release Please merge and on a manual dispatch of
+  `release-please.yml`, because macOS runners bill at a multiple of Linux ones
 - `test.yml` — `swift-format lint --recursive --strict` (formatting gate) then
   `xcodebuild test` on `macos-26`; scheme set from `--scheme`, destination
   resolved dynamically at CI time from `--destination`; with `--xcodegen`, CI
@@ -438,23 +453,23 @@ CI pipeline for Rust crates and workspaces.
 - `test.yml` — `cargo fmt --check`, `cargo clippy -D warnings`, and
   `cargo test` across the workspace; fails with a clear error until a root
   `Cargo.toml` exists
-- `dependabot.yml` — GitHub Actions updates only; the generated `AGENTS.md`
-  says to add a `cargo` entry once `Cargo.toml` is committed, since a new
-  repository has no manifest for Dependabot to read
+- `dependabot.yml` — GitHub Actions updates only; the generated
+  `local-validation-rust` skill says to add a `cargo` entry once `Cargo.toml`
+  is committed, since a new repository has no manifest for Dependabot to read
 - `.gitignore` — adds Cargo's `/target/` build output
 - `README.md` — project starter with rustup setup and the CI commands
 - `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
 
 Release Please uses the `simple` release type, as for Python and Swift: it
 maintains the changelog, tags, and releases but does not edit `Cargo.toml`
-versions. The generated `AGENTS.md` explains when to move to the `rust` release
-type or the `cargo-workspace` plugin.
+versions. The generated `local-validation-rust` skill explains when to move to
+the `rust` release type or the `cargo-workspace` plugin.
 
 The bootstrapper does not run `cargo init` or choose a crate layout. The
-generated `AGENTS.md` tells agents to share one `CARGO_TARGET_DIR` per
-repository across worktrees, so each worktree does not build its own
-multi-gigabyte `target/`. It lives beside those worktrees and is deleted with
-the last of them.
+generated `local-validation-rust` skill tells agents to share one
+`CARGO_TARGET_DIR` per repository across worktrees, so each worktree does not
+build its own multi-gigabyte `target/`. It lives beside those worktrees and is
+deleted with the last of them.
 
 ### `simple`
 
@@ -471,9 +486,9 @@ test suite.
 
 Beyond file generation, the script applies GitHub configuration to the repo:
 
-- **Merge strategy** — squash-merge only; merge commits and rebase disabled so
-  every squash commit title matches the PR title (Conventional Commits format
-  that Release Please parses)
+- **Merge strategy** — squash-merge only; merge commits and rebase disabled,
+  and the default squash commit title and message are set to the PR title and
+  body (the Conventional Commits text Release Please parses)
 - **Delete branch on merge** — enabled automatically
 - **Always suggest updating pull request branches** — enabled
 - **Projects** — enabled
@@ -481,7 +496,8 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   actions, plus an explicit allowlist for `amannn/action-semantic-pull-request`
   (used by `pr-title-check.yml`) and, for `--type rust`, `dtolnay/rust-toolchain`
   and `Swatinem/rust-cache` (used by `test.yml`; both are user-owned, so the
-  verified-creator rule does not cover them)
+  verified-creator rule does not cover them). Every action must also be pinned
+  to a full commit SHA (`sha_pinning_required`).
 - **Workflow permissions** — default `read`, with GitHub Actions unable to
   approve pull requests. Release Please uses its dedicated GitHub App token.
 - **Fork PR workflows** — disabled for private repos (no separate control

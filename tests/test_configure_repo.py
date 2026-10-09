@@ -137,6 +137,18 @@ class ConfigureRepoTests(unittest.TestCase):
 
         self.assertFalse({"vercel", "cloudflare", "vercel_token", "cloudflare_api_token"} & config.keys())
 
+    def test_owner_must_be_a_plain_github_name(self):
+        for owner in ("octocat", "my-org", "A1", "x" * 39, "mona-cat_octo"):
+            self.assertEqual(bootstrap.validate_owner(owner), "", owner)
+        for owner in ("-flag", "_lead", "../evil", "a/b", "has space", "dot.name", "x" * 101, ""):
+            self.assertNotEqual(bootstrap.validate_owner(owner), "", owner)
+        argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "../evil",
+                "--non-interactive", "--dry-run"]
+        with patch.object(sys, "argv", argv), contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit):
+                bootstrap.gather_config(bootstrap.parse_args())
+        self.assertIn("--org", err.getvalue())
+
     def test_retired_provider_flags_are_rejected(self):
         for flag in ("--vercel", "--no-vercel", "--cloudflare", "--no-cloudflare"):
             with self.subTest(flag=flag), patch.object(sys, "argv", ["bootstrap.py", flag]):

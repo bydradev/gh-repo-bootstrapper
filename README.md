@@ -285,8 +285,9 @@ Template-owned files get their own states:
 | `stale` | valid stamp differs from the current render, or an unstamped non-skill body equals the current unstamped render or a recorded legacy body | overwritten, if tracked, clean, LF-terminated and UTF-8 |
 | `local-modified` | invalid or mismatched stamp, or an unrecognized unstamped non-skill body | refused |
 | `missing` | not present | written |
-| `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
+| `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
+| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist — left behind by a retired template skill or a wrong `--type` | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading; any text under it is dropped too, so `--check` prints its line count and first lines |
 
@@ -298,13 +299,20 @@ material into a repository-owned skill.
 Pass the same
 type options the repository was generated with — `--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
-they shape report as drift. For `AGENTS.md` it reports per section: a
+they shape report as drift. Pass the same `--type` too: when the repository
+holds a template-owned skill of another type (for example
+`local-validation-nextjs` under `--type simple`), `--check` reports `(--type)`
+and `--adopt` refuses before changing anything, since it would otherwise
+delete that type's skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local` —
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence). The `next dev`-managed block and everything from
-`## Project specifics` on are the repository's own and are not compared. For
+`## Project specifics` on are the repository's own and are not compared,
+but the block must stay at the top of the file: a moved block is `local`,
+and a missing one is `missing`. Only a `## Project specifics` heading
+indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
@@ -365,8 +373,8 @@ Full CI pipeline for Next.js applications.
 - `pr-title-check.yml` — Conventional Commits validation on PR titles
 - `release-please.yml` — test → release-please; deployment remains application-owned
 - `ci.yml` — runs the suite on every PR without the browser e2e lane; pushes
-  to `main` add Chromium, and the Release Please merge runs every Playwright
-  project
+  to `main` add Chromium, and the Release Please merge (or a manual dispatch of
+  `release-please.yml`) runs every Playwright project
 - `test.yml` — reusable suite: enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e
 - `baseline-review.yml` — weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml` — weekly npm + GitHub Actions updates

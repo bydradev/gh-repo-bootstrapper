@@ -556,14 +556,26 @@ def _hub_skill_names(agents: str) -> list:
 
 
 def check_skill_pointers(label: str, files: dict) -> list:
-    """Every skill named in the hub's `## Skills` table exists in the render."""
+    """The hub's `## Skills` table and the rendered skills match both ways.
+
+    A skill without a row is never loaded, because the table is how a harness
+    without native skill support finds it.
+    """
     names = _hub_skill_names(files.get(HUB, ""))
     if not names:
         return [f"[{label}] AGENTS.md has no skills in its {SKILLS_HEADING!r} table"]
+    rendered = sorted(
+        Path(path).parent.name for path in files
+        if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
+    )
     return [
         f"[{label}] AGENTS.md points at skill {name!r}, but {_skill_path(name)} is not generated"
         for name in names
         if _skill_path(name) not in files
+    ] + [
+        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table"
+        for name in rendered
+        if name not in names
     ]
 
 
@@ -2759,6 +2771,9 @@ def _structure_self_tests() -> list:
     )
     expect("dangling skill pointer", check_skill_pointers("self-test:ptr", dangling), "'no-such-skill'")
     expect("no skills table", check_skill_pointers("self-test:ptr", {HUB: "# Hub\n"}), "no skills")
+    unlisted = dict(files)
+    unlisted[HUB] = files[HUB].replace("| fan out to subagents | `delegation` |\n", "", 1)
+    expect("generated skill without a row", check_skill_pointers("self-test:ptr", unlisted), "has no row")
 
     # (d) frontmatter: unterminated, over-long description, name/dir mismatch,
     # bad name characters, empty description.

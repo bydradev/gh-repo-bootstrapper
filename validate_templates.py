@@ -1613,6 +1613,73 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 f"[{label}] Next.js e2e must run every project on full runs and Chromium "
                 f"otherwise, got {runs}"
             )
+    return errors + _workflow_hardening(label, files)
+
+
+# The only accepted condition for a job that skips Release Please PRs: the
+# branch name alone is something anyone can choose, so the PR must also come
+# from a bot on this repository. Compared whole, after whitespace is
+# collapsed, so a changed operator or grouping cannot keep the guards' text.
+TITLE_SKIP_CONDITION = " ".join("""
+github.event.pull_request.merged == false &&
+github.event.pull_request.user.login != 'dependabot[bot]' &&
+!(startsWith(github.head_ref, 'release-please--') &&
+  github.event.pull_request.user.type == 'Bot' &&
+  github.event.pull_request.head.repo.full_name == github.repository)
+""".split())
+
+# A workflow that runs on push and cancels in-progress runs gives each non-PR
+# run its own concurrency group, so no run on main shares a group: a shared
+# group cancels pending runs whatever cancel-in-progress says. Only
+# release-please.yml's own `release-please` group with cancel-in-progress:
+# false is exempt: it serializes on purpose, and the newest pending run
+# replacing an older one is intended there.
+PUSH_CONCURRENCY_GROUP_RE = re.compile(
+    r"[\w-]*\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.run_id \}\}"
+)
+
+
+def _workflow_hardening(label: str, files: dict) -> list:
+    """Checkouts keep no token, push runs are never cancelled, and the
+    Release Please skip cannot be claimed by naming a branch."""
+    errors = []
+    for path in _workflow_paths(files):
+        workflow = yaml.safe_load(files[path]) or {}
+        triggers = workflow.get("on", workflow.get(True)) or {}
+        if isinstance(triggers, str):
+            triggers = {triggers: None}
+        elif isinstance(triggers, list):
+            triggers = dict.fromkeys(triggers)
+        concurrency = workflow.get("concurrency")
+        serialized = (
+            path == ".github/workflows/release-please.yml"
+            and isinstance(concurrency, dict)
+            and concurrency.get("group") == "release-please"
+            and concurrency.get("cancel-in-progress") is False
+        )
+        if "push" in triggers and concurrency is not None and not serialized:
+            group = concurrency.get("group") if isinstance(concurrency, dict) else concurrency
+            if not PUSH_CONCURRENCY_GROUP_RE.fullmatch(str(group)):
+                errors.append(
+                    f"[{label}] {path} runs on push, so its concurrency group must give each push "
+                    f"run its own group (github.run_id), or a newer push cancels a run on main"
+                )
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            condition = " ".join(str(job.get("if", "")).split())
+            if "release-please--" in condition and condition != TITLE_SKIP_CONDITION:
+                errors.append(
+                    f"[{label}] {path} job '{job_id}' skips release-please-- branches without "
+                    f"requiring a bot PR from this repository"
+                )
+            for step in job.get("steps") or []:
+                if (
+                    isinstance(step, dict)
+                    and str(step.get("uses", "")).startswith("actions/checkout@")
+                    and (step.get("with") or {}).get("persist-credentials") is not False
+                ):
+                    errors.append(f"[{label}] {path} job '{job_id}' checkout must set persist-credentials: false")
     return errors
 
 
@@ -2955,6 +3022,27 @@ def _structure_self_tests() -> list:
         return next(s for s in workflow["jobs"][job]["steps"] if predicate(s))
 
     release, test = ".github/workflows/release-please.yml", ".github/workflows/test.yml"
+    title, ci = ".github/workflows/pr-title-check.yml", ".github/workflows/ci.yml"
+    expect("checkout persisting credentials",
+           gates("python", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("actions/checkout@"))
+                 ["with"].pop("persist-credentials")), "persist-credentials: false")
+    expect("release-please skip by branch name alone",
+           gates("simple", title, lambda w: w["jobs"]["validate-title"].update(
+               {"if": "github.event.pull_request.merged == false && !startsWith(github.head_ref, 'release-please--')"})),
+           "without requiring a bot PR")
+    on_push = {True: {"pull_request": None, "push": {"branches": ["main"]}}}
+    expect("push runs share a concurrency group",
+           gates("python", ci, lambda w: w.update(on_push)), "own group (github.run_id)")
+    expect("push runs share a group that does not cancel",
+           gates("python", ci, lambda w: w.update(on_push) or w["concurrency"].update({"cancel-in-progress": False})),
+           "own group (github.run_id)")
+    expect("push runs grouped per run",
+           gates("python", ci, lambda w: w.update(on_push) or w["concurrency"].update(
+               {"group": "ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}"})), None)
+    expect("release-please skip with the guards or-ed",
+           gates("simple", title, lambda w: w["jobs"]["validate-title"].update({"if": TITLE_SKIP_CONDITION.replace(
+               "'release-please--') &&", "'release-please--') ||").replace("'Bot' &&", "'Bot' ||")})),
+           "without requiring a bot PR")
     for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
         expect(f"gates on a clean {repo_type} render", gates(repo_type), None)
     expect("release without needs: test",

@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=811db9fc44cfb6d39924680edb3afa8b92630f2201c5e06603698b86d1b0077c -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=f36dc3d2b42a74570fc068fcff202fb36e214cfc5aee6acf5196a725320aff16 -->
 # Branch protection and release PRs — operational runbook
 
 `main` is protected: a pull request and specific status checks are required, and the rules bind
@@ -77,7 +77,7 @@ benefits. The operational rule:
 These states differ, and only a reported skip is safe on its own:
 
 - **Skipped:** `pr-title-check.yml` gates at the job level
-  (`if: !startsWith(github.head_ref, 'release-please--')`), so the workflow still triggers and GitHub
+  (it skips a bot's `release-please--*` PR from the repository itself), so the workflow still triggers and GitHub
   receives a check run with `status: completed, conclusion: skipped`. A reported skip counts as
   satisfied. Verified on a protected branch: a release PR with `validate-title` SKIPPED computed
   CLEAN.

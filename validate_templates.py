@@ -1630,9 +1630,10 @@ github.event.pull_request.user.login != 'dependabot[bot]' &&
 
 # A workflow that runs on push and cancels in-progress runs gives each non-PR
 # run its own concurrency group, so no run on main shares a group: a shared
-# group cancels pending runs whatever cancel-in-progress says. A group with
-# cancel-in-progress: false (release-please) serializes on purpose; there the
-# newest pending run replacing an older one is intended.
+# group cancels pending runs whatever cancel-in-progress says. Only
+# release-please.yml's own `release-please` group with cancel-in-progress:
+# false is exempt: it serializes on purpose, and the newest pending run
+# replacing an older one is intended there.
 PUSH_CONCURRENCY_GROUP_RE = re.compile(
     r"[\w-]*\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.run_id \}\}"
 )
@@ -1650,7 +1651,12 @@ def _workflow_hardening(label: str, files: dict) -> list:
         elif isinstance(triggers, list):
             triggers = dict.fromkeys(triggers)
         concurrency = workflow.get("concurrency")
-        serialized = isinstance(concurrency, dict) and concurrency.get("cancel-in-progress") is False
+        serialized = (
+            path == ".github/workflows/release-please.yml"
+            and isinstance(concurrency, dict)
+            and concurrency.get("group") == "release-please"
+            and concurrency.get("cancel-in-progress") is False
+        )
         if "push" in triggers and concurrency is not None and not serialized:
             group = concurrency.get("group") if isinstance(concurrency, dict) else concurrency
             if not PUSH_CONCURRENCY_GROUP_RE.fullmatch(str(group)):
@@ -3027,6 +3033,9 @@ def _structure_self_tests() -> list:
     on_push = {True: {"pull_request": None, "push": {"branches": ["main"]}}}
     expect("push runs share a concurrency group",
            gates("python", ci, lambda w: w.update(on_push)), "own group (github.run_id)")
+    expect("push runs share a group that does not cancel",
+           gates("python", ci, lambda w: w.update(on_push) or w["concurrency"].update({"cancel-in-progress": False})),
+           "own group (github.run_id)")
     expect("push runs grouped per run",
            gates("python", ci, lambda w: w.update(on_push) or w["concurrency"].update(
                {"group": "ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}"})), None)

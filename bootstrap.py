@@ -93,6 +93,10 @@ _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
     "fresh-eyes-review", "delegation",
 )
+# A skill in some types but not all is type-specific: --check reports a stamped
+# copy of one under another --type as `(--type)`, and --adopt refuses. Before
+# removing a skill from one type while keeping it in another, plan how existing
+# repositories of the first type drop their stamped copy, or adopt will refuse.
 TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "simple": _GENERAL_SKILLS,
     "python": _GENERAL_SKILLS + ("local-validation-python",),
@@ -1397,7 +1401,14 @@ def _symlinked_skill_collisions(repo_dir: Path, files: dict, skill_paths: dict) 
         text = _read_regular_prefix(Path(entry.path) / "SKILL.md", SYMLINKED_SKILL_READ_LIMIT)
         if text is None:
             continue
-        name = _skill_name(read_stamp(text.replace("\r\n", "\n"))[1])
+        body = read_stamp(text.replace("\r\n", "\n"))[1]
+        name = _skill_name(body)
+        if name is None and body.lstrip("\ufeff").startswith("---"):
+            # Same conservative rule as an ordinary folder: a name the parser
+            # cannot read unambiguously might still collide.
+            found[rel] = ("shadowed", "symlinked skill whose frontmatter name could not be read "
+                          "unambiguously; use a plain single-line name")
+            continue
         if name in skill_paths:
             found[rel] = ("shadowed", "symlinked skill folder whose name collides with a template skill")
             found[skill_paths[name]] = ("shadowed", f"shadowed by {rel}")
@@ -2472,7 +2483,10 @@ def main():
         )
         for action, rel, detail in actions:
             print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))
-        print("\nReview the changes (git diff), then commit them on a branch.")
+        if any(action != "refused" for action, _, _ in actions):
+            print("\nReview the changes (git diff), then commit them on a branch.")
+        else:
+            print("\nNothing was changed.")
         sys.exit(1 if any(action == "refused" for action, _, _ in actions) else 0)
 
     if not args.dry_run:

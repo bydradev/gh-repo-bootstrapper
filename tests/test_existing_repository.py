@@ -560,6 +560,7 @@ class ExistingRepositoryTests(unittest.TestCase):
     def test_symlinked_skill_names_survive_crlf_and_a_cut_character(self):
         files = _render()
         cases = {
+            "folded YAML name": "---\nname: >-\n  pull-requests\n---\n# Not the template\n",
             "crlf": "---\r\nname: pull-requests\r\n---\r\n# Not the template\r\n",
             "cut multibyte": "---\nname: pull-requests\n---\n" + "\u00e9" * 40,
         }

@@ -495,11 +495,15 @@ class ExistingRepositoryTests(unittest.TestCase):
     def test_type_check_finds_another_types_skills_wherever_the_scan_would_delete_them(self):
         simple, nextjs = _render("simple"), _render("nextjs")
         skill = nextjs[".agents/skills/local-validation-nextjs/SKILL.md"]
+        padded = bootstrap.read_stamp(skill)[1] + "x" * (1 << 20) + "\n"
+        late_stamp = padded + f"{bootstrap.STAMP_PREFIX}{bootstrap._digest(padded)} -->\n"
+        self.assertTrue(bootstrap.stamp_is_valid(late_stamp))
+        self.assertGreater(late_stamp.index(bootstrap.STAMP_PREFIX), 1 << 20)
         cases = {
             "canonical path": (".agents/skills/local-validation-nextjs/SKILL.md", skill, True),
             "relocated folder": (".agents/skills/nextjs-checks/SKILL.md", skill, True),
             "nested folder": (".agents/skills/old/local-validation-nextjs/SKILL.md", skill, True),
-            "stamp past 1 MiB": (".agents/skills/big/SKILL.md", skill + "x" * (1 << 20) + "\n", True),
+            "stamp past 1 MiB": (".agents/skills/big/SKILL.md", late_stamp, True),
             "repository's own folder": (
                 ".agents/skills/local-validation-nextjs/SKILL.md",
                 "---\nname: local-validation-nextjs\n---\nExample: " + bootstrap.STAMP_PREFIX + "0" * 64 + " -->\n",

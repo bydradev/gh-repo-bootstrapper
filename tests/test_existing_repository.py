@@ -1035,6 +1035,42 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.read_stamp(stamped, True)[1], body)
         self.assertTrue(bootstrap.stamp_is_valid(stamped, True))
 
+    def test_declared_inputs_follow_only_the_root_workflow_call_path(self):
+        head = "name: test\non:\n  workflow_call:\n    inputs:\n"
+        cases = {
+            "inputs text in a description": (
+                head + "      e2e:\n        type: boolean\n        description: |\n"
+                "          inputs:\n            full: example\n", ["e2e"]),
+            "workflow_call text in a name": (
+                "name: 'workflow_call: inputs: full'\non:\n  push:\n", None),
+            "quoted input keys": (head + "      \"e2e\":\n        type: boolean\n      'full':\n        type: boolean\n",
+                                  ["e2e", "full"]),
+            "dedented comment": (head + "# a note\n      e2e:\n        type: boolean\n      full:\n        type: boolean\n",
+                                 ["e2e", "full"]),
+            "inline inputs mapping": (head.replace("    inputs:\n", "    inputs: {e2e: {type: boolean}}\n"),
+                                      bootstrap._UNVERIFIABLE),
+            "inline on mapping": ("on: {workflow_call: {}}\n", bootstrap._UNVERIFIABLE),
+            "no inputs": ("on:\n  workflow_call:\njobs: {}\n", []),
+        }
+        for label, (text, expected) in cases.items():
+            with self.subTest(label):
+                self.assertEqual(bootstrap._declared_inputs(text), expected)
+
+    def test_unverifiable_called_workflow_is_refused_by_name_not_guessed(self):
+        files = _render("nextjs")
+        rel = ".github/workflows/release-please.yml"
+        self._write(".github/workflows/test.yml", "on:\n  workflow_call:\n    inputs: {e2e: {type: boolean}, full: {type: boolean}}\n")
+        problems = bootstrap._undeclared_inputs(self.repo, bootstrap.read_stamp(files[rel], True)[1])
+        self.assertEqual(problems, ["cannot verify the inputs .github/workflows/test.yml declares; check them by hand"])
+
+    def test_scalars_never_hide_or_fake_an_action(self):
+        hidden = "steps:\n  - name: |\n      label\n    uses: actions/checkout@one\n"
+        self.assertEqual(len(bootstrap._uses_lines(hidden.splitlines(keepends=True))), 1)
+        quoted = "steps:\n  - run: \"echo start\n      uses: owner/x@one\n      done\"\n"
+        self.assertEqual(bootstrap._uses_lines(quoted.splitlines(keepends=True)), {})
+        flow = "steps:\n  - {name: a,\n     uses: actions/checkout@one}\n"
+        self.assertEqual(bootstrap._unpinned(flow), flow)
+
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
             self.assertEqual(bootstrap.compute_legacy_digests(), self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS))

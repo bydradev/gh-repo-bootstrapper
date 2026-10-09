@@ -182,18 +182,29 @@ def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
 # (`./`) and `docker://` references never match.
 _USES_RE = re.compile(
     r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]*)(?P<q>['\"]?)"
-    r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[^@\s#'\"]+)@(?P<ref>[^\s#'\"]+)(?P=q)"
+    r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[^@\s#'\"{}\[\],]+)@(?P<ref>[^\s#'\"{}\[\],]+)(?P=q)"
     r"(?P<tail>[ \t]*(?:#[^\r\n]*)?)(?P<eol>\r?\n)?"
 )
 # A key whose value is a block scalar (`run: |`); its content lines are text.
-_BLOCK_SCALAR_RE = re.compile(r"(?P<indent>[ \t]*)(?:-[ \t]+)?[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
+_BLOCK_SCALAR_RE = re.compile(r"(?P<key>[ \t]*(?:-[ \t]+)?)[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
+# A key whose value opens a quoted scalar that continues on later lines.
+_OPEN_QUOTE_RE = re.compile(r"[ \t]*(?:-[ \t]+)?[^\s#'\"][^:#]*:[ \t]*(?P<q>['\"])(?P<rest>.*)")
 
 
 def _uses_lines(lines: list) -> dict:
-    """{line index: match} for real `uses:` lines, skipping block-scalar text."""
-    found, block = {}, None
+    """{line index: match} for real `uses:` lines.
+
+    Lines inside a block scalar (`run: |`, measured from its key, after any
+    `- ` marker) or a multi-line quoted scalar are text, never actions.
+    """
+    found, block, quote = {}, None, None
     for i, line in enumerate(lines):
         bare = line.rstrip("\r\n")
+        if quote is not None:
+            # Inside a multi-line quoted scalar until a line closes it.
+            if bare.replace(quote * 2, "").count(quote) % 2:
+                quote = None
+            continue
         if block is not None:
             if not bare.strip() or len(bare) - len(bare.lstrip(" ")) > block:
                 continue
@@ -201,9 +212,18 @@ def _uses_lines(lines: list) -> dict:
         match = _USES_RE.fullmatch(line)
         if match:
             found[i] = match
+            continue
         scalar = _BLOCK_SCALAR_RE.fullmatch(bare)
         if scalar:
-            block = len(scalar["indent"])
+            block = len(scalar["key"])
+            continue
+        opened = _OPEN_QUOTE_RE.fullmatch(bare)
+        if opened:
+            rest = opened["rest"]
+            closed = rest.replace(opened["q"] * 2, "").count(opened["q"]) % 2 if opened["q"] == "'" else (
+                len(re.findall(r'(?<!\\)"', rest)) % 2)
+            if not closed:
+                quote = opened["q"]
     return found
 
 
@@ -1432,20 +1452,84 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def _child_keys(lines: list, i: int) -> list:
-    """Keys of the block mapping nested directly under lines[i]."""
-    keys, child = [], None
-    for line in lines[i + 1:]:
+# `key:` alone (a nested block mapping follows) or `key: value`; keys plain or quoted.
+_KEY_LINE_RE = re.compile(
+    r"(?P<indent> *)(?P<key>[A-Za-z0-9_.-]+|\"[^\"]*\"|'[^']*'):(?P<value>(?:[ \t]+[^#\s].*?)?)[ \t]*(?:#.*)?"
+)
+_UNVERIFIABLE = object()
+
+
+def _structural_lines(text: str) -> list | None:
+    """(indent, key, value) for each mapping line, or None for YAML this reader
+    does not model. Comments, blank lines and block-scalar text are skipped."""
+    rows, block = [], None
+    for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        if _indent(line) <= _indent(lines[i]):
-            break
-        child = _indent(line) if child is None else child
-        if _indent(line) == child:
-            match = re.match(r"\s*([A-Za-z0-9_-]+)\s*:", line)
-            if match:
-                keys.append(match.group(1))
-    return keys
+        if block is not None:
+            if _indent(line) > block:
+                continue
+            block = None
+        if "\t" in line[: _indent(line) + 1]:
+            return None
+        if line.lstrip().startswith("- "):
+            # A sequence entry; a `- key: |` entry still opens a block scalar,
+            # measured from its key, two columns past the marker.
+            rows.append((_indent(line), None, None))
+            item = _KEY_LINE_RE.fullmatch(" " * (_indent(line) + 2) + line.lstrip()[2:])
+            if item and re.fullmatch(r"[|>][-+0-9]*", item["value"].strip()):
+                block = _indent(line) + 2
+            continue
+        match = _KEY_LINE_RE.fullmatch(line)
+        if not match:
+            return None
+        key = match["key"].strip("'\"")
+        value = match["value"].strip()
+        rows.append((_indent(line), key, value))
+        if re.fullmatch(r"[|>][-+0-9]*", value):
+            block = _indent(line)
+    return rows
+
+
+def _declared_inputs(text: str):
+    """Names under the root `on.workflow_call.inputs`, [] when it declares none,
+    None when the file is not a reusable workflow, or _UNVERIFIABLE."""
+    rows = _structural_lines(text)
+    if rows is None:
+        return _UNVERIFIABLE
+
+    def children(start: int, indent: int) -> list:
+        out, child = [], None
+        for k in range(start + 1, len(rows)):
+            row_indent, key, value = rows[k]
+            if row_indent <= indent:
+                break
+            child = row_indent if child is None else child
+            if row_indent == child:
+                out.append((k, key, value))
+        return out
+
+    root = [(k, key, value) for k, (indent, key, value) in enumerate(rows) if indent == 0]
+    on = [(k, value) for k, key, value in root if key in ("on", "true")]
+    if len(on) != 1:
+        return _UNVERIFIABLE
+    k, value = on[0]
+    if value:
+        return None if re.fullmatch(r"\[?\s*\w+(\s*,\s*\w+)*\s*\]?", value) and "workflow_call" not in value else _UNVERIFIABLE
+    call = [(c, v) for c, key, v in children(k, 0) if key == "workflow_call"]
+    if not call:
+        return None
+    c, value = call[0]
+    if value:
+        return [] if value in ("{}", "null", "~") else _UNVERIFIABLE
+    inputs = [(n, v) for n, key, v in children(c, rows[c][0]) if key == "inputs"]
+    if not inputs:
+        return []
+    n, value = inputs[0]
+    if value:
+        return [] if value in ("{}", "null", "~") else _UNVERIFIABLE
+    names = [key for _, key, _ in children(n, rows[n][0])]
+    return _UNVERIFIABLE if None in names else names
 
 
 def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
@@ -1454,14 +1538,16 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     A called workflow must declare every input passed to it, or GitHub fails
     the run; a repository-owned test.yml from an older template may lack one
     a newer release workflow passes. A called file that does not exist yet is
-    written by --adopt from the same render, so it is not checked. bootstrap.py
-    has no YAML parser, so this reads block-style YAML by indentation, which
-    is how every template is written.
+    written by --adopt from the same render, so it is not checked.
+    bootstrap.py has no YAML parser: the called file is read strictly, by
+    indentation, along the root `on.workflow_call.inputs` path only, and any
+    form this reader does not model is reported as unverifiable rather than
+    guessed. `workflow` is the template's own text.
     """
     problems = []
     lines = workflow.splitlines()
     for i, line in enumerate(lines):
-        call = re.fullmatch(r"(\s*)uses:\s*\./(\.github/workflows/[\w.-]+\.ya?ml)\s*(?:#.*)?", line)
+        call = re.fullmatch(r"(\s*)uses:\s*(['\"]?)\./(\.github/workflows/[\w.-]+\.ya?ml)\2\s*(?:#.*)?", line)
         if not call:
             continue
         passed = []
@@ -1469,28 +1555,26 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
             if lines[j].strip() and _indent(lines[j]) < len(call.group(1)):
                 break
             if re.fullmatch(rf"{call.group(1)}with:\s*(?:#.*)?", lines[j]):
-                passed = _child_keys(lines, j)
-        called = repo_dir / call.group(2)
-        if _symlink_in_path(repo_dir, call.group(2)) or not called.is_file():
+                for row_indent, key, _ in _structural_lines("\n".join(lines[j:])) or []:
+                    if row_indent <= len(call.group(1)) and key != "with":
+                        break
+                    if row_indent == len(call.group(1)) + 2 and key:
+                        passed.append(key)
+                break
+        rel = call.group(3)
+        called = repo_dir / rel
+        if _symlink_in_path(repo_dir, rel) or not called.is_file():
             continue
         try:
-            target = called.read_text(encoding="utf-8").splitlines()
+            declared = _declared_inputs(called.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError):
-            problems.append(f"cannot read {call.group(2)} to check the inputs passed to it")
+            declared = _UNVERIFIABLE
+        if declared is _UNVERIFIABLE:
+            problems.append(f"cannot verify the inputs {rel} declares; check them by hand")
             continue
-        declared = None
-        for k, target_line in enumerate(target):
-            if re.fullmatch(r"\s*workflow_call:\s*(?:#.*)?", target_line):
-                declared = []
-                for m in range(k + 1, len(target)):
-                    if target[m].strip() and _indent(target[m]) <= _indent(target_line):
-                        break
-                    if re.fullmatch(r"\s*inputs:\s*(?:#.*)?", target[m]):
-                        declared = _child_keys(target, m)
-                break
         missing = [name for name in passed if declared is None or name not in declared]
         if missing:
-            problems.append(f"{call.group(2)} does not declare input(s) {', '.join(missing)}")
+            problems.append(f"{rel} does not declare input(s) {', '.join(missing)}")
     return problems
 
 

@@ -1071,6 +1071,53 @@ class ExistingRepositoryTests(unittest.TestCase):
         flow = "steps:\n  - {name: a,\n     uses: actions/checkout@one}\n"
         self.assertEqual(bootstrap._unpinned(flow), flow)
 
+    def test_strict_reader_agrees_with_pyyaml_or_refuses(self):
+        import yaml
+
+        def truth(text):
+            try:
+                data = yaml.safe_load(text)
+            except yaml.YAMLError:
+                return "error"
+            on = data.get("on", data.get(True)) if isinstance(data, dict) else None
+            if isinstance(on, str):
+                return [] if on == "workflow_call" else None
+            if isinstance(on, list):
+                return [] if "workflow_call" in on else None
+            if not isinstance(on, dict) or "workflow_call" not in on:
+                return None
+            call = on["workflow_call"] or {}
+            return list((call.get("inputs") or {}) if isinstance(call, dict) else {})
+
+        head = "name: t\non:\n  workflow_call:\n    inputs:\n"
+        corpus = [
+            head + '      e2e:\n        type: boolean\n        description: "example\n      full:\n        type: boolean"\n',
+            head + "      e2e:\n        description: |\n          inputs:\n            full: x\n",
+            head + "      e2e:\n        description: 'a\n      full: b'\n",
+            head + "      e2e: {type: boolean,\n      full: x}\n",
+            head + "      e2e: &a\n        type: boolean\n      full: *a\n",
+            head + "      e2e:\n        description: some text\n          full: x\n",
+            head + "      - e2e\n",
+            head + "# c\n      e2e: {}\n      full: {}\n",
+            head + "      e2e: {}  # full: no\n",
+            head + '      e2e:\n        description: "a # b: c"\n      full: {}\n',
+            "true:\n  workflow_call:\n    inputs:\n      full: {}\n",
+            '"on":\n  workflow_call:\n    inputs:\n      full: {}\n',
+            "on: [push, workflow_call]\n",
+            "on: push\n",
+            "on:\n  workflow_call:\n    inputs:\n      e2e: {}\njobs:\n  a:\n    steps:\n      - run: |\n          inputs:\n      - name: x\n",
+        ]
+        for name in ("nextjs", "python", "rust", "swift"):
+            corpus.append(_render(name)[".github/workflows/test.yml"])
+        for text in corpus:
+            with self.subTest(text[:60]):
+                mine = bootstrap._declared_inputs(text)
+                if mine is bootstrap._UNVERIFIABLE:
+                    continue
+                expected = truth(text)
+                self.assertNotEqual(expected, "error", text)
+                self.assertEqual(None if mine is None else sorted(mine), None if expected is None else sorted(expected))
+
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
             self.assertEqual(bootstrap.compute_legacy_digests(), self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS))

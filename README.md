@@ -243,7 +243,8 @@ changes:
 - the two reviewer agents;
 - `docs/branch-protection-runbook.md`;
 - `docs/screenshot-review.md`;
-- `.github/workflows/pr-title-check.yml` and `.github/workflows/release-please.yml`;
+- `.github/workflows/pr-title-check.yml`;
+- `.github/workflows/release-please.yml`;
 - `.github/workflows/baseline-review.yml` (`nextjs`).
 
 `docs/lint-baseline.md` and `docs/advisory-baseline.md` aren't in this set.
@@ -282,6 +283,11 @@ called file declares every input passed to it, because GitHub fails a run that
 passes an undeclared input. A repository-owned `test.yml` from an older
 template may lack one; `--adopt` then refuses and names the missing inputs, so
 add them to `test.yml` and re-run.
+
+`bootstrap.py` has no YAML parser: it reads the called file in a strict
+subset of YAML (block mappings and sequences, single-line values, block
+scalars), and refuses with "cannot verify" for anything else, such as a quoted
+value that spans lines, an anchor or an inline `on:` mapping.
 
 Dependabot keeps updating the actions these workflows use. A workflow's
 digest ignores the version after `@` on each `uses:` line and the comment

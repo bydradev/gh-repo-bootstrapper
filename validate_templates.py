@@ -633,8 +633,37 @@ def check_skill_frontmatter(label: str, files: dict) -> list:
     return errors
 
 
+def _action_reference_lines(text: str) -> set:
+    """0-based lines holding a job's or step's remote `uses: owner/repo@ref`."""
+    lines = set()
+    root = yaml.compose(text)
+    if not isinstance(root, yaml.MappingNode):
+        return lines
+    for key, jobs in root.value:
+        if key.value != "jobs" or not isinstance(jobs, yaml.MappingNode):
+            continue
+        for _, job in jobs.value:
+            if not isinstance(job, yaml.MappingNode):
+                continue
+            candidates = [value for k, value in job.value if k.value == "uses"]
+            for k, steps in job.value:
+                if k.value == "steps" and isinstance(steps, yaml.SequenceNode):
+                    for step in steps.value:
+                        if isinstance(step, yaml.MappingNode):
+                            candidates += [value for sk, value in step.value if sk.value == "uses"]
+            for value in candidates:
+                if isinstance(value, yaml.ScalarNode) and re.fullmatch(r"[A-Za-z0-9][^@\s]*/[^@\s]+@\S+", value.value):
+                    lines.add(value.start_mark.line)
+    return lines
+
+
 def check_template_stamps(label: str, cfg: dict, files: dict) -> list:
-    """Every template-owned file is rendered with a stamp matching its body."""
+    """Every template-owned file is rendered with a stamp matching its body.
+
+    A workflow's stamp ignores the pin on each line bootstrap._uses_lines()
+    finds, so those must be exactly the template's real action references:
+    a `uses:`-looking line anywhere else (script text, an anchored scalar)
+    would let an edit there keep the stamp valid."""
     errors = []
     for path in sorted(bootstrap.template_owned_paths(cfg)):
         if path not in files:
@@ -642,6 +671,14 @@ def check_template_stamps(label: str, cfg: dict, files: dict) -> list:
         elif not bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)):
             prefix = bootstrap.YAML_STAMP_PREFIX if path.endswith(".yml") else bootstrap.STAMP_PREFIX
             errors.append(f"[{label}] template-owned {path} has no valid {prefix!r} stamp")
+        elif bootstrap._is_yaml(path):
+            tolerant = set(bootstrap._uses_lines(files[path].splitlines(keepends=True)))
+            real = _action_reference_lines(files[path])
+            if tolerant != real:
+                errors.append(
+                    f"[{label}] template-owned {path}: pin-tolerant lines {sorted(n + 1 for n in tolerant)} "
+                    f"differ from its action references {sorted(n + 1 for n in real)}"
+                )
     return errors
 
 
@@ -3007,6 +3044,19 @@ def _structure_self_tests() -> list:
     both = check_screenshot_guidance("self-test:shot", "nextjs", bare)
     expect("missing screenshot document keeps the pointer error", both, "missing its pointer")
     expect("missing screenshot document is reported", both, f"missing {bootstrap.SCREENSHOT_REVIEW}")
+
+    # A template-owned workflow whose script text looks like a pinned action
+    # would let an edit there keep its pin-tolerant stamp valid.
+    owned_cfg = next(c for _, c in configurations() if c["repo_type"] == "simple")
+    owned = bootstrap.generate_files(owned_cfg)
+    release_path = ".github/workflows/release-please.yml"
+    body = bootstrap.read_stamp(owned[release_path], True)[1]
+    owned[release_path] = bootstrap.stamp(
+        body + "  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: &script |\n          uses: owner/x@one\n",
+        is_yaml=True,
+    )
+    expect("script text that looks like a pinned action",
+           check_template_stamps("self-test:pins", owned_cfg, owned), "differ from its action references")
 
     # Workflow gates: each executable gate fails when broken.
     def gates(repo_type, path=None, change=None, text=None):

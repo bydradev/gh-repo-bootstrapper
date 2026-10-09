@@ -1452,43 +1452,153 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-# `key:` alone (a nested block mapping follows) or `key: value`; keys plain or quoted.
-_KEY_LINE_RE = re.compile(
-    r"(?P<indent> *)(?P<key>[A-Za-z0-9_.-]+|\"[^\"]*\"|'[^']*'):(?P<value>(?:[ \t]+[^#\s].*?)?)[ \t]*(?:#.*)?"
-)
 _UNVERIFIABLE = object()
+_PLAIN_KEY_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+
+
+def _scalar_end(text: str) -> int | None:
+    """Length of the single-line scalar or flow collection that opens `text`,
+    or None when it does not close on this line."""
+    if text[:1] == '"':
+        i = 1
+        while i < len(text):
+            if text[i] == "\\":
+                i += 2
+                continue
+            if text[i] == '"':
+                return i + 1
+            i += 1
+        return None
+    if text[:1] == "'":
+        i = 1
+        while i < len(text):
+            if text[i] == "'":
+                if text[i + 1:i + 2] == "'":
+                    i += 2
+                    continue
+                return i + 1
+            i += 1
+        return None
+    if text[:1] in "[{":
+        depth, i = 0, 0
+        while i < len(text):
+            char = text[i]
+            if char in "\"'":
+                end = _scalar_end(text[i:])
+                if end is None:
+                    return None
+                i += end
+                continue
+            depth += char in "[{"
+            depth -= char in "]}"
+            if depth == 0:
+                return i + 1
+            i += 1
+        return None
+    comment = re.search(r"[ \t]#", text)
+    return comment.start() if comment else len(text)
+
+
+def _value(text: str) -> str | None:
+    """A single-line value without its comment, or None outside the modelled subset."""
+    text = text.strip()
+    if not text or text.startswith("#"):
+        return ""
+    if text[0] in "&*!%@`":
+        return None  # anchors, aliases, tags and reserved indicators
+    end = _scalar_end(text)
+    if end is None:
+        return None
+    rest = text[end:].strip()
+    if rest and not rest.startswith("#"):
+        return None
+    value = text[:end].rstrip()
+    if value[0] not in "\"'[{" and (": " in value or value.endswith(":")):
+        return None
+    return value
 
 
 def _structural_lines(text: str) -> list | None:
-    """(indent, key, value) for each mapping line, or None for YAML this reader
-    does not model. Comments, blank lines and block-scalar text are skipped."""
+    """(indent, key, value) rows of a workflow in a strict YAML subset, or None.
+
+    bootstrap.py has no YAML parser, so this models only block mappings and
+    sequences, single-line scalars and flow collections, and block scalars,
+    whose text it skips. Anything else (a quoted scalar or flow collection
+    spanning lines, anchors, aliases, tags, a plain scalar continued on the
+    next line, tabs, several documents) returns None, so callers refuse
+    instead of guessing. Sequence entries are rows with key None.
+    """
     rows, block = [], None
     for line in text.splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
+        if not line.strip():
             continue
+        indent = _indent(line)
         if block is not None:
-            if _indent(line) > block:
+            if indent > block:
                 continue
             block = None
-        if "\t" in line[: _indent(line) + 1]:
-            return None
-        if line.lstrip().startswith("- "):
-            # A sequence entry; a `- key: |` entry still opens a block scalar,
-            # measured from its key, two columns past the marker.
-            rows.append((_indent(line), None, None))
-            item = _KEY_LINE_RE.fullmatch(" " * (_indent(line) + 2) + line.lstrip()[2:])
-            if item and re.fullmatch(r"[|>][-+0-9]*", item["value"].strip()):
-                block = _indent(line) + 2
+        body = line[indent:]
+        if body.startswith("\t") or body.startswith("#"):
+            if body.startswith("\t"):
+                return None
             continue
-        match = _KEY_LINE_RE.fullmatch(line)
-        if not match:
+        if indent == 0 and body.rstrip() in ("---", "..."):
             return None
-        key = match["key"].strip("'\"")
-        value = match["value"].strip()
-        rows.append((_indent(line), key, value))
-        if re.fullmatch(r"[|>][-+0-9]*", value):
-            block = _indent(line)
+        while body == "-" or body.startswith("- "):
+            rows.append((indent, None, None))
+            rest = body[1:]
+            indent += 1 + len(rest) - len(rest.lstrip(" "))
+            body = rest.lstrip(" ")
+        if not body or body.startswith("#"):
+            continue
+        key_match = re.match(r'("[^"\\]*"|\'[^\']*\'|[A-Za-z0-9_][A-Za-z0-9_.-]*):(?=[ \t]|$)', body)
+        if key_match is None:
+            # A sequence entry that is a scalar, not a mapping.
+            value = _value(body)
+            if value is None or not rows or rows[-1][1] is not None:
+                return None
+            continue
+        key = key_match.group(1)
+        key = key[1:-1] if key[0] in "\"'" else key
+        raw = body[key_match.end():]
+        if re.fullmatch(r"[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?", raw):
+            rows.append((indent, key, "|"))
+            block = indent
+            continue
+        value = _value(raw)
+        if value is None:
+            return None
+        rows.append((indent, key, value))
+    # A scalar value cannot have deeper children; such a file is outside the subset.
+    for (indent, key, value), (next_indent, _, _) in zip(rows, rows[1:]):
+        if key is not None and value and next_indent > indent:
+            return None
     return rows
+
+
+def _children(rows: list, start: int):
+    """Direct children (index, key, value) of rows[start], or _UNVERIFIABLE for
+    inconsistent indentation."""
+    parent = rows[start][0]
+    out, child = [], None
+    for k in range(start + 1, len(rows)):
+        indent, key, value = rows[k]
+        if indent <= parent:
+            break
+        child = indent if child is None else child
+        if indent < child:
+            return _UNVERIFIABLE
+        if indent == child:
+            out.append((k, key, value))
+    return out
+
+
+def _only(entries: list, name: str):
+    """The single (index, value) for key `name`, None if absent, _UNVERIFIABLE if repeated."""
+    found = [(k, value) for k, key, value in entries if key == name]
+    if len(found) > 1:
+        return _UNVERIFIABLE
+    return found[0] if found else None
 
 
 def _declared_inputs(text: str):
@@ -1497,39 +1607,77 @@ def _declared_inputs(text: str):
     rows = _structural_lines(text)
     if rows is None:
         return _UNVERIFIABLE
-
-    def children(start: int, indent: int) -> list:
-        out, child = [], None
-        for k in range(start + 1, len(rows)):
-            row_indent, key, value = rows[k]
-            if row_indent <= indent:
-                break
-            child = row_indent if child is None else child
-            if row_indent == child:
-                out.append((k, key, value))
-        return out
-
     root = [(k, key, value) for k, (indent, key, value) in enumerate(rows) if indent == 0]
-    on = [(k, value) for k, key, value in root if key in ("on", "true")]
-    if len(on) != 1:
+    keys = [key for _, key, _ in root]
+    if None in keys or len(keys) != len(set(keys)):
         return _UNVERIFIABLE
-    k, value = on[0]
+    on = _only(root, "on")
+    if on is None or on is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    k, value = on
     if value:
-        return None if re.fullmatch(r"\[?\s*\w+(\s*,\s*\w+)*\s*\]?", value) and "workflow_call" not in value else _UNVERIFIABLE
-    call = [(c, v) for c, key, v in children(k, 0) if key == "workflow_call"]
-    if not call:
+        events = value.strip("[]").replace(" ", "").split(",") if value[0] != "{" else None
+        if events is None or not all(_PLAIN_KEY_RE.fullmatch(event) for event in events):
+            return _UNVERIFIABLE
+        return [] if "workflow_call" in events else None
+    events = _children(rows, k)
+    if events is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    call = _only(events, "workflow_call")
+    if call is None:
         return None
-    c, value = call[0]
+    if call is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    c, value = call
     if value:
         return [] if value in ("{}", "null", "~") else _UNVERIFIABLE
-    inputs = [(n, v) for n, key, v in children(c, rows[c][0]) if key == "inputs"]
-    if not inputs:
+    settings = _children(rows, c)
+    inputs = _UNVERIFIABLE if settings is _UNVERIFIABLE else _only(settings, "inputs")
+    if inputs is None:
         return []
-    n, value = inputs[0]
+    if inputs is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    n, value = inputs
     if value:
         return [] if value in ("{}", "null", "~") else _UNVERIFIABLE
-    names = [key for _, key, _ in children(n, rows[n][0])]
-    return _UNVERIFIABLE if None in names else names
+    names = _children(rows, n)
+    if names is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    names = [key for _, key, _ in names]
+    if None in names or len(names) != len(set(names)):
+        return _UNVERIFIABLE
+    return names
+
+
+def _passed_inputs(text: str) -> dict | None:
+    """{called local workflow: [input names passed]} for this workflow's
+    `uses: ./.github/workflows/...` calls, or None outside the subset."""
+    rows = _structural_lines(text)
+    if rows is None:
+        return None
+    calls = {}
+    for k, (indent, key, value) in enumerate(rows):
+        target = value.strip("'\"") if key == "uses" and value else ""
+        if not re.fullmatch(r"\./\.github/workflows/[\w.-]+\.ya?ml", target):
+            continue
+        parent = max((p for p in range(k) if rows[p][0] < indent), default=None)
+        siblings = _children(rows, parent) if parent is not None else None
+        if siblings is None or siblings is _UNVERIFIABLE:
+            return None
+        passed = _only(siblings, "with")
+        names = []
+        if passed is _UNVERIFIABLE:
+            return None
+        if passed is not None:
+            w, inline = passed
+            if inline:
+                return None
+            entries = _children(rows, w)
+            if entries is _UNVERIFIABLE:
+                return None
+            names = [name for _, name, _ in entries]
+        calls.setdefault(target[2:], []).extend(names)
+    return calls
 
 
 def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
@@ -1538,30 +1686,15 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     A called workflow must declare every input passed to it, or GitHub fails
     the run; a repository-owned test.yml from an older template may lack one
     a newer release workflow passes. A called file that does not exist yet is
-    written by --adopt from the same render, so it is not checked.
-    bootstrap.py has no YAML parser: the called file is read strictly, by
-    indentation, along the root `on.workflow_call.inputs` path only, and any
-    form this reader does not model is reported as unverifiable rather than
-    guessed. `workflow` is the template's own text.
+    written by --adopt from the same render, so it is not checked. Files are
+    read with _structural_lines(); anything outside its subset is reported as
+    unverifiable rather than guessed.
     """
+    calls = _passed_inputs(workflow)
+    if calls is None:
+        return ["cannot verify the inputs this workflow passes; check them by hand"]
     problems = []
-    lines = workflow.splitlines()
-    for i, line in enumerate(lines):
-        call = re.fullmatch(r"(\s*)uses:\s*(['\"]?)\./(\.github/workflows/[\w.-]+\.ya?ml)\2\s*(?:#.*)?", line)
-        if not call:
-            continue
-        passed = []
-        for j in range(i + 1, len(lines)):
-            if lines[j].strip() and _indent(lines[j]) < len(call.group(1)):
-                break
-            if re.fullmatch(rf"{call.group(1)}with:\s*(?:#.*)?", lines[j]):
-                for row_indent, key, _ in _structural_lines("\n".join(lines[j:])) or []:
-                    if row_indent <= len(call.group(1)) and key != "with":
-                        break
-                    if row_indent == len(call.group(1)) + 2 and key:
-                        passed.append(key)
-                break
-        rel = call.group(3)
+    for rel, passed in calls.items():
         called = repo_dir / rel
         if _symlink_in_path(repo_dir, rel) or not called.is_file():
             continue

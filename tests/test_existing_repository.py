@@ -516,6 +516,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                 report = bootstrap.compare_repository(self.repo, simple)
                 self.assertEqual(bootstrap.TYPE_MISMATCH in report, mismatch, report.get(bootstrap.TYPE_MISMATCH))
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores file permissions")
     def test_unreadable_other_type_skill_is_not_deleted(self):
         nextjs, simple = _render("nextjs"), _render("simple")
         rel = ".agents/skills/local-validation-nextjs/SKILL.md"
@@ -529,6 +530,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(actions[rel], "refused")
         self.assertTrue((self.repo / rel).is_file())
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores file permissions")
     def test_unreachable_skill_target_is_not_dangling(self):
         files = _render()
         self._write(".agents/skills/repo-skill/SKILL.md", "---\nname: repo-skill\n---\n# Ours\n")
@@ -787,6 +789,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(actions["AGENTS.md"], "refused")
         self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
         self.assertEqual([p.name for p in self.repo.iterdir() if p.name.endswith(".tmp")], [])
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores file permissions")
     def test_unreadable_file_is_reported_and_the_run_continues(self):
         files = _render()
         self._write("README.md", "# Mine\n")

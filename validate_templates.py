@@ -810,7 +810,8 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
         errors.append(f"[{label}] AGENTS.md is missing its pointer {HUB_SCREENSHOT_POINTER!r}")
 
     if document is None:
-        return [f"[{label}] missing {bootstrap.SCREENSHOT_REVIEW} for {repo_type}"]
+        errors.append(f"[{label}] missing {bootstrap.SCREENSHOT_REVIEW} for {repo_type}")
+        return errors
 
     # The screenshot-review skill, not the hub, points at the platform
     # document by its repository-root path (check_markdown_links covers links).
@@ -926,7 +927,7 @@ def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
 
     for path in expected & actual:
         for phrase in BASELINE_DOCUMENT_REQUIREMENTS[path]:
-            if phrase not in files[path]:
+            if not _contains_prose(files[path], phrase):
                 errors.append(f"[{label}] {path} is missing required policy text {phrase!r}")
 
     if repo_type == "nextjs":
@@ -947,7 +948,7 @@ def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] {BASELINE_SKILL} is missing the baseline process guidance")
         readme = files.get(bootstrap.README, "")
         for phrase in ("docs/lint-baseline.md", "docs/advisory-baseline.md"):
-            if phrase not in readme:
+            if not _contains_prose(readme, phrase):
                 errors.append(f"[{label}] README.md is missing the baseline pointer {phrase!r}")
 
         prettierignore = files.get(".prettierignore", "")
@@ -1025,7 +1026,7 @@ def check_readme(label: str, cfg: dict, files: dict) -> list:
     errors = [
         f"[{label}] README.md is missing {phrase!r}"
         for phrase in README_REQUIREMENTS[repo_type]
-        if phrase not in readme
+        if not _contains_prose(readme, phrase)
     ]
     if repo_type == "swift":
         destination = cfg.get("destination") or "iphone"
@@ -1744,6 +1745,23 @@ def check_release_please_config(label: str, cfg: dict, files: dict) -> list:
     return errors
 
 
+# The required checks each generated type is born with, written out rather than
+# taken from bootstrap.required_status_checks(), which builds the payload too:
+# comparing the payload with that function could never fail.
+EXPECTED_PROTECTION_CONTEXTS = {
+    "nextjs": ["validate-title", "test / build", "test / e2e"],
+    "python": ["validate-title", "test / test"],
+    "swift": ["validate-title", "test / test"],
+    "rust": ["validate-title", "test / test"],
+    "simple": ["validate-title"],
+}
+
+
+def _contains_prose(text: str, phrase: str) -> bool:
+    """Phrase match that survives rewrapping: whitespace runs compare equal."""
+    return " ".join(phrase.split()) in " ".join(text.split())
+
+
 def check_branch_protection_payload(label: str, repo_type: str, payload: dict = None) -> list:
     """Assert the branch-protection policy a generated repo is born with.
 
@@ -1762,11 +1780,11 @@ def check_branch_protection_payload(label: str, repo_type: str, payload: dict = 
             f"[{label}] branch protection must set strict: False "
             f"(ruled: up-to-date requirement strands release PRs)"
         )
-    expected_contexts = bootstrap.required_status_checks(repo_type)
+    expected_contexts = EXPECTED_PROTECTION_CONTEXTS.get(repo_type)
     if rsc.get("contexts") != expected_contexts:
         errors.append(
             f"[{label}] protection contexts {rsc.get('contexts')} do not match "
-            f"required_status_checks({repo_type!r}) {expected_contexts}"
+            f"the {repo_type!r} required checks {expected_contexts}"
         )
     if payload.get("enforce_admins") is not True:
         errors.append(f"[{label}] branch protection must enforce admins")
@@ -1805,7 +1823,7 @@ def check_runbook(label: str, files: dict) -> list:
     return [
         f"[{label}] {BRANCH_PROTECTION_RUNBOOK} is missing operational fact {phrase!r}"
         for phrase in RUNBOOK_REQUIRED_PHRASES
-        if phrase not in content
+        if not _contains_prose(content, phrase)
     ]
 
 
@@ -2898,6 +2916,19 @@ def _structure_self_tests() -> list:
         expect(f"protection with {key}", check_branch_protection_payload("self-test:bp", "nextjs", payload),
                "must not dismiss stale reviews or require code owners")
 
+    # Prose pins survive rewrapping; a missing screenshot document keeps the
+    # earlier pointer error instead of replacing it.
+    runbook_phrase = next(p for p in RUNBOOK_REQUIRED_PHRASES if " " in p and p in files[BRANCH_PROTECTION_RUNBOOK])
+    rewrapped = dict(files)
+    rewrapped[BRANCH_PROTECTION_RUNBOOK] = files[BRANCH_PROTECTION_RUNBOOK].replace(
+        runbook_phrase, runbook_phrase.replace(" ", "\n", 1), 1)
+    expect("rewrapped runbook phrase", check_runbook("self-test:runbook", rewrapped), None)
+    bare = {k: v for k, v in files.items() if k != bootstrap.SCREENSHOT_REVIEW}
+    bare[HUB] = files[HUB].replace(HUB_SCREENSHOT_POINTER, "", 1)
+    both = check_screenshot_guidance("self-test:shot", "nextjs", bare)
+    expect("missing screenshot document keeps the pointer error", both, "missing its pointer")
+    expect("missing screenshot document is reported", both, f"missing {bootstrap.SCREENSHOT_REVIEW}")
+
     # Workflow gates: each executable gate fails when broken.
     def gates(repo_type, path=None, change=None, text=None):
         render = bootstrap.generate_files(dict(next(c for _, c in configurations() if c["repo_type"] == repo_type)))
@@ -3000,7 +3031,12 @@ def main() -> int:
     for label, cfg in configurations():
         total += 1
         files = bootstrap.generate_files(cfg)
-        all_errors += check_syntax(label, files)
+        syntax_errors = check_syntax(label, files)
+        all_errors += syntax_errors
+        if syntax_errors:
+            # Every later check parses these files; report the syntax error
+            # instead of letting a parser exception end the whole run.
+            continue
         all_errors += check_nextjs_provider_free(label, cfg["repo_type"], files)
         all_errors += check_markers(label, files)
         all_errors += check_markdown_blank_lines(label, files)

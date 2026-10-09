@@ -85,6 +85,30 @@ class ValidatorWiringTests(unittest.TestCase):
                 if name in ALSO_ON_OWN_WORKFLOWS:
                     self.assertIn(f"SENTINEL {name} [{OWN_WORKFLOWS}]", out)
 
+    def test_protection_contexts_are_pinned_independently(self):
+        reduced = lambda repo_type: ["validate-title", "test / build"]
+        with patch.object(validate_templates.bootstrap, "required_status_checks", side_effect=reduced):
+            errors = validate_templates.check_branch_protection_payload("probe", "nextjs")
+        self.assertTrue(any("do not match" in error for error in errors), errors)
+
+    def test_invalid_yaml_is_reported_without_crashing(self):
+        original = validate_templates.bootstrap.generate_files
+
+        def broken(cfg):
+            files = original(cfg)
+            if cfg["repo_type"] == "python":
+                files[".github/workflows/test.yml"] = "jobs: [\n"
+            return files
+
+        out = io.StringIO()
+        with patch.object(validate_templates.bootstrap, "generate_files", side_effect=broken), \
+                patch.object(validate_templates, "run_self_tests", return_value=[]), \
+                contextlib.redirect_stdout(out):
+            code = validate_templates.main()
+        self.assertEqual(code, 1)
+        syntax = [line for line in out.getvalue().splitlines() if "[python]" in line]
+        self.assertTrue(syntax and all("test.yml" in line for line in syntax), out.getvalue())
+
     def test_a_run_without_self_test_fixtures_fails_every_time(self):
         self.assertEqual(self._main()[0], 0)
         for _ in range(2):

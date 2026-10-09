@@ -6,6 +6,7 @@ import base64
 import json
 import zlib
 import io
+import re
 import subprocess
 import sys
 import shutil
@@ -872,22 +873,121 @@ class ExistingRepositoryTests(unittest.TestCase):
                 self.assertNotRegex(files[path], r"__[A-Z_]+__|# <<[A-Z_]+>>")
             self.assertEqual(bootstrap.generate_links(cfg), bootstrap._links_for_files(files))
 
+    @staticmethod
+    def _legacy_docs(table):
+        # The checked-in fixture holds the historical docs only; the workflow
+        # rows are rebuilt from the real release tags by the validator.
+        return {path: digests for path, digests in table.items() if not path.endswith(".yml")}
+
+    def test_workflows_carry_a_yaml_stamp_on_their_first_line(self):
+        for repo_type in ("nextjs", "simple", "rust"):
+            files = _render(repo_type)
+            owned = [p for p in bootstrap.template_owned_paths({"repo_type": repo_type}) if p.endswith(".yml")]
+            self.assertIn(".github/workflows/release-please.yml", owned)
+            self.assertEqual(bootstrap.NEXTJS_BASELINE_REVIEW_WORKFLOW in owned, repo_type == "nextjs")
+            for path in owned:
+                with self.subTest(repo_type=repo_type, path=path):
+                    self.assertTrue(files[path].startswith(bootstrap.YAML_STAMP_PREFIX), path)
+                    self.assertTrue(bootstrap.stamp_is_valid(files[path]))
+                    self.assertNotIn("<!--", files[path].splitlines()[0])
+        crlf = bootstrap.stamp("name: x\r\non: push\r\n", is_yaml=True)
+        self.assertTrue(crlf.split("\n", 1)[0].endswith("\r"))
+        self.assertEqual(bootstrap.read_stamp(crlf)[1], "name: x\r\non: push\r\n")
+
+    def test_released_workflow_bodies_are_stale_and_customised_ones_are_kept(self):
+        files = _render("simple")
+        rel = ".github/workflows/pr-title-check.yml"
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.8.0:templates/pr-title-check.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        self._write(rel, released.stdout)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+        actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "updated")
+        self.assertEqual((self.repo / rel).read_text(), files[rel])
+        customised = released.stdout + "# our own step\n"
+        self._write(rel, customised)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "local-modified")
+        actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertNotEqual(actions.get(rel), "updated")
+        self.assertEqual((self.repo / rel).read_text(), customised)
+
+    def test_dependabot_pin_bumps_keep_a_workflow_owned_and_survive_adopt(self):
+        files = _render("simple")
+        rel = ".github/workflows/pr-title-check.yml"
+        pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
+        bumped = files[rel].replace(f"@{pin[2]} # {pin[3]}", "@" + "a" * 40 + " # v99.0.0", 1)
+        self.assertNotEqual(bumped, files[rel])
+        self.assertTrue(bootstrap.stamp_is_valid(bumped))
+        self._write(rel, bumped)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "same")
+        # An older release body with a bumped pin is stale; adopt keeps the bump.
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.8.0:templates/pr-title-check.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
+        old_bumped = released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", "@" + "b" * 40 + " # v98.0.0", 1)
+        self._write(rel, old_bumped)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+        actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "updated")
+        written = (self.repo / rel).read_text()
+        self.assertIn("@" + "b" * 40 + " # v98.0.0", written)
+        self.assertTrue(bootstrap.stamp_is_valid(written))
+        self.assertEqual(bootstrap._unpinned(written), bootstrap._unpinned(files[rel]))
+        # Any other edit still breaks ownership.
+        self._write(rel, written.replace("timeout-minutes: 5", "timeout-minutes: 50"))
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "local-modified")
+
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
-            self.assertEqual(bootstrap.compute_legacy_digests(), bootstrap.LEGACY_TEMPLATE_DIGESTS)
+            self.assertEqual(bootstrap.compute_legacy_digests(), self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS))
+
+    def test_legacy_workflow_bodies_come_from_every_release_through_their_last_tag(self):
+        repo = Path(self._tmp.name) / "legacy-workflows"
+        templates = repo / "templates"
+        templates.mkdir(parents=True)
+        _git(repo, "init", "-q")
+        releases = {
+            "v0.1.0": "name: release\n# <<DEPLOY_JOB>>\n",
+            "v0.7.0": "name: release\non: push\n",
+            "v0.8.1": "name: release\non: [push]\n",
+            "v0.9.0": "name: release\non: {push: {}}\n",
+        }
+        for ref, body in releases.items():
+            (templates / "release-please-simple.yml").write_text(body, encoding="utf-8")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", ref)
+            _git(repo, "tag", ref)
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
+            table = bootstrap.compute_legacy_digests()
+        expected = {bootstrap._digest(releases[ref]) for ref in ("v0.7.0", "v0.8.1")}
+        self.assertEqual(table[".github/workflows/release-please.yml"], expected)
 
     def test_validator_flags_a_release_missing_from_the_legacy_table(self):
         templates = self._legacy_templates()
+        docs = self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS)
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
-            self.assertEqual(validate_templates.check_legacy_digests(), [])
+            self.assertEqual(validate_templates.check_legacy_digests(recorded=docs), [])
             runbook = templates / "docs-branch-protection-runbook.md"
             runbook.write_text(runbook.read_text(encoding="utf-8") + "\nA later release.\n", encoding="utf-8")
             _git(templates.parent, "commit", "-q", "-am", "v1.0.0")
             _git(templates.parent, "tag", "v1.0.0")
             # Releases after LEGACY_LAST_TAG ship stamped docs and never join the table.
-            self.assertEqual(validate_templates.check_legacy_digests(), [])
+            self.assertEqual(validate_templates.check_legacy_digests(recorded=docs), [])
             with unittest.mock.patch.object(bootstrap, "LEGACY_LAST_TAG", (1, 0, 0)):
-                errors = validate_templates.check_legacy_digests()
+                errors = validate_templates.check_legacy_digests(recorded=docs)
         self.assertTrue(any("LEGACY_TEMPLATE_DIGESTS is stale" in error for error in errors), errors)
 
     def test_legacy_diff_is_skipped_with_a_notice_without_git_or_tags(self):

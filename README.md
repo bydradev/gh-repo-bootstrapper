@@ -242,11 +242,14 @@ changes:
 - the generated skills;
 - the two reviewer agents;
 - `docs/branch-protection-runbook.md`;
-- `docs/screenshot-review.md`.
+- `docs/screenshot-review.md`;
+- `.github/workflows/pr-title-check.yml` and `.github/workflows/release-please.yml`;
+- `.github/workflows/baseline-review.yml` (`nextjs`).
 
 `docs/lint-baseline.md` and `docs/advisory-baseline.md` aren't in this set.
 They're tables each repository edits, so they keep the plain `kept`
-behaviour, as do scripts, workflows and configs.
+behaviour, as do scripts, configs and the other workflows: `ci.yml` and
+`test.yml` hold each repository's own test lanes.
 
 Every template-owned file carries a stamp line:
 
@@ -254,10 +257,30 @@ Every template-owned file carries a stamp line:
 <!-- gh-repo-bootstrapper: template-owned; sha256=<hex> -->
 ```
 
+A template-owned workflow carries it as a YAML comment on line 1 instead:
+
+```text
+# gh-repo-bootstrapper: template-owned; sha256=<hex>
+```
+
 The hex is the SHA-256 of the file with the stamp line removed. In a
 `SKILL.md` or agent file the stamp sits on the line after the YAML
 frontmatter; in other markdown it's line 1. A digest that no longer matches
 means someone edited the file locally.
+
+Workflows were first stamped after v0.8.1. An unstamped workflow whose body
+equals one a release through v0.8.1 shipped is `stale`, so `--adopt`
+upgrades it. One with local changes is `local-modified` and is never
+overwritten: move the repository's own jobs or steps into a separate
+workflow file, delete the old file, and run `--adopt` to write the stamped
+version.
+
+Dependabot keeps updating the actions these workflows use. A workflow's
+digest ignores the version after `@` on each `uses:` line and the comment
+after it, so a Dependabot bump leaves the file `same`. When `--adopt` upgrades
+a `stale` workflow, it keeps the repository's own pin for every action it
+already uses, so it never undoes a bump. Any other edit counts as
+`local-modified`.
 
 To narrow a template skill for one repository, don't edit the stamped file.
 Write the narrower rule in `## Project specifics`, or add a repository-owned

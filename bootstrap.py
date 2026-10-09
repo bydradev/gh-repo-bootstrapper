@@ -89,6 +89,15 @@ README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
 _STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
+# Workflows are YAML, where an HTML comment is not a comment: they carry the
+# stamp as a YAML comment on their first line instead.
+YAML_STAMP_PREFIX = "# gh-repo-bootstrapper: template-owned; sha256="
+_YAML_STAMP_RE = re.compile(r"^" + re.escape(YAML_STAMP_PREFIX) + r"([0-9a-f]{64})$")
+TEMPLATE_OWNED_WORKFLOWS = (
+    ".github/workflows/pr-title-check.yml",
+    ".github/workflows/release-please.yml",
+    NEXTJS_BASELINE_REVIEW_WORKFLOW,
+)
 _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
     "fresh-eyes-review", "delegation",
@@ -118,6 +127,9 @@ def template_owned_paths(cfg) -> list[str]:
     paths += list(_TEMPLATE_AGENTS) + ["docs/branch-protection-runbook.md"]
     if cfg["repo_type"] in ("nextjs", "swift"):
         paths.append(SCREENSHOT_REVIEW)
+    paths += [".github/workflows/pr-title-check.yml", ".github/workflows/release-please.yml"]
+    if cfg["repo_type"] == "nextjs":
+        paths.append(NEXTJS_BASELINE_REVIEW_WORKFLOW)
     return paths
 
 
@@ -134,20 +146,92 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _find_stamp(text: str) -> tuple[int, str, bool] | None:
+    """(line index, digest, is_yaml) of the single stamp line, or None."""
+    stamps = []
+    for i, line in enumerate(text.splitlines(keepends=True)):
+        bare = line.rstrip("\r\n")
+        for pattern, is_yaml in ((_STAMP_RE, False), (_YAML_STAMP_RE, True)):
+            match = pattern.fullmatch(bare)
+            if match:
+                stamps.append((i, match.group(1), is_yaml))
+    return stamps[0] if len(stamps) == 1 else None
+
+
+def has_stamp_text(text: str) -> bool:
+    """Whether stamp-like text appears at all, valid or not."""
+    return STAMP_PREFIX in text or YAML_STAMP_PREFIX in text
+
+
+# A `uses: owner/action@<ref> # <comment>` line, the part Dependabot rewrites.
+_USES_RE = re.compile(
+    r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]*)(?P<action>[^@\s#'\"]+)@(?P<ref>[^\s#]+)"
+    r"(?P<tail>[ \t]+#[^\r\n]*)?(?P<eol>\r?\n)?"
+)
+
+
+def _unpinned(text: str) -> str:
+    """Workflow text with every action's ref and trailing comment removed.
+
+    Generated repositories run Dependabot on their workflows, and a bump
+    rewrites only these. Ignoring them keeps a bumped template-owned workflow
+    valid and unchanged, while any other edit still counts.
+    """
+    out = []
+    for line in text.splitlines(keepends=True):
+        match = _USES_RE.fullmatch(line)
+        out.append(f"{match['lead']}{match['action']}@{match['eol'] or ''}" if match else line)
+    return "".join(out)
+
+
+def _carry_pins(expected: str, current: str) -> str:
+    """expected, with each action's ref and comment taken from current.
+
+    An action keeps the repository's own pin (Dependabot may have bumped it),
+    matched by the action's occurrence order; an action current lacks keeps
+    the template's pin. The stamp ignores pins, so it stays valid.
+    """
+    pins = {}
+    for line in current.splitlines(keepends=True):
+        match = _USES_RE.fullmatch(line)
+        if match:
+            pins.setdefault(match["action"], []).append((match["ref"], match["tail"] or ""))
+    seen = {}
+    out = []
+    for line in expected.splitlines(keepends=True):
+        match = _USES_RE.fullmatch(line)
+        if match and match["action"] in pins:
+            refs = pins[match["action"]]
+            index = seen.get(match["action"], 0)
+            seen[match["action"]] = index + 1
+            ref, tail = refs[min(index, len(refs) - 1)]
+            line = f"{match['lead']}{match['action']}@{ref}{tail}{match['eol'] or ''}"
+        out.append(line)
+    return "".join(out)
+
+
+def _stamp_digest(body: str, is_yaml: bool) -> str:
+    """The digest a stamp records for its body; a workflow's ignores action pins."""
+    return _digest(_unpinned(body) if is_yaml else body)
+
+
 def read_stamp(text: str) -> tuple[str | None, str]:
     """Return the single stamp digest and the exact body, without its line."""
-    lines = text.splitlines(keepends=True)
-    matches = [(i, _STAMP_RE.fullmatch(line.rstrip("\r\n"))) for i, line in enumerate(lines)]
-    stamps = [(i, match.group(1)) for i, match in matches if match]
-    if len(stamps) != 1:
+    found = _find_stamp(text)
+    if found is None:
         return None, text
-    index, digest = stamps[0]
+    index, digest, _ = found
+    lines = text.splitlines(keepends=True)
     return digest, "".join(lines[:index] + lines[index + 1:])
 
 
-def stamp(text: str) -> str:
-    """Stamp a body, after closed YAML frontmatter or before ordinary Markdown."""
+def stamp(text: str, is_yaml: bool = False) -> str:
+    """Stamp a body: a YAML file on its first line as a comment; Markdown after
+    closed YAML frontmatter, or on its first line."""
     _, body = read_stamp(text)
+    if is_yaml:
+        eol = "\r\n" if body.split("\n", 1)[0].endswith("\r") else "\n"
+        return f"{YAML_STAMP_PREFIX}{_stamp_digest(body, True)}{eol}" + body
     offset = 0
     eol = "\n"
     bom = "\ufeff" if body.startswith("\ufeff") else ""
@@ -170,23 +254,45 @@ def stamp(text: str) -> str:
 
 
 def stamp_is_valid(text: str) -> bool:
-    digest, body = read_stamp(text)
-    return digest is not None and digest == _digest(body)
+    found = _find_stamp(text)
+    if found is None:
+        return False
+    _, digest, is_yaml = found
+    return digest == _stamp_digest(read_stamp(text)[1], is_yaml)
 
 
 # Rebuilt by compute_legacy_digests(), from the vX.Y.Z release tags through
-# LEGACY_LAST_TAG.
+# LEGACY_LAST_TAG (docs) and LEGACY_WORKFLOWS_LAST_TAG (workflows).
 LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
+    ".github/workflows/baseline-review.yml": frozenset({
+        "261e0abffb824cfa585238d8a14ffdeb74a0c2f89e17d01dbc0cd170248c260e",
+        "7df5be81edc1ff0d28a3481b54a8fd8aba516a62ec666c21d715f5b55d0a1bbc",
+    }),
+    ".github/workflows/pr-title-check.yml": frozenset({
+        "28bb34ca5d6feb066b98781b56a7cb67aa40fc964f6188fc100a1e38def6b728",
+        "f703facb0441f2c3bd809baecffe42dc9c0df17aac14be0bbc190f5a5b7cb8ca",
+    }),
+    ".github/workflows/release-please.yml": frozenset({
+        "23c11b24a99c6b1d9dd76853c06a6cb5974a8f19d07b9cbbb4a492e4b1f51a78",
+        "24fbd2aab77a28a06793fdef0aec5fda0d97768a5d015922b749e0e0fc4e8260",
+        "328d8ef692fbcc15b689f1a6bf131c8d2b8f9080f5fe9a097228f2ea65584b81",
+        "3db35e107cf0e0f5abe24aad85b9d90828318f3d91070c46319aa880119e9f87",
+        "499012ae0990c745a840a06f46d849e0c3ce9a9176a064d6f9551531c6338e3d",
+        "4c5b1f588f16c0bec5aae31379ee16e2434b8b7cea68250e6b5de64f62c70e6d",
+        "aad3b41596efc81171735804f64affc11af69333e99983b128d583ee3895e44d",
+        "c2c78eb43e3f881b6ff25a89202b5081274a1f376692fb16312d1e5550473e35",
+        "d4982c60960b3f91302ab5db6a54d6c29a65559b117a2d83cee8a1fd3ab77a05",
+    }),
     "docs/branch-protection-runbook.md": frozenset({
+        "0393321b93da4028ce9becf74df5af865da24256dee0f035b3a31a8d378f188b",
         "1f4ce79e3a984e4e76dfdee4b3ca655c6911825eabee6a92dd5a3c76a9526dc1",
         "6639309aab33a20e8b514470e3aa34e3964d8f6bd0118ce7b8c44b940752546d",
         "6d85cc1c360e438c258a11085b387435b8eaf3667a1201fb895b0a24f6d4a494",
-        "0393321b93da4028ce9becf74df5af865da24256dee0f035b3a31a8d378f188b",
     }),
     "docs/screenshot-review.md": frozenset({
         "14682e234d008988775c61f361f63e55f6b6d53e05fbc97311919d01aab72948",
-        "705bc3cd766b0bdcbf292f1db676f209aebcd30815bf2cde9c25b354df63e884",
         "6382eea5102c54492dbe4f80f942262759dea40296ef2c629065a9efcfc9bfca",
+        "705bc3cd766b0bdcbf292f1db676f209aebcd30815bf2cde9c25b354df63e884",
     }),
 }
 
@@ -195,10 +301,25 @@ LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
 # stamp_is_valid() classifies. Only renders through this tag can appear
 # unstamped, and stopping here keeps later doc edits from changing the table.
 LEGACY_LAST_TAG = (0, 6, 0)
+# Workflows were first stamped after v0.8.1; every release through it shipped
+# them unstamped, verbatim from their template files.
+LEGACY_WORKFLOWS_LAST_TAG = (0, 8, 1)
+_LEGACY_WORKFLOW_SOURCES = {
+    ".github/workflows/pr-title-check.yml": ("pr-title-check.yml",),
+    ".github/workflows/release-please.yml": (
+        "release-please-nextjs.yml", "release-please-gated.yml", "release-please-simple.yml",
+    ),
+    NEXTJS_BASELINE_REVIEW_WORKFLOW: ("baseline-review.yml",),
+}
+
+
+def _tag_version(tag: str) -> tuple:
+    return tuple(int(part) for part in tag[1:].split("."))
 
 
 def _legacy_tags() -> list[str] | None:
-    """Release tags through LEGACY_LAST_TAG, oldest first; None when git cannot list them."""
+    """Release tags that can have shipped unstamped template-owned files, oldest
+    first; None when git cannot list them."""
     env = _git_env()
     try:
         result = subprocess.run(
@@ -209,7 +330,8 @@ def _legacy_tags() -> list[str] | None:
         return None
     tags = [tag for tag in result.stdout.splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", tag)]
     versions = {tag: tuple(int(part) for part in tag[1:].split(".")) for tag in tags}
-    return sorted((tag for tag in tags if versions[tag] <= LEGACY_LAST_TAG), key=versions.__getitem__)
+    last = max(LEGACY_LAST_TAG, LEGACY_WORKFLOWS_LAST_TAG)
+    return sorted((tag for tag in tags if versions[tag] <= last), key=versions.__getitem__)
 
 
 def _legacy_template_bodies() -> dict[str, list[str]]:
@@ -228,13 +350,22 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
         return {}
     bodies = {}
     for ref in refs:
-        def source(name):
+        def source(name, ref=ref):
             result = subprocess.run(
                 ["git", "-C", str(repo), "show", f"{ref}:templates/{name}"],
                 capture_output=True, check=False, env=env,
             )
             return result.stdout.decode("utf-8") if result.returncode == 0 else None
 
+        for rel, names in _LEGACY_WORKFLOW_SOURCES.items():
+            for name in names:
+                body = source(name)
+                # v0.1.0 spliced a deploy job into the Next.js release workflow
+                # at a <<MARKER>>; that raw file was never shipped as is.
+                if body is not None and not re.search(r"<<[A-Z_]+>>", body):
+                    bodies.setdefault(rel, []).append(body)
+        if _tag_version(ref) > LEGACY_LAST_TAG:
+            continue
         runbook = source("docs-branch-protection-runbook.md")
         if runbook is not None:
             bodies.setdefault("docs/branch-protection-runbook.md", []).append(runbook)
@@ -252,7 +383,7 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
 def compute_legacy_digests() -> dict:
     """Rebuild the checked-in legacy table using the historical template renders."""
     return {
-        path: frozenset(_digest(body) for body in bodies)
+        path: frozenset(_stamp_digest(body, path.endswith(".yml")) for body in bodies)
         for path, bodies in _legacy_template_bodies().items()
     }
 
@@ -964,7 +1095,7 @@ def generate_files(cfg: dict) -> dict:
     for path, source in _TEMPLATE_AGENTS.items():
         files[path] = _load(source)
     for path in template_owned_paths(cfg):
-        files[path] = stamp(files[path])
+        files[path] = stamp(files[path], is_yaml=path.endswith(".yml"))
     return files
 
 
@@ -1264,15 +1395,20 @@ def _template_file_state(rel: str, expected: str, actual: str) -> str:
     """Classify exact bytes, not newline-normalized text."""
     digest, body = read_stamp(actual)
     if digest is None:
-        if STAMP_PREFIX in actual:
+        if has_stamp_text(actual):
             return "local-modified"
         if rel.startswith(".agents/skills/"):
             return "shadowed"
-        if body == read_stamp(expected)[1] or _digest(body) in LEGACY_TEMPLATE_DIGESTS.get(rel, ()):
+        is_yaml = rel.endswith(".yml")
+        legacy = LEGACY_TEMPLATE_DIGESTS.get(rel, ())
+        if _stamp_digest(body, is_yaml) in legacy | {_stamp_digest(read_stamp(expected)[1], is_yaml)}:
             return "stale"
         return "local-modified"
-    if digest != _digest(body):
+    if not stamp_is_valid(actual):
         return "local-modified"
+    if rel.endswith(".yml"):
+        # Pins are Dependabot's to move: a workflow that differs only there is current.
+        return "same" if _unpinned(actual) == _unpinned(expected) else "stale"
     return "same" if actual == expected else "stale"
 
 
@@ -1994,6 +2130,9 @@ def _adopt_file(
                 return ("refused", rel, "edited locally since the scan; not overwritten")
             if _git_ignored(repo_dir, rel):
                 return ("refused", rel, "ignored by git")
+            if rel.endswith(".yml"):
+                # Keep the repository's action pins; Dependabot moves those.
+                expected = _carry_pins(expected, current)
             _replace_anchored(parent, name, expected, identity)
             return ("updated", rel, "stale template-owned file brought up to date")
         finally:

@@ -25,6 +25,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import textwrap
@@ -92,6 +93,10 @@ _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
     "fresh-eyes-review", "delegation",
 )
+# A skill in some types but not all is type-specific: --check reports a stamped
+# copy of one under another --type as `(--type)`, and --adopt refuses. Before
+# removing a skill from one type while keeping it in another, plan how existing
+# repositories of the first type drop their stamped copy, or adopt will refuse.
 TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "simple": _GENERAL_SKILLS,
     "python": _GENERAL_SKILLS + ("local-validation-python",),
@@ -284,7 +289,7 @@ def _load(name: str) -> str:
     path = TEMPLATES_DIR / name
     if not path.exists():
         _die(f"template not found: {path}")
-    return path.read_text()
+    return path.read_text(encoding="utf-8")
 
 
 def _compose(template: str, marker: str, fragment: str) -> str:
@@ -487,6 +492,19 @@ def validate_name(name: str) -> str:
     return ""
 
 
+def validate_owner(owner: str) -> str:
+    """Return error string or empty string if valid.
+
+    The owner goes into `gh` arguments and API paths, so it must not start
+    with a hyphen or contain a slash, dot, or space. Letters, digits, and
+    hyphens cover GitHub user and organization names; underscores cover
+    Enterprise Managed User names such as `mona-cat_octo`.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", owner):
+        return "Must be letters, digits, hyphens, and underscores, starting with a letter or digit."
+    return ""
+
+
 def split_name_and_path(raw: str) -> tuple:
     """Split a bare name or relative/absolute path into (repo_name, local_dir)."""
     local_dir = Path(raw).expanduser()
@@ -567,6 +585,8 @@ def gather_config(args) -> dict:
 
     # --- owner ---
     owner = args.org
+    if owner and (err := validate_owner(owner)):
+        _die(f"--org: {err}")
     if not owner:
         user = "" if dry else _gh_current_user()
         if ni:
@@ -587,6 +607,8 @@ def gather_config(args) -> dict:
                 owner = prompt("GitHub org or user")
                 if not owner:
                     _die("GitHub owner is required")
+                if err := validate_owner(owner):
+                    _die(f"GitHub owner: {err}")
 
     # --- visibility (looked up for --configure-only; repo already exists) ---
     if configure_only:
@@ -1090,6 +1112,11 @@ def _subheadings(section: str) -> list:
     ]
 
 
+# A heading indented four or more spaces is an indented code block, not a heading.
+_PROJECT_SPECIFICS_RE = re.compile(r" {0,3}" + re.escape("## Project specifics") + r"[ \t]*")
+NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
+
+
 def _split_project_specifics(text: str) -> tuple:
     """(generated part, repository-owned part or None) of an AGENTS.md.
 
@@ -1097,7 +1124,7 @@ def _split_project_specifics(text: str) -> tuple:
     belongs to the repository.
     """
     for offset, line, in_fence in _markdown_lines(text):
-        if not in_fence and line.strip() == PROJECT_SPECIFICS:
+        if not in_fence and _PROJECT_SPECIFICS_RE.fullmatch(line):
             return text[:offset], text[offset:]
     return text, None
 
@@ -1122,6 +1149,13 @@ def compare_agents(expected: str, actual: str) -> list:
     rows = [("local", problem) for problem in _markdown_ambiguities(act_generated)]
     if act_pre.strip() and act_pre.strip() != exp_pre.strip():
         rows.append(("local", "(text before the first heading)"))
+    elif _NEXTJS_RULES_PLACEHOLDER in exp_pre and _NEXTJS_RULES_PLACEHOLDER not in act_pre:
+        # A rebuild puts the block back at the top while keeping the section it
+        # was moved into, so a moved block would end up in the file twice.
+        if _nextjs_rules_block(actual):
+            rows.append(("local", NEXTJS_BLOCK_MOVED))
+        else:
+            rows.append(("missing", "(`next dev` block)"))
     for heading, body in exp_sections:
         found = actual_by_heading.get(heading)
         if not found:
@@ -1305,6 +1339,105 @@ def _exact_path_exists(repo_dir: Path, rel: str) -> bool:
     return True
 
 
+SYMLINKED_SKILL_READ_LIMIT = 1 << 20
+
+
+def _read_regular_prefix(path: Path, limit: int) -> str | None:
+    """Up to `limit` bytes of a regular file as text, or None.
+
+    Opens non-blocking and checks the opened descriptor, so a FIFO or device
+    behind a symlink can neither block the open nor the read.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = os.read(fd, limit)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    # A cut inside a multibyte character only affects the tail, not the frontmatter.
+    return data.decode("utf-8", errors="replace")
+
+
+def _target_missing(path) -> bool:
+    """True only when following `path` confirms nothing is there.
+
+    os.path.exists() is also False for a target that exists but cannot be
+    reached (a permission error), and such a mirror must not be deleted.
+    """
+    try:
+        os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _symlinked_skill_collisions(repo_dir: Path, files: dict, skill_paths: dict) -> dict:
+    """Symlinked skill folders whose SKILL.md reuses a template skill's name.
+
+    Harnesses follow symlinked skill folders, so a collision there shadows a
+    template skill as much as a real folder would. The target is only read,
+    never written, and at most SYMLINKED_SKILL_READ_LIMIT bytes of it.
+    """
+    base = repo_dir / ".agents/skills"
+    if _symlink_in_path(repo_dir, ".agents/skills") or not base.is_dir():
+        return {}
+    try:
+        entries = sorted(os.scandir(base), key=lambda e: e.name)
+    except OSError as exc:
+        return {".agents/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
+    found = {}
+    for entry in entries:
+        rel = f".agents/skills/{entry.name}"
+        if not entry.is_symlink() or f"{rel}/SKILL.md" in files:
+            continue
+        text = _read_regular_prefix(Path(entry.path) / "SKILL.md", SYMLINKED_SKILL_READ_LIMIT)
+        if text is None:
+            continue
+        body = read_stamp(text.replace("\r\n", "\n"))[1]
+        name = _skill_name(body)
+        if name is None and body.lstrip("\ufeff").startswith("---"):
+            # Same conservative rule as an ordinary folder: a name the parser
+            # cannot read unambiguously might still collide.
+            found[rel] = ("shadowed", "symlinked skill whose frontmatter name could not be read "
+                          "unambiguously; use a plain single-line name")
+            continue
+        if name in skill_paths:
+            found[rel] = ("shadowed", "symlinked skill folder whose name collides with a template skill")
+            found[skill_paths[name]] = ("shadowed", f"shadowed by {rel}")
+    return found
+
+
+def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
+    """`.claude/skills` symlinks that point at nothing, outside the declared mirrors.
+
+    A retired template skill, or a wrong --type, leaves its mirror behind once
+    the skill folder is gone. Mirrors of a repository's own skills resolve, so
+    they are not reported.
+    """
+    base = repo_dir / ".claude/skills"
+    if _symlink_in_path(repo_dir, ".claude/skills") or not base.is_dir():
+        return {}
+    try:
+        entries = sorted(os.scandir(base), key=lambda e: e.name)
+    except OSError as exc:
+        return {".claude/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
+    found = {}
+    for entry in entries:
+        rel = f".claude/skills/{entry.name}"
+        if rel in links or not entry.is_symlink() or not _target_missing(entry.path):
+            continue
+        found[rel] = ("dangling", f"symlink to {os.readlink(entry.path)}, which does not exist")
+    return found
+
+
 def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
     """Find orphaned stamped files and name collisions, without following links."""
     extras = {}
@@ -1312,6 +1445,13 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
         Path(path).parent.name: path for path in files
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
     }
+    # Another type's template skills would be deleted as orphans under a wrong
+    # --type; they are reported instead, and compare_repository turns any of
+    # them into a (--type) refusal.
+    every = {name for names in TEMPLATE_SKILLS.values() for name in names}
+    shared = set.intersection(*(set(names) for names in TEMPLATE_SKILLS.values()))
+    other_type = every - shared - set(skill_paths) if skill_paths else set()
+    extras.update(_symlinked_skill_collisions(repo_dir, files, skill_paths))
     for base in (".agents/skills", ".claude/agents", ".opencode/agents"):
         if _symlink_in_path(repo_dir, base):
             continue
@@ -1352,12 +1492,18 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
                         extras[rel] = ("shadowed", "frontmatter name collides with a template skill")
                         extras[skill_paths[skill_name]] = ("shadowed", f"shadowed by {rel}")
                         continue
+                    if stamped and skill_name in other_type:
+                        extras[rel] = ("other-type", f"template skill `{skill_name}` of another repository type")
+                        continue
                 if stamped:
                     extras[rel] = (
                         ("ignored", "ignored by git; not deleted")
                         if _git_ignored(repo_dir, rel) else ("orphaned", None)
                     )
     return extras
+
+
+TYPE_MISMATCH = "(--type)"
 
 
 def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
@@ -1412,6 +1558,16 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         else:
             report[rel] = ("differs", None)
     report.update(_extra_owned_files(repo_dir, files))
+    report.update(_dangling_mirrors(repo_dir, links))
+    mismatch = sorted(rel for rel, (status, _) in report.items() if status == "other-type")
+    if mismatch:
+        report[TYPE_MISMATCH] = (
+            "differs",
+            "this repository holds template skills of another repository type ("
+            + ", ".join(mismatch)
+            + "), which this --type does not generate; re-run with the type the repository "
+            "was generated with",
+        )
     for rel, target in links.items():
         path = repo_dir / rel
         if _symlink_in_path(repo_dir, rel, links):
@@ -1463,6 +1619,8 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
             for row_status, heading in detail:
                 if row_status != "same":
                     hint = "  → move under ## Project specifics" if row_status == "local" else ""
+                    if heading == NEXTJS_BLOCK_MOVED:
+                        hint = "  → move it back to the top of the file"
                     print(f"      {row_status:<8} {heading}{hint}")
                 if row_status == "retired" and retired_text.get(heading):
                     lines = retired_text[heading]
@@ -1708,9 +1866,14 @@ def adopt_repository(
     actions = []
     mirrors = _links_for_files(files) if links is None else links
     report = compare_repository(repo_dir, files) if links is None else compare_repository(repo_dir, files, links)
+    if TYPE_MISMATCH in report:
+        # A wrong --type would delete the real type's skills as orphans.
+        return [("refused", TYPE_MISMATCH, report[TYPE_MISMATCH][1] + "; nothing was changed")]
     for rel, (status, detail) in sorted(report.items()):
         try:
-            if rel in mirrors:
+            if status == "dangling":
+                action = _adopt_dangling_mirror(repo_dir, rel)
+            elif rel in mirrors:
                 action = _adopt_link(repo_dir, rel, status, detail, mirrors[rel])
             else:
                 action = _adopt_file(repo_dir, rel, status, detail, files.get(rel), replace_generated, confirm)
@@ -1719,6 +1882,39 @@ def adopt_repository(
         if action:
             actions.append(action)
     return actions
+
+
+def _adopt_dangling_mirror(repo_dir: Path, rel: str):
+    """Delete a `.claude/skills` mirror whose skill folder no longer exists.
+
+    Only the mirror shape bootstrap writes (`../../.agents/skills/<name>`) is
+    deleted, and only while it still points at nothing; the symlink itself is
+    removed, never anything it names.
+    """
+    if not _ANCHORED_WRITES:
+        return ("refused", rel, "this platform cannot write without following symlinks")
+    name = Path(rel).name
+    if _git_ignored(repo_dir, rel):
+        return ("refused", rel, "ignored by git; not deleted")
+    if _git_file_state(repo_dir, rel) == "dirty":
+        return ("refused", rel, "dangling mirror has uncommitted or staged changes; not deleted")
+    parent = _open_parent(repo_dir, rel, create=False)
+    try:
+        before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISLNK(before.st_mode):
+            return ("refused", rel, "no longer a symlink; not deleted")
+        target = os.readlink(name, dir_fd=parent)
+        if target != f"../../.agents/skills/{name}":
+            return ("refused", rel, f"symlink to {target} is not a skill mirror; remove it by hand")
+        if not _target_missing(repo_dir / ".agents/skills" / name):
+            return ("refused", rel, "its skill folder exists or cannot be checked; not deleted")
+        after = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino):
+            return ("refused", rel, "changed while --adopt was running")
+        os.unlink(name, dir_fd=parent)
+    finally:
+        os.close(parent)
+    return ("deleted", rel, "mirror of a skill that no longer exists")
 
 
 def _adopt_link(repo_dir: Path, rel: str, status: str, detail, target: str):
@@ -1836,6 +2032,8 @@ def _adopt_file(
         if all(row_status == "same" for row_status, _ in rows):
             return None
         local = [heading for row_status, heading in rows if row_status == "local"]
+        if NEXTJS_BLOCK_MOVED in local:
+            return ("refused", rel, "move the `next dev`-managed block back to the top of the file first")
         if local:
             return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
         differing = [heading for row_status, heading in rows if row_status in ("differs", "retired")]
@@ -2001,7 +2199,7 @@ def create_and_push(cfg: dict, files: dict):
     for rel, content in files.items():
         dest = repo_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content)
+        dest.write_text(content, encoding="utf-8")
     for rel, target in generate_links(cfg).items():
         parent = _open_parent(repo_dir, rel, create=True)
         try:
@@ -2254,6 +2452,10 @@ def print_success(cfg: dict):
 
 
 def main():
+    # Template text carries em dashes; a non-UTF-8 locale must not crash output.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     args = parse_args()
 
     # --- existing local repositories: compare or adopt, no GitHub calls ---
@@ -2281,7 +2483,10 @@ def main():
         )
         for action, rel, detail in actions:
             print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))
-        print("\nReview the changes (git diff), then commit them on a branch.")
+        if any(action != "refused" for action, _, _ in actions):
+            print("\nReview the changes (git diff), then commit them on a branch.")
+        else:
+            print("\nNothing was changed.")
         sys.exit(1 if any(action == "refused" for action, _, _ in actions) else 0)
 
     if not args.dry_run:

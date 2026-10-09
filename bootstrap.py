@@ -2483,7 +2483,7 @@ def main():
         )
         for action, rel, detail in actions:
             print(f"  {action:<8} {rel}" + (f" — {detail}" if detail else ""))
-        if any(action != "refused" for action, _, _ in actions):
+        if any(action not in ("refused", "kept") for action, _, _ in actions):
             print("\nReview the changes (git diff), then commit them on a branch.")
         else:
             print("\nNothing was changed.")

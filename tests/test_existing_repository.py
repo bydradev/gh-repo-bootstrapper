@@ -6,6 +6,7 @@ import base64
 import json
 import zlib
 import io
+import re
 import subprocess
 import sys
 import shutil
@@ -863,31 +864,395 @@ class ExistingRepositoryTests(unittest.TestCase):
                    "scheme": "My App", "destination": "macos", "xcodegen": True}
             files = bootstrap.generate_files(cfg)
             owned = bootstrap.template_owned_paths(cfg)
-            self.assertEqual({path for path, text in files.items() if bootstrap.read_stamp(text)[0]},
+            self.assertEqual({path for path, text in files.items() if bootstrap.read_stamp(text, bootstrap._is_yaml(path))[0]},
                              set(owned))
             self.assertNotIn("docs/lint-baseline.md", owned)
             self.assertNotIn("docs/advisory-baseline.md", owned)
             for path in owned:
-                self.assertTrue(bootstrap.stamp_is_valid(files[path]), path)
+                self.assertTrue(bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)), path)
                 self.assertNotRegex(files[path], r"__[A-Z_]+__|# <<[A-Z_]+>>")
             self.assertEqual(bootstrap.generate_links(cfg), bootstrap._links_for_files(files))
 
+    @staticmethod
+    def _legacy_docs(table):
+        # The checked-in fixture holds the historical docs only; the workflow
+        # rows are rebuilt from the real release tags by the validator.
+        return {path: digests for path, digests in table.items() if not path.endswith(".yml")}
+
+    def test_workflows_carry_a_yaml_stamp_on_their_first_line(self):
+        for repo_type in ("nextjs", "simple", "rust"):
+            files = _render(repo_type)
+            owned = [p for p in bootstrap.template_owned_paths({"repo_type": repo_type}) if p.endswith(".yml")]
+            self.assertIn(".github/workflows/release-please.yml", owned)
+            self.assertEqual(bootstrap.NEXTJS_BASELINE_REVIEW_WORKFLOW in owned, repo_type == "nextjs")
+            for path in owned:
+                with self.subTest(repo_type=repo_type, path=path):
+                    self.assertTrue(files[path].startswith(bootstrap.YAML_STAMP_PREFIX), path)
+                    self.assertTrue(bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)))
+                    self.assertNotIn("<!--", files[path].splitlines()[0])
+        crlf = bootstrap.stamp("name: x\r\non: push\r\n", is_yaml=True, template="x.yml")
+        self.assertTrue(crlf.split("\n", 1)[0].endswith("\r"))
+        self.assertEqual(bootstrap.read_stamp(crlf, True)[1], "name: x\r\non: push\r\n")
+
+    def test_released_workflow_bodies_are_stale_and_customised_ones_are_kept(self):
+        files = _render("simple")
+        rel = ".github/workflows/pr-title-check.yml"
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.8.0:templates/pr-title-check.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        self._write(rel, released.stdout)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+        actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "updated")
+        self.assertEqual((self.repo / rel).read_text(), files[rel])
+        customised = released.stdout + "# our own step\n"
+        self._write(rel, customised)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "local-modified")
+        actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertNotEqual(actions.get(rel), "updated")
+        self.assertEqual((self.repo / rel).read_text(), customised)
+
+    def test_dependabot_pin_bumps_keep_a_workflow_owned_and_survive_adopt(self):
+        files = _render("simple")
+        rel = ".github/workflows/pr-title-check.yml"
+        pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
+        bumped = files[rel].replace(f"@{pin[2]} # {pin[3]}", "@" + "a" * 40 + " # v99.0.0", 1)
+        self.assertNotEqual(bumped, files[rel])
+        self.assertTrue(bootstrap.stamp_is_valid(bumped, True))
+        self._write(rel, bumped)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "same")
+        # An older release body with a bumped pin is stale; adopt keeps the bump.
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.8.0:templates/pr-title-check.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
+        old_bumped = released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", "@" + "b" * 40 + " # v98.0.0", 1)
+        self._write(rel, old_bumped)
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+        actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(actions[rel], "updated")
+        written = (self.repo / rel).read_text()
+        self.assertIn("@" + "b" * 40 + " # v98.0.0", written)
+        self.assertTrue(bootstrap.stamp_is_valid(written, True))
+        self.assertEqual(bootstrap._unpinned(written), bootstrap._unpinned(files[rel]))
+        # Any other edit still breaks ownership.
+        self._write(rel, written.replace("timeout-minutes: 5", "timeout-minutes: 50"))
+        self._commit_all()
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "local-modified")
+
+    def test_unstamped_reviewer_agent_is_classified_without_a_legacy_row(self):
+        files = _render()
+        rel = ".claude/agents/fresh-eyes-reviewer.md"
+        body = bootstrap.read_stamp(files[rel])[1]
+        for text, state in ((body, "stale"), (body + "\nOurs.\n", "local-modified")):
+            with self.subTest(state):
+                self._write(rel, text)
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], state)
+
+    def test_adopt_refuses_a_release_workflow_whose_called_test_lacks_an_input(self):
+        files = _render("nextjs")
+        rel = ".github/workflows/release-please.yml"
+        old_test = "name: test\non:\n  workflow_call:\n    inputs:\n      full:\n        type: boolean\njobs: {}\n"
+        self._write(".github/workflows/test.yml", old_test)
+        self._write(rel, bootstrap.read_stamp(files[rel], True)[1])
+        self._commit_all()
+        before = (self.repo / rel).read_text()
+        rows = {path: (action, detail) for action, path, detail in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(rows[rel][0], "refused")
+        self.assertIn("does not declare input(s)", rows[rel][1])
+        self.assertEqual((self.repo / rel).read_text(), before)
+        self._write(".github/workflows/test.yml", files[".github/workflows/test.yml"])
+        self._commit_all()
+        rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+        self.assertEqual(rows[rel], "updated")
+
+    def test_v0_1_0_default_release_workflow_is_recognised(self):
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.1.0:templates/release-please-nextjs.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        default = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", released.stdout)
+        files = _render("nextjs")
+        rel = ".github/workflows/release-please.yml"
+        self._write(rel, default)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+
+    def test_pin_tolerance_covers_only_real_action_refs(self):
+        base = (
+            "name: x\njobs:\n  a:\n    steps:\n"
+            "      - uses: actions/checkout@aaaa # v1\n"
+            "      - uses: \"owner/tool@bbbb\"\n"
+            "      - uses: ./actions/local@cccc\n"
+            "      - run: |\n          echo uses: owner/x@dddd\n"
+        )
+        stamped = bootstrap.stamp(base, is_yaml=True, template="x.yml")
+        cases = {
+            "bumped pin and comment": ("actions/checkout@aaaa # v1", "actions/checkout@eeee # v2", True),
+            "bumped quoted pin": ('"owner/tool@bbbb"', '"owner/tool@ffff"', False),
+            "trailing spaces": ("actions/checkout@aaaa # v1", "actions/checkout@eeee   ", True),
+            "swapped owner": ("actions/checkout@aaaa", "evil/checkout@aaaa", False),
+            "local action path": ("./actions/local@cccc", "./actions/local@zzzz", False),
+            "text inside run": ("owner/x@dddd", "owner/x@zzzz", False),
+        }
+        for label, (old, new, valid) in cases.items():
+            with self.subTest(label):
+                self.assertEqual(bootstrap.stamp_is_valid(stamped.replace(old, new, 1), True), valid)
+        # Quote and escape edits on two action lines would fold the lines
+        # between them into one scalar in the shipped baseline workflow.
+        baseline = _render("nextjs")[bootstrap.NEXTJS_BASELINE_REVIEW_WORKFLOW]
+        lines = baseline.splitlines(keepends=True)
+        actions = sorted(bootstrap._uses_lines(lines))
+        first, second = lines[actions[0]], lines[actions[1]]
+        lines[actions[0]] = first[: first.index("uses: ") + 6] + '"actions/checkout@x\\" #\n'
+        lines[actions[1]] = second[: second.index("uses: ") + 6] + 'actions/setup-node@x # "\n'
+        self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
+        # A control character in a tolerated comment would make the file unparsable.
+        lines = baseline.splitlines(keepends=True)
+        for char in ("\x00", "\x81", "\x9f", "\ufffe"):
+            with self.subTest(repr(char)):
+                lines = baseline.splitlines(keepends=True)
+                lines[actions[0]] = lines[actions[0]].rstrip("\n") + char + "\n"
+                self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
+
+    def test_each_file_type_reads_only_its_own_stamp_form(self):
+        example = "```text\n" + bootstrap.YAML_STAMP_PREFIX + "0" * 64 + "\n```\n"
+        markdown = bootstrap.stamp("# Doc\n\n" + example)
+        self.assertIn(example, markdown)
+        self.assertTrue(bootstrap.stamp_is_valid(markdown))
+        workflow = bootstrap.stamp("name: x\n", is_yaml=True, template="x.yml")
+        moved = "on: push\n" + workflow
+        self.assertFalse(bootstrap.stamp_is_valid(moved, True))
+        self.assertFalse(bootstrap.stamp_is_valid(workflow))
+
+    def test_carried_pins_never_reach_a_new_occurrence(self):
+        expected = "steps:\n  - uses: a/b@new1 # v2\n  - uses: a/b@new2 # v2\n"
+        current = "steps:\n  - uses: a/b@mine # v3\n"
+        self.assertEqual(
+            bootstrap._carry_pins(expected, current),
+            "steps:\n  - uses: a/b@mine # v3\n  - uses: a/b@new2 # v2\n",
+        )
+
+    def test_yaml_stamp_keeps_a_bom_at_the_start(self):
+        body = "\ufeffname: x\non: push\n"
+        stamped = bootstrap.stamp(body, is_yaml=True, template="x.yml")
+        self.assertTrue(stamped.startswith("\ufeff" + bootstrap.YAML_STAMP_PREFIX))
+        self.assertEqual(bootstrap.read_stamp(stamped, True)[1], body)
+        self.assertTrue(bootstrap.stamp_is_valid(stamped, True))
+
+    def test_declared_inputs_follow_only_the_root_workflow_call_path(self):
+        head = "name: test\non:\n  workflow_call:\n    inputs:\n"
+        cases = {
+            "inputs text in a description": (
+                head + "      e2e:\n        type: boolean\n        description: |\n"
+                "          inputs:\n            full: example\n", ["e2e"]),
+            "workflow_call text in a name": (
+                "name: 'workflow_call: inputs: full'\non:\n  push:\n", None),
+            "quoted input keys": (head + "      \"e2e\":\n        type: boolean\n      'full':\n        type: boolean\n",
+                                  ["e2e", "full"]),
+            "dedented comment": (head + "# a note\n      e2e:\n        type: boolean\n      full:\n        type: boolean\n",
+                                 ["e2e", "full"]),
+            "inline inputs mapping": (head.replace("    inputs:\n", "    inputs: {e2e: {type: boolean}}\n"),
+                                      bootstrap._UNVERIFIABLE),
+            "inline on mapping": ("on: {workflow_call: {}}\n", bootstrap._UNVERIFIABLE),
+            "no inputs": ("on:\n  workflow_call:\njobs: {}\n", []),
+        }
+        for label, (text, expected) in cases.items():
+            with self.subTest(label):
+                self.assertEqual(bootstrap._declared_inputs(text), expected)
+
+    def test_unverifiable_called_workflow_is_refused_by_name_not_guessed(self):
+        files = _render("nextjs")
+        rel = ".github/workflows/release-please.yml"
+        self._write(".github/workflows/test.yml", "on:\n  workflow_call:\n    inputs: {e2e: {type: boolean}, full: {type: boolean}}\n")
+        problems = bootstrap._undeclared_inputs(self.repo, bootstrap.read_stamp(files[rel], True)[1])
+        self.assertEqual(problems, ["cannot verify the inputs .github/workflows/test.yml declares; check them by hand"])
+
+    def test_scalars_never_hide_or_fake_an_action(self):
+        hidden = "steps:\n  - name: |\n      label\n    uses: actions/checkout@one\n"
+        self.assertEqual(len(bootstrap._uses_lines(hidden.splitlines(keepends=True))), 1)
+        quoted = "steps:\n  - run: \"echo start\n      uses: owner/x@one\n      done\"\n"
+        self.assertEqual(bootstrap._uses_lines(quoted.splitlines(keepends=True)), {})
+        flow = "steps:\n  - {name: a,\n     uses: actions/checkout@one}\n"
+        self.assertEqual(bootstrap._unpinned(flow), flow)
+
+    def test_strict_reader_agrees_with_pyyaml_or_refuses(self):
+        import yaml
+
+        def truth(text):
+            try:
+                data = yaml.safe_load(text)
+            except yaml.YAMLError:
+                return "error"
+            on = data.get("on", data.get(True)) if isinstance(data, dict) else None
+            if isinstance(on, str):
+                return [] if on == "workflow_call" else None
+            if isinstance(on, list):
+                return [] if "workflow_call" in on else None
+            if not isinstance(on, dict) or "workflow_call" not in on:
+                return None
+            call = on["workflow_call"] or {}
+            return list((call.get("inputs") or {}) if isinstance(call, dict) else {})
+
+        head = "name: t\non:\n  workflow_call:\n    inputs:\n"
+        corpus = [
+            head + '      e2e:\n        type: boolean\n        description: "example\n      full:\n        type: boolean"\n',
+            head + "      e2e:\n        description: |\n          inputs:\n            full: x\n",
+            head + "      e2e:\n        description: 'a\n      full: b'\n",
+            head + "      e2e: {type: boolean,\n      full: x}\n",
+            head + "      e2e: &a\n        type: boolean\n      full: *a\n",
+            head + "      e2e:\n        description: some text\n          full: x\n",
+            head + "      - e2e\n",
+            head + "# c\n      e2e: {}\n      full: {}\n",
+            head + "      e2e: {}  # full: no\n",
+            head + '      e2e:\n        description: "a # b: c"\n      full: {}\n',
+            "true:\n  workflow_call:\n    inputs:\n      full: {}\n",
+            '"on":\n  workflow_call:\n    inputs:\n      full: {}\n',
+            head + "      e2e: {type: boolean]\n      full: {type: boolean}\n",
+            head + "      e2e: {type: *a}\n",
+            head + '      e2e:\n        description: "a\\q"\n',
+            head + "      e2e:\n        description: |0\n          x\n",
+            head + "      e2e:\n        description: |++\n          x\n",
+            "on: push, workflow_call\n",
+            head + "      e2e:\n        type: boolean\n        description: |9\n          x\n      full:\n        type: boolean\n",
+            head + "      e2e:\n        description: |\n            x\n          y\n      full: {}\n",
+            head + "      e2e:\n        description: ]\n      full: {}\n",
+            head + "      e2e:\n        description: foo:\tbar\n      full: {}\n",
+            head + "      e2e:\n        description: -\tfoo\n      full: {}\n",
+            head + "      e2e: {}\n      full: {}\ntrue: push\n",
+            head + "      true: {}\n",
+            "on:\n  - push\n  - workflow_call\n",
+            head + "      e2e: {}\n      full: {}\n# bad\x81\n",
+            head + "      e2e: {}\n      full: {}\nname: foo\t\n",
+            "on: workflow_call\u00a0\n",
+            head + "      e2e: {}\n      full: {}\n0x1: push\n",
+            head + "      2001-12-15: {}\n",
+            head + "      on: {}\n",
+            head + "      e2e: {}\n      full: {}\nname: |\n    \n  x\n",
+            "on: |-\n  workflow_call\n",
+            "on: work flow_call\n",
+            "on: [push, workflow_call]\n",
+            "on: push\n",
+            "on:\n  workflow_call:\n    inputs:\n      e2e: {}\njobs:\n  a:\n    steps:\n      - run: |\n          inputs:\n      - name: x\n",
+        ]
+        for name in ("nextjs", "python", "rust", "swift"):
+            render = _render(name)[".github/workflows/test.yml"]
+            # Shipped workflows must be readable, not merely refused.
+            self.assertIsNot(bootstrap._declared_inputs(render), bootstrap._UNVERIFIABLE, name)
+            corpus.append(render)
+        for text in corpus:
+            with self.subTest(text[:60]):
+                mine = bootstrap._declared_inputs(text)
+                if mine is bootstrap._UNVERIFIABLE:
+                    continue
+                expected = truth(text)
+                self.assertNotEqual(expected, "error", text)
+                self.assertEqual(None if mine is None else sorted(mine), None if expected is None else sorted(expected))
+
+    def test_another_types_release_workflow_is_never_replaced(self):
+        tools = Path(bootstrap.__file__).parent
+        rel = ".github/workflows/release-please.yml"
+        cases = {
+            "gated adopted as simple": ("release-please-gated.yml", "simple", "local-modified"),
+            "nextjs adopted as python": ("release-please-nextjs.yml", "python", "local-modified"),
+            "simple adopted as python": ("release-please-simple.yml", "python", "local-modified"),
+            "gated adopted as python": ("release-please-gated.yml", "python", "stale"),
+        }
+        for label, (name, repo_type, state) in cases.items():
+            with self.subTest(label):
+                # A fresh repository per case: adopt writes the other files.
+                self.repo = Path(self._tmp.name) / f"legacy-{name}-{repo_type}"
+                self.repo.mkdir()
+                released = subprocess.run(
+                    ["git", "-C", str(tools), "show", f"v0.8.0:templates/{name}"], capture_output=True, text=True,
+                )
+                if released.returncode:
+                    self.skipTest("release tags unavailable")
+                files = _render(repo_type)
+                self._write(rel, released.stdout)
+                self._commit_all()
+                status, detail = bootstrap.compare_repository(self.repo, files)[rel]
+                self.assertEqual(status, state)
+                if state == "local-modified":
+                    self.assertIn(name, detail)
+                    self.assertIn("check --type", detail)
+                    rows = {path: (action, why) for action, path, why in bootstrap.adopt_repository(self.repo, files)}
+                    self.assertEqual(rows[rel][0], "refused")
+                    self.assertIn("check --type", rows[rel][1])
+                    self.assertEqual((self.repo / rel).read_text(), released.stdout)
+
+    def test_a_stamped_release_workflow_of_another_type_is_never_replaced(self):
+        rel = ".github/workflows/release-please.yml"
+        renders = {name: _render(name) for name in ("nextjs", "python", "simple")}
+        for source, target in [(a, b) for a in renders for b in renders if a != b]:
+            with self.subTest(source=source, target=target):
+                # A fresh repository per case: adopt writes the other files.
+                self.repo = Path(self._tmp.name) / f"stamped-{source}-{target}"
+                self.repo.mkdir()
+                self._write(rel, renders[source][rel])
+                self._commit_all()
+                status, detail = bootstrap.compare_repository(self.repo, renders[target])[rel]
+                self.assertEqual(status, "local-modified")
+                self.assertIn(bootstrap.stamp_template(renders[source][rel]), detail)
+                self.assertIn("check --type", detail)
+                rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, renders[target])}
+                self.assertEqual(rows[rel], "refused")
+                self.assertEqual((self.repo / rel).read_text(), renders[source][rel])
+        # The template name is covered by the digest: editing it breaks the stamp.
+        gated = renders["python"][rel]
+        forged = gated.replace("template=release-please-gated.yml", "template=release-please-simple.yml", 1)
+        self.assertFalse(bootstrap.stamp_is_valid(forged, True))
+
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
-            self.assertEqual(bootstrap.compute_legacy_digests(), bootstrap.LEGACY_TEMPLATE_DIGESTS)
+            self.assertEqual(bootstrap.compute_legacy_digests(), self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS))
+
+    def test_legacy_workflow_bodies_come_from_every_release_through_their_last_tag(self):
+        repo = Path(self._tmp.name) / "legacy-workflows"
+        templates = repo / "templates"
+        templates.mkdir(parents=True)
+        _git(repo, "init", "-q")
+        releases = {
+            "v0.1.0": "name: release\n# <<DEPLOY_JOB>>\n",
+            "v0.7.0": "name: release\non: push\n",
+            "v0.8.1": "name: release\non: [push]\n",
+            "v0.9.0": "name: release\non: {push: {}}\n",
+        }
+        for ref, body in releases.items():
+            (templates / "release-please-simple.yml").write_text(body, encoding="utf-8")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", ref)
+            _git(repo, "tag", ref)
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
+            table = bootstrap.compute_legacy_digests()
+        # v0.1.0's default render left its marker lines empty; v0.9.0 is stamped.
+        expected = {bootstrap._digest(body) for body in ("name: release\n", releases["v0.7.0"], releases["v0.8.1"])}
+        self.assertEqual(table[".github/workflows/release-please.yml#release-please-simple.yml"], expected)
 
     def test_validator_flags_a_release_missing_from_the_legacy_table(self):
         templates = self._legacy_templates()
+        docs = self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS)
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates):
-            self.assertEqual(validate_templates.check_legacy_digests(), [])
+            self.assertEqual(validate_templates.check_legacy_digests(recorded=docs), [])
             runbook = templates / "docs-branch-protection-runbook.md"
             runbook.write_text(runbook.read_text(encoding="utf-8") + "\nA later release.\n", encoding="utf-8")
             _git(templates.parent, "commit", "-q", "-am", "v1.0.0")
             _git(templates.parent, "tag", "v1.0.0")
             # Releases after LEGACY_LAST_TAG ship stamped docs and never join the table.
-            self.assertEqual(validate_templates.check_legacy_digests(), [])
+            self.assertEqual(validate_templates.check_legacy_digests(recorded=docs), [])
             with unittest.mock.patch.object(bootstrap, "LEGACY_LAST_TAG", (1, 0, 0)):
-                errors = validate_templates.check_legacy_digests()
+                errors = validate_templates.check_legacy_digests(recorded=docs)
         self.assertTrue(any("LEGACY_TEMPLATE_DIGESTS is stale" in error for error in errors), errors)
 
     def test_legacy_diff_is_skipped_with_a_notice_without_git_or_tags(self):

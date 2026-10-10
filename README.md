@@ -261,8 +261,13 @@ Every template-owned file carries a stamp line:
 A template-owned workflow carries it as a YAML comment on line 1 instead:
 
 ```text
-# gh-repo-bootstrapper: template-owned; sha256=<hex>
+# gh-repo-bootstrapper: template-owned; template=<template file>; sha256=<hex>
 ```
+
+It names the template the workflow came from, and its digest covers that
+name. A stamped workflow from another template, such as a gated release
+workflow under `--type simple`, is `local-modified` and the report says to
+check `--type`.
 
 The hex is the SHA-256 of the file with the stamp line removed. In a
 `SKILL.md` or agent file the stamp sits on the line after the YAML
@@ -303,7 +308,11 @@ digest ignores the version after `@` on each `uses:` line and the comment
 after it, so a Dependabot bump leaves the file `same`. When `--adopt` upgrades
 a `stale` workflow, it keeps the repository's own pin for every action it
 already uses, so it never undoes a bump. Any other edit counts as
-`local-modified`.
+`local-modified`. The other side of this: a pin the template
+changes does not reach a repository through `--adopt`; its Dependabot brings
+it. A template change that needs a newer action version must keep working on
+the older one, or its release notes must say to merge the Dependabot bump
+before adopting.
 
 To narrow a template skill for one repository, don't edit the stamped file.
 Write the narrower rule in `## Project specifics`, or add a repository-owned

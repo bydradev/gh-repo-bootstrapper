@@ -3058,7 +3058,7 @@ def _structure_self_tests() -> list:
     body = bootstrap.read_stamp(owned[release_path], True)[1]
     owned[release_path] = bootstrap.stamp(
         body + "  extra:\n    runs-on: ubuntu-latest\n    steps:\n      - run: &script |\n          uses: owner/x@one\n",
-        is_yaml=True,
+        is_yaml=True, template=bootstrap.stamp_template(owned[release_path]),
     )
     expect("script text that looks like a pinned action",
            check_template_stamps("self-test:pins", owned_cfg, owned), "differ from its action references")

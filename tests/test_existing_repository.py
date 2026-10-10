@@ -890,7 +890,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     self.assertTrue(files[path].startswith(bootstrap.YAML_STAMP_PREFIX), path)
                     self.assertTrue(bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)))
                     self.assertNotIn("<!--", files[path].splitlines()[0])
-        crlf = bootstrap.stamp("name: x\r\non: push\r\n", is_yaml=True)
+        crlf = bootstrap.stamp("name: x\r\non: push\r\n", is_yaml=True, template="x.yml")
         self.assertTrue(crlf.split("\n", 1)[0].endswith("\r"))
         self.assertEqual(bootstrap.read_stamp(crlf, True)[1], "name: x\r\non: push\r\n")
 
@@ -997,7 +997,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             "      - uses: ./actions/local@cccc\n"
             "      - run: |\n          echo uses: owner/x@dddd\n"
         )
-        stamped = bootstrap.stamp(base, is_yaml=True)
+        stamped = bootstrap.stamp(base, is_yaml=True, template="x.yml")
         cases = {
             "bumped pin and comment": ("actions/checkout@aaaa # v1", "actions/checkout@eeee # v2", True),
             "bumped quoted pin": ('"owner/tool@bbbb"', '"owner/tool@ffff"', False),
@@ -1031,7 +1031,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         markdown = bootstrap.stamp("# Doc\n\n" + example)
         self.assertIn(example, markdown)
         self.assertTrue(bootstrap.stamp_is_valid(markdown))
-        workflow = bootstrap.stamp("name: x\n", is_yaml=True)
+        workflow = bootstrap.stamp("name: x\n", is_yaml=True, template="x.yml")
         moved = "on: push\n" + workflow
         self.assertFalse(bootstrap.stamp_is_valid(moved, True))
         self.assertFalse(bootstrap.stamp_is_valid(workflow))
@@ -1046,7 +1046,7 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_yaml_stamp_keeps_a_bom_at_the_start(self):
         body = "\ufeffname: x\non: push\n"
-        stamped = bootstrap.stamp(body, is_yaml=True)
+        stamped = bootstrap.stamp(body, is_yaml=True, template="x.yml")
         self.assertTrue(stamped.startswith("\ufeff" + bootstrap.YAML_STAMP_PREFIX))
         self.assertEqual(bootstrap.read_stamp(stamped, True)[1], body)
         self.assertTrue(bootstrap.stamp_is_valid(stamped, True))
@@ -1171,6 +1171,9 @@ class ExistingRepositoryTests(unittest.TestCase):
         }
         for label, (name, repo_type, state) in cases.items():
             with self.subTest(label):
+                # A fresh repository per case: adopt writes the other files.
+                self.repo = Path(self._tmp.name) / f"legacy-{name}-{repo_type}"
+                self.repo.mkdir()
                 released = subprocess.run(
                     ["git", "-C", str(tools), "show", f"v0.8.0:templates/{name}"], capture_output=True, text=True,
                 )
@@ -1188,6 +1191,28 @@ class ExistingRepositoryTests(unittest.TestCase):
                     self.assertEqual(rows[rel][0], "refused")
                     self.assertIn("check --type", rows[rel][1])
                     self.assertEqual((self.repo / rel).read_text(), released.stdout)
+
+    def test_a_stamped_release_workflow_of_another_type_is_never_replaced(self):
+        rel = ".github/workflows/release-please.yml"
+        renders = {name: _render(name) for name in ("nextjs", "python", "simple")}
+        for source, target in [(a, b) for a in renders for b in renders if a != b]:
+            with self.subTest(source=source, target=target):
+                # A fresh repository per case: adopt writes the other files.
+                self.repo = Path(self._tmp.name) / f"stamped-{source}-{target}"
+                self.repo.mkdir()
+                self._write(rel, renders[source][rel])
+                self._commit_all()
+                status, detail = bootstrap.compare_repository(self.repo, renders[target])[rel]
+                self.assertEqual(status, "local-modified")
+                self.assertIn(bootstrap.stamp_template(renders[source][rel]), detail)
+                self.assertIn("check --type", detail)
+                rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, renders[target])}
+                self.assertEqual(rows[rel], "refused")
+                self.assertEqual((self.repo / rel).read_text(), renders[source][rel])
+        # The template name is covered by the digest: editing it breaks the stamp.
+        gated = renders["python"][rel]
+        forged = gated.replace("template=release-please-gated.yml", "template=release-please-simple.yml", 1)
+        self.assertFalse(bootstrap.stamp_is_valid(forged, True))
 
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):

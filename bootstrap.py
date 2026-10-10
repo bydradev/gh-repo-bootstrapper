@@ -91,8 +91,13 @@ STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
 _STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
 # Workflows are YAML, where an HTML comment is not a comment: they carry the
 # stamp as a YAML comment on their first line instead.
-YAML_STAMP_PREFIX = "# gh-repo-bootstrapper: template-owned; sha256="
-_YAML_STAMP_RE = re.compile(r"^" + re.escape(YAML_STAMP_PREFIX) + r"([0-9a-f]{64})$")
+# It also names the template the workflow came from, so a release workflow of
+# one repository type is never replaced by another type's (see
+# _template_file_state); the digest covers that name too.
+YAML_STAMP_PREFIX = "# gh-repo-bootstrapper: template-owned; "
+_YAML_STAMP_RE = re.compile(
+    r"^" + re.escape(YAML_STAMP_PREFIX) + r"template=([A-Za-z0-9_.-]+\.yml); sha256=([0-9a-f]{64})$"
+)
 TEMPLATE_OWNED_WORKFLOWS = (
     ".github/workflows/pr-title-check.yml",
     ".github/workflows/release-please.yml",
@@ -163,13 +168,25 @@ def _find_stamp(text: str, is_yaml: bool = False) -> tuple[int, str] | None:
             return None
         match = _YAML_STAMP_RE.fullmatch(lines[0].lstrip("\ufeff").rstrip("\r\n"))
         later = any(line.lstrip().startswith(YAML_STAMP_PREFIX) for line in lines[1:])
-        return (0, match.group(1)) if match and not later else None
+        return (0, match.group(2)) if match and not later else None
     stamps = []
     for i, line in enumerate(lines):
         match = _STAMP_RE.fullmatch(line.rstrip("\r\n"))
         if match:
             stamps.append((i, match.group(1)))
     return stamps[0] if len(stamps) == 1 else None
+
+
+def stamp_template(text: str) -> str | None:
+    """The template a stamped workflow names, or None when it has no stamp."""
+    if _find_stamp(text, True) is None:
+        return None
+    return _YAML_STAMP_RE.fullmatch(text.splitlines()[0].lstrip("\ufeff").rstrip("\r")).group(1)
+
+
+def _yaml_stamp_digest(template: str, body: str) -> str:
+    """A workflow stamp's digest: its template name and its body without pins."""
+    return _digest(f"template={template}\n" + _unpinned(body))
 
 
 def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
@@ -280,15 +297,18 @@ def read_stamp(text: str, is_yaml: bool = False) -> tuple[str | None, str]:
     return digest, bom + "".join(lines[:index] + lines[index + 1:])
 
 
-def stamp(text: str, is_yaml: bool = False) -> str:
-    """Stamp a body: a workflow on line 1 (after any BOM) as a YAML comment;
-    Markdown after closed YAML frontmatter, or on its first line."""
+def stamp(text: str, is_yaml: bool = False, template: str | None = None) -> str:
+    """Stamp a body: a workflow on line 1 (after any BOM) as a YAML comment
+    naming its `template`; Markdown after closed YAML frontmatter, or on its
+    first line."""
     _, body = read_stamp(text, is_yaml)
     if is_yaml:
+        if not template:
+            raise ValueError("a workflow stamp names the template it came from")
         bom = "\ufeff" if body.startswith("\ufeff") else ""
         rest = body[len(bom):]
         eol = "\r\n" if rest.split("\n", 1)[0].endswith("\r") else "\n"
-        return f"{bom}{YAML_STAMP_PREFIX}{_stamp_digest(body, True)}{eol}{rest}"
+        return f"{bom}{YAML_STAMP_PREFIX}template={template}; sha256={_yaml_stamp_digest(template, body)}{eol}{rest}"
     offset = 0
     eol = "\n"
     bom = "\ufeff" if body.startswith("\ufeff") else ""
@@ -312,7 +332,12 @@ def stamp(text: str, is_yaml: bool = False) -> str:
 
 def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
     found = _find_stamp(text, is_yaml)
-    return found is not None and found[1] == _stamp_digest(read_stamp(text, is_yaml)[1], is_yaml)
+    if found is None:
+        return False
+    body = read_stamp(text, is_yaml)[1]
+    if is_yaml:
+        return found[1] == _yaml_stamp_digest(stamp_template(text), body)
+    return found[1] == _stamp_digest(body, False)
 
 
 # Rebuilt by compute_legacy_digests(), from the vX.Y.Z release tags through
@@ -1160,7 +1185,10 @@ def generate_files(cfg: dict) -> dict:
     for path, source in _TEMPLATE_AGENTS.items():
         files[path] = _load(source)
     for path in template_owned_paths(cfg):
-        files[path] = stamp(files[path], is_yaml=_is_yaml(path))
+        files[path] = stamp(
+            files[path], is_yaml=_is_yaml(path),
+            template=_template_source(path, files[path]) if _is_yaml(path) else None,
+        )
     return files
 
 
@@ -1777,6 +1805,8 @@ def _template_file_state(rel: str, expected: str, actual: str) -> str:
         return "stale" if _stamp_digest(body, is_yaml) in known else "local-modified"
     if not stamp_is_valid(actual, is_yaml):
         return "local-modified"
+    if is_yaml and stamp_template(actual) != stamp_template(expected):
+        return "local-modified"  # another type's template: replacing it changes the release gate
     if is_yaml:
         # Pins are Dependabot's to move: a workflow that differs only there is current.
         return "same" if _unpinned(actual) == _unpinned(expected) else "stale"
@@ -2039,7 +2069,12 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             status = _template_file_state(rel, expected, actual)
             detail = None
             variant = None
-            if status == "local-modified" and read_stamp(actual, True)[0] is None and rel in _LEGACY_WORKFLOW_SOURCES:
+            if status == "local-modified" and rel in _LEGACY_WORKFLOW_SOURCES and stamp_is_valid(actual, True):
+                detail = (
+                    f"a stamped {stamp_template(actual)}, but this --type renders "
+                    f"{stamp_template(expected)}; check --type"
+                )
+            elif status == "local-modified" and read_stamp(actual, True)[0] is None and rel in _LEGACY_WORKFLOW_SOURCES:
                 variant = _legacy_variant(rel, actual)
             if variant is not None:
                 detail = (
@@ -2473,7 +2508,7 @@ def _adopt_file(
         return ("refused", rel, detail)
     if status == "local-modified":
         if _is_yaml(rel):
-            if isinstance(detail, str) and detail.startswith("an unchanged "):
+            if isinstance(detail, str) and detail.endswith("check --type"):
                 return ("refused", rel, detail)
             return (
                 "refused", rel,

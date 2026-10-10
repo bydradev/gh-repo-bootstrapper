@@ -286,8 +286,11 @@ add them to `test.yml` and re-run.
 
 `bootstrap.py` has no YAML parser: it reads the called file in a strict
 subset of YAML (block mappings and sequences, single-line values, block
-scalars), and refuses with "cannot verify" for anything else, such as a quoted
-value that spans lines, an anchor or an inline `on:` mapping.
+scalars, no tabs or other unusual whitespace). It refuses with "cannot
+verify" for anything else, such as a quoted value that spans lines, an anchor
+or an inline `on:` mapping. For a workflow GitHub can load, its answer is
+right or it refuses; a file GitHub rejects already fails every run, so that
+case is out of scope.
 
 Dependabot keeps updating the actions these workflows use. A workflow's
 digest ignores the version after `@` on each `uses:` line and the comment

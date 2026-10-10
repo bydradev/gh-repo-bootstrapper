@@ -178,14 +178,14 @@ def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
 
 
 # A step's or job's `uses: owner/repo[/path]@<ref>`, with any trailing spaces
-# or whitespace-separated comment: the part Dependabot rewrites. Only plain
+# or whitespace-separated printable-ASCII comment: the part Dependabot rewrites. Only plain
 # characters are allowed, so a tolerated line can never open a quoted scalar,
 # flow collection or escape that changes how later lines parse. Quoted,
 # local (`./`) and `docker://` references never match and compare exactly.
 _USES_RE = re.compile(
     r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]+)(?P<q>)"
     r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_./-]+)@(?P<ref>[A-Za-z0-9_./-]+)"
-    r"(?P<tail>[ \t]+#[^\x00-\x08\x0a-\x1f\x7f]*|[ \t]*)(?P<eol>\r?\n)?"
+    r"(?P<tail>[ \t]+#[ -~]*|[ \t]*)(?P<eol>\r?\n)?"
 )
 # A key whose value is a block scalar (`run: |`); its content lines are text.
 _BLOCK_SCALAR_RE = re.compile(r"(?P<key>[ \t]*(?:-[ \t]+)?)[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
@@ -1489,9 +1489,24 @@ def _value(text: str) -> str | None:
     return value
 
 
+# Plain keys a YAML 1.1 parser would read as a boolean, null, number or date.
 _IMPLICIT_KEY_RE = re.compile(
-    r"(?i:y|yes|n|no|true|false|on|off|null|~)|[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
+    r"(?i:y|yes|n|no|true|false|on|off|null|~)"
+    r"|[-+]?(?:0[box][0-9a-fA-F_]+|[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
+    r"|[-+]?\.(?i:inf|nan)|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}.*"
 )
+
+
+def _outside_subset_char(char: str) -> bool:
+    """A character the reader does not model: one YAML forbids, a tab, or other
+    whitespace than space and line breaks, which Python's str.strip() would
+    treat differently from YAML."""
+    code = ord(char)
+    if char in "\n\r" or 0x20 <= code <= 0x7E:
+        return False
+    if char.isspace() or code in (0x85, 0xFEFF):
+        return True
+    return not (0xA0 <= code <= 0xD7FF or 0xE000 <= code <= 0xFFFD or 0x10000 <= code <= 0x10FFFF)
 
 
 def _structural_lines(text: str) -> list | None:
@@ -1501,18 +1516,31 @@ def _structural_lines(text: str) -> list | None:
     sequences, single-line scalars and flow collections, and block scalars,
     whose text it skips. Anything else (a quoted scalar or flow collection
     spanning lines, anchors, aliases, tags, a plain scalar continued on the
-    next line, tabs, several documents) returns None, so callers refuse
-    instead of guessing. Sequence entries are rows with key None.
+    next line, tabs, other whitespace than space and line breaks, characters
+    YAML forbids, several documents) returns None,
+    so callers refuse instead of guessing. Sequence entries are rows with key
+    None.
+
+    The guarantee covers workflows GitHub can load: for those, the rows are
+    right or the result is None. A file GitHub rejects as invalid YAML already
+    fails every run, so it is out of scope.
     """
-    rows, block, content = [], None, None
+    if any(_outside_subset_char(char) for char in text):
+        return None
+    rows, block, content, blank = [], None, None, 0
     for line in text.splitlines():
         if not line.strip():
+            if block is not None and content is None:
+                blank = max(blank, len(line.rstrip("\r")))
             continue
         indent = _indent(line)
         if block is not None:
             if indent > block:
-                # Content keeps the first content line's indentation or more.
+                # Content keeps the first content line's indentation or more,
+                # and no leading blank line may be indented deeper than it.
                 if content is not None and indent < content:
+                    return None
+                if content is None and blank > indent:
                     return None
                 content = indent if content is None else content
                 continue
@@ -1539,13 +1567,13 @@ def _structural_lines(text: str) -> list | None:
                 return None
             continue
         key = key_match.group(1)
-        if key[0] not in "\"'" and key != "on" and _IMPLICIT_KEY_RE.fullmatch(key):
+        if key[0] not in "\"'" and not (key == "on" and indent == 0) and _IMPLICIT_KEY_RE.fullmatch(key):
             return None  # a YAML 1.1 parser reads it as a boolean, null or number
         key = key[1:-1] if key[0] in "\"'" else key
         raw = body[key_match.end():]
         if re.fullmatch(r"[ \t]*[|>][-+]?(?:[ \t]+#.*)?[ \t]*", raw):
             rows.append((indent, key, "|"))
-            block, content = indent, None
+            block, content, blank = indent, None, 0
             continue
         value = _value(raw)
         if value is None:
@@ -1597,6 +1625,8 @@ def _declared_inputs(text: str):
     if on is None or on is _UNVERIFIABLE:
         return _UNVERIFIABLE
     k, value = on
+    if value == "|":
+        return _UNVERIFIABLE  # the events are a block scalar's text
     if value:
         # A scalar names one event exactly; only a flow list names several.
         if value.startswith("["):

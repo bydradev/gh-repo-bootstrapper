@@ -1020,8 +1020,11 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
         # A control character in a tolerated comment would make the file unparsable.
         lines = baseline.splitlines(keepends=True)
-        lines[actions[0]] = lines[actions[0]].rstrip("\n") + "\x00\n"
-        self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
+        for char in ("\x00", "\x81", "\x9f", "\ufffe"):
+            with self.subTest(repr(char)):
+                lines = baseline.splitlines(keepends=True)
+                lines[actions[0]] = lines[actions[0]].rstrip("\n") + char + "\n"
+                self.assertFalse(bootstrap.stamp_is_valid("".join(lines), True))
 
     def test_each_file_type_reads_only_its_own_stamp_form(self):
         example = "```text\n" + bootstrap.YAML_STAMP_PREFIX + "0" * 64 + "\n```\n"
@@ -1130,13 +1133,24 @@ class ExistingRepositoryTests(unittest.TestCase):
             head + "      e2e: {}\n      full: {}\ntrue: push\n",
             head + "      true: {}\n",
             "on:\n  - push\n  - workflow_call\n",
+            head + "      e2e: {}\n      full: {}\n# bad\x81\n",
+            head + "      e2e: {}\n      full: {}\nname: foo\t\n",
+            "on: workflow_call\u00a0\n",
+            head + "      e2e: {}\n      full: {}\n0x1: push\n",
+            head + "      2001-12-15: {}\n",
+            head + "      on: {}\n",
+            head + "      e2e: {}\n      full: {}\nname: |\n    \n  x\n",
+            "on: |-\n  workflow_call\n",
             "on: work flow_call\n",
             "on: [push, workflow_call]\n",
             "on: push\n",
             "on:\n  workflow_call:\n    inputs:\n      e2e: {}\njobs:\n  a:\n    steps:\n      - run: |\n          inputs:\n      - name: x\n",
         ]
         for name in ("nextjs", "python", "rust", "swift"):
-            corpus.append(_render(name)[".github/workflows/test.yml"])
+            render = _render(name)[".github/workflows/test.yml"]
+            # Shipped workflows must be readable, not merely refused.
+            self.assertIsNot(bootstrap._declared_inputs(render), bootstrap._UNVERIFIABLE, name)
+            corpus.append(render)
         for text in corpus:
             with self.subTest(text[:60]):
                 mine = bootstrap._declared_inputs(text)

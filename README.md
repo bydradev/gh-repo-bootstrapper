@@ -269,10 +269,13 @@ name. A stamped workflow from another template, such as a gated release
 workflow under `--type simple`, is `local-modified` and the report says to
 check `--type`.
 
-The hex is the SHA-256 of the file with the stamp line removed. In a
-`SKILL.md` or agent file the stamp sits on the line after the YAML
-frontmatter; in other markdown it's line 1. A digest that no longer matches
-means someone edited the file locally.
+In Markdown, the hex is the SHA-256 of the file with the stamp line removed.
+In a `SKILL.md` or agent file the stamp sits on the line after the YAML
+frontmatter; in other markdown it's line 1. In a workflow, it's the SHA-256 of
+a `template=<template file>` line followed by the file with the stamp line
+removed and, on each `uses: owner/repo@ref` line, the ref and any comment after
+it removed. A digest that no longer matches means someone edited the file
+locally.
 
 Workflows were first stamped after v0.8.1. An unstamped workflow whose body
 equals one a release through v0.8.1 shipped is `stale`, so `--adopt`

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.8.1...v0.9.0) (2026-10-10)
+
+
+### Features
+
+* make the pr title, release and baseline review workflows template-owned ([#80](https://github.com/bydradev/gh-repo-bootstrapper/issues/80)) ([9ccc08e](https://github.com/bydradev/gh-repo-bootstrapper/commit/9ccc08ecc252eaf1deab4f6ecf56acc27b402585))
+
 ## [0.8.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.8.0...v0.8.1) (2026-10-09)
 
 

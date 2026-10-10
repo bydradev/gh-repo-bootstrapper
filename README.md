@@ -272,10 +272,16 @@ means someone edited the file locally.
 Workflows were first stamped after v0.8.1. An unstamped workflow whose body
 equals one a release through v0.8.1 shipped is `stale`, so `--adopt`
 upgrades it. One with local changes is `local-modified` and is never
-overwritten: move the repository's own jobs or steps into a separate
-workflow file, delete the old file, and run `--adopt` to write the stamped
-version. A v0.1.0 Next.js release workflow with a provider deploy job is
-always `local-modified`: upgrading it would drop the deploy job.
+overwritten. Where the changes are jobs or steps of the repository's own, move
+them into a separate workflow file, delete the old file, and run `--adopt` to
+write the stamped version. Where they change a template step's settings and
+can't be moved, drop them, propose them for the template, or keep the file;
+while it stays `local-modified`, `--check` and `--adopt` exit 1. An unchanged
+release workflow of another type, such as a gated one under `--type simple`,
+is also `local-modified`, and the report says to check `--type`: replacing it
+would change how releases are gated. A v0.1.0 Next.js release workflow with a
+provider deploy job is always `local-modified`: upgrading it would drop the
+deploy job.
 
 Before `--adopt` writes a workflow that calls one of the repository's own
 reusable workflows (`release-please.yml` calls `test.yml`), it checks that the

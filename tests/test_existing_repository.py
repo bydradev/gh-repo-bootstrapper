@@ -1160,6 +1160,35 @@ class ExistingRepositoryTests(unittest.TestCase):
                 self.assertNotEqual(expected, "error", text)
                 self.assertEqual(None if mine is None else sorted(mine), None if expected is None else sorted(expected))
 
+    def test_another_types_release_workflow_is_never_replaced(self):
+        tools = Path(bootstrap.__file__).parent
+        rel = ".github/workflows/release-please.yml"
+        cases = {
+            "gated adopted as simple": ("release-please-gated.yml", "simple", "local-modified"),
+            "nextjs adopted as python": ("release-please-nextjs.yml", "python", "local-modified"),
+            "simple adopted as python": ("release-please-simple.yml", "python", "local-modified"),
+            "gated adopted as python": ("release-please-gated.yml", "python", "stale"),
+        }
+        for label, (name, repo_type, state) in cases.items():
+            with self.subTest(label):
+                released = subprocess.run(
+                    ["git", "-C", str(tools), "show", f"v0.8.0:templates/{name}"], capture_output=True, text=True,
+                )
+                if released.returncode:
+                    self.skipTest("release tags unavailable")
+                files = _render(repo_type)
+                self._write(rel, released.stdout)
+                self._commit_all()
+                status, detail = bootstrap.compare_repository(self.repo, files)[rel]
+                self.assertEqual(status, state)
+                if state == "local-modified":
+                    self.assertIn(name, detail)
+                    self.assertIn("check --type", detail)
+                    rows = {path: (action, why) for action, path, why in bootstrap.adopt_repository(self.repo, files)}
+                    self.assertEqual(rows[rel][0], "refused")
+                    self.assertIn("check --type", rows[rel][1])
+                    self.assertEqual((self.repo / rel).read_text(), released.stdout)
+
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
             self.assertEqual(bootstrap.compute_legacy_digests(), self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS))
@@ -1184,7 +1213,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             table = bootstrap.compute_legacy_digests()
         # v0.1.0's default render left its marker lines empty; v0.9.0 is stamped.
         expected = {bootstrap._digest(body) for body in ("name: release\n", releases["v0.7.0"], releases["v0.8.1"])}
-        self.assertEqual(table[".github/workflows/release-please.yml"], expected)
+        self.assertEqual(table[".github/workflows/release-please.yml#release-please-simple.yml"], expected)
 
     def test_validator_flags_a_release_missing_from_the_legacy_table(self):
         templates = self._legacy_templates()

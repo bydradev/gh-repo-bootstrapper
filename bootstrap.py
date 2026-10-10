@@ -318,25 +318,29 @@ def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
 # Rebuilt by compute_legacy_digests(), from the vX.Y.Z release tags through
 # LEGACY_LAST_TAG (docs) and LEGACY_WORKFLOWS_LAST_TAG (workflows).
 LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
-    ".github/workflows/baseline-review.yml": frozenset({
+    ".github/workflows/baseline-review.yml#baseline-review.yml": frozenset({
         "261e0abffb824cfa585238d8a14ffdeb74a0c2f89e17d01dbc0cd170248c260e",
         "7df5be81edc1ff0d28a3481b54a8fd8aba516a62ec666c21d715f5b55d0a1bbc",
     }),
-    ".github/workflows/pr-title-check.yml": frozenset({
+    ".github/workflows/pr-title-check.yml#pr-title-check.yml": frozenset({
         "28bb34ca5d6feb066b98781b56a7cb67aa40fc964f6188fc100a1e38def6b728",
         "f703facb0441f2c3bd809baecffe42dc9c0df17aac14be0bbc190f5a5b7cb8ca",
     }),
-    ".github/workflows/release-please.yml": frozenset({
+    ".github/workflows/release-please.yml#release-please-gated.yml": frozenset({
         "23c11b24a99c6b1d9dd76853c06a6cb5974a8f19d07b9cbbb4a492e4b1f51a78",
+        "499012ae0990c745a840a06f46d849e0c3ce9a9176a064d6f9551531c6338e3d",
+        "aad3b41596efc81171735804f64affc11af69333e99983b128d583ee3895e44d",
+        "c2c78eb43e3f881b6ff25a89202b5081274a1f376692fb16312d1e5550473e35",
+    }),
+    ".github/workflows/release-please.yml#release-please-nextjs.yml": frozenset({
         "24fbd2aab77a28a06793fdef0aec5fda0d97768a5d015922b749e0e0fc4e8260",
         "31f630d6f91a1a5c664822e793aec1776a853ef5e7a634fefdfdf2650093bf8e",
         "328d8ef692fbcc15b689f1a6bf131c8d2b8f9080f5fe9a097228f2ea65584b81",
-        "3db35e107cf0e0f5abe24aad85b9d90828318f3d91070c46319aa880119e9f87",
-        "499012ae0990c745a840a06f46d849e0c3ce9a9176a064d6f9551531c6338e3d",
-        "4c5b1f588f16c0bec5aae31379ee16e2434b8b7cea68250e6b5de64f62c70e6d",
-        "aad3b41596efc81171735804f64affc11af69333e99983b128d583ee3895e44d",
-        "c2c78eb43e3f881b6ff25a89202b5081274a1f376692fb16312d1e5550473e35",
         "d4982c60960b3f91302ab5db6a54d6c29a65559b117a2d83cee8a1fd3ab77a05",
+    }),
+    ".github/workflows/release-please.yml#release-please-simple.yml": frozenset({
+        "3db35e107cf0e0f5abe24aad85b9d90828318f3d91070c46319aa880119e9f87",
+        "4c5b1f588f16c0bec5aae31379ee16e2434b8b7cea68250e6b5de64f62c70e6d",
     }),
     "docs/branch-protection-runbook.md": frozenset({
         "0393321b93da4028ce9becf74df5af865da24256dee0f035b3a31a8d378f188b",
@@ -422,7 +426,9 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
                 # empty; a deploy variant is the repository's own and stays
                 # local-modified, since upgrading it would drop the deploy job.
                 body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", body)
-                bodies.setdefault(rel, []).append(body)
+                # Keyed by source template, so one type's release workflow is
+                # never recognised as another's (see _template_file_state).
+                bodies.setdefault(f"{rel}#{name}", []).append(body)
         if _tag_version(ref) > LEGACY_LAST_TAG:
             continue
         runbook = source("docs-branch-protection-runbook.md")
@@ -442,7 +448,7 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
 def compute_legacy_digests() -> dict:
     """Rebuild the checked-in legacy table using the historical template renders."""
     return {
-        path: frozenset(_stamp_digest(body, path.endswith(".yml")) for body in bodies)
+        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in bodies)
         for path, bodies in _legacy_template_bodies().items()
     }
 
@@ -1727,8 +1733,37 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     return problems
 
 
+def _template_source(rel: str, body: str) -> str | None:
+    """Which template file renders this owned workflow body, by unpinned text."""
+    for name in _LEGACY_WORKFLOW_SOURCES.get(rel, ()):
+        if _unpinned(_load(name)) == _unpinned(body):
+            return name
+    return None
+
+
+def _legacy_key(rel: str, expected: str) -> str:
+    """The LEGACY_TEMPLATE_DIGESTS row an older copy of `rel` must match."""
+    if rel not in _LEGACY_WORKFLOW_SOURCES:
+        return rel
+    return f"{rel}#{_template_source(rel, read_stamp(expected, True)[1])}"
+
+
+def _legacy_variant(rel: str, actual: str) -> str | None:
+    """The template an unstamped older workflow came from, whichever type that is."""
+    digest = _stamp_digest(actual, True)
+    for name in _LEGACY_WORKFLOW_SOURCES.get(rel, ()):
+        if digest in LEGACY_TEMPLATE_DIGESTS.get(f"{rel}#{name}", frozenset()):
+            return name
+    return None
+
+
 def _template_file_state(rel: str, expected: str, actual: str) -> str:
-    """Classify exact bytes, not newline-normalized text."""
+    """Classify exact bytes, not newline-normalized text.
+
+    An unstamped older copy is stale only when it came from the template this
+    render uses: a gated release workflow adopted as `simple` would otherwise
+    be replaced and lose its test gate.
+    """
     is_yaml = _is_yaml(rel)
     digest, body = read_stamp(actual, is_yaml)
     if digest is None:
@@ -1736,7 +1771,7 @@ def _template_file_state(rel: str, expected: str, actual: str) -> str:
             return "local-modified"
         if rel.startswith(".agents/skills/"):
             return "shadowed"
-        known = LEGACY_TEMPLATE_DIGESTS.get(rel, frozenset()) | {
+        known = LEGACY_TEMPLATE_DIGESTS.get(_legacy_key(rel, expected), frozenset()) | {
             _stamp_digest(read_stamp(expected, is_yaml)[1], is_yaml)
         }
         return "stale" if _stamp_digest(body, is_yaml) in known else "local-modified"
@@ -2003,10 +2038,20 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         if owned:
             status = _template_file_state(rel, expected, actual)
             detail = None
-            if status == "local-modified" and read_stamp(actual, _is_yaml(rel))[0] is None and rel in LEGACY_TEMPLATE_DIGESTS:
+            variant = None
+            if status == "local-modified" and read_stamp(actual, True)[0] is None and rel in _LEGACY_WORKFLOW_SOURCES:
+                variant = _legacy_variant(rel, actual)
+            if variant is not None:
+                detail = (
+                    f"an unchanged {variant} from an earlier release, but this --type renders "
+                    f"{_template_source(rel, read_stamp(expected, True)[1])}; check --type"
+                )
+            elif status == "local-modified" and read_stamp(actual, _is_yaml(rel))[0] is None and any(
+                key.split("#")[0] == rel for key in LEGACY_TEMPLATE_DIGESTS
+            ):
                 if legacy_bodies is None:
                     legacy_bodies = _legacy_template_bodies()
-                candidates = legacy_bodies.get(rel, [])
+                candidates = [body for key, bodies in legacy_bodies.items() if key.split("#")[0] == rel for body in bodies]
                 if candidates:
                     nearest = max(candidates, key=lambda body: difflib.SequenceMatcher(
                         None, body.splitlines(), actual.splitlines(), autojunk=False
@@ -2427,6 +2472,14 @@ def _adopt_file(
     if status in ("symlink", "unreadable", "ignored", "shadowed"):
         return ("refused", rel, detail)
     if status == "local-modified":
+        if _is_yaml(rel):
+            if isinstance(detail, str) and detail.startswith("an unchanged "):
+                return ("refused", rel, detail)
+            return (
+                "refused", rel,
+                "edited locally; move the repository's own jobs or steps into a separate "
+                "workflow, then delete the file to regenerate (see README, Template-owned files)",
+            )
         return (
             "refused", rel,
             "edited locally; move the change to ## Project specifics or a repo-owned skill, "

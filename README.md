@@ -242,11 +242,15 @@ changes:
 - the generated skills;
 - the two reviewer agents;
 - `docs/branch-protection-runbook.md`;
-- `docs/screenshot-review.md`.
+- `docs/screenshot-review.md`;
+- `.github/workflows/pr-title-check.yml`;
+- `.github/workflows/release-please.yml`;
+- `.github/workflows/baseline-review.yml` (`nextjs`).
 
 `docs/lint-baseline.md` and `docs/advisory-baseline.md` aren't in this set.
 They're tables each repository edits, so they keep the plain `kept`
-behaviour, as do scripts, workflows and configs.
+behaviour, as do scripts, configs and the other workflows: `ci.yml` and
+`test.yml` hold each repository's own test lanes.
 
 Every template-owned file carries a stamp line:
 
@@ -254,10 +258,64 @@ Every template-owned file carries a stamp line:
 <!-- gh-repo-bootstrapper: template-owned; sha256=<hex> -->
 ```
 
-The hex is the SHA-256 of the file with the stamp line removed. In a
-`SKILL.md` or agent file the stamp sits on the line after the YAML
-frontmatter; in other markdown it's line 1. A digest that no longer matches
-means someone edited the file locally.
+A template-owned workflow carries it as a YAML comment on line 1 instead:
+
+```text
+# gh-repo-bootstrapper: template-owned; template=<template file>; sha256=<hex>
+```
+
+It names the template the workflow came from, and its digest covers that
+name. A stamped workflow from another template, such as a gated release
+workflow under `--type simple`, is `local-modified` and the report says to
+check `--type`.
+
+In Markdown, the hex is the SHA-256 of the file with the stamp line removed.
+In a `SKILL.md` or agent file the stamp sits on the line after the YAML
+frontmatter; in other markdown it's line 1. In a workflow, it's the SHA-256 of
+a `template=<template file>` line followed by the file with the stamp line
+removed and, on each `uses: owner/repo@ref` line, the ref and any comment after
+it removed. A digest that no longer matches means someone edited the file
+locally.
+
+Workflows were first stamped after v0.8.1. An unstamped workflow whose body
+equals one a release through v0.8.1 shipped is `stale`, so `--adopt`
+upgrades it. One with local changes is `local-modified` and is never
+overwritten. Where the changes are jobs or steps of the repository's own, move
+them into a separate workflow file, delete the old file, and run `--adopt` to
+write the stamped version. Where they change a template step's settings and
+can't be moved, drop them, propose them for the template, or keep the file;
+while it stays `local-modified`, `--check` and `--adopt` exit 1. An unchanged
+release workflow of another type, such as a gated one under `--type simple`,
+is also `local-modified`, and the report says to check `--type`: replacing it
+would change how releases are gated. A v0.1.0 Next.js release workflow with a
+provider deploy job is always `local-modified`: upgrading it would drop the
+deploy job.
+
+Before `--adopt` writes a workflow that calls one of the repository's own
+reusable workflows (`release-please.yml` calls `test.yml`), it checks that the
+called file declares every input passed to it, because GitHub fails a run that
+passes an undeclared input. A repository-owned `test.yml` from an older
+template may lack one; `--adopt` then refuses and names the missing inputs, so
+add them to `test.yml` and re-run.
+
+`bootstrap.py` has no YAML parser: it reads the called file in a strict
+subset of YAML (block mappings and sequences, single-line values, block
+scalars, no tabs or other unusual whitespace). It refuses with "cannot
+verify" for anything else, such as a quoted value that spans lines, an anchor
+or an inline `on:` mapping. For a workflow GitHub can load, its answer is
+right or it refuses; a file GitHub rejects already fails every run, so that
+case is out of scope.
+
+Dependabot keeps updating the actions these workflows use. A workflow's
+digest ignores the version after `@` on each `uses:` line and the comment
+after it, so a Dependabot bump leaves the file `same`. When `--adopt` upgrades
+a `stale` workflow, it keeps the repository's own pin for every action it
+already uses, so it never undoes a bump. Any other edit counts as
+`local-modified`. The other side of this: a pin the template
+changes does not reach a repository through `--adopt`; its Dependabot brings
+it. A template change that needs a newer action version must keep working on
+the older one, or its release notes must say to merge the Dependabot bump
+before adopting.
 
 To narrow a template skill for one repository, don't edit the stamped file.
 Write the narrower rule in `## Project specifics`, or add a repository-owned

@@ -89,6 +89,20 @@ README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
 _STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
+# Workflows are YAML, where an HTML comment is not a comment: they carry the
+# stamp as a YAML comment on their first line instead.
+# It also names the template the workflow came from, so a release workflow of
+# one repository type is never replaced by another type's (see
+# _template_file_state); the digest covers that name too.
+YAML_STAMP_PREFIX = "# gh-repo-bootstrapper: template-owned; "
+_YAML_STAMP_RE = re.compile(
+    r"^" + re.escape(YAML_STAMP_PREFIX) + r"template=([A-Za-z0-9_.-]+\.yml); sha256=([0-9a-f]{64})$"
+)
+TEMPLATE_OWNED_WORKFLOWS = (
+    ".github/workflows/pr-title-check.yml",
+    ".github/workflows/release-please.yml",
+    NEXTJS_BASELINE_REVIEW_WORKFLOW,
+)
 _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
     "fresh-eyes-review", "delegation",
@@ -118,6 +132,9 @@ def template_owned_paths(cfg) -> list[str]:
     paths += list(_TEMPLATE_AGENTS) + ["docs/branch-protection-runbook.md"]
     if cfg["repo_type"] in ("nextjs", "swift"):
         paths.append(SCREENSHOT_REVIEW)
+    paths += [".github/workflows/pr-title-check.yml", ".github/workflows/release-please.yml"]
+    if cfg["repo_type"] == "nextjs":
+        paths.append(NEXTJS_BASELINE_REVIEW_WORKFLOW)
     return paths
 
 
@@ -134,20 +151,164 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def read_stamp(text: str) -> tuple[str | None, str]:
-    """Return the single stamp digest and the exact body, without its line."""
+def _is_yaml(rel: str) -> bool:
+    return rel.endswith((".yml", ".yaml"))
+
+
+def _find_stamp(text: str, is_yaml: bool = False) -> tuple[int, str] | None:
+    """(line index, digest) of the file's single stamp line, or None.
+
+    The file type picks the form: a workflow's stamp is a YAML comment and
+    must be line 1 (after any BOM); a Markdown stamp is an HTML comment on
+    exactly one line. The other form is ordinary content.
+    """
     lines = text.splitlines(keepends=True)
-    matches = [(i, _STAMP_RE.fullmatch(line.rstrip("\r\n"))) for i, line in enumerate(lines)]
-    stamps = [(i, match.group(1)) for i, match in matches if match]
-    if len(stamps) != 1:
+    if is_yaml:
+        if not lines:
+            return None
+        match = _YAML_STAMP_RE.fullmatch(lines[0].lstrip("\ufeff").rstrip("\r\n"))
+        later = any(line.lstrip().startswith(YAML_STAMP_PREFIX) for line in lines[1:])
+        return (0, match.group(2)) if match and not later else None
+    stamps = []
+    for i, line in enumerate(lines):
+        match = _STAMP_RE.fullmatch(line.rstrip("\r\n"))
+        if match:
+            stamps.append((i, match.group(1)))
+    return stamps[0] if len(stamps) == 1 else None
+
+
+def stamp_template(text: str) -> str | None:
+    """The template a stamped workflow names, or None when it has no stamp."""
+    if _find_stamp(text, True) is None:
+        return None
+    return _YAML_STAMP_RE.fullmatch(text.splitlines()[0].lstrip("\ufeff").rstrip("\r")).group(1)
+
+
+def _yaml_stamp_digest(template: str, body: str) -> str:
+    """A workflow stamp's digest: its template name and its body without pins."""
+    return _digest(f"template={template}\n" + _unpinned(body))
+
+
+def has_stamp_text(text: str, is_yaml: bool = False) -> bool:
+    """Whether this file type's stamp text appears at all, valid or not."""
+    return (YAML_STAMP_PREFIX if is_yaml else STAMP_PREFIX) in text
+
+
+# A step's or job's `uses: owner/repo[/path]@<ref>`, with any trailing spaces
+# or whitespace-separated printable-ASCII comment: the part Dependabot rewrites. Only plain
+# characters are allowed, so a tolerated line can never open a quoted scalar,
+# flow collection or escape that changes how later lines parse. Quoted,
+# local (`./`) and `docker://` references never match and compare exactly.
+_USES_RE = re.compile(
+    r"(?P<lead>[ \t]*(?:-[ \t]+)?uses:[ \t]+)(?P<q>)"
+    r"(?P<action>[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_./-]+)@(?P<ref>[A-Za-z0-9_./-]+)"
+    r"(?P<tail>[ \t]+#[ -~]*|[ \t]*)(?P<eol>\r?\n)?"
+)
+# A key whose value is a block scalar (`run: |`); its content lines are text.
+_BLOCK_SCALAR_RE = re.compile(r"(?P<key>[ \t]*(?:-[ \t]+)?)[^\s#][^:#]*:[ \t]*[|>][-+0-9]*[ \t]*(?:#.*)?")
+# A key whose value opens a quoted scalar that continues on later lines.
+_OPEN_QUOTE_RE = re.compile(r"[ \t]*(?:-[ \t]+)?[^\s#'\"][^:#]*:[ \t]*(?P<q>['\"])(?P<rest>.*)")
+
+
+def _uses_lines(lines: list) -> dict:
+    """{line index: match} for real `uses:` lines.
+
+    Lines inside a block scalar (`run: |`, measured from its key, after any
+    `- ` marker) or a multi-line quoted scalar are text, never actions.
+    """
+    found, block, quote = {}, None, None
+    for i, line in enumerate(lines):
+        bare = line.rstrip("\r\n")
+        if quote is not None:
+            # Inside a multi-line quoted scalar until a line closes it.
+            if bare.replace(quote * 2, "").count(quote) % 2:
+                quote = None
+            continue
+        if block is not None:
+            if not bare.strip() or len(bare) - len(bare.lstrip(" ")) > block:
+                continue
+            block = None
+        match = _USES_RE.fullmatch(line)
+        if match:
+            found[i] = match
+            continue
+        scalar = _BLOCK_SCALAR_RE.fullmatch(bare)
+        if scalar:
+            block = len(scalar["key"])
+            continue
+        opened = _OPEN_QUOTE_RE.fullmatch(bare)
+        if opened:
+            rest = opened["rest"]
+            closed = rest.replace(opened["q"] * 2, "").count(opened["q"]) % 2 if opened["q"] == "'" else (
+                len(re.findall(r'(?<!\\)"', rest)) % 2)
+            if not closed:
+                quote = opened["q"]
+    return found
+
+
+def _unpinned(text: str) -> str:
+    """Workflow text with every action's ref, quotes and trailing comment removed.
+
+    Generated repositories run Dependabot on their workflows, and a bump
+    rewrites only these. Ignoring them keeps a bumped template-owned workflow
+    valid and unchanged, while any other edit still counts.
+    """
+    lines = text.splitlines(keepends=True)
+    for i, match in _uses_lines(lines).items():
+        lines[i] = f"{match['lead']}{match['action']}@{match['eol'] or ''}"
+    return "".join(lines)
+
+
+def _carry_pins(expected: str, current: str) -> str:
+    """expected, with each action's ref and comment taken from current.
+
+    An action keeps the repository's own pin (Dependabot may have bumped it),
+    matched by the action's occurrence order; an occurrence current lacks
+    keeps the template's pin. The stamp ignores pins, so it stays valid.
+    """
+    pins = {}
+    for match in _uses_lines(current.splitlines(keepends=True)).values():
+        pins.setdefault(match["action"], []).append((match["q"], match["ref"], match["tail"]))
+    lines = expected.splitlines(keepends=True)
+    seen = {}
+    for i, match in _uses_lines(lines).items():
+        index = seen.get(match["action"], 0)
+        seen[match["action"]] = index + 1
+        refs = pins.get(match["action"], [])
+        if index < len(refs):
+            q, ref, tail = refs[index]
+            lines[i] = f"{match['lead']}{q}{match['action']}@{ref}{q}{tail}{match['eol'] or ''}"
+    return "".join(lines)
+
+
+def _stamp_digest(body: str, is_yaml: bool) -> str:
+    """The digest a stamp records for its body; a workflow's ignores action pins."""
+    return _digest(_unpinned(body) if is_yaml else body)
+
+
+def read_stamp(text: str, is_yaml: bool = False) -> tuple[str | None, str]:
+    """Return the single stamp digest and the exact body, without its line."""
+    found = _find_stamp(text, is_yaml)
+    if found is None:
         return None, text
-    index, digest = stamps[0]
-    return digest, "".join(lines[:index] + lines[index + 1:])
+    index, digest = found
+    lines = text.splitlines(keepends=True)
+    bom = "\ufeff" if is_yaml and lines[0].startswith("\ufeff") else ""
+    return digest, bom + "".join(lines[:index] + lines[index + 1:])
 
 
-def stamp(text: str) -> str:
-    """Stamp a body, after closed YAML frontmatter or before ordinary Markdown."""
-    _, body = read_stamp(text)
+def stamp(text: str, is_yaml: bool = False, template: str | None = None) -> str:
+    """Stamp a body: a workflow on line 1 (after any BOM) as a YAML comment
+    naming its `template`; Markdown after closed YAML frontmatter, or on its
+    first line."""
+    _, body = read_stamp(text, is_yaml)
+    if is_yaml:
+        if not template:
+            raise ValueError("a workflow stamp names the template it came from")
+        bom = "\ufeff" if body.startswith("\ufeff") else ""
+        rest = body[len(bom):]
+        eol = "\r\n" if rest.split("\n", 1)[0].endswith("\r") else "\n"
+        return f"{bom}{YAML_STAMP_PREFIX}template={template}; sha256={_yaml_stamp_digest(template, body)}{eol}{rest}"
     offset = 0
     eol = "\n"
     bom = "\ufeff" if body.startswith("\ufeff") else ""
@@ -169,24 +330,53 @@ def stamp(text: str) -> str:
     return body[:offset] + marker + body[offset:]
 
 
-def stamp_is_valid(text: str) -> bool:
-    digest, body = read_stamp(text)
-    return digest is not None and digest == _digest(body)
+def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
+    found = _find_stamp(text, is_yaml)
+    if found is None:
+        return False
+    body = read_stamp(text, is_yaml)[1]
+    if is_yaml:
+        return found[1] == _yaml_stamp_digest(stamp_template(text), body)
+    return found[1] == _stamp_digest(body, False)
 
 
 # Rebuilt by compute_legacy_digests(), from the vX.Y.Z release tags through
-# LEGACY_LAST_TAG.
+# LEGACY_LAST_TAG (docs) and LEGACY_WORKFLOWS_LAST_TAG (workflows).
 LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
+    ".github/workflows/baseline-review.yml#baseline-review.yml": frozenset({
+        "261e0abffb824cfa585238d8a14ffdeb74a0c2f89e17d01dbc0cd170248c260e",
+        "7df5be81edc1ff0d28a3481b54a8fd8aba516a62ec666c21d715f5b55d0a1bbc",
+    }),
+    ".github/workflows/pr-title-check.yml#pr-title-check.yml": frozenset({
+        "28bb34ca5d6feb066b98781b56a7cb67aa40fc964f6188fc100a1e38def6b728",
+        "f703facb0441f2c3bd809baecffe42dc9c0df17aac14be0bbc190f5a5b7cb8ca",
+    }),
+    ".github/workflows/release-please.yml#release-please-gated.yml": frozenset({
+        "23c11b24a99c6b1d9dd76853c06a6cb5974a8f19d07b9cbbb4a492e4b1f51a78",
+        "499012ae0990c745a840a06f46d849e0c3ce9a9176a064d6f9551531c6338e3d",
+        "aad3b41596efc81171735804f64affc11af69333e99983b128d583ee3895e44d",
+        "c2c78eb43e3f881b6ff25a89202b5081274a1f376692fb16312d1e5550473e35",
+    }),
+    ".github/workflows/release-please.yml#release-please-nextjs.yml": frozenset({
+        "24fbd2aab77a28a06793fdef0aec5fda0d97768a5d015922b749e0e0fc4e8260",
+        "31f630d6f91a1a5c664822e793aec1776a853ef5e7a634fefdfdf2650093bf8e",
+        "328d8ef692fbcc15b689f1a6bf131c8d2b8f9080f5fe9a097228f2ea65584b81",
+        "d4982c60960b3f91302ab5db6a54d6c29a65559b117a2d83cee8a1fd3ab77a05",
+    }),
+    ".github/workflows/release-please.yml#release-please-simple.yml": frozenset({
+        "3db35e107cf0e0f5abe24aad85b9d90828318f3d91070c46319aa880119e9f87",
+        "4c5b1f588f16c0bec5aae31379ee16e2434b8b7cea68250e6b5de64f62c70e6d",
+    }),
     "docs/branch-protection-runbook.md": frozenset({
+        "0393321b93da4028ce9becf74df5af865da24256dee0f035b3a31a8d378f188b",
         "1f4ce79e3a984e4e76dfdee4b3ca655c6911825eabee6a92dd5a3c76a9526dc1",
         "6639309aab33a20e8b514470e3aa34e3964d8f6bd0118ce7b8c44b940752546d",
         "6d85cc1c360e438c258a11085b387435b8eaf3667a1201fb895b0a24f6d4a494",
-        "0393321b93da4028ce9becf74df5af865da24256dee0f035b3a31a8d378f188b",
     }),
     "docs/screenshot-review.md": frozenset({
         "14682e234d008988775c61f361f63e55f6b6d53e05fbc97311919d01aab72948",
-        "705bc3cd766b0bdcbf292f1db676f209aebcd30815bf2cde9c25b354df63e884",
         "6382eea5102c54492dbe4f80f942262759dea40296ef2c629065a9efcfc9bfca",
+        "705bc3cd766b0bdcbf292f1db676f209aebcd30815bf2cde9c25b354df63e884",
     }),
 }
 
@@ -195,10 +385,25 @@ LEGACY_TEMPLATE_DIGESTS: dict[str, frozenset[str]] = {
 # stamp_is_valid() classifies. Only renders through this tag can appear
 # unstamped, and stopping here keeps later doc edits from changing the table.
 LEGACY_LAST_TAG = (0, 6, 0)
+# Workflows were first stamped after v0.8.1; every release through it shipped
+# them unstamped, verbatim from their template files.
+LEGACY_WORKFLOWS_LAST_TAG = (0, 8, 1)
+_LEGACY_WORKFLOW_SOURCES = {
+    ".github/workflows/pr-title-check.yml": ("pr-title-check.yml",),
+    ".github/workflows/release-please.yml": (
+        "release-please-nextjs.yml", "release-please-gated.yml", "release-please-simple.yml",
+    ),
+    NEXTJS_BASELINE_REVIEW_WORKFLOW: ("baseline-review.yml",),
+}
+
+
+def _tag_version(tag: str) -> tuple:
+    return tuple(int(part) for part in tag[1:].split("."))
 
 
 def _legacy_tags() -> list[str] | None:
-    """Release tags through LEGACY_LAST_TAG, oldest first; None when git cannot list them."""
+    """Release tags that can have shipped unstamped template-owned files, oldest
+    first; None when git cannot list them."""
     env = _git_env()
     try:
         result = subprocess.run(
@@ -209,7 +414,8 @@ def _legacy_tags() -> list[str] | None:
         return None
     tags = [tag for tag in result.stdout.splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", tag)]
     versions = {tag: tuple(int(part) for part in tag[1:].split(".")) for tag in tags}
-    return sorted((tag for tag in tags if versions[tag] <= LEGACY_LAST_TAG), key=versions.__getitem__)
+    last = max(LEGACY_LAST_TAG, LEGACY_WORKFLOWS_LAST_TAG)
+    return sorted((tag for tag in tags if versions[tag] <= last), key=versions.__getitem__)
 
 
 def _legacy_template_bodies() -> dict[str, list[str]]:
@@ -228,13 +434,28 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
         return {}
     bodies = {}
     for ref in refs:
-        def source(name):
+        def source(name, ref=ref):
             result = subprocess.run(
                 ["git", "-C", str(repo), "show", f"{ref}:templates/{name}"],
                 capture_output=True, check=False, env=env,
             )
             return result.stdout.decode("utf-8") if result.returncode == 0 else None
 
+        for rel, names in _LEGACY_WORKFLOW_SOURCES.items():
+            for name in names:
+                body = source(name)
+                if body is None:
+                    continue
+                # v0.1.0 spliced optional deploy jobs into the Next.js release
+                # workflow at `# <<MARKER>>` lines. Its default render left them
+                # empty; a deploy variant is the repository's own and stays
+                # local-modified, since upgrading it would drop the deploy job.
+                body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", body)
+                # Keyed by source template, so one type's release workflow is
+                # never recognised as another's (see _template_file_state).
+                bodies.setdefault(f"{rel}#{name}", []).append(body)
+        if _tag_version(ref) > LEGACY_LAST_TAG:
+            continue
         runbook = source("docs-branch-protection-runbook.md")
         if runbook is not None:
             bodies.setdefault("docs/branch-protection-runbook.md", []).append(runbook)
@@ -252,7 +473,7 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
 def compute_legacy_digests() -> dict:
     """Rebuild the checked-in legacy table using the historical template renders."""
     return {
-        path: frozenset(_digest(body) for body in bodies)
+        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in bodies)
         for path, bodies in _legacy_template_bodies().items()
     }
 
@@ -964,7 +1185,10 @@ def generate_files(cfg: dict) -> dict:
     for path, source in _TEMPLATE_AGENTS.items():
         files[path] = _load(source)
     for path in template_owned_paths(cfg):
-        files[path] = stamp(files[path])
+        files[path] = stamp(
+            files[path], is_yaml=_is_yaml(path),
+            template=_template_source(path, files[path]) if _is_yaml(path) else None,
+        )
     return files
 
 
@@ -1260,19 +1484,332 @@ def _git_ignored(repo_dir: Path, rel: str) -> bool:
     return result.returncode == 0
 
 
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+_UNVERIFIABLE = object()
+
+
+# The only flow collections the reader admits: `{}`, `[]`, or a list of plain words.
+_FLOW_VALUE_RE = re.compile(r"\{\s*\}|\[\s*(?:[A-Za-z0-9_./-]+(?:\s*,\s*[A-Za-z0-9_./-]+)*)?\s*\]")
+
+
+def _value(text: str) -> str | None:
+    """A single-line value without its comment, or None outside the modelled subset.
+
+    Admitted: plain scalars, quoted scalars without escapes, and the flow
+    collections _FLOW_VALUE_RE describes. Anchors, aliases, tags, escapes,
+    other flow collections and indicator-led plain scalars are refused.
+    """
+    text = text.strip()
+    if not text or text.startswith("#"):
+        return ""
+    if "\t" in text or re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", text):
+        return None
+    if text[0] in "&*!%@`|>]},#" or text in ("-", "?", ":") or text.startswith(("- ", "? ", ": ")):
+        return None
+    if text[0] in "\"'[{":
+        pattern = {'"': r'"[^"\\]*"', "'": r"'[^']*'(?!')"}.get(text[0], _FLOW_VALUE_RE.pattern)
+        match = re.match(pattern, text)
+        if match is None:
+            return None
+        rest = text[match.end():].strip()
+        return match.group(0) if not rest or rest.startswith("#") else None
+    comment = re.search(r"[ \t]#", text)
+    value = text[: comment.start()].rstrip() if comment else text
+    if ": " in value or value.endswith(":"):
+        return None
+    return value
+
+
+# Plain keys a YAML 1.1 parser would read as a boolean, null, number or date.
+_IMPLICIT_KEY_RE = re.compile(
+    r"(?i:y|yes|n|no|true|false|on|off|null|~)"
+    r"|[-+]?(?:0[box][0-9a-fA-F_]+|[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?"
+    r"|[-+]?\.(?i:inf|nan)|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}.*"
+)
+
+
+def _outside_subset_char(char: str) -> bool:
+    """A character the reader does not model: one YAML forbids, a tab, or other
+    whitespace than space and line breaks, which Python's str.strip() would
+    treat differently from YAML."""
+    code = ord(char)
+    if char in "\n\r" or 0x20 <= code <= 0x7E:
+        return False
+    if char.isspace() or code in (0x85, 0xFEFF):
+        return True
+    return not (0xA0 <= code <= 0xD7FF or 0xE000 <= code <= 0xFFFD or 0x10000 <= code <= 0x10FFFF)
+
+
+def _structural_lines(text: str) -> list | None:
+    """(indent, key, value) rows of a workflow in a strict YAML subset, or None.
+
+    bootstrap.py has no YAML parser, so this models only block mappings and
+    sequences, single-line scalars and flow collections, and block scalars,
+    whose text it skips. Anything else (a quoted scalar or flow collection
+    spanning lines, anchors, aliases, tags, a plain scalar continued on the
+    next line, tabs, other whitespace than space and line breaks, characters
+    YAML forbids, several documents) returns None,
+    so callers refuse instead of guessing. Sequence entries are rows with key
+    None.
+
+    The guarantee covers workflows GitHub can load: for those, the rows are
+    right or the result is None. A file GitHub rejects as invalid YAML already
+    fails every run, so it is out of scope.
+    """
+    if any(_outside_subset_char(char) for char in text):
+        return None
+    rows, block, content, blank = [], None, None, 0
+    for line in text.splitlines():
+        if not line.strip():
+            if block is not None and content is None:
+                blank = max(blank, len(line.rstrip("\r")))
+            continue
+        indent = _indent(line)
+        if block is not None:
+            if indent > block:
+                # Content keeps the first content line's indentation or more,
+                # and no leading blank line may be indented deeper than it.
+                if content is not None and indent < content:
+                    return None
+                if content is None and blank > indent:
+                    return None
+                content = indent if content is None else content
+                continue
+            block = None
+        body = line[indent:]
+        if body.startswith("\t") or body.startswith("#"):
+            if body.startswith("\t"):
+                return None
+            continue
+        if indent == 0 and body.rstrip() in ("---", "..."):
+            return None
+        while body == "-" or body.startswith("- "):
+            rows.append((indent, None, None))
+            rest = body[1:]
+            indent += 1 + len(rest) - len(rest.lstrip(" "))
+            body = rest.lstrip(" ")
+        if not body or body.startswith("#"):
+            continue
+        key_match = re.match(r'("[^"\\]*"|\'[^\']*\'|[A-Za-z0-9_][A-Za-z0-9_.-]*):(?=[ \t]|$)', body)
+        if key_match is None:
+            # A sequence entry that is a scalar, not a mapping.
+            value = _value(body)
+            if value is None or not rows or rows[-1][1] is not None:
+                return None
+            continue
+        key = key_match.group(1)
+        if key[0] not in "\"'" and not (key == "on" and indent == 0) and _IMPLICIT_KEY_RE.fullmatch(key):
+            return None  # a YAML 1.1 parser reads it as a boolean, null or number
+        key = key[1:-1] if key[0] in "\"'" else key
+        raw = body[key_match.end():]
+        if re.fullmatch(r"[ \t]*[|>][-+]?(?:[ \t]+#.*)?[ \t]*", raw):
+            rows.append((indent, key, "|"))
+            block, content, blank = indent, None, 0
+            continue
+        value = _value(raw)
+        if value is None:
+            return None
+        rows.append((indent, key, value))
+    # A scalar value cannot have deeper children; such a file is outside the subset.
+    for (indent, key, value), (next_indent, _, _) in zip(rows, rows[1:]):
+        if key is not None and value and next_indent > indent:
+            return None
+    return rows
+
+
+def _children(rows: list, start: int):
+    """Direct children (index, key, value) of rows[start], or _UNVERIFIABLE for
+    inconsistent indentation."""
+    parent = rows[start][0]
+    out, child = [], None
+    for k in range(start + 1, len(rows)):
+        indent, key, value = rows[k]
+        if indent <= parent:
+            break
+        child = indent if child is None else child
+        if indent < child:
+            return _UNVERIFIABLE
+        if indent == child:
+            out.append((k, key, value))
+    return out
+
+
+def _only(entries: list, name: str):
+    """The single (index, value) for key `name`, None if absent, _UNVERIFIABLE if repeated."""
+    found = [(k, value) for k, key, value in entries if key == name]
+    if len(found) > 1:
+        return _UNVERIFIABLE
+    return found[0] if found else None
+
+
+def _declared_inputs(text: str):
+    """Names under the root `on.workflow_call.inputs`, [] when it declares none,
+    None when the file is not a reusable workflow, or _UNVERIFIABLE."""
+    rows = _structural_lines(text)
+    if rows is None:
+        return _UNVERIFIABLE
+    root = [(k, key, value) for k, (indent, key, value) in enumerate(rows) if indent == 0]
+    keys = [key for _, key, _ in root]
+    if None in keys or len(keys) != len(set(keys)):
+        return _UNVERIFIABLE
+    on = _only(root, "on")
+    if on is None or on is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    k, value = on
+    if value == "|":
+        return _UNVERIFIABLE  # the events are a block scalar's text
+    if value:
+        # A scalar names one event exactly; only a flow list names several.
+        if value.startswith("["):
+            events = [event.strip() for event in value[1:-1].split(",") if event.strip()]
+        elif value.startswith("{"):
+            events = []
+        else:
+            events = [value[1:-1] if value[0] in "\"'" else value]
+        return [] if "workflow_call" in events else None
+    events = _children(rows, k)
+    if events is _UNVERIFIABLE or any(key is None for _, key, _ in events):
+        return _UNVERIFIABLE
+    call = _only(events, "workflow_call")
+    if call is None:
+        return None
+    if call is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    c, value = call
+    if value:
+        return [] if value in ("{}", "null", "~") else _UNVERIFIABLE
+    settings = _children(rows, c)
+    inputs = _UNVERIFIABLE if settings is _UNVERIFIABLE else _only(settings, "inputs")
+    if inputs is None:
+        return []
+    if inputs is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    n, value = inputs
+    if value:
+        return [] if value in ("{}", "null", "~") else _UNVERIFIABLE
+    names = _children(rows, n)
+    if names is _UNVERIFIABLE:
+        return _UNVERIFIABLE
+    names = [key for _, key, _ in names]
+    if None in names or len(names) != len(set(names)):
+        return _UNVERIFIABLE
+    return names
+
+
+def _passed_inputs(text: str) -> dict | None:
+    """{called local workflow: [input names passed]} for this workflow's
+    `uses: ./.github/workflows/...` calls, or None outside the subset."""
+    rows = _structural_lines(text)
+    if rows is None:
+        return None
+    calls = {}
+    for k, (indent, key, value) in enumerate(rows):
+        target = value.strip("'\"") if key == "uses" and value else ""
+        if not re.fullmatch(r"\./\.github/workflows/[\w.-]+\.ya?ml", target):
+            continue
+        parent = max((p for p in range(k) if rows[p][0] < indent), default=None)
+        siblings = _children(rows, parent) if parent is not None else None
+        if siblings is None or siblings is _UNVERIFIABLE:
+            return None
+        passed = _only(siblings, "with")
+        names = []
+        if passed is _UNVERIFIABLE:
+            return None
+        if passed is not None:
+            w, inline = passed
+            if inline:
+                return None
+            entries = _children(rows, w)
+            if entries is _UNVERIFIABLE:
+                return None
+            names = [name for _, name, _ in entries]
+        calls.setdefault(target[2:], []).extend(names)
+    return calls
+
+
+def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
+    """Problems with `workflow`'s calls to the repository's own reusable workflows.
+
+    A called workflow must declare every input passed to it, or GitHub fails
+    the run; a repository-owned test.yml from an older template may lack one
+    a newer release workflow passes. A called file that does not exist yet is
+    written by --adopt from the same render, so it is not checked. Files are
+    read with _structural_lines(); anything outside its subset is reported as
+    unverifiable rather than guessed.
+    """
+    calls = _passed_inputs(workflow)
+    if calls is None:
+        return ["cannot verify the inputs this workflow passes; check them by hand"]
+    problems = []
+    for rel, passed in calls.items():
+        called = repo_dir / rel
+        if _symlink_in_path(repo_dir, rel) or not called.is_file():
+            continue
+        try:
+            declared = _declared_inputs(called.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            declared = _UNVERIFIABLE
+        if declared is _UNVERIFIABLE:
+            problems.append(f"cannot verify the inputs {rel} declares; check them by hand")
+            continue
+        missing = [name for name in passed if declared is None or name not in declared]
+        if missing:
+            problems.append(f"{rel} does not declare input(s) {', '.join(missing)}")
+    return problems
+
+
+def _template_source(rel: str, body: str) -> str | None:
+    """Which template file renders this owned workflow body, by unpinned text."""
+    for name in _LEGACY_WORKFLOW_SOURCES.get(rel, ()):
+        if _unpinned(_load(name)) == _unpinned(body):
+            return name
+    return None
+
+
+def _legacy_key(rel: str, expected: str) -> str:
+    """The LEGACY_TEMPLATE_DIGESTS row an older copy of `rel` must match."""
+    if rel not in _LEGACY_WORKFLOW_SOURCES:
+        return rel
+    return f"{rel}#{_template_source(rel, read_stamp(expected, True)[1])}"
+
+
+def _legacy_variant(rel: str, actual: str) -> str | None:
+    """The template an unstamped older workflow came from, whichever type that is."""
+    digest = _stamp_digest(actual, True)
+    for name in _LEGACY_WORKFLOW_SOURCES.get(rel, ()):
+        if digest in LEGACY_TEMPLATE_DIGESTS.get(f"{rel}#{name}", frozenset()):
+            return name
+    return None
+
+
 def _template_file_state(rel: str, expected: str, actual: str) -> str:
-    """Classify exact bytes, not newline-normalized text."""
-    digest, body = read_stamp(actual)
+    """Classify exact bytes, not newline-normalized text.
+
+    An unstamped older copy is stale only when it came from the template this
+    render uses: a gated release workflow adopted as `simple` would otherwise
+    be replaced and lose its test gate.
+    """
+    is_yaml = _is_yaml(rel)
+    digest, body = read_stamp(actual, is_yaml)
     if digest is None:
-        if STAMP_PREFIX in actual:
+        if has_stamp_text(actual, is_yaml):
             return "local-modified"
         if rel.startswith(".agents/skills/"):
             return "shadowed"
-        if body == read_stamp(expected)[1] or _digest(body) in LEGACY_TEMPLATE_DIGESTS.get(rel, ()):
-            return "stale"
+        known = LEGACY_TEMPLATE_DIGESTS.get(_legacy_key(rel, expected), frozenset()) | {
+            _stamp_digest(read_stamp(expected, is_yaml)[1], is_yaml)
+        }
+        return "stale" if _stamp_digest(body, is_yaml) in known else "local-modified"
+    if not stamp_is_valid(actual, is_yaml):
         return "local-modified"
-    if digest != _digest(body):
-        return "local-modified"
+    if is_yaml and stamp_template(actual) != stamp_template(expected):
+        return "local-modified"  # another type's template: replacing it changes the release gate
+    if is_yaml:
+        # Pins are Dependabot's to move: a workflow that differs only there is current.
+        return "same" if _unpinned(actual) == _unpinned(expected) else "stale"
     return "same" if actual == expected else "stale"
 
 
@@ -1516,7 +2053,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
-        owned = read_stamp(expected)[0] is not None
+        owned = read_stamp(expected, _is_yaml(rel))[0] is not None
         if owned and _git_ignored(repo_dir, rel):
             report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
             continue
@@ -1531,10 +2068,25 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         if owned:
             status = _template_file_state(rel, expected, actual)
             detail = None
-            if status == "local-modified" and read_stamp(actual)[0] is None and rel in LEGACY_TEMPLATE_DIGESTS:
+            variant = None
+            if status == "local-modified" and rel in _LEGACY_WORKFLOW_SOURCES and stamp_is_valid(actual, True):
+                detail = (
+                    f"a stamped {stamp_template(actual)}, but this --type renders "
+                    f"{stamp_template(expected)}; check --type"
+                )
+            elif status == "local-modified" and read_stamp(actual, True)[0] is None and rel in _LEGACY_WORKFLOW_SOURCES:
+                variant = _legacy_variant(rel, actual)
+            if variant is not None:
+                detail = (
+                    f"an unchanged {variant} from an earlier release, but this --type renders "
+                    f"{_template_source(rel, read_stamp(expected, True)[1])}; check --type"
+                )
+            elif status == "local-modified" and read_stamp(actual, _is_yaml(rel))[0] is None and any(
+                key.split("#")[0] == rel for key in LEGACY_TEMPLATE_DIGESTS
+            ):
                 if legacy_bodies is None:
                     legacy_bodies = _legacy_template_bodies()
-                candidates = legacy_bodies.get(rel, [])
+                candidates = [body for key, bodies in legacy_bodies.items() if key.split("#")[0] == rel for body in bodies]
                 if candidates:
                     nearest = max(candidates, key=lambda body: difflib.SequenceMatcher(
                         None, body.splitlines(), actual.splitlines(), autojunk=False
@@ -1955,6 +2507,14 @@ def _adopt_file(
     if status in ("symlink", "unreadable", "ignored", "shadowed"):
         return ("refused", rel, detail)
     if status == "local-modified":
+        if _is_yaml(rel):
+            if isinstance(detail, str) and detail.endswith("check --type"):
+                return ("refused", rel, detail)
+            return (
+                "refused", rel,
+                "edited locally; move the repository's own jobs or steps into a separate "
+                "workflow, then delete the file to regenerate (see README, Template-owned files)",
+            )
         return (
             "refused", rel,
             "edited locally; move the change to ## Project specifics or a repo-owned skill, "
@@ -1994,13 +2554,22 @@ def _adopt_file(
                 return ("refused", rel, "edited locally since the scan; not overwritten")
             if _git_ignored(repo_dir, rel):
                 return ("refused", rel, "ignored by git")
+            if rel in TEMPLATE_OWNED_WORKFLOWS:
+                problems = _undeclared_inputs(repo_dir, expected)
+                if problems:
+                    return ("refused", rel, "; ".join(problems) + "; fix that, then re-run --adopt")
+                # Keep the repository's action pins; Dependabot moves those.
+                expected = _carry_pins(expected, current)
             _replace_anchored(parent, name, expected, identity)
             return ("updated", rel, "stale template-owned file brought up to date")
         finally:
             os.close(parent)
     if status == "missing":
-        if read_stamp(expected)[0] is not None and _git_ignored(repo_dir, rel):
+        if read_stamp(expected, _is_yaml(rel))[0] is not None and _git_ignored(repo_dir, rel):
             return ("refused", rel, "ignored by git")
+        problems = _undeclared_inputs(repo_dir, expected) if rel in TEMPLATE_OWNED_WORKFLOWS else []
+        if problems:
+            return ("refused", rel, "; ".join(problems) + "; fix that, then re-run --adopt")
         created = []
         try:
             parent = _open_parent(repo_dir, rel, create=True, created=created)

@@ -186,3 +186,12 @@ uv run --with pyyaml python3 validate_templates.py --render-markdown "$md_dir"
 npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_dir/**/*.md"
 rm -rf "$md_dir"
 ```
+
+### Template-owned workflows
+
+`--adopt` keeps each repository's own action pins in the template-owned
+workflows (`pr-title-check.yml`, `release-please-*.yml`, `baseline-review.yml`),
+so a pin bumped here reaches repositories through their Dependabot, not adopt.
+A template change that needs a newer action version must keep working on the
+older one, or its PR must say that repositories merge the Dependabot bump
+before adopting, so the release notes carry it.

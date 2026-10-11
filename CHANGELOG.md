@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.9.0...v0.10.0) (2026-10-11)
+
+
+### Features
+
+* list kept action pins that differ from the template on adopt ([#83](https://github.com/bydradev/gh-repo-bootstrapper/issues/83)) ([e1e839c](https://github.com/bydradev/gh-repo-bootstrapper/commit/e1e839cb0467e5b09c4255f2003008c0056e233f))
+
+
+### Bug Fixes
+
+* reject pr titles whose subject ends with a full stop ([#84](https://github.com/bydradev/gh-repo-bootstrapper/issues/84)) ([09c92bf](https://github.com/bydradev/gh-repo-bootstrapper/commit/09c92bf4efb7038016917bd31b637cf15743bbe3))
+
 ## [0.9.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.8.1...v0.9.0) (2026-10-10)
 
 

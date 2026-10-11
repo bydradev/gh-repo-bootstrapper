@@ -957,7 +957,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                 pattern = re.compile(re.search(r"subjectPattern: (.+)", body)[1])
                 for subject in ("add a thing", "x", "bump to v1.2", "keep 3.14 as is"):
                     self.assertTrue(pattern.search(subject), subject)
-                for subject in ("Add a thing", "add a thing.", "trail off..."):
+                for subject in ("Add a thing", "add a thing.", "trail off...", "add a thing. ", "add a thing.\t", "add a thing "):
                     self.assertIsNone(pattern.search(subject), subject)
 
     def test_unstamped_reviewer_agent_is_classified_without_a_legacy_row(self):

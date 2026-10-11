@@ -959,6 +959,34 @@ class ExistingRepositoryTests(unittest.TestCase):
                     self.assertTrue(pattern.search(subject), subject)
                 for subject in ("Add a thing", "add a thing.", "trail off...", "add a thing. ", "add a thing.\t", "add a thing "):
                     self.assertIsNone(pattern.search(subject), subject)
+    def test_adopt_reports_kept_pins_that_differ_from_the_template(self):
+        files = _render("simple")
+        rel = ".github/workflows/pr-title-check.yml"
+        released = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", "v0.8.0:templates/pr-title-check.yml"],
+            capture_output=True, text=True,
+        )
+        if released.returncode:
+            self.skipTest("release tags unavailable")
+        template_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
+        old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
+        for body, reported in (
+            (released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", "@" + "b" * 40 + " # v98.0.0", 1), True),
+            (released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", f"@{template_pin[2]} # {template_pin[3]}", 1), False),
+        ):
+            with self.subTest(reported=reported):
+                self._write(rel, body)
+                self._commit_all()
+                rows = {path: (action, detail) for action, path, detail in bootstrap.adopt_repository(self.repo, files)}
+                self.assertEqual(rows[rel][0], "updated")
+                if reported:
+                    self.assertIn(
+                        f"kept this repository's pins that differ from the template: "
+                        f"{template_pin[1]}@{'b' * 12} (v98.0.0; template: {template_pin[2][:12]}, {template_pin[3]})",
+                        rows[rel][1],
+                    )
+                else:
+                    self.assertEqual(rows[rel][1], "stale template-owned file brought up to date")
 
     def test_unstamped_reviewer_agent_is_classified_without_a_legacy_row(self):
         files = _render()

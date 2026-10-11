@@ -310,7 +310,8 @@ Dependabot keeps updating the actions these workflows use. A workflow's
 digest ignores the version after `@` on each `uses:` line and the comment
 after it, so a Dependabot bump leaves the file `same`. When `--adopt` upgrades
 a `stale` workflow, it keeps the repository's own pin for every action it
-already uses, so it never undoes a bump. Any other edit counts as
+already uses, so it never undoes a bump, and its report lists each kept pin
+that differs from the template's. Any other edit counts as
 `local-modified`. The other side of this: a pin the template
 changes does not reach a repository through `--adopt`; its Dependabot brings
 it. A template change that needs a newer action version must keep working on

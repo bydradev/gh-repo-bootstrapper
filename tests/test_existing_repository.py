@@ -950,6 +950,16 @@ class ExistingRepositoryTests(unittest.TestCase):
         self._commit_all()
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "local-modified")
 
+    def test_title_subject_pattern_rejects_a_capital_start_and_a_final_full_stop(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type):
+                body = _render(repo_type)[".github/workflows/pr-title-check.yml"]
+                pattern = re.compile(re.search(r"subjectPattern: (.+)", body)[1])
+                for subject in ("add a thing", "x", "bump to v1.2", "keep 3.14 as is"):
+                    self.assertTrue(pattern.search(subject), subject)
+                for subject in ("Add a thing", "add a thing.", "trail off..."):
+                    self.assertIsNone(pattern.search(subject), subject)
+
     def test_unstamped_reviewer_agent_is_classified_without_a_legacy_row(self):
         files = _render()
         rel = ".claude/agents/fresh-eyes-reviewer.md"

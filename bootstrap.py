@@ -281,6 +281,31 @@ def _carry_pins(expected: str, current: str) -> str:
     return "".join(lines)
 
 
+def _kept_pin_differences(template: str, carried: str) -> list[str]:
+    """The pins _carry_pins kept that differ from the template's, in file order.
+
+    Each is `action@ref (version; template: ref, version)`, with refs cut to 12
+    characters and a version only where the pin's comment names one.
+    """
+    def pin(match):
+        version = match["tail"].strip().lstrip("#").strip()
+        return match["ref"][:12], version
+
+    kept = []
+    pairs = zip(_uses_lines(template.splitlines(keepends=True)).values(),
+                _uses_lines(carried.splitlines(keepends=True)).values())
+    for ours, theirs in pairs:
+        if ours["ref"] == theirs["ref"]:
+            continue
+        (ref, version), (template_ref, template_version) = pin(theirs), pin(ours)
+        theirs_text = f"{ref} ({version}; " if version else f"{ref} ("
+        template_text = f"{template_ref}, {template_version}" if template_version else template_ref
+        entry = f"{theirs['action']}@{theirs_text}template: {template_text})"
+        if entry not in kept:
+            kept.append(entry)
+    return kept
+
+
 def _stamp_digest(body: str, is_yaml: bool) -> str:
     """The digest a stamp records for its body; a workflow's ignores action pins."""
     return _digest(_unpinned(body) if is_yaml else body)
@@ -388,6 +413,10 @@ LEGACY_LAST_TAG = (0, 6, 0)
 # Workflows were first stamped after v0.8.1; every release through it shipped
 # them unstamped, verbatim from their template files.
 LEGACY_WORKFLOWS_LAST_TAG = (0, 8, 1)
+# Each name is read from every legacy release tag as templates/<name>, so this
+# table must keep a template's old file name even after the file is renamed or
+# removed: dropping it makes older repositories' unstamped copies of that
+# workflow unrecognised, and --adopt then refuses them as local-modified.
 _LEGACY_WORKFLOW_SOURCES = {
     ".github/workflows/pr-title-check.yml": ("pr-title-check.yml",),
     ".github/workflows/release-please.yml": (
@@ -2559,9 +2588,16 @@ def _adopt_file(
                 if problems:
                     return ("refused", rel, "; ".join(problems) + "; fix that, then re-run --adopt")
                 # Keep the repository's action pins; Dependabot moves those.
+                template = expected
                 expected = _carry_pins(expected, current)
+                kept = _kept_pin_differences(template, expected)
+            else:
+                kept = []
             _replace_anchored(parent, name, expected, identity)
-            return ("updated", rel, "stale template-owned file brought up to date")
+            detail = "stale template-owned file brought up to date"
+            if kept:
+                detail += "; kept this repository's pins that differ from the template: " + ", ".join(kept)
+            return ("updated", rel, detail)
         finally:
             os.close(parent)
     if status == "missing":

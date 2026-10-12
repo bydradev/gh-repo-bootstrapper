@@ -413,12 +413,16 @@ LEGACY_LAST_TAG = (0, 6, 0)
 # Workflows were first stamped after v0.8.1; every release through it shipped
 # them unstamped, verbatim from their template files.
 LEGACY_WORKFLOWS_LAST_TAG = (0, 8, 1)
-# Each name is read from every legacy release tag as templates/<name> to rebuild
-# the bodies those releases shipped. Renaming or removing one of these template
-# files is a migration: keep the old name here so older repositories' unstamped
-# copies are still recognised (dropping it makes --adopt refuse them as
-# local-modified), and update the current-source lookup in _template_source and
-# the stamp's template= provenance to match.
+# Each name must be a current file in templates/: _template_source loads every
+# listed name from today's templates to find which one renders a workflow, and
+# _legacy_template_bodies also reads each name at every legacy release tag to
+# rebuild what those releases shipped. Renaming or removing one of these files
+# is therefore a migration, not a one-line edit: the new name goes here; the old
+# name moves to a separate list that _legacy_template_bodies reads at legacy
+# tags, and that _legacy_key and _legacy_variant also consult (with its
+# LEGACY_TEMPLATE_DIGESTS rows) so older copies are still classified as stale
+# rather than local-modified; and the stamp's template= provenance changes with
+# it. A test fails if a name here is not a current template file.
 _LEGACY_WORKFLOW_SOURCES = {
     ".github/workflows/pr-title-check.yml": ("pr-title-check.yml",),
     ".github/workflows/release-please.yml": (

@@ -988,6 +988,12 @@ class ExistingRepositoryTests(unittest.TestCase):
                 else:
                     self.assertEqual(rows[rel][1], "stale template-owned file brought up to date")
 
+    def test_every_legacy_workflow_source_is_a_current_template_file(self):
+        for rel, names in bootstrap._LEGACY_WORKFLOW_SOURCES.items():
+            for name in names:
+                with self.subTest(rel=rel, name=name):
+                    self.assertTrue((bootstrap.TEMPLATES_DIR / name).is_file())
+
     def test_unstamped_reviewer_agent_is_classified_without_a_legacy_row(self):
         files = _render()
         rel = ".claude/agents/fresh-eyes-reviewer.md"

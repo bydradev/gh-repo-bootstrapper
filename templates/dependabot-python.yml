@@ -1,6 +1,8 @@
 version: 2
 # Keep dependencies and workflow actions current; surface advisories.
 updates:
+  # Once the project commits a uv.lock, change this to `uv` so Dependabot
+  # updates the lockfile as well as pyproject.toml.
   - package-ecosystem: pip
     directory: "/"
     schedule:

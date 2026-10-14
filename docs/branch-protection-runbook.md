@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=f36dc3d2b42a74570fc068fcff202fb36e214cfc5aee6acf5196a725320aff16 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=5db35b4ec4ed41c50a4d788d135bfcb1b9233061e606062a62cd09e3873a2b0d -->
 # Branch protection and release PRs — operational runbook
 
 `main` is protected: a pull request and specific status checks are required, and the rules bind
@@ -99,7 +99,7 @@ For workflows that invoke a reusable workflow (such as `ci.yml` or `release-plea
 {caller job} / {reusable job}
 ```
 
-For instance, when `ci.yml` defines the caller job `test:` and invokes reusable jobs `build:` and `e2e:` in `test.yml`, GitHub registers the check contexts as `test / build` and `test / e2e` (and `test / e2e-prod` if configured). That is the Next.js shape; a Python, Swift or Rust repository's single reusable job `test:` registers `test / test`. Required status checks configured in GitHub branch protection must match this exact `{caller job} / {reusable job}` string rather than the standalone job name within `test.yml`.
+For instance, when `ci.yml` defines the caller job `test:` and invokes reusable jobs `build:` and `e2e:` in `test.yml`, GitHub registers the check contexts as `test / build` and `test / e2e`. That is the Next.js shape; a Python, Swift or Rust repository's single reusable job `test:` registers `test / test`. Required status checks configured in GitHub branch protection must match this exact `{caller job} / {reusable job}` string rather than the standalone job name within `test.yml`.
 
 ## 5. Historical failures in a check rollup do not block
 

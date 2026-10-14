@@ -187,7 +187,6 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
 
     def test_app_key_error_names_malformed_keys_without_quoting_them(self):
         cases = {
-            "literal \\n": self.KEY.replace("\n", "\\n"),
             "encrypted": self.KEY.replace("RSA PRIVATE", "ENCRYPTED PRIVATE"),
             "different key types": self.KEY.replace("END RSA", "END EC"),
             "no key data": self.FIRST_LINE + "\n-----END RSA PRIVATE KEY-----\n",
@@ -197,6 +196,32 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 error = bootstrap.app_key_error(value)
                 self.assertIn(expected, error)
                 self.assertNotIn("bm90LWEta2V5", error)
+
+    def test_app_key_error_refuses_a_traditionally_encrypted_key(self):
+        encrypted = self.KEY.replace(
+            "KEY-----\n", "KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00\n\n", 1)
+        self.assertIn("encrypted", bootstrap.app_key_error(encrypted))
+
+    def test_escaped_newlines_are_turned_back_into_lines(self):
+        escaped = self.KEY.replace("\n", "\\n")
+        self.assertEqual(bootstrap.normalize_app_key(escaped), self.KEY)
+        self.assertEqual(bootstrap.normalize_app_key(self.KEY), self.KEY)
+        argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "octocat",
+                "--non-interactive", "--dry-run"]
+        env = {"RELEASE_PLEASE_APP_KEY": escaped, "RELEASE_PLEASE_CLIENT_ID": "id"}
+        with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()):
+            config = bootstrap.gather_config(bootstrap.parse_args())
+        self.assertEqual(config["release_please_app_key"], self.KEY)
+
+    def test_prompt_hides_the_path_on_a_terminal(self):
+        path = self._key_file(self.KEY)
+        with patch.object(sys.stdin, "isatty", return_value=True), \
+                patch.object(bootstrap.getpass, "getpass", return_value=str(path)) as hidden, \
+                patch("builtins.input", side_effect=AssertionError("echoed prompt used")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
+        hidden.assert_called_once()
 
     def test_prompt_reads_the_whole_key_from_a_file(self):
         path = self._key_file(self.KEY)

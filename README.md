@@ -619,8 +619,11 @@ PEM file GitHub gives you, so the interactive prompt asks for the path to that
 of a pasted key. In either mode, a value that is not a complete, unencrypted PEM
 private key (for example one cut short before its `-----END … PRIVATE KEY-----`
 line) is refused instead of being stored as a secret that fails on the first
-release. Enter the path as plain text, without the quotes or backslashes a
-terminal adds when a file is dragged onto it.
+release. The path is read without echo, like a password, so a key pasted there
+by mistake is not shown; type it as plain text, without the quotes or
+backslashes a terminal adds when a file is dragged onto it. In
+`--non-interactive` mode, a key stored on one line with literal `\n`
+separators is accepted and turned back into PEM lines.
 
 If you skip them during setup, set them manually afterwards, reading the key
 from its file:

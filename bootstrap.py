@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import errno
+import getpass
 import hashlib
 import json
 import os
@@ -720,6 +721,7 @@ def prompt_optional(label: str) -> str:
 # from a CRLF file through "$(cat key.pem)" is not refused.
 _PEM_BEGIN_RE = re.compile(r"^-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
 _PEM_END_RE = re.compile(r"^-----END ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
+_PEM_ENCRYPTED_HEADER_RE = re.compile(r"^Proc-Type:[ \t]*4,ENCRYPTED", re.MULTILINE)
 
 
 def app_key_error(value: str) -> str:
@@ -733,34 +735,64 @@ def app_key_error(value: str) -> str:
     """
     begin = _PEM_BEGIN_RE.search(value)
     if not begin:
-        if "-----BEGIN" in value and "\\n" in value:
-            return ("holds literal \\n sequences instead of line breaks; "
-                    "store the key file's contents unchanged")
         return "is not a PEM private key (no -----BEGIN … PRIVATE KEY----- line)"
     label = begin.group(1)
-    if label.startswith("ENCRYPTED"):
-        return "is encrypted; export the GitHub App key without a passphrase"
     end = _PEM_END_RE.search(value, begin.end())
     if not end:
         return "is incomplete (no -----END … PRIVATE KEY----- line after the BEGIN line)"
     if end.group(1) != label:
         return "is malformed (its BEGIN and END lines name different key types)"
-    if not value[begin.end():end.start()].strip():
+    body = value[begin.end():end.start()]
+    if not body.strip():
         return "is incomplete (no key data between the BEGIN and END lines)"
+    # PKCS#8 marks encryption in the label; a traditional OpenSSL PEM keeps
+    # the plain label and adds a Proc-Type header. The release workflow's
+    # token action takes no passphrase, so neither form can be used.
+    if label.startswith("ENCRYPTED") or _PEM_ENCRYPTED_HEADER_RE.search(body):
+        return "is encrypted; export the GitHub App key without a passphrase"
     return ""
+
+
+def normalize_app_key(value: str) -> str:
+    """Turn a key stored with literal \\n separators back into PEM lines.
+
+    CI secret stores often hold a PEM key on one line with escaped newlines,
+    and actions/create-github-app-token accepts that form, so the value is
+    accepted here too rather than refused.
+    """
+    if not _PEM_BEGIN_RE.search(value) and "\\n" in value:
+        return value.replace("\\n", "\n")
+    return value
+
+
+def _read_hidden(question: str) -> str:
+    """Read one line without echoing it when stdin is a terminal.
+
+    getpass also discards the rest of a multi-line paste when it restores the
+    terminal, so a key pasted at the prompt by mistake is neither shown nor
+    read as further answers.
+    """
+    try:
+        if sys.stdin.isatty():
+            return getpass.getpass(f"{question}: ").strip()
+        return input(f"{question}: ").strip()
+    except EOFError:
+        _die("unexpected end of input")
 
 
 def prompt_app_key_file() -> str:
     """Ask for the App's .pem file and return its contents, or "" to skip.
 
     The key is read from a file rather than typed or pasted: a one-line
-    prompt keeps only the first line of a pasted PEM block. Nothing typed at
-    this prompt is printed back, so a key pasted here by mistake is not
-    repeated in the terminal's scrollback by an error message.
+    prompt keeps only the first line of a pasted PEM block. The path is read
+    without echo and nothing typed is printed back, so a key pasted here by
+    mistake reaches neither the screen nor the terminal's scrollback.
     """
     while True:
-        raw = prompt_optional("RELEASE_PLEASE_APP_KEY .pem file path")
+        raw = _read_hidden("  RELEASE_PLEASE_APP_KEY .pem file path "
+                           "(hidden; press Enter to skip and configure later)")
         if not raw:
+            print("    (skipped)")
             return ""
         if raw.startswith("-----"):
             print("    that looks like key text; enter the path to the .pem file instead")
@@ -981,7 +1013,7 @@ def gather_config(args) -> dict:
 
     if ni:
         release_please_client_id = os.environ.get("RELEASE_PLEASE_CLIENT_ID", "")
-        release_please_app_key = os.environ.get("RELEASE_PLEASE_APP_KEY", "")
+        release_please_app_key = normalize_app_key(os.environ.get("RELEASE_PLEASE_APP_KEY", ""))
         if release_please_app_key:
             error = app_key_error(release_please_app_key)
             if error:

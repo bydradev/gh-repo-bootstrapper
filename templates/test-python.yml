@@ -57,8 +57,9 @@ jobs:
             # default; a `dev` extra is added when one is declared.
             # Pinned (PyPI, 2026-10-08), like the tool fallbacks below.
             pip install uv==0.12.24
+            tables=" $(dev_tables) "
             extra=()
-            case " $(dev_tables) " in *" extra "*) extra=(--extra dev) ;; esac
+            case "$tables" in *" extra "*) extra=(--extra dev) ;; esac
             uv sync --locked "${extra[@]}"
             echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
             export VIRTUAL_ENV="$PWD/.venv"

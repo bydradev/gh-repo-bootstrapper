@@ -576,13 +576,13 @@ class PythonToolInstallTests(unittest.TestCase):
         log = Path(tmp.name) / "log"
         bin_dir = Path(tmp.name) / "bin"
         bin_dir.mkdir()
-        # Fake pip and uv log each install and report every tool as present,
-        # so the log holds only the project's own dependency installs.
+        # Fake pip and uv log each install and report every tool but ruff as
+        # present, so the log holds the project's own installs and one fallback.
         for name, show in (("pip", '"$1" = show'), ("uv", '"$1 $2" = "pip show"')):
             fake = bin_dir / name
             fake.write_text(
                 "#!/bin/sh\n"
-                f"if [ {show} ]; then exit 0; fi\n"
+                f'if [ {show} ]; then case "$*" in *ruff*) exit 1 ;; esac; exit 0; fi\n'
                 f'echo "{name} $*" >> "$LOG"\n'
             )
             fake.chmod(0o755)
@@ -591,17 +591,20 @@ class PythonToolInstallTests(unittest.TestCase):
         group = "[dependency-groups]\ndev = [\"pytest\"]\n"
         cases = {
             "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
-                        ["pip install uv==0.12.24", "uv sync --locked"]),
+                        ["pip install uv==0.12.24", "uv sync --locked", "uv pip install ruff==0.16.10"]),
             "uv.lock with a dev extra": ({"pyproject.toml": project + extra, "uv.lock": ""},
-                                         ["pip install uv==0.12.24", "uv sync --locked --extra dev"]),
+                                         ["pip install uv==0.12.24", "uv sync --locked --extra dev",
+                                          "uv pip install ruff==0.16.10"]),
             "requirements-dev.txt": ({"requirements-dev.txt": "", "pyproject.toml": project + group},
-                                     ["pip install -r requirements-dev.txt"]),
+                                     ["pip install -r requirements-dev.txt", "pip install ruff==0.16.10"]),
             "a dev dependency group": ({"pyproject.toml": project + group},
-                                       ["pip install --upgrade pip>=25.1", "pip install -e . --group dev"]),
+                                       ["pip install --upgrade pip>=25.1", "pip install -e . --group dev",
+                                        "pip install ruff==0.16.10"]),
             "a dev extra and group": ({"pyproject.toml": project + extra + group},
-                                      ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev"]),
-            "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]"]),
-            "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e ."]),
+                                      ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev",
+                                       "pip install ruff==0.16.10"]),
+            "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.16.10"]),
+            "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.16.10"]),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):

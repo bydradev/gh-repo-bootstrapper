@@ -150,27 +150,14 @@ function* eslintConfigComments(source) {
 // TypeScript reads @ts-ignore and @ts-expect-error in a block comment only on
 // its last line: the text from that line's start, or from the opener when the
 // whole comment is on one line, to the closing delimiter, after any run of
-// slashes and asterisks, so a JSDoc-style @ts-ignore counts (checked against
-// TypeScript 6.0.2's scanner, 2026-10-14). The line of each closing delimiter
-// is tried from its start and from every opener on it, which errs on the side
-// of requiring a row.
-const tsBlockDirective = /^\s*[/*]*\s*(@ts-(?:ignore|expect-error))(?=\s|$)/u;
-function* tsBlockDirectives(source) {
-  const close = /\*\//gu;
-  for (let match = close.exec(source); match; match = close.exec(source)) {
-    const line = source.slice(source.lastIndexOf("\n", match.index - 1) + 1, match.index);
-    const starts = [0];
-    for (let index = line.indexOf("/*"); index !== -1; index = line.indexOf("/*", index + 1))
-      starts.push(index);
-    for (const start of starts) {
-      const directive = tsBlockDirective.exec(line.slice(start));
-      if (directive) {
-        yield directive[1];
-        break;
-      }
-    }
-  }
-}
+// slashes and asterisks and with nothing required after the directive, so a
+// JSDoc-style @ts-ignore counts (checked against TypeScript 6.0.2's scanner,
+// 2026-10-14). This pattern takes a directive at a line start or just after an
+// opener with a closing delimiter later on the same line, which errs on the
+// side of requiring a row. A line starting with two slashes is left to the
+// line-comment pattern, so a glob after a line directive is not counted twice.
+const tsBlockDirectives =
+  /(?:^[^\S\n]*(?!\/\/)[/*]*|\/\*[/*]*)[^\S\n]*(@ts-(?:ignore|expect-error))[^\n]*?\*\//gmu;
 
 function count(entries) {
   const counts = new Map();
@@ -214,13 +201,17 @@ const suppressions = [];
 for (const sourcePath of walk(root)) {
   const relativePath = relative(root, sourcePath);
   const source = readFileSync(sourcePath, "utf8");
+  // TypeScript needs nothing after a line @ts-ignore or @ts-expect-error, so
+  // "@ts-ignore(reason)" counts too.
   const lineDirectives = source.matchAll(
-    /\/\/\s*(eslint-disable(?:-next-line|-line)?|@ts-(?:ignore|expect-error|nocheck))(?=\s|:|$)([^\n]*)/g,
+    /\/\/\s*(?:(eslint-disable(?:-next-line|-line)?|@ts-nocheck)(?=\s|:|$)([^\n]*)|(@ts-(?:ignore|expect-error)))/g,
   );
-  for (const [, directive, remainder] of lineDirectives) {
-    const rules = directive.startsWith("@ts-")
-      ? [directive]
-      : rulesFromEslintDirective(remainder, relativePath);
+  for (const [, directive, remainder, tsDirective] of lineDirectives) {
+    const rules = tsDirective
+      ? [tsDirective]
+      : directive.startsWith("@ts-")
+        ? [directive]
+        : rulesFromEslintDirective(remainder, relativePath);
     for (const rule of rules) suppressions.push(`${relativePath}\u0000${rule}`);
   }
   // A block eslint-disable comment names its rules up to the closing
@@ -238,9 +229,11 @@ for (const sourcePath of walk(root)) {
     for (const rule of rulesFromEslintDirective(remainder, relativePath))
       suppressions.push(`${relativePath}\u0000${rule}`);
   }
+  // TypeScript reads @ts-nocheck only from a line comment, so a block form
+  // suppresses nothing; it is counted anyway, which errs on the side of a row.
   for (const _ of source.matchAll(/\/\*[*/]*\s*@ts-nocheck(?=\s|\*|$)/g))
     suppressions.push(`${relativePath}\u0000@ts-nocheck`);
-  for (const directive of tsBlockDirectives(source))
+  for (const [, directive] of source.matchAll(tsBlockDirectives))
     suppressions.push(`${relativePath}\u0000${directive}`);
   // ESLint honours rule configuration only in block comments; a line comment
   // may carry only eslint-disable-line and eslint-disable-next-line (checked

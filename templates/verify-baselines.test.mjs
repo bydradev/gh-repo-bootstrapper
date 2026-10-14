@@ -72,6 +72,8 @@ test("reads TypeScript directives from the last line of a block comment", () => 
     `${open}* @ts-ignore ${close}\nconst answer: number = "wrong";\n`,
     `${open}\n * @ts-expect-error ${close}\nconst answer: number = "wrong";\n`,
     `export const ok = 1; ${open} @ts-ignore ${close}\n`,
+    `${open} @ts-ignore: reason ${close}\nconst answer: number = "wrong";\n`,
+    `${open}* @ts-expect-error(reason) ${close}\nconst answer: number = "wrong";\n`,
   ])
     assert.match(runFixture(source), /sample\.ts — @ts-(ignore|expect-error)\n/);
   // TypeScript reads only the last line, so a directive above it suppresses nothing.
@@ -79,6 +81,29 @@ test("reads TypeScript directives from the last line of a block comment", () => 
     runFixture(`${open}\n * @ts-ignore\n ${close}\nexport const ok = 1;\n`),
     /Baseline verification passed/,
   );
+});
+
+test("counts a line TypeScript directive with nothing after its name", () => {
+  for (const directive of ["@ts-ignore(reason)", "@ts-expect-error."])
+    assert.match(
+      runFixture("/" + `/ ${directive}\nconst answer: number = "wrong";\n`),
+      /sample\.ts — @ts-(ignore|expect-error)\n/,
+    );
+});
+
+test("counts a line directive followed by a glob once", () => {
+  const source = "/" + "/ @ts-ignore see src/**" + "/*.ts\nconst answer: number = \"wrong\";\n";
+  const row = "| 1 | @ts-ignore | sample.ts | fixture | 2099-01-01 |";
+  assert.match(
+    runFixture(source, { "docs/lint-baseline.md": `${lintHeader}\n${row}\n` }),
+    /Baseline verification passed: 1 suppression/,
+  );
+});
+
+test("scans long lines of block comments in linear time", () => {
+  const comment = "/" + "* pure *" + "/";
+  const source = `export const bundle = [${Array(50_000).fill(`${comment}f()`).join(",")}];\n`;
+  assert.match(runFixture(source), /Baseline verification passed/);
 });
 
 test("scans .mts and .cts sources", () => {

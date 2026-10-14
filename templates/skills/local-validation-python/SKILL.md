@@ -10,7 +10,7 @@ The commands to run before pushing are in the `## Tooling` section of `AGENTS.md
 ## Dependencies
 
 CI picks the same order automatically. When `uv.lock` exists it runs
-`uv sync --locked`, which installs exactly the locked versions, including the
+`uv sync --locked` (adding `--extra dev` when a `dev` extra is declared), which installs exactly the locked versions, including the
 `dev` dependency group, and fails if `uv.lock` is out of date with
 `pyproject.toml`; run `uv lock` and commit the result when it does. Without
 `uv.lock`, a `requirements-dev.txt` or `requirements.txt` comes first. For the

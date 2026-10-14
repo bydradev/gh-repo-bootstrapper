@@ -6,7 +6,7 @@ This is the baseline for **third-party dependencies**: security advisories we ha
 accepted rather than fixed. It is deliberately separate from
 [`docs/lint-baseline.md`](lint-baseline.md), which records inline suppressions in our own code.
 
-The lint baseline is self-cleaning because ESLint reports unused disable directives. An accepted
+The lint baseline is mostly self-cleaning because ESLint reports unused disable directives. An accepted
 dependency advisory is not self-cleaning: it can remain accepted silently after its rationale has
 expired. Every row here therefore has a concrete re-check trigger and review date.
 

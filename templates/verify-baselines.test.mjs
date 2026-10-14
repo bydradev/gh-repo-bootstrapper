@@ -65,6 +65,46 @@ test("requires a lint-baseline row for TypeScript suppression directives", () =>
     );
 });
 
+test("reads TypeScript directives from the last line of a block comment", () => {
+  const open = "/" + "*";
+  const close = "*" + "/";
+  for (const source of [
+    `${open}* @ts-ignore ${close}\nconst answer: number = "wrong";\n`,
+    `${open}\n * @ts-expect-error ${close}\nconst answer: number = "wrong";\n`,
+    `export const ok = 1; ${open} @ts-ignore ${close}\n`,
+  ])
+    assert.match(runFixture(source), /sample\.ts — @ts-(ignore|expect-error)\n/);
+  // TypeScript reads only the last line, so a directive above it suppresses nothing.
+  assert.match(
+    runFixture(`${open}\n * @ts-ignore\n ${close}\nexport const ok = 1;\n`),
+    /Baseline verification passed/,
+  );
+});
+
+test("scans .mts and .cts sources", () => {
+  const directive = "/" + "/ eslint-disable-next-line no-console -- fixture\n";
+  for (const file of ["src/module.mts", "src/common.cts"])
+    assert.match(
+      runFixture("export const ok = 1;\n", { [file]: directive }),
+      /Undocumented suppressions/,
+    );
+});
+
+test("records every rule in a block eslint-disable list that wraps onto another line", () => {
+  const output = runFixture(
+    "/" + "* eslint-disable-next-line no-console,\n   no-alert *" + "/\nconsole.log(alert(1));\n",
+  );
+  for (const rule of ["no-console", "no-alert"])
+    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+});
+
+test("does not count a JSDoc-style eslint-disable comment, which ESLint ignores", () => {
+  assert.match(
+    runFixture("/" + "** eslint-disable-next-line no-console *" + "/\nexport const ok = 1;\n"),
+    /Baseline verification passed/,
+  );
+});
+
 test("does not treat bare eslint-disable text as a suppression", () => {
   assert.match(
     runFixture('export const message = "use eslint-disable-next-line no-console to silence";\n'),

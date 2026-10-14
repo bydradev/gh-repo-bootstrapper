@@ -8,10 +8,12 @@ downgrade it, or change its options for a file. It is deliberately separate from
 [`docs/advisory-baseline.md`](advisory-baseline.md), which records accepted third-party dependency
 security advisories.
 
-This baseline is self-cleaning. ESLint reports an unused disable directive when the code it covered
-is removed or refactored. Because `npm run lint` runs with `--max-warnings=0`, that warning fails
-CI and requires removing both the stale directive and its row below. Dependency advisories do not
-self-clean this way; their review triggers belong in `docs/advisory-baseline.md`. Each accepted
+This baseline is mostly self-cleaning. ESLint reports an unused `eslint-disable` directive when the
+code it covered is removed or refactored. Because `npm run lint` runs with `--max-warnings=0`, that
+warning fails CI and requires removing both the stale directive and its row below. TypeScript
+likewise fails on an unused `@ts-expect-error`, so prefer it to `@ts-ignore`. Nothing reports an
+unused `@ts-ignore`, `@ts-nocheck`, or `eslint` configuration comment; those rows stay accurate only
+through their review dates. Dependency advisories do not self-clean either; their review triggers belong in `docs/advisory-baseline.md`. Each accepted
 suppression below carries a review date for the same reason: the weekly `npm run review:baselines`
 surfaces overdue acceptances alongside overdue advisories. Review-date expiry is reported by the
 weekly review only and never gates a pull request. The review cadence is six months from acceptance.

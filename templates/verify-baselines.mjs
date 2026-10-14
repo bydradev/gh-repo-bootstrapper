@@ -10,7 +10,7 @@ import { parseAdvisoryRows, parseLintRows } from "./baseline-table.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const lintBaselinePath = resolve(root, "docs/lint-baseline.md");
 const advisoryBaselinePath = resolve(root, "docs/advisory-baseline.md");
-const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]);
+const sourceExtensions = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"]);
 // Generated output is not source: coverage reports and Playwright's HTML report
 // and results embed third-party JavaScript whose directives are not ours.
 const excludedDirectories = new Set([
@@ -147,6 +147,31 @@ function* eslintConfigComments(source) {
   }
 }
 
+// TypeScript reads @ts-ignore and @ts-expect-error in a block comment only on
+// its last line: the text from that line's start, or from the opener when the
+// whole comment is on one line, to the closing delimiter, after any run of
+// slashes and asterisks, so a JSDoc-style @ts-ignore counts (checked against
+// TypeScript 6.0.2's scanner, 2026-10-14). The line of each closing delimiter
+// is tried from its start and from every opener on it, which errs on the side
+// of requiring a row.
+const tsBlockDirective = /^\s*[/*]*\s*(@ts-(?:ignore|expect-error))(?=\s|$)/u;
+function* tsBlockDirectives(source) {
+  const close = /\*\//gu;
+  for (let match = close.exec(source); match; match = close.exec(source)) {
+    const line = source.slice(source.lastIndexOf("\n", match.index - 1) + 1, match.index);
+    const starts = [0];
+    for (let index = line.indexOf("/*"); index !== -1; index = line.indexOf("/*", index + 1))
+      starts.push(index);
+    for (const start of starts) {
+      const directive = tsBlockDirective.exec(line.slice(start));
+      if (directive) {
+        yield directive[1];
+        break;
+      }
+    }
+  }
+}
+
 function count(entries) {
   const counts = new Map();
   for (const entry of entries) counts.set(entry, (counts.get(entry) ?? 0) + 1);
@@ -189,15 +214,34 @@ const suppressions = [];
 for (const sourcePath of walk(root)) {
   const relativePath = relative(root, sourcePath);
   const source = readFileSync(sourcePath, "utf8");
-  const directives = source.matchAll(
-    /(?:\/\/|\/\*)\s*(eslint-disable(?:-next-line|-line)?|@ts-(?:ignore|expect-error|nocheck))(?=\s|:|\*|$)([^\n*]*)/g,
+  const lineDirectives = source.matchAll(
+    /\/\/\s*(eslint-disable(?:-next-line|-line)?|@ts-(?:ignore|expect-error|nocheck))(?=\s|:|$)([^\n]*)/g,
   );
-  for (const [, directive, remainder] of directives) {
+  for (const [, directive, remainder] of lineDirectives) {
     const rules = directive.startsWith("@ts-")
       ? [directive]
       : rulesFromEslintDirective(remainder, relativePath);
     for (const rule of rules) suppressions.push(`${relativePath}\u0000${rule}`);
   }
+  // A block eslint-disable comment names its rules up to the closing
+  // delimiter, across line breaks: ESLint honours a rule list wrapped onto a
+  // second line (checked against ESLint 10.1.0's Linter, 2026-10-14). ESLint
+  // ignores a JSDoc-style directive, so only whitespace may sit between the
+  // opener and the directive.
+  const blockDirectives = source.matchAll(
+    /\/\*\s*(eslint-disable(?:-next-line|-line)?)(?=\s|:|\*|$)/g,
+  );
+  for (const match of blockDirectives) {
+    const start = match.index + match[0].length;
+    const end = source.indexOf("*" + "/", start);
+    const remainder = source.slice(start, end === -1 ? source.length : end);
+    for (const rule of rulesFromEslintDirective(remainder, relativePath))
+      suppressions.push(`${relativePath}\u0000${rule}`);
+  }
+  for (const _ of source.matchAll(/\/\*[*/]*\s*@ts-nocheck(?=\s|\*|$)/g))
+    suppressions.push(`${relativePath}\u0000@ts-nocheck`);
+  for (const directive of tsBlockDirectives(source))
+    suppressions.push(`${relativePath}\u0000${directive}`);
   // ESLint honours rule configuration only in block comments; a line comment
   // may carry only eslint-disable-line and eslint-disable-next-line (checked
   // against ESLint 9.39.4's SourceCode#getInlineConfigNodes and Linter,

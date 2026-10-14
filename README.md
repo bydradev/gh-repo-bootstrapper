@@ -44,7 +44,11 @@ anything installed beyond a base Python interpreter.
   browser installs tied to their `full` conditions; the release job waiting for
   `test` with no condition of its own; the release App token limited to contents
   and pull requests; and pinned fallback versions of the Python CI tools
+- no generated file describing the retired provider-deploy or production e2e
+  lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
+- the bootstrapper's own bug-report form, whose repository types and flags must
+  match `bootstrap.py`'s parser
 
 It also runs self-tests that reproduce each past regression from real rendered
 output, so a check that stops firing turns the suite red rather than passing
@@ -608,14 +612,26 @@ it can open PRs that trigger other workflows. You will need to supply:
 - `RELEASE_PLEASE_CLIENT_ID` — set as a GitHub variable
 - `RELEASE_PLEASE_APP_KEY` — set as a GitHub secret
 
-The script will prompt for these interactively (or read them from environment
-variables in `--non-interactive` mode). If you skip them during setup, set them
-manually afterwards:
+The script prompts for these interactively, or reads them from environment
+variables in `--non-interactive` mode. The App key is the complete multi-line
+PEM file GitHub gives you, so the interactive prompt asks for the path to that
+`.pem` file rather than its text: a one-line prompt keeps only the first line
+of a pasted key. In either mode, a value that is not a complete, unencrypted PEM
+private key (for example one cut short before its `-----END … PRIVATE KEY-----`
+line) is refused instead of being stored as a secret that fails on the first
+release. Enter the path as plain text, without the quotes or backslashes a
+terminal adds when a file is dragged onto it.
+
+If you skip them during setup, set them manually afterwards, reading the key
+from its file:
 
 ```sh
 gh variable set RELEASE_PLEASE_CLIENT_ID --repo owner/name --body "<app-client-id>"
-gh secret set RELEASE_PLEASE_APP_KEY --repo owner/name
+gh secret set RELEASE_PLEASE_APP_KEY --repo owner/name < path/to/app-key.pem
 ```
+
+The same command replaces a key that an earlier version stored with only its
+first line.
 
 ## Deployment migration
 
@@ -637,7 +653,7 @@ flags. Secrets and the Release Please key are read from environment variables:
 Example (CI/CD usage):
 
 ```sh
-export RELEASE_PLEASE_APP_KEY="..."
+export RELEASE_PLEASE_APP_KEY="$(cat path/to/app-key.pem)"
 export RELEASE_PLEASE_CLIENT_ID="..."
 ./bootstrap.py \
   --name my-app \

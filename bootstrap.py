@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import difflib
 import errno
-import getpass
 import hashlib
 import json
 import os
@@ -583,7 +582,7 @@ def check_dependencies():
 # ---------------------------------------------------------------------------
 
 
-def parse_args():
+def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="bootstrap.py",
         description="Create a standardised GitHub repository.",
@@ -643,7 +642,11 @@ def parse_args():
                    help="Print files that would be created without doing anything")
     p.add_argument("--non-interactive", action="store_true",
                    help="Fail if required options are missing instead of prompting")
-    return p.parse_args()
+    return p
+
+
+def parse_args():
+    return build_parser().parse_args()
 
 
 # ---------------------------------------------------------------------------
@@ -704,32 +707,74 @@ def prompt_choice(question: str, choices: list) -> str:
         print(f"  Enter a number from 1 to {len(choices)}.")
 
 
-def prompt_secret(question: str) -> str:
-    if not sys.stdin.isatty():
-        # No real terminal attached (piped/redirected input) — getpass
-        # always tries /dev/tty first, which would ignore this input
-        # entirely and block on a real terminal, or silently misread
-        # unrelated input via its own stdin fallback. Read a normal,
-        # visible line instead, matching prompt()'s behavior.
-        try:
-            return input(f"{question}: ").strip()
-        except EOFError:
-            _die("unexpected end of input")
-    try:
-        value = getpass.getpass(f"{question}: ")
-    except EOFError:
-        _die("unexpected end of input")
-    return value.strip()
-
-
-def prompt_optional(label: str, secret: bool = False) -> str:
-    hint = "press Enter to skip and configure later"
-    if secret:
-        hint = f"hidden, {hint}"
-    value = (prompt_secret if secret else prompt)(f"  {label} ({hint})")
+def prompt_optional(label: str) -> str:
+    value = prompt(f"  {label} (press Enter to skip and configure later)")
     if not value:
         print("    (skipped)")
     return value
+
+
+# GitHub issues App keys as PKCS#1 ("RSA PRIVATE KEY") PEM blocks; PKCS#8
+# ("PRIVATE KEY") and other unencrypted private-key labels are accepted too.
+# Trailing spaces and a CR before each line break are tolerated, so a key read
+# from a CRLF file through "$(cat key.pem)" is not refused.
+_PEM_BEGIN_RE = re.compile(r"^-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
+_PEM_END_RE = re.compile(r"^-----END ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
+
+
+def app_key_error(value: str) -> str:
+    """Return why value is not a complete PEM private key, or "" when it is.
+
+    A GitHub App private key is a multi-line PEM block. A value cut to its
+    first line, as a terminal paste into a one-line prompt or a single-line
+    environment variable leaves it, would be stored as a secret that only
+    fails later, when Release Please first runs. The message never quotes the
+    value.
+    """
+    begin = _PEM_BEGIN_RE.search(value)
+    if not begin:
+        if "-----BEGIN" in value and "\\n" in value:
+            return ("holds literal \\n sequences instead of line breaks; "
+                    "store the key file's contents unchanged")
+        return "is not a PEM private key (no -----BEGIN … PRIVATE KEY----- line)"
+    label = begin.group(1)
+    if label.startswith("ENCRYPTED"):
+        return "is encrypted; export the GitHub App key without a passphrase"
+    end = _PEM_END_RE.search(value, begin.end())
+    if not end:
+        return "is incomplete (no -----END … PRIVATE KEY----- line after the BEGIN line)"
+    if end.group(1) != label:
+        return "is malformed (its BEGIN and END lines name different key types)"
+    if not value[begin.end():end.start()].strip():
+        return "is incomplete (no key data between the BEGIN and END lines)"
+    return ""
+
+
+def prompt_app_key_file() -> str:
+    """Ask for the App's .pem file and return its contents, or "" to skip.
+
+    The key is read from a file rather than typed or pasted: a one-line
+    prompt keeps only the first line of a pasted PEM block. Nothing typed at
+    this prompt is printed back, so a key pasted here by mistake is not
+    repeated in the terminal's scrollback by an error message.
+    """
+    while True:
+        raw = prompt_optional("RELEASE_PLEASE_APP_KEY .pem file path")
+        if not raw:
+            return ""
+        if raw.startswith("-----"):
+            print("    that looks like key text; enter the path to the .pem file instead")
+            continue
+        path = Path(raw).expanduser()
+        try:
+            value = path.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"    cannot read that file ({exc.__class__.__name__})")
+            continue
+        error = app_key_error(value)
+        if not error:
+            return value
+        print(f"    that file {error}")
 
 
 # ---------------------------------------------------------------------------
@@ -937,11 +982,15 @@ def gather_config(args) -> dict:
     if ni:
         release_please_client_id = os.environ.get("RELEASE_PLEASE_CLIENT_ID", "")
         release_please_app_key = os.environ.get("RELEASE_PLEASE_APP_KEY", "")
+        if release_please_app_key:
+            error = app_key_error(release_please_app_key)
+            if error:
+                _die(f"RELEASE_PLEASE_APP_KEY {error}; set it from the file, "
+                     'e.g. RELEASE_PLEASE_APP_KEY="$(cat key.pem)"')
     elif not dry:
         print("\nGitHub App — Release Please:")
         release_please_client_id = prompt_optional("RELEASE_PLEASE_CLIENT_ID")
-        release_please_app_key = prompt_optional("RELEASE_PLEASE_APP_KEY", secret=True)
-
+        release_please_app_key = prompt_app_key_file()
 
     return {
         "name": name,

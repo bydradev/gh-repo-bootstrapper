@@ -50,6 +50,7 @@ body:
       options:
         - Generated files/templates (wrong content after running)
         - Repository configuration or API call bootstrap.py made
+        - Checking or adopting an existing repository (--check / --adopt)
         - Unknown / not sure
     validations:
       required: true
@@ -61,7 +62,7 @@ body:
       description: |
         Include the command you ran. **Redact anything sensitive** — org
         names are usually fine, but drop tokens, real repo names you don't
-        want public, or anything from `--secret`/env prompts.
+        want public, and never paste the Release Please App key or client ID.
       placeholder: |
         1. ./bootstrap.py --name my-app --type swift --scheme MyApp --org acme --dry-run
         2. ...
@@ -76,6 +77,7 @@ body:
         - nextjs
         - python
         - swift
+        - rust
         - simple
         - Not applicable / not generation-related
     validations:
@@ -87,10 +89,14 @@ body:
       label: Options in play (check any that apply)
       options:
         - label: "--private"
-        - label: Postgres block
-        - label: Vercel deploy
-        - label: XcodeGen (Swift)
+        - label: "--postgres"
+        - label: "--scheme"
+        - label: "--destination"
+        - label: "--xcodegen"
         - label: "--configure-only"
+        - label: "--check"
+        - label: "--adopt"
+        - label: "--replace-generated-sections"
         - label: "--dry-run"
         - label: "--non-interactive"
 
@@ -99,7 +105,7 @@ body:
     attributes:
       label: bootstrap.py version or commit
       description: A release tag, or `git rev-parse HEAD` if running from a checkout
-      placeholder: v0.2.0 or 4719573
+      placeholder: v0.10.0 or 65c16aa
     validations:
       required: true
 

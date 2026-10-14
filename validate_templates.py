@@ -39,6 +39,10 @@ Checks performed on each generated file:
     and for the Release Please release commit
   - runbook presence: every generated repo carries
     docs/branch-protection-runbook.md with the load-bearing operational facts
+  - retired lanes: no generated file mentions the removed provider-deploy or
+    production e2e lanes
+  - the bootstrapper's own bug-report form offers exactly bootstrap.py's
+    repository types and flags
 
 Also runs a handful of self-contained self-tests (see run_self_tests())
 against synthetic workflow fixtures to prove the missing/unexpected-context
@@ -58,6 +62,7 @@ import re
 import shlex
 import subprocess
 import sys
+import textwrap
 from collections import Counter
 from pathlib import Path
 from typing import Optional, Union
@@ -329,6 +334,17 @@ TEMPLATE_RUNBOOK = "templates/docs-branch-protection-runbook.md"
 REPO_RUNBOOK_PATH = Path(__file__).parent / REPO_RUNBOOK
 TEMPLATE_RUNBOOK_PATH = Path(__file__).parent / TEMPLATE_RUNBOOK
 
+# The bug-report form asks which repository type and which flags were in play.
+# Its choices must follow bootstrap.py's parser: a supported type or flag missing
+# from the form, or a retired one still offered, makes reports harder to file.
+BUG_FORM = ".github/ISSUE_TEMPLATE/bug_report.yml"
+BUG_FORM_PATH = Path(__file__).parent / BUG_FORM
+# The form's catch-all repository-type choice; every other choice is a --type.
+BUG_FORM_TYPE_FALLBACK = "Not applicable / not generation-related"
+# Flags the "Options in play" list deliberately leaves out: identity and
+# naming flags every run sets, and --public, the complement of --private.
+BUG_FORM_UNLISTED_FLAGS = frozenset({"-h", "--help", "--name", "--type", "--org", "--public"})
+
 RUNBOOK_REQUIRED_PHRASES = (
     "update-branch",
     "skipped",
@@ -441,6 +457,21 @@ def check_nextjs_provider_free(label: str, repo_type: str, files: dict) -> list:
     for cache_path in (".vercel/", ".wrangler/"):
         if cache_path not in gitignore:
             errors.append(f"[{label}] .gitignore is missing local tool cache {cache_path!r}")
+    return errors
+
+
+# Phrases left behind by the removed provider deploy and production e2e lanes.
+# No generated file of any type may describe jobs that no longer exist.
+RETIRED_LANE_PHRASES = ("e2e-prod", "release and deployment jobs", "production/runtime checks")
+
+
+def check_retired_lane_phrases(label: str, files: dict) -> list:
+    errors = []
+    for path, content in files.items():
+        lowered = content.lower()
+        for phrase in RETIRED_LANE_PHRASES:
+            if phrase in lowered:
+                errors.append(f"[{label}] {path} mentions retired lane {phrase!r}")
     return errors
 
 
@@ -1990,6 +2021,54 @@ def check_runbook_copy_matches_template(
     return []
 
 
+def _form_field(form: dict, field_id: str) -> dict:
+    for field in form.get("body") or []:
+        if isinstance(field, dict) and field.get("id") == field_id:
+            return field.get("attributes") or {}
+    return {}
+
+
+def check_bug_form(label: str, form_text: Optional[str], parser=None) -> list:
+    """The bug-report form's type and flag choices must match bootstrap.py's parser."""
+    if form_text is None:
+        return [f"[{label}] missing {BUG_FORM}"]
+    try:
+        form = yaml.safe_load(form_text)
+    except yaml.YAMLError as exc:
+        return [f"[{label}] {BUG_FORM} is not valid YAML: {exc}"]
+    if not isinstance(form, dict):
+        return [f"[{label}] {BUG_FORM} is not a mapping"]
+    parser = parser or bootstrap.build_parser()
+    types = set()
+    flags = set()
+    for action in parser._actions:
+        flags.update(action.option_strings)
+        if action.dest == "repo_type":
+            types = set(action.choices or ())
+    errors = []
+
+    offered_types = _form_field(form, "repo-type").get("options") or []
+    offered_types = {str(option) for option in offered_types} - {BUG_FORM_TYPE_FALLBACK}
+    for missing in sorted(types - offered_types):
+        errors.append(f"[{label}] {BUG_FORM} repository type dropdown lacks --type {missing}")
+    for stale in sorted(offered_types - types):
+        errors.append(f"[{label}] {BUG_FORM} repository type dropdown offers {stale!r}, "
+                      "which is not a --type choice")
+
+    offered_flags = set()
+    for option in _form_field(form, "options").get("options") or []:
+        text = str(option.get("label", "") if isinstance(option, dict) else option)
+        if not text.startswith("--"):
+            errors.append(f"[{label}] {BUG_FORM} option {text!r} is not a bootstrap.py flag")
+        elif text not in flags:
+            errors.append(f"[{label}] {BUG_FORM} offers {text}, which bootstrap.py does not accept")
+        else:
+            offered_flags.add(text)
+    for missing in sorted(flags - offered_flags - BUG_FORM_UNLISTED_FLAGS):
+        errors.append(f"[{label}] {BUG_FORM} options list lacks {missing}")
+    return errors
+
+
 def _digest_table(table: dict) -> dict:
     return {path: set(digests) for path, digests in table.items()}
 
@@ -2843,6 +2922,39 @@ def run_self_tests() -> list:
     if not any("'/target/'" in e for e in result):
         errors.append(f"self-test 'rust target ignore' did not fail as expected: {result}")
 
+    # The bug-report form once lacked the rust type and still offered a
+    # retired deploy option; both kinds of drift must fail, and so must a
+    # parser flag the form never lists.
+    stale_form = textwrap.dedent(f"""\
+        body:
+          - type: dropdown
+            id: repo-type
+            attributes:
+              options: [nextjs, python, swift, simple, "{BUG_FORM_TYPE_FALLBACK}"]
+          - type: checkboxes
+            id: options
+            attributes:
+              options:
+                - label: "--private"
+                - label: Vercel deploy
+                - label: "--vercel"
+        """)
+    result = check_bug_form("self-test:stale bug form", stale_form)
+    for expected in ("lacks --type rust", "'Vercel deploy' is not a bootstrap.py flag",
+                     "offers --vercel", "options list lacks --adopt"):
+        if not any(expected in e for e in result):
+            errors.append(f"self-test 'stale bug form' did not report {expected!r}: {result}")
+    if check_bug_form("self-test:missing bug form", None) != [
+        "[self-test:missing bug form] missing .github/ISSUE_TEMPLATE/bug_report.yml"
+    ]:
+        errors.append("self-test 'missing bug form' did not fail as expected")
+
+    files = bootstrap.generate_files(dict(cfg))
+    files["docs/branch-protection-runbook.md"] += "\nAlso require `test / e2e-prod` if configured.\n"
+    result = check_retired_lane_phrases("self-test:retired lane", files)
+    if not any("'e2e-prod'" in e for e in result):
+        errors.append(f"self-test 'retired lane' did not fail as expected: {result}")
+
     errors += _structure_self_tests()
     return errors
 
@@ -3196,6 +3308,7 @@ def main() -> int:
     for label, cfg, files in rendered:
         total += 1
         all_errors += check_nextjs_provider_free(label, cfg["repo_type"], files)
+        all_errors += check_retired_lane_phrases(label, files)
         all_errors += check_markers(label, files)
         all_errors += check_markdown_blank_lines(label, files)
         all_errors += check_agents_guidance(label, files)
@@ -3230,6 +3343,8 @@ def main() -> int:
         _read_file_or_none(REPO_RUNBOOK_PATH),
         _read_file_or_none(TEMPLATE_RUNBOOK_PATH),
     )
+    form = _read_file_or_none(BUG_FORM_PATH)
+    all_errors += check_bug_form("bootstrapper self", None if form is None else form.decode())
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_workflow_gates("bootstrapper own workflows", "simple", _own_workflow_files())
     all_errors += check_legacy_digests()

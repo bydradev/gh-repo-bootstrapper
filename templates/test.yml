@@ -18,8 +18,8 @@ on:
         type: boolean
         default: false
 
-# The suite only needs to read the repository. Release and deployment jobs
-# declare their own elevated permissions.
+# The suite only needs to read the repository. The release job lives in
+# release-please.yml and uses its own narrowed App token.
 permissions:
   contents: read
 

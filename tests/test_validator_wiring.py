@@ -16,6 +16,7 @@ CHECKS = (
     "check_npm_script_assumptions",
     "check_syntax",
     "check_nextjs_provider_free",
+    "check_retired_lane_phrases",
     "check_markers",
     "check_markdown_blank_lines",
     "check_agents_guidance",
@@ -42,10 +43,11 @@ CHECKS = (
     "check_runbook",
     "check_runbook_copy_matches_template",
     "check_legacy_digests",
+    "check_bug_form",
 )
 RUN_ONCE = {
     "run_self_tests", "check_npm_script_assumptions",
-    "check_runbook_copy_matches_template", "check_legacy_digests",
+    "check_runbook_copy_matches_template", "check_legacy_digests", "check_bug_form",
 }
 OWN_WORKFLOWS = "bootstrapper own workflows"
 ALSO_ON_OWN_WORKFLOWS = {"check_sha_pinned_actions", "check_workflow_gates"}

@@ -157,6 +157,141 @@ class ConfigureRepoTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
 
 
+class ReleasePleaseAppKeyTests(unittest.TestCase):
+    """The App key is a multi-line PEM block and must arrive whole."""
+
+    # Shaped like a PEM private key; the body is not key material.
+    KEY = "-----BEGIN RSA PRIVATE KEY-----\nbm90LWEta2V5\nbm90LWEta2V5\n-----END RSA PRIVATE KEY-----\n"
+    FIRST_LINE = "-----BEGIN RSA PRIVATE KEY-----"
+
+    def _key_file(self, text):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "app-key.pem"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_app_key_error_accepts_only_a_complete_pem_block(self):
+        self.assertEqual(bootstrap.app_key_error(self.KEY), "")
+        self.assertEqual(bootstrap.app_key_error(self.KEY.replace("RSA ", "")), "")
+        self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
+        self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
+        self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
+        end_first = "-----END RSA PRIVATE KEY-----\n" + self.FIRST_LINE + "\n"
+        self.assertIn("incomplete", bootstrap.app_key_error(end_first))
+        self.assertIn("not a PEM private key", bootstrap.app_key_error("private-key"))
+
+    def test_app_key_error_tolerates_crlf_and_trailing_spaces(self):
+        self.assertEqual(bootstrap.app_key_error(self.KEY.replace("\n", "\r\n")), "")
+        self.assertEqual(bootstrap.app_key_error(self.KEY.replace("-----\n", "-----  \n")), "")
+
+    def test_app_key_error_names_malformed_keys_without_quoting_them(self):
+        cases = {
+            "encrypted": self.KEY.replace("RSA PRIVATE", "ENCRYPTED PRIVATE"),
+            "different key types": self.KEY.replace("END RSA", "END EC"),
+            "no key data": self.FIRST_LINE + "\n-----END RSA PRIVATE KEY-----\n",
+            "OPENSSH PRIVATE KEY format": self.KEY.replace("RSA PRIVATE", "OPENSSH PRIVATE"),
+        }
+        for expected, value in cases.items():
+            with self.subTest(expected):
+                error = bootstrap.app_key_error(value)
+                self.assertIn(expected, error)
+                self.assertNotIn("bm90LWEta2V5", error)
+
+    def test_app_key_error_refuses_a_traditionally_encrypted_key(self):
+        encrypted = self.KEY.replace(
+            "KEY-----\n", "KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00\n\n", 1)
+        self.assertIn("encrypted", bootstrap.app_key_error(encrypted))
+
+    def test_escaped_newlines_are_turned_back_into_lines(self):
+        escaped = self.KEY.replace("\n", "\\n")
+        self.assertEqual(bootstrap.normalize_app_key(escaped), self.KEY)
+        self.assertEqual(bootstrap.normalize_app_key(self.KEY), self.KEY)
+        argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "octocat",
+                "--non-interactive", "--dry-run"]
+        env = {"RELEASE_PLEASE_APP_KEY": escaped, "RELEASE_PLEASE_CLIENT_ID": "id"}
+        with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()):
+            config = bootstrap.gather_config(bootstrap.parse_args())
+        self.assertEqual(config["release_please_app_key"], self.KEY)
+
+    def test_prompt_hides_the_path_on_a_terminal(self):
+        path = self._key_file(self.KEY)
+        with patch.object(sys.stdin, "isatty", return_value=True), \
+                patch.object(bootstrap.getpass, "getpass", return_value=str(path)) as hidden, \
+                patch("builtins.input", side_effect=AssertionError("echoed prompt used")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
+        hidden.assert_called_once()
+
+    def test_prompt_reads_the_whole_key_from_a_file(self):
+        path = self._key_file(self.KEY)
+        with patch("builtins.input", return_value=str(path)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
+
+    def test_prompt_refuses_a_truncated_or_unreadable_file_and_asks_again(self):
+        truncated = self._key_file(self.FIRST_LINE + "\n")
+        missing = truncated.with_name("missing.pem")
+        good = self._key_file(self.KEY)
+        answers = iter([str(truncated), str(missing), str(good)])
+        with patch("builtins.input", side_effect=lambda _q: next(answers)), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
+        self.assertIn("is incomplete", out.getvalue())
+        self.assertIn("cannot read", out.getvalue())
+        self.assertNotIn("bm90LWEta2V5", out.getvalue())
+
+    def test_prompt_never_prints_back_a_key_pasted_in_place_of_a_path(self):
+        good = self._key_file(self.KEY)
+        answers = iter(self.KEY.splitlines() + [str(good)])
+        with patch("builtins.input", side_effect=lambda _q: next(answers)), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
+        self.assertIn("enter the path to the .pem file instead", out.getvalue())
+        self.assertNotIn("bm90LWEta2V5", out.getvalue())
+        self.assertNotIn("RSA PRIVATE KEY", out.getvalue())
+
+    def test_prompt_reads_a_bom_prefixed_key_from_a_home_relative_path(self):
+        path = self._key_file("﻿" + self.KEY)
+        with patch.dict(os.environ, {"HOME": str(path.parent)}), \
+                patch("builtins.input", return_value="~/app-key.pem"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
+
+    def test_prompt_can_be_skipped(self):
+        with patch("builtins.input", return_value=""), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(bootstrap.prompt_app_key_file(), "")
+        self.assertIn("(skipped)", out.getvalue())
+
+    def test_non_interactive_refuses_a_truncated_key_from_the_environment(self):
+        argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "octocat",
+                "--non-interactive"]
+        env = {"RELEASE_PLEASE_APP_KEY": self.FIRST_LINE, "RELEASE_PLEASE_CLIENT_ID": "id"}
+        with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit):
+                bootstrap.gather_config(bootstrap.parse_args())
+        self.assertIn("RELEASE_PLEASE_APP_KEY is incomplete", err.getvalue())
+        self.assertNotIn(self.FIRST_LINE, err.getvalue())
+
+        env["RELEASE_PLEASE_APP_KEY"] = "\ufeff" + self.KEY
+        with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()):
+            config = bootstrap.gather_config(bootstrap.parse_args())
+        self.assertEqual(config["release_please_app_key"], self.KEY)
+
+    def test_dry_run_does_not_check_the_key(self):
+        argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "octocat",
+                "--non-interactive", "--dry-run"]
+        env = {"RELEASE_PLEASE_APP_KEY": self.FIRST_LINE, "RELEASE_PLEASE_CLIENT_ID": "id"}
+        with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.gather_config(bootstrap.parse_args())
+
+
 class ConfigureExistingRepositoryTests(unittest.TestCase):
     """--configure-only on a repository that already exists."""
 

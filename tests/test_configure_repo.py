@@ -190,6 +190,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "encrypted": self.KEY.replace("RSA PRIVATE", "ENCRYPTED PRIVATE"),
             "different key types": self.KEY.replace("END RSA", "END EC"),
             "no key data": self.FIRST_LINE + "\n-----END RSA PRIVATE KEY-----\n",
+            "OPENSSH PRIVATE KEY format": self.KEY.replace("RSA PRIVATE", "OPENSSH PRIVATE"),
         }
         for expected, value in cases.items():
             with self.subTest(expected):
@@ -266,20 +267,29 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
 
     def test_non_interactive_refuses_a_truncated_key_from_the_environment(self):
         argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "octocat",
-                "--non-interactive", "--dry-run"]
+                "--non-interactive"]
         env = {"RELEASE_PLEASE_APP_KEY": self.FIRST_LINE, "RELEASE_PLEASE_CLIENT_ID": "id"}
         with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()) as err:
             with self.assertRaises(SystemExit):
                 bootstrap.gather_config(bootstrap.parse_args())
         self.assertIn("RELEASE_PLEASE_APP_KEY is incomplete", err.getvalue())
         self.assertNotIn(self.FIRST_LINE, err.getvalue())
 
-        env["RELEASE_PLEASE_APP_KEY"] = self.KEY
+        env["RELEASE_PLEASE_APP_KEY"] = "\ufeff" + self.KEY
         with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
                 contextlib.redirect_stdout(io.StringIO()):
             config = bootstrap.gather_config(bootstrap.parse_args())
         self.assertEqual(config["release_please_app_key"], self.KEY)
+
+    def test_dry_run_does_not_check_the_key(self):
+        argv = ["bootstrap.py", "--name", "sample", "--type", "simple", "--org", "octocat",
+                "--non-interactive", "--dry-run"]
+        env = {"RELEASE_PLEASE_APP_KEY": self.FIRST_LINE, "RELEASE_PLEASE_CLIENT_ID": "id"}
+        with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.gather_config(bootstrap.parse_args())
 
 
 class ConfigureExistingRepositoryTests(unittest.TestCase):

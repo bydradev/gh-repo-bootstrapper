@@ -715,12 +715,15 @@ def prompt_optional(label: str) -> str:
     return value
 
 
-# GitHub issues App keys as PKCS#1 ("RSA PRIVATE KEY") PEM blocks; PKCS#8
-# ("PRIVATE KEY") and other unencrypted private-key labels are accepted too.
+# GitHub issues App keys as PKCS#1 ("RSA PRIVATE KEY") PEM blocks, and PKCS#8
+# ("PRIVATE KEY") is the other form the release workflow's token action reads.
+# Any other private-key label, such as the OpenSSH form a password manager may
+# convert the key to, is refused rather than stored as an unusable secret.
 # Trailing spaces and a CR before each line break are tolerated, so a key read
 # from a CRLF file through "$(cat key.pem)" is not refused.
 _PEM_BEGIN_RE = re.compile(r"^-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
 _PEM_END_RE = re.compile(r"^-----END ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
+_USABLE_KEY_LABELS = frozenset({"RSA PRIVATE KEY", "PRIVATE KEY"})
 _PEM_ENCRYPTED_HEADER_RE = re.compile(r"^Proc-Type:[ \t]*4,ENCRYPTED", re.MULTILINE)
 
 
@@ -750,16 +753,20 @@ def app_key_error(value: str) -> str:
     # token action takes no passphrase, so neither form can be used.
     if label.startswith("ENCRYPTED") or _PEM_ENCRYPTED_HEADER_RE.search(body):
         return "is encrypted; export the GitHub App key without a passphrase"
+    if label not in _USABLE_KEY_LABELS:
+        return (f"is in the {label} format, which the release workflow cannot read; "
+                "use the .pem file GitHub generated for the App")
     return ""
 
 
 def normalize_app_key(value: str) -> str:
-    """Turn a key stored with literal \\n separators back into PEM lines.
+    """Drop a byte-order mark and turn literal \\n separators back into PEM lines.
 
     CI secret stores often hold a PEM key on one line with escaped newlines,
     and actions/create-github-app-token accepts that form, so the value is
     accepted here too rather than refused.
     """
+    value = value.lstrip("\ufeff")
     if not _PEM_BEGIN_RE.search(value) and "\\n" in value:
         return value.replace("\\n", "\n")
     return value
@@ -1014,7 +1021,8 @@ def gather_config(args) -> dict:
     if ni:
         release_please_client_id = os.environ.get("RELEASE_PLEASE_CLIENT_ID", "")
         release_please_app_key = normalize_app_key(os.environ.get("RELEASE_PLEASE_APP_KEY", ""))
-        if release_please_app_key:
+        # A dry run never stores the key, so a stale value must not stop it.
+        if release_please_app_key and not dry:
             error = app_key_error(release_please_app_key)
             if error:
                 _die(f"RELEASE_PLEASE_APP_KEY {error}; set it from the file, "

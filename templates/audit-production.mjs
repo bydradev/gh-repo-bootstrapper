@@ -20,8 +20,7 @@ let approvedRuntimeAdvisories;
 try {
   approvedRuntimeAdvisories = parseApprovedRuntimeAdvisories(readFileSync(baselinePath, "utf8"));
 } catch (error) {
-  if (error.code === "ENOENT") fail("docs/advisory-baseline.md is missing");
-  throw error;
+  fail(error.code === "ENOENT" ? "docs/advisory-baseline.md is missing" : error.message);
 }
 const audit = spawnSync("npm", ["audit", "--omit=dev", "--json"], { encoding: "utf8" });
 if (audit.error) fail(`unable to run npm audit: ${audit.error.message}`);

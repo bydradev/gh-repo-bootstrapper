@@ -67,6 +67,7 @@ async function runFixture({
   rows,
   lintRows = [],
   alerts,
+  alertPages,
   latestReleaseRuns = [successfulRelease()],
   unfilteredReleaseRuns = latestReleaseRuns,
   successfulReleaseRuns = latestReleaseRuns,
@@ -84,7 +85,19 @@ async function runFixture({
     response.setHeader("content-type", "application/json");
     if (url.pathname === "/repos/bydradev/fixture/dependabot/alerts") {
       response.statusCode = dependabotStatus;
-      response.end(JSON.stringify(alerts));
+      if (!alertPages) {
+        response.end(JSON.stringify(alerts));
+        return;
+      }
+      // Serve one page per request and link to the next, as GitHub does.
+      const page = Number(url.searchParams.get("page") ?? "1");
+      if (page < alertPages.length) {
+        const next = new URL(url.pathname, `http://127.0.0.1:${server.address().port}`);
+        next.search = url.search;
+        next.searchParams.set("page", String(page + 1));
+        response.setHeader("link", `<${next}>; rel="next", <${next}>; rel="last"`);
+      }
+      response.end(JSON.stringify(alertPages[page - 1]));
       return;
     }
     if (url.pathname === "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs") {
@@ -114,10 +127,13 @@ async function runFixture({
     writeFileSync(join(root, "docs/advisory-baseline.md"), advisoryBaseline(rows));
     writeFileSync(join(root, "docs/lint-baseline.md"), lintBaseline(lintRows));
     const binDir = writeFakeNpm(root, fakeNpmScript ?? fakeNpmAuditJson(auditReport));
+    // Start from the host environment without the variables the script reads,
+    // so a developer's own GITHUB_TOKEN or a CI step summary never reaches it.
+    const { GITHUB_TOKEN, GITHUB_STEP_SUMMARY, ...hostEnv } = process.env;
     const child = spawn(process.execPath, [join(root, "scripts/review-baselines.mjs")], {
       cwd: root,
       env: {
-        ...process.env,
+        ...hostEnv,
         PATH: `${binDir}${delimiter}${process.env.PATH}`,
         GITHUB_API_URL: `http://127.0.0.1:${port}`,
         GITHUB_REPOSITORY: "bydradev/fixture",
@@ -226,6 +242,18 @@ test("reports orphan detection as unavailable when npm audit fails", async () =>
     output,
     /Orphaned advisory-baseline rows: could not be determined — npm audit did not return valid JSON/,
   );
+});
+
+test("follows Link-header pagination for dismissed Dependabot alerts", async () => {
+  const other = documented.replaceAll("GHSA-aaaa-bbbb-cccc", "GHSA-dddd-eeee-ffff");
+  const { code, output, requests } = await runFixture({
+    rows: [documented, other],
+    alertPages: [matchingAlert, [{ security_advisory: { ghsa_id: "GHSA-dddd-eeee-ffff" } }]],
+    auditReport: auditReportMatching("GHSA-aaaa-bbbb-cccc", "GHSA-dddd-eeee-ffff"),
+  });
+  assert.equal(code, 0, output);
+  assert.match(output, /every dismissed alert has a row and every row has a dismissed alert/);
+  assert.equal(requests.filter((request) => request.includes("dependabot/alerts")).length, 2);
 });
 
 test("reports unavailable credentials as actionable", async () => {

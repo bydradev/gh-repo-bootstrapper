@@ -90,3 +90,37 @@ test("a report without vulnerability counts fails closed", () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /incomplete or error response/);
 });
+
+test("a transitive vulnerability passes only when every advisory it reaches is documented", () => {
+  const report = {
+    metadata: { vulnerabilities: { high: 2, total: 2 } },
+    vulnerabilities: {
+      parent: { via: ["example"] },
+      example: { via: [{ url: advisoryUrl }] },
+    },
+  };
+  const row =
+    "| GHSA-aaaa-bbbb-cccc | example | high | runtime | No fixed release | Upstream fix | 2099-01-01 |";
+  const approved = runAudit(report, [row]);
+  assert.equal(approved.status, 0, approved.stderr);
+  const unapproved = runAudit(report);
+  assert.equal(unapproved.status, 1);
+  assert.match(unapproved.stderr, /Unapproved production vulnerabilities: parent, example/);
+});
+
+test("a cycle of transitive entries with no advisory fails closed", () => {
+  const result = runAudit({
+    metadata: { vulnerabilities: { high: 2, total: 2 } },
+    vulnerabilities: { first: { via: ["second"] }, second: { via: ["first"] } },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unapproved production vulnerabilities: first, second/);
+});
+
+test("a GHSA row in the wrong case is refused with a clear message", () => {
+  const row =
+    "| ghsa-aaaa-bbbb-cccc | example | high | runtime | No fixed release | Upstream fix | 2099-01-01 |";
+  const result = runAudit(vulnerableReport, [row]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /invalid GHSA identifier "ghsa-aaaa-bbbb-cccc"; write it as GitHub does/);
+});

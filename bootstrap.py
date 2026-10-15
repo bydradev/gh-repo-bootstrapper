@@ -2745,6 +2745,10 @@ def _adopt_file(
         local = [heading for row_status, heading in rows if row_status == "local"]
         if NEXTJS_BLOCK_MOVED in local:
             return ("refused", rel, "move the `next dev`-managed block back to the top of the file first")
+        structure = [heading for heading in local if heading.startswith("(")]
+        if structure:
+            return ("refused", rel, "fix this structure, or move it under ## Project specifics, first: "
+                    + "; ".join(structure))
         if local:
             return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
         differing = [heading for row_status, heading in rows if row_status in ("differs", "retired")]
@@ -2756,7 +2760,7 @@ def _adopt_file(
                 "--replace-generated-sections: " + "; ".join(differing),
             )
         added = [f"{heading} (missing; will be added)" for row_status, heading in rows
-                 if row_status == "missing"]
+                 if row_status == "missing" and heading != NEXTJS_RULES_BEGIN]
         if differing and confirm is not None and not confirm(differing + added):
             return ("refused", rel, "replacement of differing generated sections was not confirmed")
         _replace_anchored(parent, name, rebuild_agents(expected, current, replace_generated), identity)
@@ -3040,6 +3044,10 @@ def configure_repo(cfg: dict, confirm=None):
     if cfg.get("release_please_app_key"):
         plan.append("RELEASE_PLEASE_APP_KEY secret")
     plan.append("merge strategy")
+    requests = actions_policy_requests(cfg)
+    plan += [_actions_policy_step(endpoint) for endpoint, _ in requests]
+    if not existing:
+        plan.append("branch protection on main")
 
     def set_var(key: str, value: str):
         if value:
@@ -3106,10 +3114,6 @@ def configure_repo(cfg: dict, confirm=None):
 
     # --- actions permissions ---
     print("  actions permissions")
-    requests = actions_policy_requests(cfg)
-    plan += [_actions_policy_step(endpoint) for endpoint, _ in requests]
-    if not existing:
-        plan.append("branch protection on main")
     if existing:
         # An existing repository may rely on actions or tag pins the generated
         # policy forbids, or on a writable default token; show before changing.
@@ -3172,7 +3176,7 @@ def print_configuration_progress(cfg: dict):
     """After configure_repo() stopped part-way, say what was applied and what remains."""
     plan, done = cfg.get("configure_plan", []), cfg.get("configured", [])
     remaining = [step for step in plan if step not in done]
-    if not plan:
+    if not remaining:
         return
     out = sys.stderr
     print("Configuration stopped part-way; nothing applied before the failure was undone.", file=out)
@@ -3187,6 +3191,7 @@ def print_configuration_progress(cfg: dict):
         retry += ["--scheme", cfg["scheme"]]
     print("  Apply the rest by running this interactively, which asks before changing the", file=out)
     print(f"  Actions policy:\n    {shlex.join(retry)}", file=out)
+    print("  Press Enter at a credential prompt to keep a value already applied.", file=out)
     if "branch protection on main" in remaining:
         print("  --configure-only leaves branch protection alone; set it as", file=out)
         print("  docs/branch-protection-runbook.md describes.", file=out)

@@ -859,9 +859,10 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertIn(("local", "(generated heading read as code: ## Branches)"), rows)
         self._write("AGENTS.md", edited)
         self._commit_all()
-        actions = {rel: action for action, rel, _ in
+        actions = {rel: (action, detail) for action, rel, detail in
                    bootstrap.adopt_repository(self.repo, files, replace_generated=True, confirm=lambda _: True)}
-        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual(actions["AGENTS.md"][0], "refused")
+        self.assertIn("fix this structure", actions["AGENTS.md"][1])
         self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
 
     def test_replacement_prompt_lists_missing_sections(self):

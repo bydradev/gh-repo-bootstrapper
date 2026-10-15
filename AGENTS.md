@@ -166,9 +166,9 @@ here, never by editing it.
 
 > **Maintainer workflow guidance.** This file describes how work is carried out
 > *in* this repository — for the maintainer and for AI assistants working under
-> their direction. It is not an invitation to contribute. External code
-> contributions are not accepted; [`CONTRIBUTING.md`](CONTRIBUTING.md) controls
-> external submissions.
+> their direction. Outside contributors follow its commit and pull request
+> conventions; [`CONTRIBUTING.md`](CONTRIBUTING.md) covers everything else
+> about contributing, including the DCO sign-off and the licence split.
 
 ### Tooling
 

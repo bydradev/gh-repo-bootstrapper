@@ -8,9 +8,9 @@ vulnerability**. Do not open a public issue for anything exploitable or for
 information that would make exploitation easier.
 
 A proof of concept may be included in the private advisory when it is needed
-to reproduce and confirm the report. It will not be merged, and neither will a
-suggested patch; remediation is implemented independently under the policy in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+to reproduce and confirm the report. A suggested fix is welcome there too. A
+fix that is merged follows [`CONTRIBUTING.md`](CONTRIBUTING.md), including the
+sign-off on every commit.
 
 ## Scope
 

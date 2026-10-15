@@ -9,11 +9,9 @@ body:
         Thanks for reporting. A few things before you start:
 
         - **Security issue?** Don't file it here — see [SECURITY.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md).
-        - **Please describe the problem in prose, not a patch or diff.** This
-          project doesn't take external code — see
+        - **Have a fix?** Describe the problem here, then open a pull request
+          as described in
           [CONTRIBUTING.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
-          A clear description of what's wrong is more useful to us than a
-          suggested fix.
         - **Please don't paste full generated files, `.env` contents, tokens,
           or repo configuration.** File *paths* and *behaviour* are what we
           need — not the file contents.

@@ -1770,6 +1770,7 @@ github.event.pull_request.user.login != 'dependabot[bot]' &&
 # release-please.yml's own `release-please` group with cancel-in-progress:
 # false and queue: max is exempt: it serializes on purpose, and queue: max
 # keeps every pending run, so a release merge's own run is never replaced.
+# release-please.yml must keep exactly that block; leaving it out fails.
 PUSH_CONCURRENCY_GROUP_RE = re.compile(
     r"[\w-]*\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.run_id \}\}"
 )
@@ -1794,7 +1795,15 @@ def _workflow_hardening(label: str, files: dict) -> list:
             and concurrency.get("cancel-in-progress") is False
             and concurrency.get("queue") == "max"
         )
-        if "push" in triggers and concurrency is not None and not serialized:
+        if path == ".github/workflows/release-please.yml" and not serialized:
+            # Checked whether or not a concurrency block is present: dropping
+            # the whole block must fail too, not skip the push check below.
+            errors.append(
+                f"[{label}] {path} must serialize its runs with concurrency group "
+                f"release-please, cancel-in-progress: false and queue: max, or a newer "
+                f"push can replace the pending run for a release merge"
+            )
+        elif "push" in triggers and concurrency is not None and not serialized:
             group = concurrency.get("group") if isinstance(concurrency, dict) else concurrency
             if not PUSH_CONCURRENCY_GROUP_RE.fullmatch(str(group)):
                 errors.append(

@@ -193,7 +193,15 @@ class ReleaseQueueTests(unittest.TestCase):
         self.assertEqual(validate_templates._workflow_hardening("t", self._files(queued)), [])
         for missing in ({**queued, "queue": "single"}, {k: v for k, v in queued.items() if k != "queue"}):
             errors = validate_templates._workflow_hardening("t", self._files(missing))
-            self.assertTrue(errors and "release-please.yml" in errors[0], (missing, errors))
+            self.assertEqual(len(errors), 1, (missing, errors))
+            self.assertIn("queue: max", errors[0])
+
+    def test_dropping_the_concurrency_block_fails(self):
+        body = validate_templates.yaml.safe_dump({"on": {"push": {"branches": ["main"]}}, "jobs": {}})
+        files = {".github/workflows/release-please.yml": body}
+        errors = validate_templates._workflow_hardening("t", files)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("queue: max", errors[0])
 
 
 class DependabotCooldownTests(unittest.TestCase):

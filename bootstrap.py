@@ -3185,7 +3185,9 @@ def print_configuration_progress(cfg: dict):
     if "Actions policy (selected actions, SHA pinning)" in done and "Actions allowlist" in remaining:
         print("  Actions are limited to the selected policy without its allowlist, so workflows", file=out)
         print("  using third-party actions (including the PR title check) cannot run yet.", file=out)
-    retry = ["python3", "bootstrap.py", "--configure-only", "--name", cfg["name"],
+    # The interpreter and script as actually run, so the command works from
+    # any directory.
+    retry = [sys.executable, str(Path(__file__).resolve()), "--configure-only", "--name", cfg["name"],
              "--type", cfg["repo_type"], "--org", cfg["owner"]]
     if cfg.get("scheme"):
         retry += ["--scheme", cfg["scheme"]]

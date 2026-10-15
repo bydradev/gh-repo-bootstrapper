@@ -67,7 +67,9 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertIn("Not applied: Actions allowlist, default workflow token permissions, "
                       "branch protection on main", report)
         self.assertIn("without its allowlist", report)
-        self.assertIn("python3 bootstrap.py --configure-only --name example --type nextjs --org octocat", report)
+        script = str(Path(bootstrap.__file__).resolve())
+        self.assertIn(f"{sys.executable} {script} --configure-only --name example --type nextjs --org octocat",
+                      report)
         self.assertIn("docs/branch-protection-runbook.md", report)
         self.assertNotIn("private-key", report)
 

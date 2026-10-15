@@ -789,12 +789,16 @@ def _key_body_error(label: str, body: str) -> str:
             # PKCS#8: version, AlgorithmIdentifier, then the PKCS#1 key as
             # an OCTET STRING, optionally followed by attributes.
             items = _der_sequence(der)
-            if len(items) < 3 or items[0][0] != 0x02 or items[1][0] != 0x30 or items[2][0] != 0x04:
+            if (len(items) < 3 or items[0] not in ((0x02, b"\x00"), (0x02, b"\x01"))
+                    or items[1][0] != 0x30 or items[2][0] != 0x04):
                 raise ValueError("not a PKCS#8 PrivateKeyInfo")
             algorithm = _der_items(items[1][1])
             if not algorithm or bytes([algorithm[0][0], len(algorithm[0][1])]) + algorithm[0][1] != _RSA_ENCRYPTION_OID:
                 return ("is not an RSA key; GitHub signs App tokens with RS256, so "
                         "use the .pem file GitHub generated for the App")
+            # rsaEncryption parameters are NULL (RFC 8017, A.1).
+            if algorithm[1:] not in ([], [(0x05, b"")]):
+                raise ValueError("unexpected rsaEncryption parameters")
             der = items[2][1]
         if _rsa_key_consistent(der):
             return ""

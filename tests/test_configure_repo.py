@@ -283,6 +283,10 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "not base64": self.KEY.replace(self.BODY_LINE, "not key material!"),
             "PKCS#1 data under a PKCS#8 label": self.KEY.replace("RSA PRIVATE", "PRIVATE"),
             "PKCS#8 data under a PKCS#1 label": self.PKCS8_KEY.replace("PRIVATE KEY", "RSA PRIVATE KEY"),
+            "a PKCS#8 version of 2": _pem("PRIVATE KEY", _der(0x30, _der_int(2) + _der(0x30, bytes.fromhex(
+                "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER))),
+            "PKCS#8 parameters that are not NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(
+                0x30, bytes.fromhex("06092a864886f70d010101") + b"\x02\x01\x00") + _der(0x04, _TEST_RSA_DER))),
         }
         for label, value in cases.items():
             with self.subTest(label):
@@ -303,10 +307,16 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         pkcs8 = Path(tmp.name) / "pkcs8.pem"
         pkcs1 = Path(tmp.name) / "pkcs1.pem"
-        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
-                        "-out", str(pkcs8)], check=True, capture_output=True)
-        subprocess.run(["openssl", "rsa", "-traditional", "-in", str(pkcs8), "-out", str(pkcs1)],
-                       check=True, capture_output=True)
+        made = [subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
+                                "-out", str(pkcs8)], capture_output=True)]
+        # -traditional is OpenSSL 3; 1.1 and LibreSSL already write PKCS#1.
+        made.append(subprocess.run(["openssl", "rsa", "-traditional", "-in", str(pkcs8), "-out", str(pkcs1)],
+                                   capture_output=True))
+        if made[-1].returncode:
+            made.append(subprocess.run(["openssl", "rsa", "-in", str(pkcs8), "-out", str(pkcs1)],
+                                       capture_output=True))
+        if made[0].returncode or made[-1].returncode or "BEGIN RSA PRIVATE KEY" not in pkcs1.read_text():
+            self.skipTest("this openssl cannot write both PKCS#8 and PKCS#1 keys")
         for path in (pkcs8, pkcs1):
             with self.subTest(path.name):
                 text = path.read_text()
@@ -728,7 +738,8 @@ class PythonToolInstallTests(unittest.TestCase):
                 f'echo "{name} $*" >> "$LOG"\n'
             )
             fake.chmod(0o755)
-        project = "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+        app = "[project]\nname = \"sample\"\nversion = \"0.1.0\"\ndependencies = [\"idna>=3\", \"six; python_version < '3.12'\"]\n"
+        project = "[build-system]\nrequires = [\"setuptools\"]\nbuild-backend = \"setuptools.build_meta\"\n" + app
         extra = "[project.optional-dependencies]\ndev = [\"pytest\"]\n"
         group = "[dependency-groups]\ndev = [\"pytest\"]\n"
         build = "[build-system]\nrequires = [\"poetry-core\"]\nbuild-backend = \"poetry.core.masonry.api\"\n"
@@ -756,6 +767,20 @@ class PythonToolInstallTests(unittest.TestCase):
                                                   ["pip install -e .", "pip install ruff==0.16.10"]),
             "tool settings only": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
                                    ["pip install ruff==0.16.10"]),
+            "tool settings and setup.py": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n", "setup.py": ""},
+                                           ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a uv init app with a dev group": ({"pyproject.toml": app + group},
+                                               ["pip install --upgrade pip>=25.1",
+                                                "pip install idna>=3 six; python_version < '3.12' --group dev",
+                                                "pip install ruff==0.16.10"]),
+            "a uv init app with a dev extra": ({"pyproject.toml": app + extra},
+                                               ["pip install idna>=3 six; python_version < '3.12' pytest",
+                                                "pip install ruff==0.16.10"]),
+            "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
+                                                     ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a package with [tool.uv] package = false": ({"pyproject.toml": project + "[tool.uv]\npackage = false\n"},
+                                                         ["pip install idna>=3 six; python_version < '3.12'",
+                                                          "pip install ruff==0.16.10"]),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):
@@ -789,7 +814,7 @@ class PythonToolInstallTests(unittest.TestCase):
             for path, text in files.items():
                 wheel.writestr(path, text)
 
-    def test_a_dependency_group_installs_with_real_pip_in_a_scripts_repository(self):
+    def test_a_project_that_is_not_a_package_installs_with_real_pip(self):
         # The editable install a package gets would fail here: setuptools
         # cannot discover a package among several top-level modules.
         files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
@@ -800,28 +825,48 @@ class PythonToolInstallTests(unittest.TestCase):
         venv = Path(tmp.name) / "venv"
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, capture_output=True)
         pip = [str(venv / "bin" / "python"), "-m", "pip"]
-        version = subprocess.run(pip + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
-        if tuple(int(part) for part in re.findall(r"\d+", version)[:2]) < (25, 1):
-            self.skipTest(f"pip {version} bundled with this Python predates --group (25.1)")
+        def pip_version():
+            version = subprocess.run(pip + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
+            return version, tuple(int(part) for part in re.findall(r"\d+", version)[:2])
+
+        version, parsed = pip_version()
+        if parsed < (25, 1):
+            # Python 3.11 bundles an older pip; upgrade it when the index is
+            # reachable, as the workflow itself does.
+            subprocess.run(pip + ["install", "--quiet", "--upgrade", "pip>=25.1"], capture_output=True, timeout=120)
+            version, parsed = pip_version()
+        if parsed < (25, 1):
+            self.skipTest(f"pip {version} predates --group (25.1) and could not be upgraded")
         wheels = Path(tmp.name) / "wheels"
         wheels.mkdir()
         for name, pinned in (("devdep", "1.0"), ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")):
             self._write_wheel(wheels, name, pinned)
-        work = Path(tmp.name) / "project"
-        work.mkdir()
-        (work / "pyproject.toml").write_text("[dependency-groups]\ndev = [\"devdep==1.0\"]\n")
-        (work / "main.py").write_text("")
-        (work / "helper.py").write_text("")
-        result = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
-            cwd=work, capture_output=True, text=True,
-            env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
-                 "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),
-                 "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        shown = subprocess.run(pip + ["show", "devdep"], capture_output=True, text=True)
-        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self._write_wheel(wheels, "appdep", "1.0")
+        group = "[dependency-groups]\ndev = [\"devdep==1.0\"]\n"
+        layouts = {
+            "only a dev group": (group, ["devdep"]),
+            # What `uv init` writes: [project] without a [build-system].
+            "a uv init app": ("[project]\nname = \"app\"\nversion = \"0.1.0\"\n"
+                              "dependencies = [\"appdep==1.0\"]\n" + group, ["appdep", "devdep"]),
+        }
+        for label, (pyproject, installed) in layouts.items():
+            with self.subTest(label):
+                subprocess.run(pip + ["uninstall", "--yes", "--quiet", "devdep", "appdep"], capture_output=True)
+                work = Path(tempfile.mkdtemp(dir=tmp.name))
+                (work / "pyproject.toml").write_text(pyproject)
+                (work / "main.py").write_text("")
+                (work / "helper.py").write_text("")
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                    cwd=work, capture_output=True, text=True,
+                    env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
+                         "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),
+                         "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                for name in installed:
+                    shown = subprocess.run(pip + ["show", name], capture_output=True, text=True)
+                    self.assertEqual(shown.returncode, 0, f"{name} not installed")
 
 
 if __name__ == "__main__":

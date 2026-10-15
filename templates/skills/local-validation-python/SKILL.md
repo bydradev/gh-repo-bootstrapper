@@ -18,10 +18,11 @@ explicitly, so a `[tool.uv] default-groups` setting cannot leave them out. Witho
 `pyproject.toml` case CI installs `.[dev]` when a PEP 621
 `[project.optional-dependencies] dev = [...]` extra is declared, and adds
 `--group dev` when a PEP 735 `[dependency-groups] dev` group is declared (what
-`uv add --dev` writes), falling back to a plain `pip install -e .`. It skips
-the editable install when `pyproject.toml` has no `[project]` table or
-`[build-system]`, so a scripts repository with only a dev group installs just
-that group. Projects
+`uv add --dev` writes), falling back to a plain `pip install -e .`. Like uv,
+CI builds the project only when it declares a `[build-system]` (or has a
+`setup.py` or `setup.cfg`), and `[tool.uv] package` overrides that. Otherwise,
+as in what `uv init` writes, it installs the `[project]` dependencies, the dev
+extra's and the dev group without building anything. Projects
 that declare dev dependencies through tool-specific metadata instead (e.g.
 Poetry's `[tool.poetry.group.dev.dependencies]`) aren't detected — add a
 `requirements-dev.txt` to have CI install that dependency set explicitly.

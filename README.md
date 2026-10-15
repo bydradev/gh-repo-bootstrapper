@@ -437,8 +437,8 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 `bootstrap.py` now needs Python 3.11 or newer.
 
 `--adopt` brings in the template-owned files: the skills, the reviewer agents,
-`pr-title-check.yml`, `release-please.yml` and, for `nextjs`,
-`baseline-review.yml`. Add `--replace-generated-sections` to update the
+`docs/branch-protection-runbook.md`, `pr-title-check.yml`, `release-please.yml`
+and, for `nextjs`, `baseline-review.yml`. Add `--replace-generated-sections` to update the
 generated sections of `AGENTS.md`. The new `release-please.yml` uses
 `concurrency.queue: max`; a repository that runs actionlint 1.7.12 needs the
 exception shown under [Template-owned files](#template-owned-files).
@@ -449,11 +449,14 @@ changes by hand from the file in `templates/` at the `v0.11.0` tag:
 
 | Type | Repository file | Template | Change |
 |---|---|---|---|
-| `python` | `.github/workflows/test.yml` | `test-python.yml` | the install step uses `uv sync --locked` when `uv.lock` exists, and installs a `[dependency-groups] dev` group |
+| `python` | `.github/workflows/test.yml` | `test-python.yml` | the install step uses `uv sync --locked` when `uv.lock` exists and installs a `[dependency-groups] dev` group; without `uv.lock` it builds the project only when it has a `[build-system]`, `setup.py` or `setup.cfg` (or `[tool.uv] package = true`), as uv does, and otherwise installs just its dependencies |
+| `python` | `README.md` | `README-python.md` | optional: the note on committing `uv.lock` |
 | `nextjs` | `scripts/verify-baselines.mjs` and `.test.mjs` | same names | counts `.mts`/`.cts` files, JSDoc-style and `@ts-ignore: reason` directives, and wrapped `eslint-disable` lists |
 | `nextjs` | `scripts/baseline-table.mjs` | same name | refuses a GHSA ID not in GitHub's casing; such a row never matched an advisory, so fix its casing |
 | `nextjs` | `scripts/audit-production.mjs`, its test and `scripts/review-baselines.test.mjs` | same names | a malformed advisory baseline fails with its message instead of a stack trace; tests no longer read the host's `GITHUB_TOKEN` |
 | `swift` with `--xcodegen` | `.github/workflows/test.yml` | `test-swift-xcodegen.yml` | XcodeGen 2.46.0 and its SHA-256 |
+| `nextjs` | `docs/lint-baseline.md`, `docs/advisory-baseline.md` | `docs-*.md` | optional wording: the lint baseline is "mostly" self-cleaning, and `@ts-expect-error` is preferred to `@ts-ignore` |
+| `nextjs` | `.github/workflows/test.yml` | `test.yml` | a comment only |
 | all | `.github/dependabot.yml` | `dependabot-*.yml` | optional: `cooldown: default-days: 7` on each update entry |
 
 A Python repository that commits `uv.lock` should also switch its Dependabot

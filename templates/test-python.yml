@@ -43,13 +43,31 @@ jobs:
             uv.lock
       - name: Install dependencies
         run: |
-          # Which dev dependency tables pyproject.toml declares, and `package`
-          # when it declares something pip can build: a [project] table or a
-          # [build-system]. tomllib is in the standard library from Python
-          # 3.11, guaranteed by the generated .python-version pin.
-          dev_tables() {
+          # What pyproject.toml declares: `package` when pip should build and
+          # install the project, `extra` and `group` for a `dev` extra or
+          # dependency group. As uv does, a [project] with no [build-system]
+          # is not built, and [tool.uv] package overrides that; a setup.py or
+          # setup.cfg also makes a package. `pyproject deps` prints, one per
+          # line, the dependencies and dev extra of a project that is not
+          # built. tomllib is in the standard library from Python 3.11,
+          # guaranteed by the generated .python-version pin.
+          pyproject() {
             [ -f pyproject.toml ] || return 0
-            python3 -c "import tomllib; d = tomllib.load(open('pyproject.toml', 'rb')); print(*(t for t, ok in (('package', 'project' in d or 'build-system' in d), ('extra', 'dev' in d.get('project', {}).get('optional-dependencies', {})), ('group', 'dev' in d.get('dependency-groups', {}))) if ok))"
+            python3 - "$@" <<'PY'
+          import os, sys, tomllib
+          d = tomllib.load(open("pyproject.toml", "rb"))
+          project = d.get("project", {})
+          extra = project.get("optional-dependencies", {}).get("dev")
+          package = d.get("tool", {}).get("uv", {}).get("package")
+          if package is None:
+              package = "build-system" in d or any(map(os.path.exists, ("setup.py", "setup.cfg")))
+          if sys.argv[1:] == ["deps"]:
+              for requirement in project.get("dependencies", []) + (extra or []):
+                  print(requirement)
+          else:
+              print(*(word for word, ok in (("package", package), ("extra", extra is not None),
+                                            ("group", "dev" in d.get("dependency-groups", {}))) if ok))
+          PY
           }
           if [ -f uv.lock ]; then
             # A uv project: install exactly what uv.lock records, as `uv sync`
@@ -58,7 +76,7 @@ jobs:
             # explicitly, since [tool.uv] default-groups can leave `dev` out.
             # Pinned (PyPI, 2026-10-08), like the tool fallbacks below.
             pip install uv==0.12.24
-            tables=" $(dev_tables) "
+            tables=" $(pyproject) "
             dev=()
             case "$tables" in *" extra "*) dev+=(--extra dev) ;; esac
             case "$tables" in *" group "*) dev+=(--group dev) ;; esac
@@ -81,14 +99,19 @@ jobs:
               # Tool-specific tables such as Poetry's
               # [tool.poetry.group.dev.dependencies] are not detected; add a
               # requirements-dev.txt to opt in to that dependency set instead.
-              # The project itself is installed only when it is a package: a
-              # scripts repository with just [dependency-groups] has nothing
-              # to build, and pip would fail trying.
-              tables=" $(dev_tables) "
+              # The project itself is installed only when it is a package; a
+              # scripts repository gets its declared dependencies instead, so
+              # pip never tries to build what has nothing to build.
+              tables=" $(pyproject) "
               args=()
               case "$tables" in
-                *" extra "*) args+=(-e ".[dev]") ;;
-                *" package "*) args+=(-e .) ;;
+                *" package "*)
+                  case "$tables" in
+                    *" extra "*) args+=(-e ".[dev]") ;;
+                    *) args+=(-e .) ;;
+                  esac
+                  ;;
+                *) mapfile -t args < <(pyproject deps) ;;
               esac
               case "$tables" in
                 *" group "*)

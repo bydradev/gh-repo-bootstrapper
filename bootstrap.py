@@ -772,6 +772,15 @@ def _der_sequence(data: bytes) -> list[tuple[int, bytes]]:
     return _der_items(outer[0][1])
 
 
+def _der_oid_valid(content: bytes) -> bool:
+    """Whether content is a well-formed OBJECT IDENTIFIER: base-128 parts,
+    each ending on a byte without the high bit and none padded with a leading
+    0x80 byte (X.690, section 8.19.2)."""
+    if not content or content[-1] & 0x80:
+        return False
+    return all(content[i] != 0x80 for i in range(len(content)) if i == 0 or not content[i - 1] & 0x80)
+
+
 def _pkcs8_attributes_valid(content: bytes) -> bool:
     """Whether content is a PKCS#8 [0] Attributes: a SET OF Attribute, each a
     SEQUENCE of an OBJECT IDENTIFIER and a SET of values (RFC 5958, section 2;
@@ -779,7 +788,7 @@ def _pkcs8_attributes_valid(content: bytes) -> bool:
     an ANY, so only its own tag and length are read, as Node's key parser does."""
     for tag, attribute in _der_items(content):
         fields = _der_items(attribute) if tag == 0x30 else []
-        if [field_tag for field_tag, _ in fields] != [0x06, 0x31] or not fields[0][1]:
+        if [field_tag for field_tag, _ in fields] != [0x06, 0x31] or not _der_oid_valid(fields[0][1]):
             return False
         _der_items(fields[1][1])
     return True
@@ -797,7 +806,9 @@ def _rsa_key_consistent(der: bytes) -> bool:
         return False
     version, n, e, d, p, q, dp, dq, qinv = (
         int.from_bytes(content, "big", signed=True) for _tag, content in items)
-    return (version == 0 and min(e, d, p, q) > 1 and n == p * q
+    # RFC 8017 (A.1.2) puts e between 3 and n - 1; an e that is only
+    # congruent to the right value still signs, but wrongly.
+    return (version == 0 and 3 <= e < n and min(d, p, q) > 1 and n == p * q
             and dp == d % (p - 1) and dq == d % (q - 1) and 0 < qinv < p and qinv * q % p == 1
             and e * d % (p - 1) == 1 and e * d % (q - 1) == 1)
 

@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -231,13 +232,13 @@ def _pem(label, der):
     return "\n".join([f"-----BEGIN {label}-----", *lines, f"-----END {label}-----"]) + "\n"
 
 
-def _test_rsa_key(qinv_offset=0):
+def _test_rsa_key(qinv_offset=0, e_offset=0):
     """A complete, consistent PKCS#1 RSA key built from two public Mersenne
     primes. It is far too small to protect anything; it exists so the
     validator sees real key structure without a secret in the repository."""
     p, q, e = 2**127 - 1, 2**107 - 1, 65537
     d = pow(e, -1, (p - 1) * (q - 1))
-    numbers = (0, p * q, e, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p) + qinv_offset)
+    numbers = (0, p * q, e + e_offset, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p) + qinv_offset)
     return _der(0x30, b"".join(_der_int(n) for n in numbers))
 
 
@@ -333,6 +334,13 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "a PKCS#8 attribute without values": _pkcs8_with_attributes(_der(0x30, bytes.fromhex("0603550403"))),
             "a PKCS#8 attribute value that does not decode": _pkcs8_with_attributes(
                 _der(0x30, bytes.fromhex("0603550403") + _der(0x31, b"\x0c\x05ab"))),
+            "a PKCS#8 attribute with an unterminated OID": _pkcs8_with_attributes(
+                _der(0x30, bytes.fromhex("060180") + _der(0x31, _der(0x0C, b"x")))),
+            "a PKCS#8 attribute with a padded OID": _pkcs8_with_attributes(
+                _der(0x30, bytes.fromhex("0603558003") + _der(0x31, _der(0x0C, b"x")))),
+            # Congruent modulo p - 1 and q - 1, but not below n, so it signs wrongly.
+            "a public exponent past the modulus": _pem("RSA PRIVATE KEY", _test_rsa_key(
+                e_offset=1000 * math.lcm(2**127 - 2, 2**107 - 2))),
             "a PKCS#1 version encoded in two bytes": _pem("RSA PRIVATE KEY", _der(
                 0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
             "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(

@@ -871,7 +871,9 @@ class ExistingRepositoryTests(unittest.TestCase):
         # as code, so a rebuild would drop that section.
         files = _render()
         fence = "`" * 3
-        for opener, closer in (("<!-- old example", "-->"), ("<details><pre>", "</pre></details>")):
+        # `source` is a block tag in GitHub's cmark-gfm though not in CommonMark.
+        for opener, closer in (("<!-- old example", "-->"), ("<details><pre>", "</pre></details>"),
+                               ("<source", "")):
             with self.subTest(opener):
                 edited = files["AGENTS.md"].replace(
                     "## Project specifics",

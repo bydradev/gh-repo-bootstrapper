@@ -1452,12 +1452,13 @@ _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 # The start of a CommonMark HTML block, types 1 to 7. Its lines are raw HTML
 # up to its end condition, so a fence or heading inside one is text, which a
-# line scan cannot follow.
+# line scan cannot follow. The type-6 tags are CommonMark 0.31.2's plus
+# `source`, which GitHub's cmark-gfm also lists (both checked 2026-10-15).
 _HTML_BLOCK_TAGS = (
     "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
     "dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|"
     "hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|"
-    "search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
+    "search|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
 )
 _HTML_BLOCK_START_RE = re.compile(
     r"^[ \t]*(?:<(?:script|pre|style|textarea)(?:[ \t>]|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\["

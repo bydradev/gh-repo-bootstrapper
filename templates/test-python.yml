@@ -54,7 +54,7 @@ jobs:
           pyproject() {
             [ -f pyproject.toml ] || return 0
             python3 - "$@" <<'PY'
-          import os, sys, tomllib
+          import os, re, sys, tomllib
           d = tomllib.load(open("pyproject.toml", "rb"))
           project = d.get("project", {})
           extra = project.get("optional-dependencies", {}).get("dev")
@@ -62,8 +62,23 @@ jobs:
           if package is None:
               package = "build-system" in d or any(map(os.path.exists, ("setup.py", "setup.cfg")))
           if sys.argv[1:] == ["deps"]:
-              for requirement in project.get("dependencies", []) + (extra or []):
-                  print(requirement)
+              # A dev extra may name the project itself, as in
+              # "sample[test]"; that expands to those extras here rather than
+              # asking the package index for a project that is not built.
+              def key(name):
+                  return re.sub(r"[-_.]+", "-", name).lower()
+              own, extras = key(project.get("name", "")), project.get("optional-dependencies", {})
+              pending, seen = list(project.get("dependencies", [])) + list(extra or []), set()
+              while pending:
+                  requirement = pending.pop(0)
+                  match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?", requirement)
+                  if match and key(match.group(1)) == own:
+                      for name in (match.group(2) or "").split(","):
+                          if name.strip() and key(name.strip()) not in seen:
+                              seen.add(key(name.strip()))
+                              pending += next((v for k, v in extras.items() if key(k) == key(name.strip())), [])
+                  else:
+                      print(requirement)
           else:
               print(*(word for word, ok in (("package", package), ("extra", extra is not None),
                                             ("group", "dev" in d.get("dependency-groups", {}))) if ok))
@@ -101,7 +116,9 @@ jobs:
               # requirements-dev.txt to opt in to that dependency set instead.
               # The project itself is installed only when it is a package; a
               # scripts repository gets its declared dependencies instead, so
-              # pip never tries to build what has nothing to build.
+              # pip never tries to build what has nothing to build. A package
+              # without a [build-system] (say a src/ layout relying on pip's
+              # setuptools fallback) must declare one, as uv also requires.
               tables=" $(pyproject) "
               args=()
               case "$tables" in
@@ -111,7 +128,10 @@ jobs:
                     *) args+=(-e .) ;;
                   esac
                   ;;
-                *) mapfile -t args < <(pyproject deps) ;;
+                *)
+                  deps=$(pyproject deps)
+                  if [ -n "$deps" ]; then mapfile -t args <<< "$deps"; fi
+                  ;;
               esac
               case "$tables" in
                 *" group "*)

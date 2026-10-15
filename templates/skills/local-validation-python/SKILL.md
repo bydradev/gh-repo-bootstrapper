@@ -22,7 +22,8 @@ explicitly, so a `[tool.uv] default-groups` setting cannot leave them out. Witho
 CI builds the project only when it declares a `[build-system]` (or has a
 `setup.py` or `setup.cfg`), and `[tool.uv] package` overrides that. Otherwise,
 as in what `uv init` writes, it installs the `[project]` dependencies, the dev
-extra's and the dev group without building anything. Projects
+extra's and the dev group without building anything. A package, such as a
+`src/` layout, therefore needs a `[build-system]` table. Projects
 that declare dev dependencies through tool-specific metadata instead (e.g.
 Poetry's `[tool.poetry.group.dev.dependencies]`) aren't detected — add a
 `requirements-dev.txt` to have CI install that dependency set explicitly.

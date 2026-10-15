@@ -776,6 +776,12 @@ class PythonToolInstallTests(unittest.TestCase):
             "a uv init app with a dev extra": ({"pyproject.toml": app + extra},
                                                ["pip install idna>=3 six; python_version < '3.12' pytest",
                                                 "pip install ruff==0.16.10"]),
+            "an app whose dev extra names itself": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"Sample[test,lint]\", \"mypy\"]\n"
+                                         "test = [\"pytest\", \"sample[lint]\"]\nlint = [\"ruff\"]\n"},
+                ["pip install idna>=3 six; python_version < '3.12' mypy pytest ruff", "pip install ruff==0.16.10"]),
+            "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
+                                            ["pip install ruff==0.16.10"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
                                                      ["pip install -e .", "pip install ruff==0.16.10"]),
             "a package with [tool.uv] package = false": ({"pyproject.toml": project + "[tool.uv]\npackage = false\n"},
@@ -833,7 +839,9 @@ class PythonToolInstallTests(unittest.TestCase):
         if parsed < (25, 1):
             # Python 3.11 bundles an older pip; upgrade it when the index is
             # reachable, as the workflow itself does.
-            subprocess.run(pip + ["install", "--quiet", "--upgrade", "pip>=25.1"], capture_output=True, timeout=120)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                subprocess.run(pip + ["install", "--quiet", "--timeout", "15", "--disable-pip-version-check",
+                                      "--upgrade", "pip>=25.1"], capture_output=True, timeout=120)
             version, parsed = pip_version()
         if parsed < (25, 1):
             self.skipTest(f"pip {version} predates --group (25.1) and could not be upgraded")

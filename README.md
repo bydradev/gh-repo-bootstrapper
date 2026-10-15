@@ -449,7 +449,7 @@ changes by hand from the file in `templates/` at the `v0.11.0` tag:
 
 | Type | Repository file | Template | Change |
 |---|---|---|---|
-| `python` | `.github/workflows/test.yml` | `test-python.yml` | the install step uses `uv sync --locked` when `uv.lock` exists and installs a `[dependency-groups] dev` group; without `uv.lock` it builds the project only when it has a `[build-system]`, `setup.py` or `setup.cfg` (or `[tool.uv] package = true`), as uv does, and otherwise installs just its dependencies |
+| `python` | `.github/workflows/test.yml` | `test-python.yml` | the install step uses `uv sync --locked` when `uv.lock` exists and installs a `[dependency-groups] dev` group; without `uv.lock` it builds the project only when it has a `[build-system]`, `setup.py` or `setup.cfg` (or `[tool.uv] package = true`), as uv does, and otherwise installs just its dependencies. A package that relied on pip's setuptools fallback, such as a `src/` layout with no `[build-system]`, must now declare one (or set `[tool.uv] package = true`), or its tests fail to import it |
 | `python` | `README.md` | `README-python.md` | optional: the note on committing `uv.lock` |
 | `nextjs` | `scripts/verify-baselines.mjs` and `.test.mjs` | same names | counts `.mts`/`.cts` files, JSDoc-style and `@ts-ignore: reason` directives, and wrapped `eslint-disable` lists |
 | `nextjs` | `scripts/baseline-table.mjs` | same name | refuses a GHSA ID not in GitHub's casing; such a row never matched an advisory, so fix its casing |

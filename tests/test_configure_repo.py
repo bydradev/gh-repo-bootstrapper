@@ -791,8 +791,7 @@ class PythonToolInstallTests(unittest.TestCase):
             "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.16.10"]),
             "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.16.10"]),
             "a dev group in a scripts repository": ({"pyproject.toml": group},
-                                                    ["pip install --upgrade pip>=25.1", "pip install --group dev",
-                                                     "pip install ruff==0.16.10"]),
+                                                    ["pip install pytest", "pip install ruff==0.16.10"]),
             "a build backend without [project]": ({"pyproject.toml": build},
                                                   ["pip install -e .", "pip install ruff==0.16.10"]),
             "tool settings only": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
@@ -800,9 +799,7 @@ class PythonToolInstallTests(unittest.TestCase):
             "tool settings and setup.py": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n", "setup.py": ""},
                                            ["pip install -e .", "pip install ruff==0.16.10"]),
             "a uv init --no-package app with a dev group": ({"pyproject.toml": app + group},
-                                               ["pip install --upgrade pip>=25.1",
-                                                "pip install idna>=3 six --group dev",
-                                                "pip install ruff==0.16.10"]),
+                                               ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
             "a uv init --no-package app with a dev extra": ({"pyproject.toml": app + extra},
                                                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
@@ -844,6 +841,14 @@ class PythonToolInstallTests(unittest.TestCase):
             "a flake8-only setup.cfg next to an app": (
                 {"setup.cfg": "[flake8]\nmax-line-length = 100\n", "pyproject.toml": app},
                 ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "a dev group that includes a group and names the app's extra": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ntest = [\"helper\"]\n"
+                                         "[dependency-groups]\ndev = [{include-group = \"Lint\"}, \"sample[test]\"]\n"
+                                         "lint = [\"ruff\"]\n"},
+                ["pip install idna>=3 six helper ruff", "pip install ruff==0.16.10"]),
+            "a dev group that includes itself": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
+                "dependency group 'dev' includes itself"),
             "a self-reference to a URL": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample @ file:///tmp/sample-2.0.whl\"]\n"},
                 "installs this project from a URL"),

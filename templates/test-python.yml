@@ -49,12 +49,12 @@ jobs:
           # projects", checked 2026-10-15), a [project] with no [build-system]
           # is not built, and [tool.uv] package overrides that; a setup.py,
           # or a setup.cfg with setuptools metadata next to pyproject.toml,
-          # also makes a package. pip
-          # needs a pyproject.toml or setup.py to install a directory, so a
-          # lone setup.cfg is not one. `pyproject deps` prints, one per
-          # line, the dependencies and dev extra of a project that is not
-          # built. tomllib is in the standard library from Python 3.11,
-          # guaranteed by the generated .python-version pin.
+          # also makes a package. pip needs a pyproject.toml or setup.py to
+          # install a directory, so a lone setup.cfg is not one. `pyproject
+          # deps` prints, one per line, the dependencies, dev extra and dev
+          # group of a project that is not built. tomllib is in the standard
+          # library from Python 3.11, guaranteed by the generated
+          # .python-version pin.
           pyproject() {
             if [ ! -f pyproject.toml ]; then
               if [ -z "${1:-}" ] && [ -f setup.py ]; then echo package; fi
@@ -95,6 +95,16 @@ jobs:
                   sys.exit(f"pyproject.toml: requires-python {supported!r} excludes Python {platform.python_version()}")
               own = canonicalize_name(project.get("name", ""))
               extras = {canonicalize_name(k): v for k, v in project.get("optional-dependencies", {}).items()}
+              groups = {canonicalize_name(k): v for k, v in d.get("dependency-groups", {}).items()}
+              def group(name, including=()):
+                  # A PEP 735 group, with its {include-group = "..."} entries
+                  # expanded, so a self-reference in it is resolved below
+                  # rather than looked up on the package index by pip.
+                  if name in including:
+                      sys.exit(f"pyproject.toml: dependency group {name!r} includes itself")
+                  return [r for item in groups.get(name, []) for r in (
+                      group(canonicalize_name(item["include-group"]), (*including, name))
+                      if isinstance(item, dict) else [item])]
               def resolve(requested):
                   # As in the metadata a build writes: a project dependency's
                   # `extra` marker matches any requested extra, and an
@@ -103,6 +113,7 @@ jobs:
                   printed, wanted = [], set(requested)
                   pending = [(r, None) for r in project.get("dependencies", [])]
                   pending += [(r, e) for e in sorted(requested) for r in extras.get(e, [])]
+                  pending += [(r, "") for r in group("dev")]
                   seen = set(requested)
                   while pending:
                       text, source = pending.pop(0)
@@ -180,16 +191,19 @@ jobs:
                     *" extra "*) args+=(-e ".[dev]") ;;
                     *) args+=(-e .) ;;
                   esac
+                  case "$tables" in
+                    *" group "*)
+                      $install --upgrade "pip>=25.1"
+                      args+=(--group dev)
+                      ;;
+                  esac
                   ;;
                 *)
+                  # The dev extra and dev group are flattened in with the
+                  # dependencies, so a reference to the project's own extras
+                  # resolves locally.
                   deps=$(pyproject deps)
                   if [ -n "$deps" ]; then mapfile -t args <<< "$deps"; fi
-                  ;;
-              esac
-              case "$tables" in
-                *" group "*)
-                  $install --upgrade "pip>=25.1"
-                  args+=(--group dev)
                   ;;
               esac
               if [ "${#args[@]}" -gt 0 ]; then

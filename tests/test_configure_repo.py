@@ -740,7 +740,13 @@ class PythonToolInstallTests(unittest.TestCase):
                 f'echo "{name} $*" >> "$LOG"\n'
             )
             fake.chmod(0o755)
-        app = "[project]\nname = \"sample\"\nversion = \"0.1.0\"\ndependencies = [\"idna>=3\", \"six; python_version < '3.12'\"]\n"
+        # The step's python3 must be one that can import packaging, as the
+        # workflow's (which has pip) can; this interpreter has pytest's.
+        python = bin_dir / "python3"
+        python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        python.chmod(0o755)
+        app = ("[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+               "dependencies = [\"idna>=3\", \"six; python_version >= '3'\", \"never; python_version < '3'\"]\n")
         project = "[build-system]\nrequires = [\"setuptools\"]\nbuild-backend = \"setuptools.build_meta\"\n" + app
         extra = "[project.optional-dependencies]\ndev = [\"pytest\"]\n"
         group = "[dependency-groups]\ndev = [\"pytest\"]\n"
@@ -773,38 +779,29 @@ class PythonToolInstallTests(unittest.TestCase):
                                            ["pip install -e .", "pip install ruff==0.16.10"]),
             "a uv init app with a dev group": ({"pyproject.toml": app + group},
                                                ["pip install --upgrade pip>=25.1",
-                                                "pip install idna>=3 six; python_version < '3.12' --group dev",
+                                                "pip install idna>=3 six --group dev",
                                                 "pip install ruff==0.16.10"]),
             "a uv init app with a dev extra": ({"pyproject.toml": app + extra},
-                                               ["pip install idna>=3 six; python_version < '3.12' pytest",
-                                                "pip install ruff==0.16.10"]),
-            "an app whose dev extra names itself": (
-                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"Sample[test,lint]\", \"mypy\"]\n"
-                                         "test = [\"pytest\", \"sample[lint]\"]\nlint = [\"ruff\"]\n"},
-                ["pip install idna>=3 six; python_version < '3.12' mypy pytest ruff", "pip install ruff==0.16.10"]),
-            "a self-reference with a marker": (
-                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]; python_version < '3.12'\"]\n"
-                                         "test = [\"pytest\", \"tomli; python_version < '3.11'\"]\n"},
-                ["pip install idna>=3 six; python_version < '3.12' pytest; python_version < '3.12' "
-                 "tomli; (python_version < '3.11') and (python_version < '3.12')", "pip install ruff==0.16.10"]),
-            "a cycle of extras with a marker": (
-                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]; python_version < '3.12'\"]\n"
-                                         "test = [\"sample[dev]\", \"pytest\"]\n"},
-                ["pip install idna>=3 six; python_version < '3.12' pytest; python_version < '3.12'",
-                 "pip install ruff==0.16.10"]),
-            "a direct URL containing a semicolon": (
-                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test] ; os_name == 'posix'\"]\n"
-                                         "test = [\"helper @ https://example.com/pkg;a.whl\"]\n"},
-                ["pip install idna>=3 six; python_version < '3.12' helper @ https://example.com/pkg;a.whl ; os_name == 'posix'",
-                 "pip install ruff==0.16.10"]),
-            "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
-            "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
-                                            ["pip install ruff==0.16.10"]),
+                                               ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
                                                      ["pip install -e .", "pip install ruff==0.16.10"]),
             "a package with [tool.uv] package = false": ({"pyproject.toml": project + "[tool.uv]\npackage = false\n"},
-                                                         ["pip install idna>=3 six; python_version < '3.12'",
-                                                          "pip install ruff==0.16.10"]),
+                                                         ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "an app whose dev extra names itself": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"Sample[test,lint]\", \"mypy\"]\n"
+                                         "test = [\"pytest\", \"sample[lint]\"]\nlint = [\"ruff\"]\n"},
+                ["pip install idna>=3 six mypy ruff pytest", "pip install ruff==0.16.10"]),
+            "markers, a cycle and extra markers": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\n"
+                                         "dev = [\"sample[test]; python_version >= '3'\", \"skip; python_version < '3'\","
+                                         " \"helper; extra == 'dev'\", \"at; platform_release != '@'\"]\n"
+                                         "test = [\"sample[dev]\", \"pytest; extra == 'test'\", \"nope; extra == 'dev'\","
+                                         " \"url @ https://example.com/pkg;a.whl ; python_version >= '3'\"]\n"},
+                ["pip install idna>=3 six helper at pytest url @ https://example.com/pkg;a.whl",
+                 "pip install ruff==0.16.10"]),
+            "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
+                                            ["pip install ruff==0.16.10"]),
+            "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):
@@ -819,7 +816,9 @@ class PythonToolInstallTests(unittest.TestCase):
                          "GITHUB_PATH": str(Path(tmp.name) / "github-path")},
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(log.read_text().splitlines(), installs)
+                # packaging writes a direct reference as "name@ url" or
+                # "name @ url" depending on its version.
+                self.assertEqual(log.read_text().replace("@ ", " @ ").replace("  @", " @").splitlines(), installs)
 
     @staticmethod
     def _write_wheel(directory, name, version):

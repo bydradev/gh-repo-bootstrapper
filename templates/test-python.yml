@@ -57,7 +57,7 @@ jobs:
               return 0
             fi
             python3 - "$@" <<'PY'
-          import os, re, sys, tomllib
+          import os, sys, tomllib
           d = tomllib.load(open("pyproject.toml", "rb"))
           project = d.get("project", {})
           extra = project.get("optional-dependencies", {}).get("dev")
@@ -65,41 +65,35 @@ jobs:
           if package is None:
               package = "build-system" in d or any(map(os.path.exists, ("setup.py", "setup.cfg")))
           if sys.argv[1:] == ["deps"]:
-              # A dev extra may name the project itself, as in
-              # "sample[test]"; that expands to those extras here rather than
-              # asking the package index for a project that is not built. A
-              # marker on the self-reference is carried onto what it expands
-              # to, as a set of clauses, so a cycle of extras still ends.
-              def key(name):
-                  return re.sub(r"[-_.]+", "-", name).lower()
-              def split(requirement):
-                  # A direct-reference URL may contain ";", so after "@" only
-                  # a ";" preceded by whitespace starts the marker (PEP 508).
-                  found = re.search(r"\s;" if "@" in requirement else ";", requirement)
-                  if not found:
-                      return requirement.strip(), ""
-                  return requirement[:found.start()].strip(), requirement[found.end():].strip()
-              def render(spec, clauses):
-                  separator = " ; " if "@" in spec else "; "
-                  if len(clauses) == 1:
-                      return spec + separator + next(iter(clauses))
-                  return spec + separator + " and ".join(f"({clause})" for clause in sorted(clauses))
-              own, extras = key(project.get("name", "")), project.get("optional-dependencies", {})
-              pending = [(r, frozenset()) for r in list(project.get("dependencies", [])) + list(extra or [])]
-              seen = set()
+              # Parsed with packaging, or the copy pip vendors, since this is
+              # the interpreter pip installs into. Markers are evaluated here,
+              # with the extra a requirement came from, so what is printed
+              # has none. A dev extra may name the project itself, as in
+              # "sample[test]"; that expands to those extras rather than
+              # asking the package index for a project that is not built.
+              try:
+                  from packaging.requirements import Requirement
+                  from packaging.utils import canonicalize_name
+              except ImportError:
+                  from pip._vendor.packaging.requirements import Requirement
+                  from pip._vendor.packaging.utils import canonicalize_name
+              own = canonicalize_name(project.get("name", ""))
+              extras = {canonicalize_name(k): v for k, v in project.get("optional-dependencies", {}).items()}
+              pending = [(r, "") for r in project.get("dependencies", [])] + [(r, "dev") for r in extra or []]
+              seen = {"dev"}
               while pending:
-                  requirement, outer = pending.pop(0)
-                  spec, inner = split(requirement)
-                  clauses = outer | {inner} if inner else outer
-                  match = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?", spec)
-                  if match and key(match.group(1)) == own:
-                      for name in (match.group(2) or "").split(","):
-                          if name.strip() and (key(name.strip()), clauses) not in seen:
-                              seen.add((key(name.strip()), clauses))
-                              found = next((v for k, v in extras.items() if key(k) == key(name.strip())), [])
-                              pending += [(r, clauses) for r in found]
-                  else:
-                      print(render(spec, clauses) if outer else requirement)
+                  text, origin = pending.pop(0)
+                  requirement = Requirement(text)
+                  if requirement.marker and not requirement.marker.evaluate({"extra": origin}):
+                      continue
+                  requirement.marker = None
+                  if canonicalize_name(requirement.name) != own:
+                      print(requirement)
+                      continue
+                  for name in sorted(map(canonicalize_name, requirement.extras)):
+                      if name not in seen:
+                          seen.add(name)
+                          pending += [(r, name) for r in extras.get(name, [])]
           else:
               print(*(word for word, ok in (("package", package), ("extra", extra is not None),
                                             ("group", "dev" in d.get("dependency-groups", {}))) if ok))

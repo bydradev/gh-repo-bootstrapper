@@ -834,6 +834,10 @@ class PythonToolInstallTests(unittest.TestCase):
             "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
                                             ["pip install ruff==0.16.10"]),
             "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
+            # pip installs a directory only with a pyproject.toml or setup.py.
+            "only setup.cfg": ({"setup.cfg": ""}, ["pip install ruff==0.16.10"]),
+            "setup.cfg with tool settings": ({"setup.cfg": "", "pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
+                                             ["pip install -e .", "pip install ruff==0.16.10"]),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):

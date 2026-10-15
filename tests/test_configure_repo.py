@@ -48,6 +48,57 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertEqual(variable_names, ["RELEASE_PLEASE_CLIENT_ID"])
         self.assertEqual(secret_names, ["RELEASE_PLEASE_APP_KEY"])
 
+    def test_a_failed_allowlist_reports_what_was_applied_and_how_to_finish(self):
+        def run(command, **kwargs):
+            if command[:3] == ["gh", "api", "repos/octocat/example/actions/permissions/selected-actions"]:
+                raise subprocess.CalledProcessError(1, command)
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = self._config()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+            bootstrap.configure_repo(cfg)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            bootstrap.print_configuration_progress(cfg)
+        report = err.getvalue()
+        self.assertIn("Applied:     RELEASE_PLEASE_CLIENT_ID variable, RELEASE_PLEASE_APP_KEY secret, "
+                      "merge strategy, Actions policy (selected actions, SHA pinning)", report)
+        self.assertIn("Not applied: Actions allowlist, default workflow token permissions, "
+                      "branch protection on main", report)
+        self.assertIn("without its allowlist", report)
+        script = str(Path(bootstrap.__file__).resolve())
+        self.assertIn(f"{sys.executable} {script} --configure-only --name example --type nextjs --org octocat",
+                      report)
+        self.assertIn("docs/branch-protection-runbook.md", report)
+        self.assertNotIn("private-key", report)
+
+    def test_an_early_failure_still_lists_every_later_setting(self):
+        def run(command, **kwargs):
+            if "PATCH" in command:
+                raise subprocess.CalledProcessError(1, command)
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = self._config()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+            bootstrap.configure_repo(cfg)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            bootstrap.print_configuration_progress(cfg)
+        self.assertIn("Not applied: merge strategy, Actions policy (selected actions, SHA pinning), "
+                      "Actions allowlist, default workflow token permissions, branch protection on main",
+                      err.getvalue())
+        self.assertIn("docs/branch-protection-runbook.md", err.getvalue())
+
+    def test_a_completed_configuration_records_every_step(self):
+        cfg = self._config()
+        with patch.object(bootstrap.subprocess, "run",
+                          side_effect=lambda command, **kwargs: subprocess.CompletedProcess(command, 0)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.configure_repo(cfg)
+        self.assertEqual(cfg["configured"], cfg["configure_plan"])
+
     def test_creation_commands_ignore_an_inherited_index_override(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -329,6 +380,14 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
             bootstrap.configure_repo(cfg, confirm=confirm)
         writes = [command[2] for command in calls if command[:2] == ["gh", "api"] and "--method" in command]
         return writes, out.getvalue(), cfg
+
+    def test_progress_bookkeeping_for_an_existing_repository(self):
+        for confirm, applied in ((lambda: False, False), (lambda: True, True)):
+            with self.subTest(applied=applied):
+                _, _, cfg = self._configure(self.CURRENT, confirm)
+                self.assertEqual(cfg["configured"], cfg["configure_plan"])
+                self.assertNotIn("branch protection on main", cfg["configure_plan"])
+                self.assertEqual("Actions allowlist" in cfg["configure_plan"], applied)
 
     def test_existing_protection_is_never_replaced(self):
         for confirm in (None, lambda: False, lambda: True):

@@ -371,7 +371,8 @@ generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local` —
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
-an unclosed code fence). The `next dev`-managed block and everything from
+an unclosed code fence, a fence indented four or more columns, or a
+generated heading that falls inside a code block). The `next dev`-managed block and everything from
 `## Project specifics` on are the repository's own and are not compared,
 but the block must stay at the top of the file: a moved block is `local`,
 and a missing one is `missing`. Only a `## Project specifics` heading
@@ -601,6 +602,11 @@ existing repository's checks must come from its own pull requests, not from
 permissions and, for private repositories, fork PR controls) are compared with
 the generated policy; any difference is listed and applied only after you
 confirm, and `--non-interactive` lists it and leaves it unchanged.
+
+These settings are applied one at a time and nothing is rolled back. If one
+fails after the files are pushed, the script lists the settings it applied and
+the ones it did not, and prints the `--configure-only` command that applies
+the rest.
 
   Note that GitHub requires a paid plan for branch protection on **private**
   repositories. The script detects that case and reports it as manual follow-up

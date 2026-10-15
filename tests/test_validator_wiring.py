@@ -190,6 +190,11 @@ class StalePinTests(unittest.TestCase):
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("::warning file=templates/x.yml,line=12::old 50%25\n", out.getvalue())
 
+    def test_annotation_values_are_escaped(self):
+        warn = validate_templates.github_warning
+        self.assertEqual(warn("templates/a,b.yml:3: x"), "::warning file=templates/a%2Cb.yml,line=3::x")
+        self.assertEqual(warn("no location 5%\nhere"), "::warning::no location 5%25%0Ahere")
+
 
 class ReleaseQueueTests(unittest.TestCase):
     def _files(self, concurrency):
@@ -239,6 +244,9 @@ class DependabotCooldownTests(unittest.TestCase):
             ("npm", "      exclude: ['*']\n"),
             ("npm", "      exclude: ['**']\n"),
             ("npm", "      exclude: '*'\n"),
+            ("npm", "      exclude: ''\n"),
+            ("github-actions", "      exclude: ['*/*']\n"),
+            ("npm", "      include: ['left-pad']\n"),
             ("github-actions", "      semver-major-days: 30\n"),
         ):
             with self.subTest(extra):

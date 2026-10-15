@@ -1030,13 +1030,19 @@ def stale_pin_warnings(templates: dict = None, today: datetime.date = None) -> l
 
 def github_warning(warning: str) -> str:
     """A GitHub Actions ::warning command for a 'path:line: message' warning."""
+    def escape(text, extra=()):
+        # A workflow command ends at a newline, % starts an escape, and a
+        # property value also ends at , or :.
+        text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        for char in extra:
+            text = text.replace(char, f"%{ord(char):02X}")
+        return text
+
     location, _, message = warning.partition(": ")
     path, _, line = location.rpartition(":")
-    # A workflow command ends at a newline, and % starts an escape.
-    message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    if not path or not line.isdigit():
-        return f"::warning::{message or warning}"
-    return f"::warning file={path},line={line}::{message}"
+    if not message or not path or not line.isdigit():
+        return f"::warning::{escape(warning)}"
+    return f"::warning file={escape(path, ',:')},line={line}::{escape(message)}"
 
 
 def check_dependabot_cooldown(label: str, files: dict) -> list:
@@ -1058,15 +1064,22 @@ def check_dependabot_cooldown(label: str, files: dict) -> list:
                 f"from 1 to 90, so a brand-new release is not proposed the day it is published"
             )
             continue
-        # An exclude pattern of only wildcards takes every dependency out of
-        # the cooldown, and GitHub Actions supports no semver-*-days key
-        # (Dependabot options reference, "cooldown", checked 2026-10-15).
-        exclude = cooldown.get("exclude") or []
+        # An exclude pattern of only wildcards (and, for owner/repo action
+        # names, slashes) takes every dependency out of the cooldown, an
+        # include list leaves out everything it does not name, and GitHub
+        # Actions supports no semver-*-days key (Dependabot options reference,
+        # "cooldown", checked 2026-10-15).
+        exclude = cooldown.get("exclude", [])
         if not isinstance(exclude, list) or any(
-                not isinstance(item, str) or not item.strip("*") for item in exclude):
+                not isinstance(item, str) or not item.strip("*/") for item in exclude):
             errors.append(
-                f"[{label}] .github/dependabot.yml {ecosystem} cooldown.exclude must name dependencies; "
-                f"a bare * turns the cooldown off"
+                f"[{label}] .github/dependabot.yml {ecosystem} cooldown.exclude must be a list naming "
+                f"dependencies; a pattern of only * matches every one and turns the cooldown off"
+            )
+        if "include" in cooldown:
+            errors.append(
+                f"[{label}] .github/dependabot.yml {ecosystem} cooldown.include limits the cooldown to "
+                f"the dependencies it names; leave it out so every dependency waits"
             )
         semver = sorted(key for key in cooldown if str(key).startswith("semver-"))
         if ecosystem == "github-actions" and semver:

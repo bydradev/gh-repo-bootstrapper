@@ -174,7 +174,9 @@ class StalePinTests(unittest.TestCase):
 
     def test_a_stale_pin_warns_without_failing_the_run(self):
         out = io.StringIO()
+        # Outside GitHub Actions, even when this suite itself runs there.
         with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:1: old"]), \
+                patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "false"}), \
                 contextlib.redirect_stdout(out):
             code = validate_templates.main()
         self.assertEqual(code, 0, out.getvalue())

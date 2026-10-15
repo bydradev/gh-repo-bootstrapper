@@ -53,14 +53,15 @@ jobs:
           if [ -f uv.lock ]; then
             # A uv project: install exactly what uv.lock records, as `uv sync`
             # does locally. --locked fails if uv.lock is out of date with
-            # pyproject.toml. uv installs the `dev` dependency group by
-            # default; a `dev` extra is added when one is declared.
+            # pyproject.toml. A declared `dev` group and `dev` extra are named
+            # explicitly, since [tool.uv] default-groups can leave `dev` out.
             # Pinned (PyPI, 2026-10-08), like the tool fallbacks below.
             pip install uv==0.12.24
             tables=" $(dev_tables) "
-            extra=()
-            case "$tables" in *" extra "*) extra=(--extra dev) ;; esac
-            uv sync --locked "${extra[@]}"
+            dev=()
+            case "$tables" in *" extra "*) dev+=(--extra dev) ;; esac
+            case "$tables" in *" group "*) dev+=(--group dev) ;; esac
+            uv sync --locked "${dev[@]}"
             echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
             export VIRTUAL_ENV="$PWD/.venv"
             install="uv pip install"

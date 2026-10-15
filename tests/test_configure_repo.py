@@ -591,7 +591,8 @@ class PythonToolInstallTests(unittest.TestCase):
         group = "[dependency-groups]\ndev = [\"pytest\"]\n"
         cases = {
             "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
-                        ["pip install uv==0.12.24", "uv sync --locked", "uv pip install ruff==0.16.10"]),
+                        ["pip install uv==0.12.24", "uv sync --locked --group dev",
+                         "uv pip install ruff==0.16.10"]),
             "uv.lock with a dev extra": ({"pyproject.toml": project + extra, "uv.lock": ""},
                                          ["pip install uv==0.12.24", "uv sync --locked --extra dev",
                                           "uv pip install ruff==0.16.10"]),

@@ -115,19 +115,17 @@ function rulesFromEslintConfig(text) {
     .map(({ name }) => name);
 }
 
-// Yields the body of each `eslint` configuration block comment. Rather than
-// pairing every comment delimiter, which lets a string such as a
+// Yields each match of opener, a global pattern, with the comment body after it
+// up to the next closing delimiter. Rather than pairing every comment delimiter, which lets a string such as a
 // "src/**/*.ts" glob open a phantom comment that swallows a real one, it
-// reads from each opener followed by `eslint` through to the next closing
-// delimiter, which is where a real comment ends. Every opener is read in full
+// reads from each opener through to the next closing delimiter, which is where a real comment ends. Every opener is read in full
 // and independently, so no real comment can be hidden or cut short by
 // opener-shaped text before or inside it; such text is counted too, which errs
 // on the side of requiring a row. Openers sharing one closing delimiter reread
 // the same text, so more than maxOpenersPerSpan of them fails closed rather
 // than letting a pathological file make the scan quadratic.
 const maxOpenersPerSpan = 64;
-function* eslintConfigComments(source) {
-  const opener = /\/\*\s*eslint\s/gu;
+function* blockCommentBodies(source, opener, label) {
   const close = "*" + "/";
   let end = -1;
   let openersInSpan = 0;
@@ -140,11 +138,16 @@ function* eslintConfigComments(source) {
     if (end === -1) return;
     if (++openersInSpan > maxOpenersPerSpan)
       throw new Error(
-        `more than ${maxOpenersPerSpan} eslint configuration openers before one closing delimiter`,
+        `more than ${maxOpenersPerSpan} ${label} openers before one closing delimiter`,
       );
-    yield source.slice(start, end);
+    yield [match, source.slice(start, end)];
     opener.lastIndex = match.index + 1;
   }
+}
+
+function* eslintConfigComments(source) {
+  for (const [, body] of blockCommentBodies(source, /\/\*\s*eslint\s/gu, "eslint configuration"))
+    yield body;
 }
 
 // TypeScript reads @ts-ignore and @ts-expect-error in a block comment only on
@@ -156,8 +159,24 @@ function* eslintConfigComments(source) {
 // opener with a closing delimiter later on the same line, which errs on the
 // side of requiring a row. A line starting with two slashes is left to the
 // line-comment pattern, so a glob after a line directive is not counted twice.
-const tsBlockDirectives =
-  /(?:^[^\S\n]*(?!\/\/)[/*]*|\/\*[/*]*)[^\S\n]*(@ts-(?:ignore|expect-error))[^\n]*?\*\//gmu;
+// The next closing delimiter and line break are tracked as the scan moves
+// forward, so the whole file is read once however many directives it holds.
+const tsBlockDirective =
+  /(?:^[^\S\n]*(?!\/\/)[/*]*|\/\*[/*]*)[^\S\n]*(@ts-(?:ignore|expect-error))/gmu;
+function* tsBlockDirectives(source) {
+  let close = -1;
+  let lineEnd = -1;
+  const next = (text, from) => {
+    const index = source.indexOf(text, from);
+    return index === -1 ? Infinity : index;
+  };
+  for (const match of source.matchAll(tsBlockDirective)) {
+    const from = match.index + match[0].length;
+    if (close < from) close = next("*" + "/", from);
+    if (lineEnd < from) lineEnd = next("\n", from);
+    if (close < lineEnd) yield match[1];
+  }
+}
 
 function count(entries) {
   const counts = new Map();
@@ -219,21 +238,23 @@ for (const sourcePath of walk(root)) {
   // second line (checked against ESLint 10.1.0's Linter, 2026-10-14). ESLint
   // ignores a JSDoc-style directive, so only whitespace may sit between the
   // opener and the directive.
-  const blockDirectives = source.matchAll(
-    /\/\*\s*(eslint-disable(?:-next-line|-line)?)(?=\s|:|\*|$)/g,
-  );
-  for (const match of blockDirectives) {
-    const start = match.index + match[0].length;
-    const end = source.indexOf("*" + "/", start);
-    const remainder = source.slice(start, end === -1 ? source.length : end);
-    for (const rule of rulesFromEslintDirective(remainder, relativePath))
-      suppressions.push(`${relativePath}\u0000${rule}`);
+  try {
+    const disables = blockCommentBodies(
+      source,
+      /\/\*\s*eslint-disable(?:-next-line|-line)?(?=\s|:|\*|$)/gu,
+      "eslint-disable",
+    );
+    for (const [, remainder] of disables)
+      for (const rule of rulesFromEslintDirective(remainder, relativePath))
+        suppressions.push(`${relativePath}\u0000${rule}`);
+  } catch (error) {
+    fail(`${relativePath}: ${error.message}`);
   }
   // TypeScript reads @ts-nocheck only from a line comment, so a block form
   // suppresses nothing; it is counted anyway, which errs on the side of a row.
   for (const _ of source.matchAll(/\/\*[*/]*\s*@ts-nocheck(?=\s|\*|$)/g))
     suppressions.push(`${relativePath}\u0000@ts-nocheck`);
-  for (const [, directive] of source.matchAll(tsBlockDirectives))
+  for (const directive of tsBlockDirectives(source))
     suppressions.push(`${relativePath}\u0000${directive}`);
   // ESLint honours rule configuration only in block comments; a line comment
   // may carry only eslint-disable-line and eslint-disable-next-line (checked

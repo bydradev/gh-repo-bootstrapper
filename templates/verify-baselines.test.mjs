@@ -207,6 +207,19 @@ test("scans many unterminated comment openers in linear time", () => {
   assert.match(runFixture(source), /Baseline verification passed/);
 });
 
+test("scans many unterminated directive openers in linear time", () => {
+  for (const opener of ["/" + "* eslint-disable no-console ", "/" + "* @ts-ignore "])
+    assert.match(
+      runFixture(`export const text = \`${opener.repeat(50_000)}\`;\n`),
+      /Baseline verification passed/,
+    );
+});
+
+test("fails closed on too many eslint-disable openers before one closing delimiter", () => {
+  const source = ("/" + "* eslint-disable no-console ").repeat(65) + "*" + "/\n";
+  assert.match(runFixture(source), /more than 64 eslint-disable openers/);
+});
+
 test("scans its own source to the end", () => {
   const source = readFileSync(join(scriptsDirectory, "verify-baselines.mjs"), "utf8");
   const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');

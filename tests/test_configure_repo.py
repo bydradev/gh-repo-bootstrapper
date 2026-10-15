@@ -567,6 +567,61 @@ class PythonToolInstallTests(unittest.TestCase):
                 self.assertEqual(result.returncode, code, result.stdout + result.stderr)
                 self.assertEqual(log.read_text().splitlines(), installs)
 
+    def test_installs_the_dependency_set_the_project_declares(self):
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        log = Path(tmp.name) / "log"
+        bin_dir = Path(tmp.name) / "bin"
+        bin_dir.mkdir()
+        # Fake pip and uv log each install and report every tool but ruff as
+        # present, so the log holds the project's own installs and one fallback.
+        for name, show in (("pip", '"$1" = show'), ("uv", '"$1 $2" = "pip show"')):
+            fake = bin_dir / name
+            fake.write_text(
+                "#!/bin/sh\n"
+                f'if [ {show} ]; then case "$*" in *ruff*) exit 1 ;; esac; exit 0; fi\n'
+                f'echo "{name} $*" >> "$LOG"\n'
+            )
+            fake.chmod(0o755)
+        project = "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+        extra = "[project.optional-dependencies]\ndev = [\"pytest\"]\n"
+        group = "[dependency-groups]\ndev = [\"pytest\"]\n"
+        cases = {
+            "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
+                        ["pip install uv==0.12.24", "uv sync --locked --group dev",
+                         "uv pip install ruff==0.16.10"]),
+            "uv.lock with a dev extra": ({"pyproject.toml": project + extra, "uv.lock": ""},
+                                         ["pip install uv==0.12.24", "uv sync --locked --extra dev",
+                                          "uv pip install ruff==0.16.10"]),
+            "requirements-dev.txt": ({"requirements-dev.txt": "", "pyproject.toml": project + group},
+                                     ["pip install -r requirements-dev.txt", "pip install ruff==0.16.10"]),
+            "a dev dependency group": ({"pyproject.toml": project + group},
+                                       ["pip install --upgrade pip>=25.1", "pip install -e . --group dev",
+                                        "pip install ruff==0.16.10"]),
+            "a dev extra and group": ({"pyproject.toml": project + extra + group},
+                                      ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev",
+                                       "pip install ruff==0.16.10"]),
+            "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.16.10"]),
+            "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.16.10"]),
+        }
+        for label, (project_files, installs) in cases.items():
+            with self.subTest(label):
+                work = Path(tempfile.mkdtemp(dir=tmp.name))
+                for name, content in project_files.items():
+                    (work / name).write_text(content)
+                log.write_text("")
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                    cwd=work, capture_output=True, text=True,
+                    env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log),
+                         "GITHUB_PATH": str(Path(tmp.name) / "github-path")},
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(log.read_text().splitlines(), installs)
+
 
 if __name__ == "__main__":
     unittest.main()

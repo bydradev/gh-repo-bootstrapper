@@ -10,5 +10,9 @@ mypy .          # type check
 pytest          # tests
 ```
 
-Install dependencies first — use `pip install -r requirements-dev.txt`,
-`pip install -r requirements.txt`, or `pip install -e ".[dev]"` as appropriate.
+Install dependencies first, the way CI does: `uv sync` when `uv.lock` exists
+(adding `--group dev` and `--extra dev` for whichever the project declares);
+otherwise
+`pip install -r requirements-dev.txt`, `pip install -r requirements.txt`, or
+`pip install -e ".[dev]"` as appropriate, adding `--group dev` (pip 25.1 or
+later) for a `[dependency-groups]` dev group.

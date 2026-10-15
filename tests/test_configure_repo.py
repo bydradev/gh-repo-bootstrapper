@@ -250,6 +250,15 @@ def _der_sequence_body_after_version():
     return body[3:]  # drop 02 01 00
 
 
+_TEST_PUBLIC_KEY = b"\x00" + _der(0x30, _der_int((2**127 - 1) * (2**107 - 1)) + _der_int(65537))
+
+
+def _pkcs8_with_public_key(public_key):
+    """The test key as version-1 PKCS#8, carrying public_key as its [1] field."""
+    return _pem("PRIVATE KEY", _der(0x30, _der_int(1) + _der(0x30, bytes.fromhex(
+        "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, public_key)))
+
+
 class ReleasePleaseAppKeyTests(unittest.TestCase):
     """The App key is a multi-line PEM block and must arrive whole."""
 
@@ -270,9 +279,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.KEY.splitlines()), 5, "the fixture needs several body lines")
         self.assertEqual(bootstrap.app_key_error(self.KEY), "")
         self.assertEqual(bootstrap.app_key_error(self.PKCS8_KEY), "")
-        with_public_key = _pem("PRIVATE KEY", _der(0x30, _der_int(1) + _der(0x30, bytes.fromhex(
-            "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, b"\x00")))
-        self.assertEqual(bootstrap.app_key_error(with_public_key), "")
+        self.assertEqual(bootstrap.app_key_error(_pkcs8_with_public_key(_TEST_PUBLIC_KEY)), "")
         self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
         self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
         self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
@@ -303,6 +310,12 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + b"\x05\x00")),
             "a PKCS#8 public key under version 0": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, b"\x00"))),
+            # Node and OpenSSL refuse an unused-bit count over 7 (X.690, 8.6.2.2).
+            "a PKCS#8 public key with 8 unused bits": _pkcs8_with_public_key(b"\x08"),
+            "a PKCS#8 public key with unused bits": _pkcs8_with_public_key(b"\x01" + _TEST_PUBLIC_KEY[1:]),
+            "an empty PKCS#8 public key": _pkcs8_with_public_key(b"\x00"),
+            "a PKCS#8 public key for another modulus": _pkcs8_with_public_key(
+                b"\x00" + _der(0x30, _der_int((2**127 - 1) * (2**89 - 1)) + _der_int(65537))),
             "a PKCS#1 version encoded in two bytes": _pem("RSA PRIVATE KEY", _der(
                 0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
             "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(

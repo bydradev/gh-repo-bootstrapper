@@ -815,6 +815,13 @@ def _key_body_error(label: str, body: str) -> str:
             if algorithm[1:] not in ([], [(0x05, b"")]):
                 raise ValueError("unexpected rsaEncryption parameters")
             der = items[2][1]
+            if optional[-1:] == [0x81]:
+                # [1] stands in for a BIT STRING's tag: no unused bits, then
+                # the RSAPublicKey (RFC 8017, A.1.1), whose n and e must be
+                # the private key's own.
+                public = items[-1][1]
+                if public[:1] != b"\x00" or _der_sequence(public[1:]) != _der_sequence(der)[1:3]:
+                    raise ValueError("PKCS#8 public key does not match")
         if _rsa_key_consistent(der):
             return ""
     except (binascii.Error, ValueError):

@@ -47,9 +47,10 @@ git rebase --signoff upstream/main
 ```
 
 After a rebase, force-push your branch. The `dco` check lists any commit that
-is still missing a sign-off. The only commits it does not check are merges
-GitHub makes for you, with the "Update branch" button or the web conflict
-editor.
+is still missing a sign-off. It checks every commit, merges included, so
+bring your branch up to date with the rebase above rather than GitHub's
+"Update branch" button or web conflict editor: the merge commits those make
+carry no sign-off.
 
 If an AI tool helped write a commit, add the `Co-Authored-By:` trailer that
 [AGENTS.md](AGENTS.md) describes. You still sign off, and you are still

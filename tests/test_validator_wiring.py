@@ -174,11 +174,28 @@ class StalePinTests(unittest.TestCase):
 
     def test_a_stale_pin_warns_without_failing_the_run(self):
         out = io.StringIO()
+        # Outside GitHub Actions, even when this suite itself runs there.
         with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:1: old"]), \
+                patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "false"}), \
                 contextlib.redirect_stdout(out):
             code = validate_templates.main()
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("WARNING: templates/x.yml:1: old", out.getvalue())
+        self.assertNotIn("::warning", out.getvalue())
+
+    def test_a_stale_pin_is_annotated_in_github_actions(self):
+        out = io.StringIO()
+        with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:12: old 50%"]), \
+                patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "true"}), \
+                contextlib.redirect_stdout(out):
+            code = validate_templates.main()
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("::warning file=templates/x.yml,line=12::old 50%25\n", out.getvalue())
+
+    def test_annotation_values_are_escaped(self):
+        warn = validate_templates.github_warning
+        self.assertEqual(warn("templates/a,b.yml:3: x"), "::warning file=templates/a%2Cb.yml,line=3::x")
+        self.assertEqual(warn("no location 5%\nhere"), "::warning::no location 5%25%0Ahere")
 
 
 class ReleaseQueueTests(unittest.TestCase):
@@ -217,6 +234,25 @@ class DependabotCooldownTests(unittest.TestCase):
         for days in ("0", "91", "true", "seven"):
             body = good.replace("default-days: 7", f"default-days: {days}")
             self.assertEqual(len(check("t", {".github/dependabot.yml": body})), 1, days)
+
+    def test_a_cooldown_cannot_be_switched_off_or_use_unsupported_keys(self):
+        check = validate_templates.check_dependabot_cooldown
+
+        def entry(ecosystem, extra):
+            return {".github/dependabot.yml": f"version: 2\nupdates:\n  - package-ecosystem: {ecosystem}\n"
+                    f"    cooldown:\n      default-days: 7\n{extra}"}
+        self.assertEqual(check("t", entry("npm", "      exclude: ['@types/*']\n      semver-major-days: 30\n")), [])
+        for ecosystem, extra in (
+            ("npm", "      exclude: ['*']\n"),
+            ("npm", "      exclude: ['**']\n"),
+            ("npm", "      exclude: '*'\n"),
+            ("npm", "      exclude: ''\n"),
+            ("github-actions", "      exclude: ['*/*']\n"),
+            ("npm", "      include: ['left-pad']\n"),
+            ("github-actions", "      semver-major-days: 30\n"),
+        ):
+            with self.subTest(extra):
+                self.assertEqual(len(check("t", entry(ecosystem, extra))), 1)
 
 
 if __name__ == "__main__":

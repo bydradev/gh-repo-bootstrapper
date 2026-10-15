@@ -384,7 +384,8 @@ generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local` —
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
-an unclosed code fence, a fence indented four or more columns, or a
+an unclosed code fence, a fence indented four or more columns, an HTML
+block such as a `<!-- -->` comment or `<details>`, or a
 generated heading that falls inside a code block). The `next dev`-managed block and everything from
 `## Project specifics` on are the repository's own and are not compared,
 but the block must stay at the top of the file: a moved block is `local`,

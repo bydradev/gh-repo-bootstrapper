@@ -860,6 +860,15 @@ class PythonToolInstallTests(unittest.TestCase):
                  "pip install ruff==0.16.10"]),
             "an app with a Dev group": ({"pyproject.toml": app + "[dependency-groups]\nDev = [\"pytest\"]\n"},
                                         ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+            "a dev group that is a string": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = \"pytest\"\n"},
+                "dependency group 'dev' is not a list"),
+            "a dependency excluded from the dev extra": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"") + extra},
+                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+            "a dependency excluded from an extra not requested": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"")},
+                ["pip install idna>=3 helper six", "pip install ruff==0.16.10"]),
             "a dev group that includes itself": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
                 "dependency group 'dev' includes itself"),

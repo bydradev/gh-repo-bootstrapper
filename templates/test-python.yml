@@ -110,14 +110,17 @@ jobs:
                       sys.exit(f"pyproject.toml: dependency group {name!r} includes itself")
                   if including and name not in groups:
                       sys.exit(f"pyproject.toml: dependency group {including[-1]!r} includes {name!r}, which is not defined")
+                  if not isinstance(groups.get(name, []), list):
+                      sys.exit(f"pyproject.toml: dependency group {name!r} is not a list")
                   return [r for item in groups.get(name, []) for r in (
                       group(canonicalize_name(item["include-group"]), (*including, name))
                       if isinstance(item, dict) else [item])]
               def resolve(requested):
-                  # As in the metadata a build writes: a project dependency's
-                  # `extra` marker matches any requested extra, and an
-                  # optional dependency's is evaluated with the extra it is
-                  # listed under. A self-reference requests more extras.
+                  # As pip reads the metadata a build writes: a project
+                  # dependency's marker is evaluated with each requested
+                  # extra, or with "" when none is requested, and an optional
+                  # dependency's with the extra it is listed under. A
+                  # self-reference requests more extras.
                   printed, wanted = [], set(requested)
                   pending = [(r, None) for r in project.get("dependencies", [])]
                   pending += [(r, e) for e in sorted(requested) for r in extras.get(e, [])]
@@ -127,7 +130,7 @@ jobs:
                       text, source = pending.pop(0)
                       requirement = Requirement(text)
                       marker, requirement.marker = requirement.marker, None
-                      scope = ["", *sorted(wanted)] if source is None else [source]
+                      scope = (sorted(wanted) or [""]) if source is None else [source]
                       if marker and not any(marker.evaluate({"extra": e}) for e in scope):
                           continue
                       if canonicalize_name(requirement.name) != own:

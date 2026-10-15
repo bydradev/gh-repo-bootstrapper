@@ -48,6 +48,37 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertEqual(variable_names, ["RELEASE_PLEASE_CLIENT_ID"])
         self.assertEqual(secret_names, ["RELEASE_PLEASE_APP_KEY"])
 
+    def test_a_failed_allowlist_reports_what_was_applied_and_how_to_finish(self):
+        def run(command, **kwargs):
+            if command[:3] == ["gh", "api", "repos/octocat/example/actions/permissions/selected-actions"]:
+                raise subprocess.CalledProcessError(1, command)
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = self._config()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+            bootstrap.configure_repo(cfg)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            bootstrap.print_configuration_progress(cfg)
+        report = err.getvalue()
+        self.assertIn("Applied:     RELEASE_PLEASE_CLIENT_ID variable, RELEASE_PLEASE_APP_KEY secret, "
+                      "merge strategy, Actions policy (selected actions, SHA pinning)", report)
+        self.assertIn("Not applied: Actions allowlist, default workflow token permissions, "
+                      "branch protection on main", report)
+        self.assertIn("without its allowlist", report)
+        self.assertIn("python3 bootstrap.py --configure-only --name example --type nextjs --org octocat", report)
+        self.assertIn("docs/branch-protection-runbook.md", report)
+        self.assertNotIn("private-key", report)
+
+    def test_a_completed_configuration_records_every_step(self):
+        cfg = self._config()
+        with patch.object(bootstrap.subprocess, "run",
+                          side_effect=lambda command, **kwargs: subprocess.CompletedProcess(command, 0)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.configure_repo(cfg)
+        self.assertEqual(cfg["configured"], cfg["configure_plan"])
+
     def test_creation_commands_ignore_an_inherited_index_override(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

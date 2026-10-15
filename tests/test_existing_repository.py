@@ -846,6 +846,38 @@ class ExistingRepositoryTests(unittest.TestCase):
         rebuilt = bootstrap.rebuild_agents(files["AGENTS.md"], mine)
         self.assertIn("# Newer Next.js text", rebuilt)
 
+    def test_adopt_refuses_a_rebuild_around_an_indented_fence(self):
+        # A fence indented four columns pairs with a later real fence, so the
+        # scan reads the sections between them as code. A heading added under
+        # one of them must still stop a rebuild rather than be dropped.
+        files = _render()
+        edited = files["AGENTS.md"].replace(
+            "## Development workflow\n\n", "## Development workflow\n\n    ```\n    example\n\n", 1,
+        ).replace("## Branches\n\n", "## Branches\n\n### Ours\n\nKeep this.\n\n", 1)
+        rows = bootstrap.compare_agents(files["AGENTS.md"], edited)
+        self.assertIn(("local", "(code fence indented four or more columns: ```)"), rows)
+        self.assertIn(("local", "(generated heading read as code: ## Branches)"), rows)
+        self._write("AGENTS.md", edited)
+        self._commit_all()
+        actions = {rel: action for action, rel, _ in
+                   bootstrap.adopt_repository(self.repo, files, replace_generated=True, confirm=lambda _: True)}
+        self.assertEqual(actions["AGENTS.md"], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
+
+    def test_replacement_prompt_lists_missing_sections(self):
+        files = _render()
+        edited = files["AGENTS.md"].replace("## Definition of done\n\n", "## Definition of done\n\nX.\n\n", 1)
+        generated, owned = bootstrap._split_project_specifics(edited)
+        _, sections = bootstrap._agents_sections(generated)
+        branches = dict(sections)["## Branches"]
+        self._write("AGENTS.md", edited.replace(branches, "", 1))
+        self._commit_all()
+        seen = []
+        bootstrap.adopt_repository(self.repo, files, replace_generated=True,
+                                   confirm=lambda sections: seen.extend(sections) or True)
+        self.assertIn("## Definition of done", seen)
+        self.assertIn("## Branches (missing; will be added)", seen)
+
     def test_headings_inside_code_fences_are_not_sections(self):
         text = "## Tooling\n\n```sh\n# 1. Format check\ncargo fmt\n```\n\n## Next\n"
         _, sections = bootstrap._agents_sections(text)
@@ -2061,6 +2093,33 @@ class ExistingRepositoryTests(unittest.TestCase):
             self.assertEqual(os.readlink(self.repo / rel), target)
         self.assertTrue(cfg["files_pushed"])
         self.assertEqual(calls[-1][:4], ["git", "-C", str(self.repo), "push"])
+
+    def test_check_without_git_explains_instead_of_crashing(self):
+        empty = Path(self._tmp.name) / "no-tools"
+        empty.mkdir()
+        for mode in ("--check", "--adopt"):
+            with self.subTest(mode):
+                result = subprocess.run(
+                    [sys.executable, str(Path(bootstrap.__file__)), mode, str(self.repo), "--type", "python"],
+                    capture_output=True, text=True, env={**os.environ, "PATH": str(empty)},
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("git not found", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_create_and_push_clones_to_an_absolute_path(self):
+        # A relative --name starting with "-" must not reach gh as a flag.
+        files = _render()
+        cwd = os.getcwd()
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, cwd)
+        cfg = {"name": "app", "repo_type": "python", "owner": "owner",
+               "private": True, "repo_dir": Path("-x/app")}
+        calls = []
+        with unittest.mock.patch.object(bootstrap, "_run", lambda command, **kwargs: calls.append(command)):
+            bootstrap.create_and_push(cfg, files)
+        clone = next(command for command in calls if command[:3] == ["gh", "repo", "clone"])
+        self.assertEqual(clone[4], str(self.repo / "-x/app"))
 
     def test_create_and_push_refuses_before_creating_without_anchored_symlinks(self):
         files = _render()

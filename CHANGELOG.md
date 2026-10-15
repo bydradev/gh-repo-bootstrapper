@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.11.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.10.0...v0.11.0) (2026-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* require python 3.11 or newer
+
+### Features
+
+* accept outside pull requests with a dco sign-off check ([4404b30](https://github.com/bydradev/gh-repo-bootstrapper/commit/4404b30e5f2e1d61f1eecd2c0afd703ec0f2efae))
+* license templates under mit-0 so generated files need no attribution ([4404b30](https://github.com/bydradev/gh-repo-bootstrapper/commit/4404b30e5f2e1d61f1eecd2c0afd703ec0f2efae))
+* require python 3.11 or newer ([4404b30](https://github.com/bydradev/gh-repo-bootstrapper/commit/4404b30e5f2e1d61f1eecd2c0afd703ec0f2efae))
+* wait seven days before dependabot proposes a new release in generated repositories ([20510ce](https://github.com/bydradev/gh-repo-bootstrapper/commit/20510ced416de4842685183f765770973cb626b7))
+
+
+### Bug Fixes
+
+* bring the bug report form in line with current flags and types ([4e2df47](https://github.com/bydradev/gh-repo-bootstrapper/commit/4e2df474387311107ab34a108d35d8cc1c0a4035))
+* check merge commits for a dco sign-off ([4dba699](https://github.com/bydradev/gh-repo-bootstrapper/commit/4dba6992419ec78458d5c266e0a2c75cefa0033f))
+* clone to an absolute path so a name starting with a dash is not a flag ([6c16271](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c1627171c795258667465baffad530a01ff86cd))
+* count every lint suppression form the baseline check missed ([b657013](https://github.com/bydradev/gh-repo-bootstrapper/commit/b6570134cb5528ab7713a7c0d0d4eaa8bf3099f0))
+* drop stale deployment and e2e-prod references from templates ([4e2df47](https://github.com/bydradev/gh-repo-bootstrapper/commit/4e2df474387311107ab34a108d35d8cc1c0a4035))
+* explain a missing git in --check and --adopt instead of crashing ([6c16271](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c1627171c795258667465baffad530a01ff86cd))
+* install a python dev group without building a project that is not a package ([#93](https://github.com/bydradev/gh-repo-bootstrapper/issues/93)) ([66ea487](https://github.com/bydradev/gh-repo-bootstrapper/commit/66ea487f44948407172698f26807ee61b41f0b16))
+* install generated python ci dependencies from uv.lock ([#89](https://github.com/bydradev/gh-repo-bootstrapper/issues/89)) ([b657013](https://github.com/bydradev/gh-repo-bootstrapper/commit/b6570134cb5528ab7713a7c0d0d4eaa8bf3099f0))
+* print stale pin warnings as github annotations ([4dba699](https://github.com/bydradev/gh-repo-bootstrapper/commit/4dba6992419ec78458d5c266e0a2c75cefa0033f))
+* queue release runs so a newer push no longer cancels a release merge's run ([20510ce](https://github.com/bydradev/gh-repo-bootstrapper/commit/20510ced416de4842685183f765770973cb626b7))
+* read the full release please app key when prompting ([#87](https://github.com/bydradev/gh-repo-bootstrapper/issues/87)) ([4e2df47](https://github.com/bydradev/gh-repo-bootstrapper/commit/4e2df474387311107ab34a108d35d8cc1c0a4035))
+* refuse a release please app key whose key data is cut or damaged ([66ea487](https://github.com/bydradev/gh-repo-bootstrapper/commit/66ea487f44948407172698f26807ee61b41f0b16))
+* refuse agents.md rebuilds around an html block ([#94](https://github.com/bydradev/gh-repo-bootstrapper/issues/94)) ([4dba699](https://github.com/bydradev/gh-repo-bootstrapper/commit/4dba6992419ec78458d5c266e0a2c75cefa0033f))
+* refuse agents.md rebuilds the section parser cannot read safely ([#90](https://github.com/bydradev/gh-repo-bootstrapper/issues/90)) ([6c16271](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c1627171c795258667465baffad530a01ff86cd))
+* refuse wrongly cased ghsa ids in the advisory baseline ([b657013](https://github.com/bydradev/gh-repo-bootstrapper/commit/b6570134cb5528ab7713a7c0d0d4eaa8bf3099f0))
+* reject a dependabot cooldown that excludes everything or uses unsupported keys ([4dba699](https://github.com/bydradev/gh-repo-bootstrapper/commit/4dba6992419ec78458d5c266e0a2c75cefa0033f))
+* report which github settings were applied when configuration fails ([6c16271](https://github.com/bydradev/gh-repo-bootstrapper/commit/6c1627171c795258667465baffad530a01ff86cd))
+* update the pinned xcodegen to 2.46.0 ([20510ce](https://github.com/bydradev/gh-repo-bootstrapper/commit/20510ced416de4842685183f765770973cb626b7))
+
 ## [0.10.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.9.0...v0.10.0) (2026-10-11)
 
 

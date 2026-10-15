@@ -100,8 +100,16 @@ jobs:
               if supported and not SpecifierSet(supported).contains(platform.python_version(), prereleases=True):
                   sys.exit(f"pyproject.toml: requires-python {supported!r} excludes Python {platform.python_version()}")
               own = canonicalize_name(project.get("name", ""))
-              extras = {canonicalize_name(k): v for k, v in project.get("optional-dependencies", {}).items()}
-              groups = {canonicalize_name(k): v for k, v in d.get("dependency-groups", {}).items()}
+              def normalized(table, what):
+                  # Two names that normalize alike are an error, as in pip.
+                  out = {}
+                  for key, value in table.items():
+                      if canonicalize_name(key) in out:
+                          sys.exit(f"pyproject.toml: duplicate {what} name {key!r}")
+                      out[canonicalize_name(key)] = value
+                  return out
+              extras = normalized(project.get("optional-dependencies", {}), "extra")
+              groups = normalized(d.get("dependency-groups", {}), "dependency group")
               def group(name, including=()):
                   # A PEP 735 group, with its {include-group = "..."} entries
                   # expanded, so a self-reference in it is resolved below

@@ -869,6 +869,12 @@ class PythonToolInstallTests(unittest.TestCase):
             "a dependency excluded from an extra not requested": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"")},
                 ["pip install idna>=3 helper six", "pip install ruff==0.16.10"]),
+            "two groups that normalize alike": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [\"pytest\"]\nDev = [\"mypy\"]\n"},
+                "duplicate dependency group name 'Dev'"),
+            "two extras that normalize alike": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"pytest\"]\nDEV = [\"mypy\"]\n"},
+                "duplicate extra name 'DEV'"),
             "a dev group that includes itself": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
                 "dependency group 'dev' includes itself"),

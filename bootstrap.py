@@ -16,6 +16,8 @@ Requirements: Python 3.11+, gh CLI (authenticated), git
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import difflib
 import errno
 import getpass
@@ -725,6 +727,81 @@ _PEM_BEGIN_RE = re.compile(r"^-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r
 _PEM_END_RE = re.compile(r"^-----END ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[ \t\r]*$", re.MULTILINE)
 _USABLE_KEY_LABELS = frozenset({"RSA PRIVATE KEY", "PRIVATE KEY"})
 _PEM_ENCRYPTED_HEADER_RE = re.compile(r"^Proc-Type:[ \t]*4,ENCRYPTED", re.MULTILINE)
+# The DER encoding of the rsaEncryption object identifier, 1.2.840.113549.1.1.1.
+_RSA_ENCRYPTION_OID = bytes.fromhex("06092a864886f70d010101")
+
+
+def _der_items(data: bytes) -> list[tuple[int, bytes]]:
+    """Split DER bytes into (tag, content) pairs that cover them exactly.
+
+    Raises ValueError when a length runs past the end, so key data cut short
+    or with bytes missing is refused rather than read as a shorter key.
+    """
+    items, pos = [], 0
+    while pos < len(data):
+        if pos + 2 > len(data):
+            raise ValueError("truncated DER header")
+        tag, length = data[pos], data[pos + 1]
+        pos += 2
+        if length & 0x80:
+            count = length & 0x7F
+            if not 0 < count <= 4 or pos + count > len(data):
+                raise ValueError("bad DER length")
+            length = int.from_bytes(data[pos:pos + count], "big")
+            pos += count
+        if pos + length > len(data):
+            raise ValueError("DER content runs past the end")
+        items.append((tag, data[pos:pos + length]))
+        pos += length
+    return items
+
+
+def _der_sequence(data: bytes) -> list[tuple[int, bytes]]:
+    """The elements of data, which must be exactly one DER SEQUENCE."""
+    outer = _der_items(data)
+    if len(outer) != 1 or outer[0][0] != 0x30:
+        raise ValueError("not a single DER SEQUENCE")
+    return _der_items(outer[0][1])
+
+
+def _rsa_key_consistent(der: bytes) -> bool:
+    """Whether der is a PKCS#1 RSAPrivateKey whose numbers fit together.
+
+    A two-prime key (what GitHub issues) is nine INTEGERs: version 0, then
+    n, e, d, p, q, d mod (p-1), d mod (q-1) and q^-1 mod p. Checking how they
+    relate catches a corrupted byte that still decodes.
+    """
+    items = _der_sequence(der)
+    if len(items) != 9 or any(tag != 0x02 or not content for tag, content in items):
+        return False
+    version, n, e, d, p, q, dp, dq, qinv = (
+        int.from_bytes(content, "big", signed=True) for _tag, content in items)
+    return (version == 0 and min(e, d, p, q) > 1 and n == p * q
+            and dp == d % (p - 1) and dq == d % (q - 1) and qinv * q % p == 1
+            and e * d % (p - 1) == 1 and e * d % (q - 1) == 1)
+
+
+def _key_body_error(label: str, body: str) -> str:
+    """Return why a PEM body is not a complete RSA private key, or ""."""
+    try:
+        der = base64.b64decode(re.sub(r"\s+", "", body), validate=True)
+        if label == "PRIVATE KEY":
+            # PKCS#8: version, AlgorithmIdentifier, then the PKCS#1 key as
+            # an OCTET STRING, optionally followed by attributes.
+            items = _der_sequence(der)
+            if len(items) < 3 or items[0][0] != 0x02 or items[1][0] != 0x30 or items[2][0] != 0x04:
+                raise ValueError("not a PKCS#8 PrivateKeyInfo")
+            algorithm = _der_items(items[1][1])
+            if not algorithm or bytes([algorithm[0][0], len(algorithm[0][1])]) + algorithm[0][1] != _RSA_ENCRYPTION_OID:
+                return ("is not an RSA key; GitHub signs App tokens with RS256, so "
+                        "use the .pem file GitHub generated for the App")
+            der = items[2][1]
+        if _rsa_key_consistent(der):
+            return ""
+    except (binascii.Error, ValueError):
+        pass
+    return ("is incomplete or damaged (the data between the BEGIN and END lines "
+            "is not a whole RSA private key)")
 
 
 def app_key_error(value: str) -> str:
@@ -733,8 +810,9 @@ def app_key_error(value: str) -> str:
     A GitHub App private key is a multi-line PEM block. A value cut to its
     first line, as a terminal paste into a one-line prompt or a single-line
     environment variable leaves it, would be stored as a secret that only
-    fails later, when Release Please first runs. The message never quotes the
-    value.
+    fails later, when Release Please first runs. So would one missing lines
+    from its middle, so the key data itself is decoded and checked. The
+    message never quotes the value.
     """
     begin = _PEM_BEGIN_RE.search(value)
     if not begin:
@@ -756,7 +834,7 @@ def app_key_error(value: str) -> str:
     if label not in _USABLE_KEY_LABELS:
         return (f"is in the {label} format, which the release workflow cannot read; "
                 "use the .pem file GitHub generated for the App")
-    return ""
+    return _key_body_error(label, body)
 
 
 def normalize_app_key(value: str) -> str:

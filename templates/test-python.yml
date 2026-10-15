@@ -43,12 +43,13 @@ jobs:
             uv.lock
       - name: Install dependencies
         run: |
-          # Which dev dependency tables pyproject.toml declares. tomllib is in
-          # the standard library from Python 3.11, guaranteed by the generated
-          # .python-version pin.
+          # Which dev dependency tables pyproject.toml declares, and `package`
+          # when it declares something pip can build: a [project] table or a
+          # [build-system]. tomllib is in the standard library from Python
+          # 3.11, guaranteed by the generated .python-version pin.
           dev_tables() {
             [ -f pyproject.toml ] || return 0
-            python3 -c "import tomllib; d = tomllib.load(open('pyproject.toml', 'rb')); print(*(t for t, ok in (('extra', 'dev' in d.get('project', {}).get('optional-dependencies', {})), ('group', 'dev' in d.get('dependency-groups', {}))) if ok))"
+            python3 -c "import tomllib; d = tomllib.load(open('pyproject.toml', 'rb')); print(*(t for t, ok in (('package', 'project' in d or 'build-system' in d), ('extra', 'dev' in d.get('project', {}).get('optional-dependencies', {})), ('group', 'dev' in d.get('dependency-groups', {}))) if ok))"
           }
           if [ -f uv.lock ]; then
             # A uv project: install exactly what uv.lock records, as `uv sync`
@@ -80,16 +81,24 @@ jobs:
               # Tool-specific tables such as Poetry's
               # [tool.poetry.group.dev.dependencies] are not detected; add a
               # requirements-dev.txt to opt in to that dependency set instead.
+              # The project itself is installed only when it is a package: a
+              # scripts repository with just [dependency-groups] has nothing
+              # to build, and pip would fail trying.
               tables=" $(dev_tables) "
-              target="."
-              case "$tables" in *" extra "*) target=".[dev]" ;; esac
+              args=()
+              case "$tables" in
+                *" extra "*) args+=(-e ".[dev]") ;;
+                *" package "*) args+=(-e .) ;;
+              esac
               case "$tables" in
                 *" group "*)
                   $install --upgrade "pip>=25.1"
-                  $install -e "$target" --group dev
+                  args+=(--group dev)
                   ;;
-                *) $install -e "$target" ;;
               esac
+              if [ "${#args[@]}" -gt 0 ]; then
+                $install "${args[@]}"
+              fi
             fi
           fi
           # Pinned fallbacks (PyPI, 2026-10-08), so the suite does not change

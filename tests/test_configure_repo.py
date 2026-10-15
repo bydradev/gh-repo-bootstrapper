@@ -1,14 +1,18 @@
 """Regression tests for provider-free generated repository configuration."""
 
+import base64
 import contextlib
+import hashlib
 import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -208,12 +212,46 @@ class ConfigureRepoTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
 
 
+def _der(tag, content):
+    """One DER element: tag, definite length, content."""
+    length = len(content)
+    if length < 0x80:
+        return bytes([tag, length]) + content
+    size = (length.bit_length() + 7) // 8
+    return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + content
+
+
+def _der_int(value):
+    return _der(0x02, value.to_bytes(value.bit_length() // 8 + 1, "big"))
+
+
+def _pem(label, der):
+    body = base64.b64encode(der).decode()
+    lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+    return "\n".join([f"-----BEGIN {label}-----", *lines, f"-----END {label}-----"]) + "\n"
+
+
+def _test_rsa_key():
+    """A complete, consistent PKCS#1 RSA key built from two public Mersenne
+    primes. It is far too small to protect anything; it exists so the
+    validator sees real key structure without a secret in the repository."""
+    p, q, e = 2**127 - 1, 2**107 - 1, 65537
+    d = pow(e, -1, (p - 1) * (q - 1))
+    numbers = (0, p * q, e, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p))
+    return _der(0x30, b"".join(_der_int(n) for n in numbers))
+
+
+_TEST_RSA_DER = _test_rsa_key()
+
+
 class ReleasePleaseAppKeyTests(unittest.TestCase):
     """The App key is a multi-line PEM block and must arrive whole."""
 
-    # Shaped like a PEM private key; the body is not key material.
-    KEY = "-----BEGIN RSA PRIVATE KEY-----\nbm90LWEta2V5\nbm90LWEta2V5\n-----END RSA PRIVATE KEY-----\n"
+    KEY = _pem("RSA PRIVATE KEY", _TEST_RSA_DER)
+    PKCS8_KEY = _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+        "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER)))
     FIRST_LINE = "-----BEGIN RSA PRIVATE KEY-----"
+    BODY_LINE = KEY.splitlines()[1]
 
     def _key_file(self, text):
         tmp = tempfile.TemporaryDirectory()
@@ -223,14 +261,59 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         return path
 
     def test_app_key_error_accepts_only_a_complete_pem_block(self):
+        self.assertGreaterEqual(len(self.KEY.splitlines()), 5, "the fixture needs several body lines")
         self.assertEqual(bootstrap.app_key_error(self.KEY), "")
-        self.assertEqual(bootstrap.app_key_error(self.KEY.replace("RSA ", "")), "")
+        self.assertEqual(bootstrap.app_key_error(self.PKCS8_KEY), "")
         self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
         self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
         self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
         end_first = "-----END RSA PRIVATE KEY-----\n" + self.FIRST_LINE + "\n"
         self.assertIn("incomplete", bootstrap.app_key_error(end_first))
         self.assertIn("not a PEM private key", bootstrap.app_key_error("private-key"))
+
+    def test_app_key_error_refuses_key_data_that_is_cut_or_corrupted(self):
+        lines = self.KEY.splitlines(keepends=True)
+        flipped = list(self.BODY_LINE)
+        flipped[10] = "A" if flipped[10] != "A" else "B"
+        cases = {
+            "only the first body line": lines[0] + lines[1] + lines[-1],
+            "a middle line dropped": "".join(lines[:2] + lines[3:]),
+            "the last body line dropped": "".join(lines[:-2] + lines[-1:]),
+            "one character changed": self.KEY.replace(self.BODY_LINE, "".join(flipped)),
+            "not base64": self.KEY.replace(self.BODY_LINE, "not key material!"),
+            "PKCS#1 data under a PKCS#8 label": self.KEY.replace("RSA PRIVATE", "PRIVATE"),
+            "PKCS#8 data under a PKCS#1 label": self.PKCS8_KEY.replace("PRIVATE KEY", "RSA PRIVATE KEY"),
+        }
+        for label, value in cases.items():
+            with self.subTest(label):
+                error = bootstrap.app_key_error(value)
+                self.assertIn("is incomplete or damaged", error)
+                self.assertNotIn(self.BODY_LINE, error)
+
+    def test_app_key_error_refuses_a_pkcs8_key_that_is_not_rsa(self):
+        # The EC P-256 algorithm identifier with an empty key: the algorithm
+        # is refused before the key is read.
+        ec = _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+            "06072a8648ce3d020106082a8648ce3d030107")) + _der(0x04, b"")))
+        self.assertIn("is not an RSA key", bootstrap.app_key_error(ec))
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is not installed")
+    def test_app_key_error_accepts_keys_openssl_generates(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pkcs8 = Path(tmp.name) / "pkcs8.pem"
+        pkcs1 = Path(tmp.name) / "pkcs1.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
+                        "-out", str(pkcs8)], check=True, capture_output=True)
+        subprocess.run(["openssl", "rsa", "-traditional", "-in", str(pkcs8), "-out", str(pkcs1)],
+                       check=True, capture_output=True)
+        for path in (pkcs8, pkcs1):
+            with self.subTest(path.name):
+                text = path.read_text()
+                self.assertEqual(bootstrap.app_key_error(text), "")
+                lines = text.splitlines(keepends=True)
+                self.assertIn("is incomplete or damaged",
+                              bootstrap.app_key_error(lines[0] + lines[1] + lines[-1]))
 
     def test_app_key_error_tolerates_crlf_and_trailing_spaces(self):
         self.assertEqual(bootstrap.app_key_error(self.KEY.replace("\n", "\r\n")), "")
@@ -247,7 +330,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             with self.subTest(expected):
                 error = bootstrap.app_key_error(value)
                 self.assertIn(expected, error)
-                self.assertNotIn("bm90LWEta2V5", error)
+                self.assertNotIn(self.BODY_LINE, error)
 
     def test_app_key_error_refuses_a_traditionally_encrypted_key(self):
         encrypted = self.KEY.replace(
@@ -291,7 +374,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
         self.assertIn("is incomplete", out.getvalue())
         self.assertIn("cannot read", out.getvalue())
-        self.assertNotIn("bm90LWEta2V5", out.getvalue())
+        self.assertNotIn(self.BODY_LINE, out.getvalue())
 
     def test_prompt_never_prints_back_a_key_pasted_in_place_of_a_path(self):
         good = self._key_file(self.KEY)
@@ -300,7 +383,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
         self.assertIn("enter the path to the .pem file instead", out.getvalue())
-        self.assertNotIn("bm90LWEta2V5", out.getvalue())
+        self.assertNotIn(self.BODY_LINE, out.getvalue())
         self.assertNotIn("RSA PRIVATE KEY", out.getvalue())
 
     def test_prompt_reads_a_bom_prefixed_key_from_a_home_relative_path(self):
@@ -648,6 +731,7 @@ class PythonToolInstallTests(unittest.TestCase):
         project = "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
         extra = "[project.optional-dependencies]\ndev = [\"pytest\"]\n"
         group = "[dependency-groups]\ndev = [\"pytest\"]\n"
+        build = "[build-system]\nrequires = [\"poetry-core\"]\nbuild-backend = \"poetry.core.masonry.api\"\n"
         cases = {
             "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
                         ["pip install uv==0.12.24", "uv sync --locked --group dev",
@@ -665,6 +749,13 @@ class PythonToolInstallTests(unittest.TestCase):
                                        "pip install ruff==0.16.10"]),
             "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.16.10"]),
             "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a dev group in a scripts repository": ({"pyproject.toml": group},
+                                                    ["pip install --upgrade pip>=25.1", "pip install --group dev",
+                                                     "pip install ruff==0.16.10"]),
+            "a build backend without [project]": ({"pyproject.toml": build},
+                                                  ["pip install -e .", "pip install ruff==0.16.10"]),
+            "tool settings only": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
+                                   ["pip install ruff==0.16.10"]),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):
@@ -680,6 +771,57 @@ class PythonToolInstallTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(log.read_text().splitlines(), installs)
+
+    @staticmethod
+    def _write_wheel(directory, name, version):
+        """Write an empty but valid wheel, so pip can install it offline."""
+        dist_info = f"{name}-{version}.dist-info"
+        files = {
+            f"{dist_info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n",
+            f"{dist_info}/WHEEL": "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        }
+        record = []
+        for path, text in files.items():
+            digest = base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).rstrip(b"=").decode()
+            record.append(f"{path},sha256={digest},{len(text.encode())}")
+        files[f"{dist_info}/RECORD"] = "\n".join(record + [f"{dist_info}/RECORD,,"]) + "\n"
+        with zipfile.ZipFile(Path(directory) / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
+            for path, text in files.items():
+                wheel.writestr(path, text)
+
+    def test_a_dependency_group_installs_with_real_pip_in_a_scripts_repository(self):
+        # The editable install a package gets would fail here: setuptools
+        # cannot discover a package among several top-level modules.
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        venv = Path(tmp.name) / "venv"
+        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, capture_output=True)
+        pip = [str(venv / "bin" / "python"), "-m", "pip"]
+        version = subprocess.run(pip + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
+        if tuple(int(part) for part in re.findall(r"\d+", version)[:2]) < (25, 1):
+            self.skipTest(f"pip {version} bundled with this Python predates --group (25.1)")
+        wheels = Path(tmp.name) / "wheels"
+        wheels.mkdir()
+        for name, pinned in (("devdep", "1.0"), ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")):
+            self._write_wheel(wheels, name, pinned)
+        work = Path(tmp.name) / "project"
+        work.mkdir()
+        (work / "pyproject.toml").write_text("[dependency-groups]\ndev = [\"devdep==1.0\"]\n")
+        (work / "main.py").write_text("")
+        (work / "helper.py").write_text("")
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+            cwd=work, capture_output=True, text=True,
+            env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
+                 "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),
+                 "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        shown = subprocess.run(pip + ["show", "devdep"], capture_output=True, text=True)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
 
 
 if __name__ == "__main__":

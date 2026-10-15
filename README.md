@@ -432,6 +432,33 @@ of `PATH` mid-run — so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.11.0
+
+`bootstrap.py` now needs Python 3.11 or newer.
+
+`--adopt` brings in the template-owned files: the skills, the reviewer agents,
+`pr-title-check.yml`, `release-please.yml` and, for `nextjs`,
+`baseline-review.yml`. Add `--replace-generated-sections` to update the
+generated sections of `AGENTS.md`. The new `release-please.yml` uses
+`concurrency.queue: max`; a repository that runs actionlint 1.7.12 needs the
+exception shown under [Template-owned files](#template-owned-files).
+
+Every other changed file belongs to the repository. `--adopt` reports it as
+`kept` and leaves it alone, and `--check` reports it as `differs`. Merge these
+changes by hand from the file in `templates/` at the `v0.11.0` tag:
+
+| Type | Repository file | Template | Change |
+|---|---|---|---|
+| `python` | `.github/workflows/test.yml` | `test-python.yml` | the install step uses `uv sync --locked` when `uv.lock` exists, and installs a `[dependency-groups] dev` group |
+| `nextjs` | `scripts/verify-baselines.mjs` and `.test.mjs` | same names | counts `.mts`/`.cts` files, JSDoc-style and `@ts-ignore: reason` directives, and wrapped `eslint-disable` lists |
+| `nextjs` | `scripts/baseline-table.mjs` | same name | refuses a GHSA ID not in GitHub's casing; such a row never matched an advisory, so fix its casing |
+| `nextjs` | `scripts/audit-production.mjs`, its test and `scripts/review-baselines.test.mjs` | same names | a malformed advisory baseline fails with its message instead of a stack trace; tests no longer read the host's `GITHUB_TOKEN` |
+| `swift` with `--xcodegen` | `.github/workflows/test.yml` | `test-swift-xcodegen.yml` | XcodeGen 2.46.0 and its SHA-256 |
+| all | `.github/dependabot.yml` | `dependabot-*.yml` | optional: `cooldown: default-days: 7` on each update entry |
+
+A Python repository that commits `uv.lock` should also switch its Dependabot
+`pip` entry to `uv`.
+
 ## Repository types
 
 Every type gets a type-specific `README.md` starter, `AGENTS.md` and
@@ -638,10 +665,10 @@ The script prompts for these interactively, or reads them from environment
 variables in `--non-interactive` mode. The App key is the complete multi-line
 PEM file GitHub gives you, so the interactive prompt asks for the path to that
 `.pem` file rather than its text: a one-line prompt keeps only the first line
-of a pasted key. In either mode, a value that is not a complete, unencrypted PEM
-private key in the PKCS#1 or PKCS#8 form GitHub issues (for example one cut
-short before its `-----END … PRIVATE KEY-----` line, or one converted to the
-OpenSSH format) is refused instead of being stored as a secret that fails on the
+of a pasted key. In either mode, a value that is not a complete, unencrypted
+RSA private key in the PKCS#1 or PKCS#8 PEM form GitHub issues (for example one
+cut short before its `-----END … PRIVATE KEY-----` line, one missing lines of
+key data, or one converted to the OpenSSH format) is refused instead of being stored as a secret that fails on the
 first release. A `--dry-run` stores nothing, so it does not check the key. The path is read without echo, like a password, so a key pasted there
 by mistake is not shown; type it as plain text, without the quotes or
 backslashes a terminal adds when a file is dragged onto it. In

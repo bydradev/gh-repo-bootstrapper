@@ -257,4 +257,8 @@ jobs:
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy .
-      - run: pytest
+      # python -m puts the repository root on sys.path, so tests import a
+      # project that is not installed: one with no [build-system], which the
+      # step above does not build and uv sync leaves out (pytest docs,
+      # "Invoking pytest versus python -m pytest", checked 2026-10-15).
+      - run: python -m pytest

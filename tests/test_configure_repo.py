@@ -1014,6 +1014,44 @@ class PythonToolInstallTests(unittest.TestCase):
                  "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
         )
 
+    def test_tests_import_a_project_that_is_not_installed(self):
+        # A project the step does not build (and one uv sync leaves
+        # uninstalled) is importable only from the repository root, which
+        # the test step must put on sys.path itself.
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        command = next(step["run"] for step in steps
+                       if "pytest" in step.get("run", "") and step.get("name") != "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        bin_dir = Path(tmp.name) / "bin"
+        bin_dir.mkdir()
+        # `python` keeps this interpreter (and its environment); `pytest` is
+        # what pip writes as the console script.
+        (bin_dir / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        (bin_dir / "pytest").write_text(
+            f"#!{sys.executable}\nimport sys\nimport pytest\nsys.exit(pytest.main())\n")
+        for script in bin_dir.iterdir():
+            script.chmod(0o755)
+        test = "def test_it():\n    from {} import value\n    assert value == 1\n"
+        layouts = {
+            "a scripts repository": ({"main.py": "value = 1\n", "helper.py": ""}, "main"),
+            "a flat package": ({"mypkg/__init__.py": "value = 1\n"}, "mypkg"),
+        }
+        for label, (sources, module) in layouts.items():
+            with self.subTest(label):
+                work = Path(tempfile.mkdtemp(dir=tmp.name))
+                (work / "pyproject.toml").write_text("[project]\nname = \"app\"\nversion = \"0.1.0\"\n")
+                for name, content in {**sources, "tests/test_it.py": test.format(module)}.items():
+                    (work / name).parent.mkdir(parents=True, exist_ok=True)
+                    (work / name).write_text(content)
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command],
+                    cwd=work, capture_output=True, text=True,
+                    env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": tmp.name},
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_project_that_is_not_a_package_installs_with_real_pip(self):
         # The editable install a package gets would fail here: setuptools
         # cannot discover a package among several top-level modules.

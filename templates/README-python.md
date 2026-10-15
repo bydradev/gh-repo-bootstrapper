@@ -54,7 +54,7 @@ runs all four.
 ruff format --check .
 ruff check .
 mypy .
-pytest
+python -m pytest
 ```
 
 ## Project guide

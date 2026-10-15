@@ -4,10 +4,10 @@
 Run all checks before pushing:
 
 ```sh
-ruff format .   # format (CI runs ruff format --check .)
-ruff check .    # lint (matches CI)
-mypy .          # type check
-pytest          # tests
+ruff format .     # format (CI runs ruff format --check .)
+ruff check .      # lint (matches CI)
+mypy .            # type check
+python -m pytest  # tests
 ```
 
 Install dependencies first, the way CI does: `uv sync` when `uv.lock` exists

@@ -1,10 +1,9 @@
 name: dco
 
 # Checks the Developer Certificate of Origin sign-off that CONTRIBUTING.md asks
-# of outside contributors: every commit in the pull request, apart from merges
-# GitHub itself made, needs a "Signed-off-by:" trailer with the commit author's
-# email. Pull requests from
-# the owner, organisation members, collaborators and bots are skipped; a
+# of outside contributors: every commit in the pull request, merges
+# included, needs a "Signed-off-by:" trailer with the commit author's email.
+# Pull requests from the owner, organisation members, collaborators and bots are skipped; a
 # skipped run still satisfies the check if it is ever made required (see
 # docs/branch-protection-runbook.md).
 #
@@ -18,7 +17,6 @@ name: dco
 on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
-    branches: [main]
 
 permissions:
   contents: read
@@ -46,7 +44,7 @@ jobs:
         run: |
           commits="$RUNNER_TEMP/commits.jsonl"
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
-            --jq '.[] | {sha, parents: (.parents | length), committer: .committer.login, verified: .commit.verification.verified, email: .commit.author.email, message: .commit.message}' \
+            --jq '.[] | {sha, email: .commit.author.email, message: .commit.message}' \
             > "$commits"
           python3 - "$commits" "$PR_COMMITS" <<'PY'
           import json
@@ -66,13 +64,10 @@ jobs:
           trailer = re.compile(r"^Signed-off-by: [^\n]+ <([^<>\n]+)>[^\S\n]*$", re.MULTILINE | re.IGNORECASE)
           missing = []
           for commit in commits:
-              # A merge made on GitHub ("Update branch", or resolving conflicts
-              # in the web editor) is committed by web-flow and signed with
-              # GitHub's key. The committer login alone follows the committer
-              # email, which anyone can set, so the signature must verify too.
-              # Any other merge could carry new content and needs a sign-off.
-              if commit["parents"] > 1 and commit["committer"] == "web-flow" and commit["verified"] is True:
-                  continue
+              # Merges are checked too. A merge GitHub makes is signed with its
+              # key, but its web conflict editor lets the author type any
+              # content into one, so a verified merge can still carry
+              # unsigned changes.
               emails = {email.lower() for email in trailer.findall(commit["message"])}
               if (commit["email"] or "").lower() not in emails:
                   # Only the sha is printed: commit text is the contributor's,
@@ -81,7 +76,8 @@ jobs:
           if missing:
               print("These commits need a Signed-off-by line with the commit author's email:")
               print("\n".join(f"  {line}" for line in missing))
-              print("Add it with `git rebase --signoff upstream/main` and force-push your branch.")
+              print("Add it with `git rebase --signoff upstream/main` and force-push your branch;")
+              print("the rebase also replaces any merge commit, such as one from 'Update branch'.")
               print("See CONTRIBUTING.md, 'Sign off every commit'.")
               sys.exit(1)
           print("Every commit is signed off.")

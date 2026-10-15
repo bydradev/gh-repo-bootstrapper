@@ -1,0 +1,79 @@
+name: dco
+
+# Checks the Developer Certificate of Origin sign-off that CONTRIBUTING.md asks
+# of outside contributors: every non-merge commit in the pull request needs a
+# "Signed-off-by:" trailer with the commit author's email. Pull requests from
+# the owner, organisation members, collaborators and bots are skipped; a
+# skipped run still satisfies the check if it is ever made required (see
+# docs/branch-protection-runbook.md).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+# Fork pull requests run with a read-only token. Nothing from the pull request
+# is checked out or executed: the commits are read through the API, and every
+# pull-request value reaches the script through env, never through ${{ }} in run.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sign-off:
+    if: >-
+      github.event.pull_request.user.type != 'Bot' &&
+      !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'),
+        github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check every commit is signed off
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+        run: |
+          commits="$RUNNER_TEMP/commits.jsonl"
+          gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | {sha, parents: (.parents | length), email: .commit.author.email, message: .commit.message}' \
+            > "$commits"
+          python3 - "$commits" "$PR_COMMITS" <<'PY'
+          import json
+          import re
+          import sys
+
+          path, expected = sys.argv[1], int(sys.argv[2])
+          with open(path, encoding="utf-8") as handle:
+              commits = [json.loads(line) for line in handle if line.strip()]
+          # The API lists at most 250 commits per pull request; fail closed
+          # rather than pass a pull request whose later commits went unread.
+          if len(commits) != expected:
+              sys.exit(
+                  f"Read {len(commits)} of {expected} commits; split the pull "
+                  "request so every commit can be checked."
+              )
+          trailer = re.compile(r"^Signed-off-by: .+ <([^<>]+)>\s*$", re.MULTILINE | re.IGNORECASE)
+          missing = []
+          for commit in commits:
+              # A merge commit, such as GitHub's "Update branch", adds no
+              # authored change of its own.
+              if commit["parents"] > 1:
+                  continue
+              emails = {email.lower() for email in trailer.findall(commit["message"])}
+              if (commit["email"] or "").lower() not in emails:
+                  # Only the sha is printed: commit text is the contributor's,
+                  # and a line of it could read as a workflow command.
+                  missing.append(commit["sha"])
+          if missing:
+              print("These commits need a Signed-off-by line with the commit author's email:")
+              print("\n".join(f"  {line}" for line in missing))
+              print("Add it with `git rebase --signoff origin/main` and force-push your branch.")
+              print("See CONTRIBUTING.md, 'Sign off every commit'.")
+              sys.exit(1)
+          print("Every non-merge commit is signed off.")
+          PY

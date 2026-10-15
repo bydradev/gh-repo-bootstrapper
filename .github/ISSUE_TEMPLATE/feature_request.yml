@@ -7,11 +7,9 @@ body:
     attributes:
       value: |
         Feature ideas are genuinely wanted. Please describe the problem and
-        the behaviour you'd like — not a patch or diff. This project doesn't
-        take external code; see
+        the behaviour you'd like. If you want to build it yourself, agree the
+        approach here first, then follow
         [CONTRIBUTING.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
-        If this idea leads to a change, it'll be implemented independently
-        and credited in the release notes.
 
   - type: checkboxes
     id: prerequisites

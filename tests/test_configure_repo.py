@@ -285,6 +285,8 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "PKCS#8 data under a PKCS#1 label": self.PKCS8_KEY.replace("PRIVATE KEY", "RSA PRIVATE KEY"),
             "a PKCS#8 version of 2": _pem("PRIVATE KEY", _der(0x30, _der_int(2) + _der(0x30, bytes.fromhex(
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER))),
+            "a PKCS#8 key with a trailing NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+                "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + b"\x05\x00")),
             "PKCS#8 parameters that are not NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(
                 0x30, bytes.fromhex("06092a864886f70d010101") + b"\x02\x01\x00") + _der(0x04, _TEST_RSA_DER))),
         }
@@ -785,6 +787,17 @@ class PythonToolInstallTests(unittest.TestCase):
                                          "test = [\"pytest\", \"tomli; python_version < '3.11'\"]\n"},
                 ["pip install idna>=3 six; python_version < '3.12' pytest; python_version < '3.12' "
                  "tomli; (python_version < '3.11') and (python_version < '3.12')", "pip install ruff==0.16.10"]),
+            "a cycle of extras with a marker": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]; python_version < '3.12'\"]\n"
+                                         "test = [\"sample[dev]\", \"pytest\"]\n"},
+                ["pip install idna>=3 six; python_version < '3.12' pytest; python_version < '3.12'",
+                 "pip install ruff==0.16.10"]),
+            "a direct URL containing a semicolon": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test] ; os_name == 'posix'\"]\n"
+                                         "test = [\"helper @ https://example.com/pkg;a.whl\"]\n"},
+                ["pip install idna>=3 six; python_version < '3.12' helper @ https://example.com/pkg;a.whl ; os_name == 'posix'",
+                 "pip install ruff==0.16.10"]),
+            "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
             "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
                                             ["pip install ruff==0.16.10"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},

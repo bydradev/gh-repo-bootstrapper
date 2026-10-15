@@ -780,6 +780,11 @@ class PythonToolInstallTests(unittest.TestCase):
                 {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"Sample[test,lint]\", \"mypy\"]\n"
                                          "test = [\"pytest\", \"sample[lint]\"]\nlint = [\"ruff\"]\n"},
                 ["pip install idna>=3 six; python_version < '3.12' mypy pytest ruff", "pip install ruff==0.16.10"]),
+            "a self-reference with a marker": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]; python_version < '3.12'\"]\n"
+                                         "test = [\"pytest\", \"tomli; python_version < '3.11'\"]\n"},
+                ["pip install idna>=3 six; python_version < '3.12' pytest; python_version < '3.12' "
+                 "tomli; (python_version < '3.11') and (python_version < '3.12')", "pip install ruff==0.16.10"]),
             "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
                                             ["pip install ruff==0.16.10"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},

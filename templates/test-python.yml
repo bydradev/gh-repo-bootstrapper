@@ -64,21 +64,30 @@ jobs:
           if sys.argv[1:] == ["deps"]:
               # A dev extra may name the project itself, as in
               # "sample[test]"; that expands to those extras here rather than
-              # asking the package index for a project that is not built.
+              # asking the package index for a project that is not built. A
+              # marker on the self-reference is carried onto what it expands to.
               def key(name):
                   return re.sub(r"[-_.]+", "-", name).lower()
+              def with_marker(requirement, outer):
+                  if not outer:
+                      return requirement
+                  spec, _, inner = requirement.partition(";")
+                  return f"{spec.strip()}; ({inner.strip()}) and ({outer})" if inner.strip() else f"{spec.strip()}; {outer}"
               own, extras = key(project.get("name", "")), project.get("optional-dependencies", {})
-              pending, seen = list(project.get("dependencies", [])) + list(extra or []), set()
+              pending = [(r, "") for r in list(project.get("dependencies", [])) + list(extra or [])]
+              seen = set()
               while pending:
-                  requirement = pending.pop(0)
+                  requirement, outer = pending.pop(0)
                   match = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?", requirement)
                   if match and key(match.group(1)) == own:
+                      marker = with_marker(requirement, outer).partition(";")[2].strip()
                       for name in (match.group(2) or "").split(","):
-                          if name.strip() and key(name.strip()) not in seen:
-                              seen.add(key(name.strip()))
-                              pending += next((v for k, v in extras.items() if key(k) == key(name.strip())), [])
+                          if name.strip() and (key(name.strip()), marker) not in seen:
+                              seen.add((key(name.strip()), marker))
+                              found = next((v for k, v in extras.items() if key(k) == key(name.strip())), [])
+                              pending += [(r, marker) for r in found]
                   else:
-                      print(requirement)
+                      print(with_marker(requirement, outer))
           else:
               print(*(word for word, ok in (("package", package), ("extra", extra is not None),
                                             ("group", "dev" in d.get("dependency-groups", {}))) if ok))

@@ -7,9 +7,9 @@ name: dco
 # skipped run still satisfies the check if it is ever made required (see
 # docs/branch-protection-runbook.md).
 #
-# pull_request_target runs this file as it is on main, so a pull request cannot
-# weaken the check by editing it, and it runs without waiting for a first-time
-# contributor's workflows to be approved. That trigger is unsafe only when it
+# pull_request_target runs this file as it is on the pull request's base branch,
+# so a pull request cannot weaken the check by editing it, and it runs without
+# waiting for a first-time contributor's workflows to be approved. That trigger is unsafe only when it
 # runs the pull request's code or interpolates its text into a script; this
 # job does neither. Nothing is checked out, the commits are read through the
 # API, every pull-request value reaches the script through env (never through

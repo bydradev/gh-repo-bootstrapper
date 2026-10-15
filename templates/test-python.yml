@@ -40,34 +40,63 @@ jobs:
           cache-dependency-path: |
             **/requirements*.txt
             pyproject.toml
+            uv.lock
       - name: Install dependencies
         run: |
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
-          elif [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          elif [ -f pyproject.toml ]; then
-            # Detect a PEP 621 `[project.optional-dependencies] dev = [...]`
-            # extra via tomllib (stdlib, requires Python 3.11+ — guaranteed by
-            # the generated .python-version pin) instead of parsing pip's
-            # error text, which isn't a stable API and (depending on pip
-            # version/resolver) can warn-and-succeed rather than fail outright
-            # for an undefined extra. Projects that declare dev dependencies
-            # via tool-specific metadata (e.g. Poetry's
-            # [tool.poetry.group.dev.dependencies]) aren't PEP 621
-            # optional-dependencies and won't be detected here — add a
-            # requirements-dev.txt to opt in to that dependency set instead.
-            if python3 -c "import sys, tomllib; extras = tomllib.load(open('pyproject.toml', 'rb')).get('project', {}).get('optional-dependencies', {}); sys.exit(0 if 'dev' in extras else 1)"; then
-              pip install -e ".[dev]"
-            else
-              pip install -e .
+          # Which dev dependency tables pyproject.toml declares. tomllib is in
+          # the standard library from Python 3.11, guaranteed by the generated
+          # .python-version pin.
+          dev_tables() {
+            [ -f pyproject.toml ] || return 0
+            python3 -c "import tomllib; d = tomllib.load(open('pyproject.toml', 'rb')); print(*(t for t, ok in (('extra', 'dev' in d.get('project', {}).get('optional-dependencies', {})), ('group', 'dev' in d.get('dependency-groups', {}))) if ok))"
+          }
+          if [ -f uv.lock ]; then
+            # A uv project: install exactly what uv.lock records, as `uv sync`
+            # does locally. --locked fails if uv.lock is out of date with
+            # pyproject.toml. A declared `dev` group and `dev` extra are named
+            # explicitly, since [tool.uv] default-groups can leave `dev` out.
+            # Pinned (PyPI, 2026-10-08), like the tool fallbacks below.
+            pip install uv==0.12.24
+            tables=" $(dev_tables) "
+            dev=()
+            case "$tables" in *" extra "*) dev+=(--extra dev) ;; esac
+            case "$tables" in *" group "*) dev+=(--group dev) ;; esac
+            uv sync --locked "${dev[@]}"
+            echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+            export VIRTUAL_ENV="$PWD/.venv"
+            install="uv pip install"
+            show="uv pip show"
+          else
+            install="pip install"
+            show="pip show"
+            if [ -f requirements-dev.txt ]; then
+              $install -r requirements-dev.txt
+            elif [ -f requirements.txt ]; then
+              $install -r requirements.txt
+            elif [ -f pyproject.toml ]; then
+              # A PEP 621 `[project.optional-dependencies] dev` extra and a
+              # PEP 735 `[dependency-groups] dev` group (what `uv add --dev`
+              # writes) are both installed; pip reads groups from 25.1.
+              # Tool-specific tables such as Poetry's
+              # [tool.poetry.group.dev.dependencies] are not detected; add a
+              # requirements-dev.txt to opt in to that dependency set instead.
+              tables=" $(dev_tables) "
+              target="."
+              case "$tables" in *" extra "*) target=".[dev]" ;; esac
+              case "$tables" in
+                *" group "*)
+                  $install --upgrade "pip>=25.1"
+                  $install -e "$target" --group dev
+                  ;;
+                *) $install -e "$target" ;;
+              esac
             fi
           fi
           # Pinned fallbacks (PyPI, 2026-10-08), so the suite does not change
           # with each upstream release; a version the project already installed
           # from its own dependencies is kept.
           for tool in ruff==0.16.10 mypy==2.4.0 pytest==9.1.1; do
-            pip show "${tool%%==*}" > /dev/null 2>&1 || pip install "$tool"
+            $show "${tool%%==*}" > /dev/null 2>&1 || $install "$tool"
           done
       - run: ruff format --check .
       - run: ruff check .

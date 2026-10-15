@@ -467,9 +467,11 @@ CI pipeline for Python projects.
   tag a release merge whose own test run failed
 - `ci.yml` — runs the test suite on every PR
 - `test.yml` — ruff format check, ruff (lint), mypy (type check), pytest;
-  auto-detects and installs `requirements-dev.txt`, `requirements.txt`, or
-  `pyproject.toml` extras
-- `dependabot.yml` — weekly pip + GitHub Actions updates
+  installs a uv project from `uv.lock` with `uv sync --locked`, and otherwise
+  auto-detects `requirements-dev.txt`, `requirements.txt`, or `pyproject.toml`
+  with its `dev` extra and `dev` dependency group
+- `dependabot.yml` — weekly pip + GitHub Actions updates; switch `pip` to `uv`
+  once the project commits a `uv.lock`, so Dependabot updates the lockfile
 - `.python-version`
 - `README.md` — project starter with a preferred `uv venv` setup and a
   standard-library `venv` alternative

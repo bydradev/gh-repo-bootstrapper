@@ -65,6 +65,71 @@ test("requires a lint-baseline row for TypeScript suppression directives", () =>
     );
 });
 
+test("reads TypeScript directives from the last line of a block comment", () => {
+  const open = "/" + "*";
+  const close = "*" + "/";
+  for (const source of [
+    `${open}* @ts-ignore ${close}\nconst answer: number = "wrong";\n`,
+    `${open}\n * @ts-expect-error ${close}\nconst answer: number = "wrong";\n`,
+    `export const ok = 1; ${open} @ts-ignore ${close}\n`,
+    `${open} @ts-ignore: reason ${close}\nconst answer: number = "wrong";\n`,
+    `${open}* @ts-expect-error(reason) ${close}\nconst answer: number = "wrong";\n`,
+  ])
+    assert.match(runFixture(source), /sample\.ts — @ts-(ignore|expect-error)\n/);
+  // TypeScript reads only the last line, so a directive above it suppresses nothing.
+  assert.match(
+    runFixture(`${open}\n * @ts-ignore\n ${close}\nexport const ok = 1;\n`),
+    /Baseline verification passed/,
+  );
+});
+
+test("counts a line TypeScript directive with nothing after its name", () => {
+  for (const directive of ["@ts-ignore(reason)", "@ts-expect-error."])
+    assert.match(
+      runFixture("/" + `/ ${directive}\nconst answer: number = "wrong";\n`),
+      /sample\.ts — @ts-(ignore|expect-error)\n/,
+    );
+});
+
+test("counts a line directive followed by a glob once", () => {
+  const source = "/" + "/ @ts-ignore see src/**" + "/*.ts\nconst answer: number = \"wrong\";\n";
+  const row = "| 1 | @ts-ignore | sample.ts | fixture | 2099-01-01 |";
+  assert.match(
+    runFixture(source, { "docs/lint-baseline.md": `${lintHeader}\n${row}\n` }),
+    /Baseline verification passed: 1 suppression/,
+  );
+});
+
+test("scans long lines of block comments in linear time", () => {
+  const comment = "/" + "* pure *" + "/";
+  const source = `export const bundle = [${Array(50_000).fill(`${comment}f()`).join(",")}];\n`;
+  assert.match(runFixture(source), /Baseline verification passed/);
+});
+
+test("scans .mts and .cts sources", () => {
+  const directive = "/" + "/ eslint-disable-next-line no-console -- fixture\n";
+  for (const file of ["src/module.mts", "src/common.cts"])
+    assert.match(
+      runFixture("export const ok = 1;\n", { [file]: directive }),
+      /Undocumented suppressions/,
+    );
+});
+
+test("records every rule in a block eslint-disable list that wraps onto another line", () => {
+  const output = runFixture(
+    "/" + "* eslint-disable-next-line no-console,\n   no-alert *" + "/\nconsole.log(alert(1));\n",
+  );
+  for (const rule of ["no-console", "no-alert"])
+    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+});
+
+test("does not count a JSDoc-style eslint-disable comment, which ESLint ignores", () => {
+  assert.match(
+    runFixture("/" + "** eslint-disable-next-line no-console *" + "/\nexport const ok = 1;\n"),
+    /Baseline verification passed/,
+  );
+});
+
 test("does not treat bare eslint-disable text as a suppression", () => {
   assert.match(
     runFixture('export const message = "use eslint-disable-next-line no-console to silence";\n'),
@@ -140,6 +205,19 @@ test("scans many unterminated comment openers in linear time", () => {
   const source = ("/" + "* eslint ").repeat(50_000) + "\n";
   assert.equal(source.split("/" + "*").length - 1, 50_000);
   assert.match(runFixture(source), /Baseline verification passed/);
+});
+
+test("scans many unterminated directive openers in linear time", () => {
+  for (const opener of ["/" + "* eslint-disable no-console ", "/" + "* @ts-ignore "])
+    assert.match(
+      runFixture(`export const text = \`${opener.repeat(50_000)}\`;\n`),
+      /Baseline verification passed/,
+    );
+});
+
+test("fails closed on too many eslint-disable openers before one closing delimiter", () => {
+  const source = ("/" + "* eslint-disable no-console ").repeat(65) + "*" + "/\n";
+  assert.match(runFixture(source), /more than 64 eslint-disable openers/);
 });
 
 test("scans its own source to the end", () => {

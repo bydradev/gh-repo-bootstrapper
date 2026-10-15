@@ -48,7 +48,11 @@ const advisoryColumns = [
   "Re-check trigger",
   "Review date",
 ];
-const ghsaPattern = /^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/i;
+// A GHSA ID has an uppercase prefix and lowercase segments (github/advisory-database
+// README, checked 2026-10-14). Rows are matched against npm audit URLs and
+// Dependabot IDs as written, so any other casing would never match and is
+// refused here instead.
+const ghsaPattern = /^GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/;
 
 export function parseAdvisoryRows(markdown) {
   return parseTable({
@@ -58,7 +62,10 @@ export function parseAdvisoryRows(markdown) {
     name: "accepted-advisories",
   }).map((row) => {
     const [ghsa, packageName, severity, scope, whyNotFixed, recheckTrigger, reviewDate] = row;
-    if (!ghsaPattern.test(ghsa)) throw new Error(`invalid GHSA identifier ${JSON.stringify(ghsa)}`);
+    if (!ghsaPattern.test(ghsa))
+      throw new Error(
+        `invalid GHSA identifier ${JSON.stringify(ghsa)}; write it as GitHub does, e.g. GHSA-xxxx-xxxx-xxxx`,
+      );
     if (scope !== "runtime" && scope !== "dev")
       throw new Error(`invalid advisory scope ${JSON.stringify(scope)} for ${ghsa}`);
     return { ghsa, packageName, severity, scope, whyNotFixed, recheckTrigger, reviewDate };

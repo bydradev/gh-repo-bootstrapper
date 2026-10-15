@@ -29,6 +29,10 @@ After adding project dependencies, use the matching `uv` command — for example
 `uv sync` for a uv-managed `pyproject.toml`, or
 `uv pip install -r requirements-dev.txt` for a requirements-based project.
 
+When you commit `uv.lock`, CI installs from it with `uv sync --locked`, so run
+`uv lock` after changing `pyproject.toml`. Also change `package-ecosystem: pip`
+to `uv` in `.github/dependabot.yml`, so Dependabot updates the lockfile too.
+
 ### Standard-library alternative
 
 If `uv` is not available, create the same environment with Python:

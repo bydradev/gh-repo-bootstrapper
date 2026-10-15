@@ -1017,7 +1017,9 @@ def stale_pin_warnings(templates: dict = None, today: datetime.date = None) -> l
                 warnings.append(f"templates/{name}:{line}: pin date {match.group(2)} is not a valid date")
                 continue
             age = (today - checked).days
-            if age > PIN_MAX_AGE_DAYS:
+            if age < 0:
+                warnings.append(f"templates/{name}:{line}: pin date {checked} is in the future")
+            elif age > PIN_MAX_AGE_DAYS:
                 warnings.append(
                     f"templates/{name}:{line}: pin last checked against {match.group(1)} "
                     f"on {checked} ({age} days ago); check for a newer release and update the date"

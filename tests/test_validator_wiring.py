@@ -160,6 +160,11 @@ class StalePinTests(unittest.TestCase):
         templates = {"t.yml": "# Pinned (PyPI, 2026-02-30)\n"}
         self.assertIn("not a valid date", validate_templates.stale_pin_warnings(templates)[0])
 
+    def test_a_future_date_is_reported_instead_of_hiding_the_pin(self):
+        today = validate_templates.datetime.date(2026, 1, 1)
+        templates = {"t.yml": "# Pinned (PyPI, 2096-10-15)\n"}
+        self.assertIn("in the future", validate_templates.stale_pin_warnings(templates, today)[0])
+
     def test_the_shipped_templates_carry_dated_pins(self):
         # An empty match set would make the warning silently useless.
         far_future = validate_templates.datetime.date(2100, 1, 1)

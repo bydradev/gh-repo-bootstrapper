@@ -906,6 +906,15 @@ class PythonToolInstallTests(unittest.TestCase):
             "a dependency excluded from an extra not requested": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"")},
                 ["pip install idna>=3 helper six", "pip install ruff==0.16.10"]),
+            "a malformed requirement in an extra not installed": (
+                {"pyproject.toml": app + extra + "docs = [\"not a req ???\"]\n"},
+                "'not a req ???' in project.optional-dependencies.docs is not a valid requirement"),
+            "a requirement that is not a string": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", 3")},
+                "3 in project.dependencies is not a valid requirement"),
+            "a tool.uv package value that is a string": (
+                {"pyproject.toml": app + "[tool.uv]\npackage = \"false\"\n"},
+                "tool.uv.package must be true or false, not 'false'"),
             "two groups that normalize alike": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [\"pytest\"]\nDev = [\"mypy\"]\n"},
                 "duplicate dependency group name 'Dev'"),

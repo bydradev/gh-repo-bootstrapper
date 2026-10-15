@@ -72,6 +72,9 @@ jobs:
               return re.sub(r"[-_.]+", "-", name).lower()
           extra = next((v for k, v in project.get("optional-dependencies", {}).items() if norm(k) == "dev"), None)
           package = d.get("tool", {}).get("uv", {}).get("package")
+          if package is not None and not isinstance(package, bool):
+              # uv refuses anything but true or false; "false" would be truthy.
+              sys.exit(f"pyproject.toml: tool.uv.package must be true or false, not {package!r}")
           if package is None:
               # A setup.cfg counts only with setuptools' [metadata] or
               # [options] sections; one that only configures a tool such as
@@ -87,11 +90,11 @@ jobs:
               # "sample[test]"; that expands to those extras rather than
               # asking the package index for a project that is not built.
               try:
-                  from packaging.requirements import Requirement
+                  from packaging.requirements import InvalidRequirement, Requirement
                   from packaging.specifiers import SpecifierSet
                   from packaging.utils import canonicalize_name
               except ImportError:
-                  from pip._vendor.packaging.requirements import Requirement
+                  from pip._vendor.packaging.requirements import InvalidRequirement, Requirement
                   from pip._vendor.packaging.specifiers import SpecifierSet
                   from pip._vendor.packaging.utils import canonicalize_name
               # pip enforces requires-python when it installs a package; do
@@ -114,6 +117,13 @@ jobs:
                       (f"optional-dependencies.{k}", v) for k, v in extras.items())]:
                   if not isinstance(value, list):
                       sys.exit(f"pyproject.toml: project.{what} is not a list")
+                  # Every entry must be a dependency specifier, as a build
+                  # would require, even in an extra that is not installed.
+                  for item in value:
+                      try:
+                          Requirement(item if isinstance(item, str) else "")
+                      except InvalidRequirement:
+                          sys.exit(f"pyproject.toml: {item!r} in project.{what} is not a valid requirement")
               groups = normalized(d.get("dependency-groups", {}), "dependency group")
               def group(name, including=()):
                   # A PEP 735 group, with its {include-group = "..."} entries

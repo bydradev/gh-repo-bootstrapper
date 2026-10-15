@@ -8,9 +8,17 @@ on:
 permissions:
   contents: read
 
+# Runs on main go one at a time, roughly in the order they start waiting
+# (GitHub does not guarantee it). queue: max keeps every waiting run (up to
+# 100) instead of the default, where a newer push cancels the one still
+# pending, so the run for a release merge gets to test and tag it. Past 100
+# waiting runs GitHub cancels new ones; re-run a cancelled release merge's run.
+# Source: docs.github.com "Workflow syntax for GitHub Actions", concurrency,
+# checked 2026-10-15. actionlint 1.7.12 does not know the key yet.
 concurrency:
   group: release-please
   cancel-in-progress: false
+  queue: max
 
 jobs:
   test:
@@ -64,7 +72,7 @@ jobs:
                 newer=true
                 continue
               fi
-              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). Re-run the workflow run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
+              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). If the workflow run for $oid is still queued, let it finish: it tests and releases that merge. Re-run it if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
               status=1
               continue
             fi

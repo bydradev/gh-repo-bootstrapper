@@ -59,6 +59,12 @@ jobs:
         run: |
           python validate_templates.py --render-markdown "$RUNNER_TEMP/generated-markdown"
           npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$RUNNER_TEMP/generated-markdown/**/*.md"
+      # This repository's own docs, under the same rules. CHANGELOG.md is
+      # written by Release Please, so it is left out.
+      - name: Lint repository Markdown
+        run: >-
+          npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc
+          "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
 
   # bootstrap.py supports Python 3.11 and newer. The job above runs the full
   # suite on a current Python; this one keeps the oldest supported version

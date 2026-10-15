@@ -55,6 +55,7 @@ script; bootstrap.py itself remains stdlib-only.
 Exit status is non-zero if any configuration or self-test fails any check.
 """
 
+import datetime
 import itertools
 import json
 import posixpath
@@ -986,6 +987,67 @@ def check_npm_script_assumptions(templates: dict = None, assumptions: set = None
     return errors
 
 
+# A comment such as "# Pinned (PyPI, 2026-10-08)" records when a version in a
+# template was last checked against its source. Past this age it is reported
+# for a refresh.
+PIN_DATE_RE = re.compile(r"#[^\n]*\bPinned\b[^\n(]*\(([^()\n]+), (\d{4}-\d{2}-\d{2})\)", re.IGNORECASE)
+PIN_MAX_AGE_DAYS = 90
+
+
+def stale_pin_warnings(templates: dict = None, today: datetime.date = None) -> list:
+    """Name each template pin whose recorded check date is too old.
+
+    These are warnings, not errors: a date alone must not turn CI red on an
+    unchanged tree, and a release may still be the newest one available.
+    """
+    if templates is None:
+        templates = {
+            path.relative_to(bootstrap.TEMPLATES_DIR).as_posix(): path.read_text()
+            for path in bootstrap.TEMPLATES_DIR.rglob("*")
+            if path.is_file()
+        }
+    today = today or datetime.date.today()
+    warnings = []
+    for name, text in sorted(templates.items()):
+        for match in PIN_DATE_RE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            try:
+                checked = datetime.date.fromisoformat(match.group(2))
+            except ValueError:
+                warnings.append(f"templates/{name}:{line}: pin date {match.group(2)} is not a valid date")
+                continue
+            age = (today - checked).days
+            if age < 0:
+                warnings.append(f"templates/{name}:{line}: pin date {checked} is in the future")
+            elif age > PIN_MAX_AGE_DAYS:
+                warnings.append(
+                    f"templates/{name}:{line}: pin last checked against {match.group(1)} "
+                    f"on {checked} ({age} days ago); check for a newer release and update the date"
+                )
+    return warnings
+
+
+def check_dependabot_cooldown(label: str, files: dict) -> list:
+    """Every Dependabot update entry waits before proposing a new release."""
+    text = files.get(".github/dependabot.yml")
+    if text is None:
+        return [f"[{label}] .github/dependabot.yml is not generated"]
+    errors = []
+    for entry in (yaml.safe_load(text) or {}).get("updates") or []:
+        cooldown = entry.get("cooldown") if isinstance(entry, dict) else None
+        days = cooldown.get("default-days") if isinstance(cooldown, dict) else None
+        # Dependabot accepts 1 to 90 days (docs.github.com, "Optimizing the
+        # creation of pull requests for Dependabot version updates", checked
+        # 2026-10-15). bool is an int in Python, so it is ruled out first.
+        if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 90:
+            ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else entry
+            errors.append(
+                f"[{label}] .github/dependabot.yml {ecosystem} updates need cooldown.default-days "
+                f"from 1 to 90, so a brand-new release is not proposed the day it is published"
+            )
+    return errors
+
+
 def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
     """Ensure policy documents are generated only for the npm/ESLint repo type."""
     expected = set(bootstrap.NEXTJS_BASELINE_DOCUMENTS) if repo_type == "nextjs" else set()
@@ -1706,8 +1768,9 @@ github.event.pull_request.user.login != 'dependabot[bot]' &&
 # run its own concurrency group, so no run on main shares a group: a shared
 # group cancels pending runs whatever cancel-in-progress says. Only
 # release-please.yml's own `release-please` group with cancel-in-progress:
-# false is exempt: it serializes on purpose, and the newest pending run
-# replacing an older one is intended there.
+# false and queue: max is exempt: it serializes on purpose, and queue: max
+# keeps every pending run, so a release merge's own run is never replaced.
+# release-please.yml must keep exactly that block; leaving it out fails.
 PUSH_CONCURRENCY_GROUP_RE = re.compile(
     r"[\w-]*\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.run_id \}\}"
 )
@@ -1730,8 +1793,17 @@ def _workflow_hardening(label: str, files: dict) -> list:
             and isinstance(concurrency, dict)
             and concurrency.get("group") == "release-please"
             and concurrency.get("cancel-in-progress") is False
+            and concurrency.get("queue") == "max"
         )
-        if "push" in triggers and concurrency is not None and not serialized:
+        if path == ".github/workflows/release-please.yml" and not serialized:
+            # Checked whether or not a concurrency block is present: dropping
+            # the whole block must fail too, not skip the push check below.
+            errors.append(
+                f"[{label}] {path} must serialize its runs with concurrency group "
+                f"release-please, cancel-in-progress: false and queue: max, or a newer "
+                f"push can replace the pending run for a release merge"
+            )
+        elif "push" in triggers and concurrency is not None and not serialized:
             group = concurrency.get("group") if isinstance(concurrency, dict) else concurrency
             if not PUSH_CONCURRENCY_GROUP_RE.fullmatch(str(group)):
                 errors.append(
@@ -3330,6 +3402,7 @@ def main() -> int:
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
         all_errors += check_release_please_config(label, cfg, files)
         all_errors += check_baseline_documents(label, cfg["repo_type"], files)
+        all_errors += check_dependabot_cooldown(label, files)
         all_errors += check_readme(label, cfg, files)
         all_errors += check_branch_protection_payload(label, cfg["repo_type"])
         all_errors += check_runbook(label, files)
@@ -3350,6 +3423,9 @@ def main() -> int:
     all_errors += check_legacy_digests()
     if STRUCTURE_FIXTURES_RUN[0] == 0:
         all_errors.append("no hub/skill/stamp self-test fixture ran; run_self_tests() is not wired in")
+
+    for warning in stale_pin_warnings():
+        print(f"WARNING: {warning}")
 
     if all_errors:
         print(f"FAILED — {len(all_errors)} error(s) across {total} configuration(s):\n")

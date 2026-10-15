@@ -256,6 +256,19 @@ They're tables each repository edits, so they keep the plain `kept`
 behaviour, as do scripts, configs and the other workflows: `ci.yml` and
 `test.yml` hold each repository's own test lanes.
 
+The template's `release-please.yml` sets `concurrency.queue: max`, so a push
+no longer cancels the pending run of a release merge (unless 100 runs are
+already waiting; then re-run the cancelled one). actionlint 1.7.12 does not
+know that key yet; a repository that runs actionlint ignores it for that file:
+
+```yaml
+# .github/actionlint.yaml
+paths:
+  .github/workflows/release-please.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+```
+
 Every template-owned file carries a stamp line:
 
 ```text
@@ -451,6 +464,7 @@ Full CI pipeline for Next.js applications.
 - `README.md` and `AGENTS.md` — project starter, quality-baseline pointers, and contribution guidance
 
 Options:
+
 - `--postgres` — adds a PostgreSQL 16 service container to the build job
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
@@ -496,7 +510,7 @@ CI pipeline for Swift/Xcode projects.
 - `test.yml` — `swift-format lint --recursive --strict` (formatting gate) then
   `xcodebuild test` on `macos-26`; scheme set from `--scheme`, destination
   resolved dynamically at CI time from `--destination`; with `--xcodegen`, CI
-  installs pinned XcodeGen 2.45.4 and generates the project first
+  installs pinned XcodeGen 2.46.0 and generates the project first
 - `dependabot.yml` — weekly GitHub Actions updates
 - `.swift-format` — Apple swift-format ruleset (default rules; `AlwaysUseLowerCamelCase`
   left on — disable it deliberately per-repo if wire-format DTOs need snake_case fields)

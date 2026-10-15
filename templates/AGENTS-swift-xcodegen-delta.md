@@ -9,9 +9,11 @@ xcodegen generate
 open __SCHEME__.xcodeproj
 <!-- /SECTION:GENERATE_STEP -->
 <!-- SECTION:DEPENDENCY_NOTE -->
-Install XcodeGen 2.45.4 locally and declare
-`options.minimumXcodeGenVersion: 2.45.4` in `project.yml`. CI downloads and
-checksum-verifies that exact release before generation. Put durable project
+Install the XcodeGen release that `.github/workflows/test.yml` pins (2.46.0
+when the repository was generated) and declare that same version as
+`options.minimumXcodeGenVersion` in `project.yml`. CI downloads and
+checksum-verifies that exact release before generation; when you bump the
+pin there, bump the minimum with it. Put durable project
 editor changes back into `project.yml`; regeneration overwrites the generated
 project. Close and reopen Xcode after regenerating to avoid stale project state.
 

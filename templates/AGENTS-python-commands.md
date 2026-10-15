@@ -18,5 +18,6 @@ otherwise
 later) for a `[dependency-groups]` dev group. As with uv (uv's "Configuring
 projects" docs, checked 2026-10-15), a project with no `[build-system]` (and no
 `setup.py`, and no `setup.cfg` with `[metadata]` or `[options]`) isn't built:
-install its `[project]` dependencies and the dev group without `-e .`. A package needs a
-`[build-system]` table, or CI will not install it either.
+install its `[project]` dependencies, the dev extra's and the dev group without
+`-e .`. A package needs a `[build-system]` table, or CI will not install it
+either.

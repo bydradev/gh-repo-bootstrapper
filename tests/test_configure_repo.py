@@ -875,6 +875,13 @@ class PythonToolInstallTests(unittest.TestCase):
             "two extras that normalize alike": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"pytest\"]\nDEV = [\"mypy\"]\n"},
                 "duplicate extra name 'DEV'"),
+            "an indented setup.cfg [metadata] next to an app": (
+                {"setup.cfg": "  [metadata]\n  name = sample\n", "pyproject.toml": app},
+                ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a dev group include with an extra key": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"lint\", typo = \"x\"}]\n"
+                                         "lint = [\"ruff\"]\n"},
+                "has a table that is not exactly"),
             "a dev group that includes itself": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
                 "dependency group 'dev' includes itself"),

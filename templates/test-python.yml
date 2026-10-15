@@ -78,7 +78,7 @@ jobs:
               # flake8 does not make a package.
               package = "build-system" in d or os.path.exists("setup.py") or (
                   os.path.exists("setup.cfg") and re.search(
-                      r"(?m)^\[(metadata|options)(\.[^]]*)?\]", open("setup.cfg").read()) is not None)
+                      r"(?m)^[ \t]*\[(metadata|options)(\.[^]]*)?\]", open("setup.cfg").read()) is not None)
           if sys.argv[1:] == ["deps"]:
               # Parsed with packaging, or the copy pip vendors, since this is
               # the interpreter pip installs into. Markers are evaluated here,
@@ -120,6 +120,9 @@ jobs:
                       sys.exit(f"pyproject.toml: dependency group {including[-1]!r} includes {name!r}, which is not defined")
                   if not isinstance(groups.get(name, []), list):
                       sys.exit(f"pyproject.toml: dependency group {name!r} is not a list")
+                  if any(isinstance(item, dict) and set(item) != {"include-group"} for item in groups.get(name, [])):
+                      sys.exit(f"pyproject.toml: dependency group {name!r} has a table that is not "
+                               "exactly {include-group = \"...\"}")
                   return [r for item in groups.get(name, []) for r in (
                       group(canonicalize_name(item["include-group"]), (*including, name))
                       if isinstance(item, dict) else [item])]

@@ -244,6 +244,12 @@ def _test_rsa_key():
 _TEST_RSA_DER = _test_rsa_key()
 
 
+def _der_sequence_body_after_version():
+    """The test key's eight INTEGERs after its version, for re-encoding."""
+    body = _TEST_RSA_DER[2:] if _TEST_RSA_DER[1] < 0x80 else _TEST_RSA_DER[2 + (_TEST_RSA_DER[1] & 0x7F):]
+    return body[3:]  # drop 02 01 00
+
+
 class ReleasePleaseAppKeyTests(unittest.TestCase):
     """The App key is a multi-line PEM block and must arrive whole."""
 
@@ -292,6 +298,10 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + b"\x05\x00")),
             "a PKCS#8 public key under version 0": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, b"\x00"))),
+            "a PKCS#1 version encoded in two bytes": _pem("RSA PRIVATE KEY", _der(
+                0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
+            "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(
+                0x30, b"\x02\x81\x01\x00" + _der_sequence_body_after_version())),
             "PKCS#8 parameters that are not NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(
                 0x30, bytes.fromhex("06092a864886f70d010101") + b"\x02\x01\x00") + _der(0x04, _TEST_RSA_DER))),
         }

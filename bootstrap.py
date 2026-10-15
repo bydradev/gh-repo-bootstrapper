@@ -735,7 +735,9 @@ def _der_items(data: bytes) -> list[tuple[int, bytes]]:
     """Split DER bytes into (tag, content) pairs that cover them exactly.
 
     Raises ValueError when a length runs past the end, so key data cut short
-    or with bytes missing is refused rather than read as a shorter key.
+    or with bytes missing is refused rather than read as a shorter key, and
+    for any encoding DER forbids (a non-minimal length or INTEGER), which the
+    release workflow's key parser refuses too.
     """
     items, pos = [], 0
     while pos < len(data):
@@ -748,10 +750,16 @@ def _der_items(data: bytes) -> list[tuple[int, bytes]]:
             if not 0 < count <= 4 or pos + count > len(data):
                 raise ValueError("bad DER length")
             length = int.from_bytes(data[pos:pos + count], "big")
+            if length < 0x80 or data[pos] == 0:
+                raise ValueError("non-minimal DER length")
             pos += count
         if pos + length > len(data):
             raise ValueError("DER content runs past the end")
-        items.append((tag, data[pos:pos + length]))
+        content = data[pos:pos + length]
+        if tag == 0x02 and (not content or (len(content) > 1 and (
+                (content[0] == 0x00 and content[1] < 0x80) or (content[0] == 0xFF and content[1] >= 0x80)))):
+            raise ValueError("non-minimal DER INTEGER")
+        items.append((tag, content))
         pos += length
     return items
 

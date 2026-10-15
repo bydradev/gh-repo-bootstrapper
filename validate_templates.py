@@ -58,6 +58,7 @@ Exit status is non-zero if any configuration or self-test fails any check.
 import datetime
 import itertools
 import json
+import os
 import posixpath
 import re
 import shlex
@@ -1027,6 +1028,17 @@ def stale_pin_warnings(templates: dict = None, today: datetime.date = None) -> l
     return warnings
 
 
+def github_warning(warning: str) -> str:
+    """A GitHub Actions ::warning command for a 'path:line: message' warning."""
+    location, _, message = warning.partition(": ")
+    path, _, line = location.rpartition(":")
+    # A workflow command ends at a newline, and % starts an escape.
+    message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    if not path or not line.isdigit():
+        return f"::warning::{message or warning}"
+    return f"::warning file={path},line={line}::{message}"
+
+
 def check_dependabot_cooldown(label: str, files: dict) -> list:
     """Every Dependabot update entry waits before proposing a new release."""
     text = files.get(".github/dependabot.yml")
@@ -1039,11 +1051,28 @@ def check_dependabot_cooldown(label: str, files: dict) -> list:
         # Dependabot accepts 1 to 90 days (docs.github.com, "Optimizing the
         # creation of pull requests for Dependabot version updates", checked
         # 2026-10-15). bool is an int in Python, so it is ruled out first.
+        ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else entry
         if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 90:
-            ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else entry
             errors.append(
                 f"[{label}] .github/dependabot.yml {ecosystem} updates need cooldown.default-days "
                 f"from 1 to 90, so a brand-new release is not proposed the day it is published"
+            )
+            continue
+        # An exclude pattern of only wildcards takes every dependency out of
+        # the cooldown, and GitHub Actions supports no semver-*-days key
+        # (Dependabot options reference, "cooldown", checked 2026-10-15).
+        exclude = cooldown.get("exclude") or []
+        if not isinstance(exclude, list) or any(
+                not isinstance(item, str) or not item.strip("*") for item in exclude):
+            errors.append(
+                f"[{label}] .github/dependabot.yml {ecosystem} cooldown.exclude must name dependencies; "
+                f"a bare * turns the cooldown off"
+            )
+        semver = sorted(key for key in cooldown if str(key).startswith("semver-"))
+        if ecosystem == "github-actions" and semver:
+            errors.append(
+                f"[{label}] .github/dependabot.yml github-actions cooldown does not support "
+                f"{', '.join(semver)}; use default-days"
             )
     return errors
 
@@ -3426,6 +3455,10 @@ def main() -> int:
 
     for warning in stale_pin_warnings():
         print(f"WARNING: {warning}")
+        # In a GitHub Actions run, also annotate the file so the warning shows
+        # on the run's summary instead of only in the raw log.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(github_warning(warning))
 
     if all_errors:
         print(f"FAILED — {len(all_errors)} error(s) across {total} configuration(s):\n")

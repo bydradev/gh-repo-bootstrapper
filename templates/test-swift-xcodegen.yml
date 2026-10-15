@@ -34,14 +34,16 @@ jobs:
           persist-credentials: false
       - name: Check formatting
         run: xcrun swift-format lint --recursive --strict .
-      - name: Install XcodeGen 2.45.4
+      # Pinned (GitHub release, 2026-10-15): the version and the SHA-256 of
+      # its release zip, so a replaced download fails instead of running.
+      - name: Install XcodeGen 2.46.0
         if: ${{ inputs.full }}
         env:
-          XCODEGEN_SHA256: 090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
+          XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
         run: |
           curl --fail --location --retry 3 \
             --output /tmp/xcodegen.zip \
-            https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip
+            https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
           echo "$XCODEGEN_SHA256  /tmp/xcodegen.zip" | shasum -a 256 --check
           unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
           chmod +x /tmp/xcodegen/xcodegen/bin/xcodegen

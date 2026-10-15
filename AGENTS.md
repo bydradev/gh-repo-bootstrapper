@@ -185,6 +185,8 @@ md_dir=$(mktemp -d)
 uv run --with pyyaml python3 validate_templates.py --render-markdown "$md_dir"
 npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_dir/**/*.md"
 rm -rf "$md_dir"
+npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc \
+  "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
 ```
 
 ### Template-owned workflows

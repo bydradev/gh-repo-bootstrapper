@@ -1,6 +1,7 @@
 // markdownlint configuration for the Markdown that bootstrap.py generates.
 // validate.yml renders every configuration with
 // `python validate_templates.py --render-markdown <dir>` and lints the result.
+// It also lints this repository's own Markdown with the same rules.
 {
   "config": {
     // Template prose is wrapped by hand; commands and URLs run long.

@@ -5,6 +5,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    # Wait a week before proposing a new release, so a compromised or
+    # broken version is usually caught and pulled first. Security updates
+    # are not delayed.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     # Hold these at their current major — a major bump is a breaking change
     # that needs deliberate adoption, not an auto-merge.
@@ -38,3 +43,5 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7

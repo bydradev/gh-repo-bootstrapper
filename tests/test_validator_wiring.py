@@ -38,6 +38,7 @@ CHECKS = (
     "check_rust_suite",
     "check_release_please_config",
     "check_baseline_documents",
+    "check_dependabot_cooldown",
     "check_readme",
     "check_branch_protection_payload",
     "check_runbook",
@@ -136,6 +137,86 @@ class ValidatorWiringTests(unittest.TestCase):
             code, out = self._main(fixtures_per_run=0)
             self.assertEqual(code, 1)
             self.assertIn("no hub/skill/stamp self-test fixture ran", out)
+
+
+class StalePinTests(unittest.TestCase):
+    TEMPLATES = {
+        "test.yml": "steps:\n  # Pinned fallbacks (PyPI, 2026-01-01), so the suite holds\n",
+        "other.yml": "# pinned to the same framework version, no date here\n",
+    }
+
+    def test_a_pin_inside_the_age_limit_is_quiet(self):
+        today = validate_templates.datetime.date(2026, 3, 31)
+        self.assertEqual(validate_templates.stale_pin_warnings(self.TEMPLATES, today), [])
+
+    def test_an_old_pin_names_its_file_line_and_source(self):
+        today = validate_templates.datetime.date(2026, 4, 2)
+        warnings = validate_templates.stale_pin_warnings(self.TEMPLATES, today)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("templates/test.yml:2", warnings[0])
+        self.assertIn("PyPI on 2026-01-01 (91 days ago)", warnings[0])
+
+    def test_an_impossible_date_is_reported_instead_of_crashing(self):
+        templates = {"t.yml": "# Pinned (PyPI, 2026-02-30)\n"}
+        self.assertIn("not a valid date", validate_templates.stale_pin_warnings(templates)[0])
+
+    def test_a_future_date_is_reported_instead_of_hiding_the_pin(self):
+        today = validate_templates.datetime.date(2026, 1, 1)
+        templates = {"t.yml": "# Pinned (PyPI, 2096-10-15)\n"}
+        self.assertIn("in the future", validate_templates.stale_pin_warnings(templates, today)[0])
+
+    def test_the_shipped_templates_carry_dated_pins(self):
+        # An empty match set would make the warning silently useless.
+        far_future = validate_templates.datetime.date(2100, 1, 1)
+        warnings = validate_templates.stale_pin_warnings(today=far_future)
+        for name in ("test-python.yml", "test-swift-xcodegen.yml"):
+            self.assertTrue(any(f"templates/{name}:" in w for w in warnings), warnings)
+
+    def test_a_stale_pin_warns_without_failing_the_run(self):
+        out = io.StringIO()
+        with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:1: old"]), \
+                contextlib.redirect_stdout(out):
+            code = validate_templates.main()
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("WARNING: templates/x.yml:1: old", out.getvalue())
+
+
+class ReleaseQueueTests(unittest.TestCase):
+    def _files(self, concurrency):
+        body = validate_templates.yaml.safe_dump(
+            {"on": {"push": {"branches": ["main"]}}, "concurrency": concurrency, "jobs": {}}
+        )
+        return {".github/workflows/release-please.yml": body}
+
+    def test_the_release_group_must_keep_every_pending_run(self):
+        queued = {"group": "release-please", "cancel-in-progress": False, "queue": "max"}
+        self.assertEqual(validate_templates._workflow_hardening("t", self._files(queued)), [])
+        for missing in ({**queued, "queue": "single"}, {k: v for k, v in queued.items() if k != "queue"}):
+            errors = validate_templates._workflow_hardening("t", self._files(missing))
+            self.assertEqual(len(errors), 1, (missing, errors))
+            self.assertIn("queue: max", errors[0])
+
+    def test_dropping_the_concurrency_block_fails(self):
+        body = validate_templates.yaml.safe_dump({"on": {"push": {"branches": ["main"]}}, "jobs": {}})
+        files = {".github/workflows/release-please.yml": body}
+        errors = validate_templates._workflow_hardening("t", files)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("queue: max", errors[0])
+
+
+class DependabotCooldownTests(unittest.TestCase):
+    def test_every_update_entry_needs_a_cooldown(self):
+        good = "version: 2\nupdates:\n  - package-ecosystem: pip\n    cooldown:\n      default-days: 7\n"
+        bad = good + "  - package-ecosystem: github-actions\n    directory: /\n"
+        check = validate_templates.check_dependabot_cooldown
+        self.assertEqual(check("t", {".github/dependabot.yml": good}), [])
+        errors = check("t", {".github/dependabot.yml": bad})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("github-actions", errors[0])
+        self.assertTrue(check("t", {}))
+        for days in ("0", "91", "true", "seven"):
+            body = good.replace("default-days: 7", f"default-days: {days}")
+            self.assertEqual(len(check("t", {".github/dependabot.yml": body})), 1, days)
 
 
 if __name__ == "__main__":

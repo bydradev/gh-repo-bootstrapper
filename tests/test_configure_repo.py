@@ -882,6 +882,12 @@ class PythonToolInstallTests(unittest.TestCase):
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"lint\", typo = \"x\"}]\n"
                                          "lint = [\"ruff\"]\n"},
                 "has a table that is not exactly"),
+            "dependencies that are a string": (
+                {"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\ndependencies = \"pytest\"\n"},
+                "project.dependencies is not a list"),
+            "a dev extra that is a string": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = \"pytest\"\n"},
+                "project.optional-dependencies.dev is not a list"),
             "a dev group that includes itself": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
                 "dependency group 'dev' includes itself"),

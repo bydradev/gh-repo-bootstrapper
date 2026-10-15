@@ -201,6 +201,9 @@ class DependabotCooldownTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("github-actions", errors[0])
         self.assertTrue(check("t", {}))
+        for days in ("0", "91", "true", "seven"):
+            body = good.replace("default-days: 7", f"default-days: {days}")
+            self.assertEqual(len(check("t", {".github/dependabot.yml": body})), 1, days)
 
 
 if __name__ == "__main__":

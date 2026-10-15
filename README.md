@@ -257,7 +257,8 @@ behaviour, as do scripts, configs and the other workflows: `ci.yml` and
 `test.yml` hold each repository's own test lanes.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
-never cancels the pending run of a release merge. actionlint 1.7.12 does not
+no longer cancels the pending run of a release merge (unless 100 runs are
+already waiting; then re-run the cancelled one). actionlint 1.7.12 does not
 know that key yet; a repository that runs actionlint ignores it for that file:
 
 ```yaml

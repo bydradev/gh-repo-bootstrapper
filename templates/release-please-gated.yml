@@ -19,7 +19,8 @@ permissions:
 # Runs on main go one at a time, roughly in the order they start waiting
 # (GitHub does not guarantee it). queue: max keeps every waiting run (up to
 # 100) instead of the default, where a newer push cancels the one still
-# pending, so the run for a release merge always gets to test and tag it.
+# pending, so the run for a release merge gets to test and tag it. Past 100
+# waiting runs GitHub cancels new ones; re-run a cancelled release merge's run.
 # Source: docs.github.com "Workflow syntax for GitHub Actions", concurrency,
 # checked 2026-10-15. actionlint 1.7.12 does not know the key yet.
 concurrency:

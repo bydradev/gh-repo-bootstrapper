@@ -1034,11 +1034,14 @@ def check_dependabot_cooldown(label: str, files: dict) -> list:
     for entry in (yaml.safe_load(text) or {}).get("updates") or []:
         cooldown = entry.get("cooldown") if isinstance(entry, dict) else None
         days = cooldown.get("default-days") if isinstance(cooldown, dict) else None
-        if not isinstance(days, int) or days < 1:
+        # Dependabot accepts 1 to 90 days (docs.github.com, "Optimizing the
+        # creation of pull requests for Dependabot version updates", checked
+        # 2026-10-15). bool is an int in Python, so it is ruled out first.
+        if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= 90:
             ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else entry
             errors.append(
-                f"[{label}] .github/dependabot.yml {ecosystem} updates need cooldown.default-days, "
-                f"so a brand-new release is not proposed the day it is published"
+                f"[{label}] .github/dependabot.yml {ecosystem} updates need cooldown.default-days "
+                f"from 1 to 90, so a brand-new release is not proposed the day it is published"
             )
     return errors
 

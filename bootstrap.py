@@ -772,6 +772,19 @@ def _der_sequence(data: bytes) -> list[tuple[int, bytes]]:
     return _der_items(outer[0][1])
 
 
+def _pkcs8_attributes_valid(content: bytes) -> bool:
+    """Whether content is a PKCS#8 [0] Attributes: a SET OF Attribute, each a
+    SEQUENCE of an OBJECT IDENTIFIER and a SET of values (RFC 5958, section 2;
+    RFC 5912). Raises ValueError for data that does not decode. Each value is
+    an ANY, so only its own tag and length are read, as Node's key parser does."""
+    for tag, attribute in _der_items(content):
+        fields = _der_items(attribute) if tag == 0x30 else []
+        if [field_tag for field_tag, _ in fields] != [0x06, 0x31] or not fields[0][1]:
+            return False
+        _der_items(fields[1][1])
+    return True
+
+
 def _rsa_key_consistent(der: bytes) -> bool:
     """Whether der is a PKCS#1 RSAPrivateKey whose numbers fit together.
 
@@ -814,6 +827,8 @@ def _key_body_error(label: str, body: str) -> str:
             # rsaEncryption parameters are NULL (RFC 8017, A.1).
             if algorithm[1:] not in ([], [(0x05, b"")]):
                 raise ValueError("unexpected rsaEncryption parameters")
+            if optional[:1] == [0xA0] and not _pkcs8_attributes_valid(items[3][1]):
+                raise ValueError("malformed PKCS#8 attributes")
             der = items[2][1]
             if optional[-1:] == [0x81]:
                 # [1] stands in for a BIT STRING's tag: no unused bits, then

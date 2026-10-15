@@ -451,6 +451,7 @@ Full CI pipeline for Next.js applications.
 - `README.md` and `AGENTS.md` — project starter, quality-baseline pointers, and contribution guidance
 
 Options:
+
 - `--postgres` — adds a PostgreSQL 16 service container to the build job
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
@@ -496,7 +497,7 @@ CI pipeline for Swift/Xcode projects.
 - `test.yml` — `swift-format lint --recursive --strict` (formatting gate) then
   `xcodebuild test` on `macos-26`; scheme set from `--scheme`, destination
   resolved dynamically at CI time from `--destination`; with `--xcodegen`, CI
-  installs pinned XcodeGen 2.45.4 and generates the project first
+  installs pinned XcodeGen 2.46.0 and generates the project first
 - `dependabot.yml` — weekly GitHub Actions updates
 - `.swift-format` — Apple swift-format ruleset (default rules; `AlwaysUseLowerCamelCase`
   left on — disable it deliberately per-repo if wire-format DTOs need snake_case fields)

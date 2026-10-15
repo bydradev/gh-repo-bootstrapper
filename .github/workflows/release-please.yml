@@ -8,9 +8,12 @@ on:
 permissions:
   contents: read
 
+# As in the release-please templates: one run at a time, and queue: max keeps
+# every waiting run instead of letting a newer push cancel a pending one.
 concurrency:
   group: release-please
   cancel-in-progress: false
+  queue: max
 
 jobs:
   release-please:

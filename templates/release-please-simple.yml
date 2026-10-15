@@ -8,9 +8,15 @@ on:
 permissions:
   contents: read
 
+# Runs on main go one at a time, in order. queue: max keeps every waiting run
+# (up to 100) instead of the default, where a newer push cancels the one still
+# pending, so the run for a release merge always gets to test and tag it.
+# Source: GitHub changelog 2026-05-07 and the concurrency docs, checked
+# 2026-10-15. actionlint 1.7.12 does not know the key yet.
 concurrency:
   group: release-please
   cancel-in-progress: false
+  queue: max
 
 jobs:
   release-please:

@@ -1,8 +1,8 @@
 # Current work
 
-**Status:** steps 1 and 2 below are done. Steps 3 and 4 remain: running
-actionlint over the template and rendered workflows with the exception, and
-confirming the scheduled review's alert read on a live run.
+**Status:** steps 1 to 3 below are done. Step 4 remains: confirming the
+scheduled review's alert read on a live run, which needs a generated Next.js
+repository with Dependabot alerts.
 
 ## `baseline-review.yml` and actionlint
 
@@ -35,8 +35,19 @@ actionlint reports `vulnerability-alerts` as an unknown permission scope.
    actionlint's `paths.<glob>.ignore` takes regular expressions matched against
    error messages (rhysd/actionlint `docs/config.md`, checked 2026-10-09).
    Remove the entry once an actionlint release recognises the scope.
-3. Validate the template and all rendered Next.js workflows with actionlint,
-   using that exception.
+3. **Done (2026-10-15).** actionlint 1.7.12 passes on the rendered workflows
+   of all 11 configurations `validate_templates.py` renders, with that
+   exception and one more: the release-please workflows set
+   `concurrency.queue: max`, which GitHub supports (changelog 2026-05-07,
+   checked 2026-10-15) and actionlint 1.7.12 reports as an unexpected key.
+   Where actionlint runs, ignore it the same way:
+
+   ```yaml
+     .github/workflows/release-please.yml:
+       ignore:
+         - 'unexpected key "queue" for "concurrency" section'
+   ```
+
 4. Verify the scheduled workflow can still read the intended alert data before
    propagating any canonical change to application repositories.
 

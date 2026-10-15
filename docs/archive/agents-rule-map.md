@@ -1,5 +1,8 @@
 # AGENTS.md rule map (v0.5.5 → hub and skills)
 
+> **Archived 2026-10-15.** A finished one-time audit, kept for history and not
+> maintained: versions and paths in it describe the repository as it was.
+
 One-time audit artifact for the AGENTS.md hub restructure. Each row is one
 sentence (or one command block or placeholder) of the v0.5.5 generated
 `AGENTS.md` sections and the type fragments composed into them, read with

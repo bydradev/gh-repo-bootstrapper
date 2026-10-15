@@ -138,5 +138,43 @@ class ValidatorWiringTests(unittest.TestCase):
             self.assertIn("no hub/skill/stamp self-test fixture ran", out)
 
 
+
+class StalePinTests(unittest.TestCase):
+    TEMPLATES = {
+        "test.yml": "steps:\n  # Pinned fallbacks (PyPI, 2026-01-01), so the suite holds\n",
+        "other.yml": "# pinned to the same framework version, no date here\n",
+    }
+
+    def test_a_pin_inside_the_age_limit_is_quiet(self):
+        today = validate_templates.datetime.date(2026, 3, 31)
+        self.assertEqual(validate_templates.stale_pin_warnings(self.TEMPLATES, today), [])
+
+    def test_an_old_pin_names_its_file_line_and_source(self):
+        today = validate_templates.datetime.date(2026, 4, 2)
+        warnings = validate_templates.stale_pin_warnings(self.TEMPLATES, today)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("templates/test.yml:2", warnings[0])
+        self.assertIn("PyPI on 2026-01-01 (91 days ago)", warnings[0])
+
+    def test_an_impossible_date_is_reported_instead_of_crashing(self):
+        templates = {"t.yml": "# Pinned (PyPI, 2026-02-30)\n"}
+        self.assertIn("not a valid date", validate_templates.stale_pin_warnings(templates)[0])
+
+    def test_the_shipped_templates_carry_dated_pins(self):
+        # An empty match set would make the warning silently useless.
+        far_future = validate_templates.datetime.date(2100, 1, 1)
+        warnings = validate_templates.stale_pin_warnings(today=far_future)
+        for name in ("test-python.yml", "test-swift-xcodegen.yml"):
+            self.assertTrue(any(f"templates/{name}:" in w for w in warnings), warnings)
+
+    def test_a_stale_pin_warns_without_failing_the_run(self):
+        out = io.StringIO()
+        with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:1: old"]), \
+                contextlib.redirect_stdout(out):
+            code = validate_templates.main()
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn("WARNING: templates/x.yml:1: old", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -57,7 +57,7 @@ jobs:
               return 0
             fi
             python3 - "$@" <<'PY'
-          import os, sys, tomllib
+          import os, platform, sys, tomllib
           d = tomllib.load(open("pyproject.toml", "rb"))
           project = d.get("project", {})
           extra = project.get("optional-dependencies", {}).get("dev")
@@ -73,29 +73,53 @@ jobs:
               # asking the package index for a project that is not built.
               try:
                   from packaging.requirements import Requirement
+                  from packaging.specifiers import SpecifierSet
                   from packaging.utils import canonicalize_name
               except ImportError:
                   from pip._vendor.packaging.requirements import Requirement
+                  from pip._vendor.packaging.specifiers import SpecifierSet
                   from pip._vendor.packaging.utils import canonicalize_name
+              # pip enforces requires-python when it installs a package; do
+              # the same here, since nothing is installed that would.
+              supported = project.get("requires-python")
+              if supported and not SpecifierSet(supported).contains(platform.python_version(), prereleases=True):
+                  sys.exit(f"pyproject.toml: requires-python {supported!r} excludes Python {platform.python_version()}")
               own = canonicalize_name(project.get("name", ""))
               extras = {canonicalize_name(k): v for k, v in project.get("optional-dependencies", {}).items()}
-              pending = [(r, "") for r in project.get("dependencies", [])] + [(r, "dev") for r in extra or []]
-              seen = {"dev"}
-              while pending:
-                  text, origin = pending.pop(0)
-                  requirement = Requirement(text)
-                  if requirement.marker and not requirement.marker.evaluate({"extra": origin}):
-                      continue
-                  requirement.marker = None
-                  if canonicalize_name(requirement.name) != own:
-                      print(requirement)
-                      continue
-                  if not requirement.specifier.contains(project.get("version", "0"), prereleases=True):
-                      sys.exit(f"pyproject.toml: {text!r} excludes this project's own version")
-                  for name in sorted(map(canonicalize_name, requirement.extras)):
-                      if name not in seen:
-                          seen.add(name)
-                          pending += [(r, name) for r in extras.get(name, [])]
+              def resolve(requested):
+                  # As in the metadata a build writes: a project dependency's
+                  # `extra` marker matches any requested extra, and an
+                  # optional dependency's is evaluated with the extra it is
+                  # listed under. A self-reference requests more extras.
+                  printed, wanted = [], set(requested)
+                  pending = [(r, None) for r in project.get("dependencies", [])]
+                  pending += [(r, e) for e in sorted(requested) for r in extras.get(e, [])]
+                  seen = set(requested)
+                  while pending:
+                      text, source = pending.pop(0)
+                      requirement = Requirement(text)
+                      marker, requirement.marker = requirement.marker, None
+                      scope = ["", *sorted(wanted)] if source is None else [source]
+                      if marker and not any(marker.evaluate({"extra": e}) for e in scope):
+                          continue
+                      if canonicalize_name(requirement.name) != own:
+                          printed.append(str(requirement))
+                          continue
+                      if not requirement.specifier.contains(project.get("version", "0"), prereleases=True):
+                          sys.exit(f"pyproject.toml: {str(requirement)!r} excludes this project's own version")
+                      for name in sorted(map(canonicalize_name, requirement.extras)):
+                          wanted.add(name)
+                          if name not in seen:
+                              seen.add(name)
+                              pending += [(r, name) for r in extras.get(name, [])]
+                  return printed, wanted
+              requested = {"dev"} if extra is not None else set()
+              while True:
+                  printed, wanted = resolve(requested)
+                  if wanted == requested:
+                      break
+                  requested = wanted
+              print(*printed, sep="\n") if printed else None
           else:
               print(*(word for word, ok in (("package", package), ("extra", extra is not None),
                                             ("group", "dev" in d.get("dependency-groups", {}))) if ok))

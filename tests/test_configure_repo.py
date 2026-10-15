@@ -290,6 +290,11 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "the last body line dropped": "".join(lines[:-2] + lines[-1:]),
             "one character changed": self.KEY.replace(self.BODY_LINE, "".join(flipped)),
             "not base64": self.KEY.replace(self.BODY_LINE, "not key material!"),
+            # Python's base64 skips these too, but a PEM reader does not.
+            "a vertical tab inside a line": self.KEY.replace(self.BODY_LINE, self.BODY_LINE[:20] + "\v" + self.BODY_LINE[20:]),
+            "a form feed inside a line": self.KEY.replace(self.BODY_LINE, self.BODY_LINE[:20] + "\f" + self.BODY_LINE[20:]),
+            "a no-break space inside a line": self.KEY.replace(
+                self.BODY_LINE, self.BODY_LINE[:20] + "\u00a0" + self.BODY_LINE[20:]),
             "PKCS#1 data under a PKCS#8 label": self.KEY.replace("RSA PRIVATE", "PRIVATE"),
             "PKCS#8 data under a PKCS#1 label": self.PKCS8_KEY.replace("PRIVATE KEY", "RSA PRIVATE KEY"),
             "a PKCS#8 version of 2": _pem("PRIVATE KEY", _der(0x30, _der_int(2) + _der(0x30, bytes.fromhex(
@@ -792,11 +797,11 @@ class PythonToolInstallTests(unittest.TestCase):
                                    ["pip install ruff==0.16.10"]),
             "tool settings and setup.py": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n", "setup.py": ""},
                                            ["pip install -e .", "pip install ruff==0.16.10"]),
-            "a uv init app with a dev group": ({"pyproject.toml": app + group},
+            "a uv init --no-package app with a dev group": ({"pyproject.toml": app + group},
                                                ["pip install --upgrade pip>=25.1",
                                                 "pip install idna>=3 six --group dev",
                                                 "pip install ruff==0.16.10"]),
-            "a uv init app with a dev extra": ({"pyproject.toml": app + extra},
+            "a uv init --no-package app with a dev extra": ({"pyproject.toml": app + extra},
                                                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
                                                      ["pip install -e .", "pip install ruff==0.16.10"]),
@@ -816,7 +821,16 @@ class PythonToolInstallTests(unittest.TestCase):
                  "pip install ruff==0.16.10"]),
             "a self-reference its own version does not satisfy": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]>=2\"]\ntest = [\"pytest\"]\n"},
-                None),
+                "excludes this project's own version"),
+            "a requires-python this interpreter is outside": (
+                {"pyproject.toml": app.replace("[project]\n", "[project]\nrequires-python = \"<3\"\n")},
+                "requires-python '<3' excludes Python"),
+            "a dependency marked for the dev extra": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra == 'dev'\"") + extra},
+                ["pip install idna>=3 helper six pytest", "pip install ruff==0.16.10"]),
+            "a dependency marked for an extra not requested": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra == 'docs'\"") + extra},
+                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
             "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
                                             ["pip install ruff==0.16.10"]),
             "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
@@ -833,9 +847,9 @@ class PythonToolInstallTests(unittest.TestCase):
                     env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log),
                          "GITHUB_PATH": str(Path(tmp.name) / "github-path")},
                 )
-                if installs is None:
+                if isinstance(installs, str):
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("excludes this project's own version", result.stderr)
+                    self.assertIn(installs, result.stderr)
                     continue
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 # packaging writes a direct reference as "name@ url" or
@@ -892,7 +906,7 @@ class PythonToolInstallTests(unittest.TestCase):
         group = "[dependency-groups]\ndev = [\"devdep==1.0\"]\n"
         layouts = {
             "only a dev group": (group, ["devdep"]),
-            # What `uv init` writes: [project] without a [build-system].
+            # What `uv init --no-package` writes: [project] without a [build-system].
             "a uv init app": ("[project]\nname = \"app\"\nversion = \"0.1.0\"\n"
                               "dependencies = [\"appdep==1.0\"]\n" + group, ["appdep", "devdep"]),
         }

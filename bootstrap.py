@@ -792,7 +792,9 @@ def _rsa_key_consistent(der: bytes) -> bool:
 def _key_body_error(label: str, body: str) -> str:
     """Return why a PEM body is not a complete RSA private key, or ""."""
     try:
-        der = base64.b64decode(re.sub(r"\s+", "", body), validate=True)
+        # Only the line breaks, spaces and tabs a PEM reader skips; any
+        # other whitespace would pass here but fail in the release workflow.
+        der = base64.b64decode(re.sub(r"[ \t\r\n]+", "", body), validate=True)
         if label == "PRIVATE KEY":
             # PKCS#8: version, AlgorithmIdentifier, then the PKCS#1 key as
             # an OCTET STRING, optionally followed by [0] attributes and a

@@ -291,7 +291,6 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         self.assertEqual(bootstrap.app_key_error(self.KEY), "")
         self.assertEqual(bootstrap.app_key_error(self.PKCS8_KEY), "")
         self.assertEqual(bootstrap.app_key_error(_pkcs8_with_public_key(_TEST_PUBLIC_KEY)), "")
-        self.assertEqual(bootstrap.app_key_error(_pkcs8_with_attributes(_TEST_ATTRIBUTE)), "")
         self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
         self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
         self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
@@ -328,16 +327,6 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "an empty PKCS#8 public key": _pkcs8_with_public_key(b"\x00"),
             "a PKCS#8 public key for another modulus": _pkcs8_with_public_key(
                 b"\x00" + _der(0x30, _der_int((2**127 - 1) * (2**89 - 1)) + _der_int(65537))),
-            # Node and WebCrypto refuse a key whose attributes do not decode.
-            "PKCS#8 attributes that are one stray byte": _pkcs8_with_attributes(b"\xff"),
-            "a PKCS#8 attribute that is not a SEQUENCE": _pkcs8_with_attributes(_der(0x04, b"x")),
-            "a PKCS#8 attribute without values": _pkcs8_with_attributes(_der(0x30, bytes.fromhex("0603550403"))),
-            "a PKCS#8 attribute value that does not decode": _pkcs8_with_attributes(
-                _der(0x30, bytes.fromhex("0603550403") + _der(0x31, b"\x0c\x05ab"))),
-            "a PKCS#8 attribute with an unterminated OID": _pkcs8_with_attributes(
-                _der(0x30, bytes.fromhex("060180") + _der(0x31, _der(0x0C, b"x")))),
-            "a PKCS#8 attribute with a padded OID": _pkcs8_with_attributes(
-                _der(0x30, bytes.fromhex("0603558003") + _der(0x31, _der(0x0C, b"x")))),
             # Congruent modulo p - 1 and q - 1, but not below n, so it signs wrongly.
             "a public exponent past the modulus": _pem("RSA PRIVATE KEY", _test_rsa_key(
                 e_offset=1000 * math.lcm(2**127 - 2, 2**107 - 2))),
@@ -355,6 +344,14 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 error = bootstrap.app_key_error(value)
                 self.assertIn("is incomplete or damaged", error)
                 self.assertNotIn(self.BODY_LINE, error)
+
+    def test_app_key_error_refuses_pkcs8_attributes(self):
+        # Valid or not, attributes are refused: GitHub never adds them, and
+        # Node fails to load a key whose attribute values do not decode.
+        for attributes in (_TEST_ATTRIBUTE, b"\xff", _der(0x30, bytes.fromhex("060180") + _der(0x31, b"\x05\x01\x00"))):
+            with self.subTest(attributes.hex()):
+                error = bootstrap.app_key_error(_pkcs8_with_attributes(attributes))
+                self.assertIn("carries PKCS#8 attributes", error)
 
     def test_app_key_error_refuses_a_pkcs8_key_that_is_not_rsa(self):
         # The EC P-256 algorithm identifier with an empty key: the algorithm

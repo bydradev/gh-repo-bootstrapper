@@ -790,8 +790,10 @@ def _key_body_error(label: str, body: str) -> str:
             # an OCTET STRING, optionally followed by [0] attributes and a
             # [1] public key, in that order (RFC 5958, section 2).
             items = _der_sequence(der)
+            # Version 1 marks a key with the public key, and only then.
             optional = [tag for tag, _content in items[3:]]
-            if (len(items) < 3 or items[0] not in ((0x02, b"\x00"), (0x02, b"\x01"))
+            version = b"\x01" if optional[-1:] == [0x81] else b"\x00"
+            if (len(items) < 3 or items[0] != (0x02, version)
                     or items[1][0] != 0x30 or items[2][0] != 0x04
                     or optional not in ([], [0xA0], [0x81], [0xA0, 0x81])):
                 raise ValueError("not a PKCS#8 PrivateKeyInfo")

@@ -264,6 +264,9 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.KEY.splitlines()), 5, "the fixture needs several body lines")
         self.assertEqual(bootstrap.app_key_error(self.KEY), "")
         self.assertEqual(bootstrap.app_key_error(self.PKCS8_KEY), "")
+        with_public_key = _pem("PRIVATE KEY", _der(0x30, _der_int(1) + _der(0x30, bytes.fromhex(
+            "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, b"\x00")))
+        self.assertEqual(bootstrap.app_key_error(with_public_key), "")
         self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
         self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
         self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
@@ -287,6 +290,8 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER))),
             "a PKCS#8 key with a trailing NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
                 "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + b"\x05\x00")),
+            "a PKCS#8 public key under version 0": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+                "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, b"\x00"))),
             "PKCS#8 parameters that are not NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(
                 0x30, bytes.fromhex("06092a864886f70d010101") + b"\x02\x01\x00") + _der(0x04, _TEST_RSA_DER))),
         }
@@ -799,6 +804,9 @@ class PythonToolInstallTests(unittest.TestCase):
                                          " \"url @ https://example.com/pkg;a.whl ; python_version >= '3'\"]\n"},
                 ["pip install idna>=3 six helper at pytest url @ https://example.com/pkg;a.whl",
                  "pip install ruff==0.16.10"]),
+            "a self-reference its own version does not satisfy": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]>=2\"]\ntest = [\"pytest\"]\n"},
+                None),
             "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
                                             ["pip install ruff==0.16.10"]),
             "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
@@ -815,6 +823,10 @@ class PythonToolInstallTests(unittest.TestCase):
                     env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log),
                          "GITHUB_PATH": str(Path(tmp.name) / "github-path")},
                 )
+                if installs is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("excludes this project's own version", result.stderr)
+                    continue
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 # packaging writes a direct reference as "name@ url" or
                 # "name @ url" depending on its version.

@@ -90,6 +90,8 @@ jobs:
                   if canonicalize_name(requirement.name) != own:
                       print(requirement)
                       continue
+                  if not requirement.specifier.contains(project.get("version", "0"), prereleases=True):
+                      sys.exit(f"pyproject.toml: {text!r} excludes this project's own version")
                   for name in sorted(map(canonicalize_name, requirement.extras)):
                       if name not in seen:
                           seen.add(name)

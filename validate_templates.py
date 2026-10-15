@@ -1577,7 +1577,7 @@ def check_sha_pinned_actions(label: str, files: dict) -> list:
 VERIFIED_ACTION_OWNERS = frozenset({"googleapis"})
 GITHUB_OWNED_ACTION_OWNERS = frozenset({"actions", "github"})
 APP_TOKEN_PERMISSIONS = {"permission-contents": "write", "permission-pull-requests": "write"}
-PYTHON_SUITE_COMMANDS = ("ruff format --check .", "ruff check .", "mypy .", "pytest")
+PYTHON_SUITE_COMMANDS = ("ruff format --check .", "ruff check .", "mypy .", "python -m pytest")
 PYTHON_TOOL_PIN_RE = re.compile(r"\b(ruff|mypy|pytest)==\d+(\.\d+)+\b")
 PYTHON_TOOL_LOOP_RE = re.compile(r"^\s*for tool in ([^;\n]+); do\s*$", re.MULTILINE)
 PYTHON_UNPINNED_INSTALL_RE = re.compile(r"pip install\b[^\n]*\b(ruff|mypy|pytest)\b(?!==)")
@@ -3298,7 +3298,7 @@ def _structure_self_tests() -> list:
                  .update({"if": False})), "never runs")
     expect("python suite without pytest",
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(
-               step(w, "test", lambda s: s.get("run") == "pytest"))), "suite step 'pytest' must run exactly once")
+               step(w, "test", lambda s: s.get("run") == "python -m pytest"))), "suite step 'python -m pytest' must run exactly once")
     expect("conditional python suite job",
            gates("python", test, lambda w: w["jobs"]["test"].update({"if": "github.event_name == 'push'"})),
            "job 'test' must not be conditional")

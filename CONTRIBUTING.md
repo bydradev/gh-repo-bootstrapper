@@ -1,54 +1,81 @@
 # Contributing
 
-## Issues are welcome. Code is not.
+Bug reports, feature requests, questions and pull requests are all welcome.
 
-**Bug reports, feature requests, and questions are genuinely wanted.** Open an
-issue — that is the way to contribute to this project, and it is a real one.
+## Issues
 
-**External code contributions are not accepted.** Pull requests, patches,
-diffs, and code snippets offered for inclusion will be closed unmerged. This is
-not a judgement on the quality of the work, and it is not personal. Pull request
-creation is restricted to collaborators at the repository level, so in most
-cases you will not be able to open one at all.
+Open an issue with the form that fits. Describe the behaviour you saw or want;
+a suggested fix is welcome too. Please leave out generated files, `.env`
+contents, tokens and repository configuration: paths and behaviour are what
+help.
 
-The reason is provenance. This project is maintained by one person and has no
-contributor licence agreement in place. Note what this is *not* about: an
-Apache-2.0 grant is irrevocable, so every copy already published stays
-Apache-licensed forever and no policy here changes that. The cost is narrower
-and more practical — offering a *future* version that contains someone else's
-contribution under different terms would require that person's permission.
-Rather than ask contributors to sign an agreement, the project simply does not
-take outside code.
+Security issues go through private reporting instead; see
+[SECURITY.md](SECURITY.md).
 
-This means **please do not paste code into issues** either — not as a suggested
-patch, not as "here's roughly how I'd fix it." Describe the behaviour you want
-or the bug you hit. A clear description of a problem is more useful than a diff,
-and it keeps the provenance question from arising at all.
+## Pull requests
 
-## Ideas raised in issues may be implemented independently
+1. For anything bigger than a small fix, open an issue first so the approach
+   can be agreed before you write it.
+2. Make one change per pull request. Pull requests are squash-merged, and the
+   title becomes the changelog entry, so it must be a
+   [Conventional Commit](https://www.conventionalcommits.org) subject such as
+   `fix: keep the full key when prompting`. A check enforces this.
+3. Run the checks listed under "Tooling" in [AGENTS.md](AGENTS.md) before you
+   push, and add or update tests for the behaviour you change.
+4. Sign off every commit, as described below.
 
-If you report a bug or request a feature, the maintainer may go on to implement
-it — including in a way that resembles an approach you described. That is the
-expected outcome of a useful issue, not an accident.
+The maintainer reviews every pull request and decides whether it is merged.
+Workflows on a first-time contributor's pull request may need the maintainer's
+approval before they run.
 
-To be explicit about how this works: **ideas raised in issues will be
-implemented independently, and submitted code will not be incorporated.** Where
-an issue prompted a change, it is credited in the release notes.
+### Sign off every commit
+
+Every commit in your pull request needs a `Signed-off-by:` line with your name
+and the email the commit is authored with. The line certifies the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/): in
+short, that you wrote the change or otherwise have the right to submit it under
+this project's licences.
+
+```sh
+git commit -s    # sign off a new commit
+
+# Sign off the commits already on your branch, rebasing onto this repository's
+# main rather than your fork's:
+git remote add upstream https://github.com/bydradev/gh-repo-bootstrapper.git
+git fetch upstream
+git rebase --signoff upstream/main
+```
+
+After a rebase, force-push your branch. The `dco` check lists any commit that
+is still missing a sign-off. The only commits it does not check are merges
+GitHub makes for you, with the "Update branch" button or the web conflict
+editor.
+
+If an AI tool helped write a commit, add the `Co-Authored-By:` trailer that
+[AGENTS.md](AGENTS.md) describes. You still sign off, and you are still
+responsible for the change.
+
+## Licence of contributions
+
+The repository has two licences, split by directory:
+
+- Everything under [`templates/`](templates/) is
+  [MIT-0](templates/LICENSE). These files are copied into the repositories
+  `bootstrap.py` creates, and MIT-0 lets their owners use them without keeping
+  any notice or attribution.
+- Everything else is [Apache-2.0](LICENSE).
+
+A contribution is made under the licence of the directory it changes. Changes
+under `templates/` are contributed under MIT-0, and all other changes under
+Apache-2.0, as its section 5 provides.
 
 ## Forking
 
-The licence permits forking, modification, and redistribution, including
-commercially, on its own terms. Nothing here restricts what you may do with your
-own copy — this policy governs only what is merged back.
-
-## Security
-
-Please do not report security issues in public issues. See
-[SECURITY.md](SECURITY.md).
+Both licences permit forking, modification and redistribution, including
+commercially, on their own terms. This file governs only what is merged back.
 
 ## Maintainer workflow
 
-[`AGENTS.md`](AGENTS.md) documents how work is carried out in this repository —
-branch, commit, and release conventions for the maintainer and for AI assistants
-working under their direction. It is workflow documentation, not a contribution
-invitation. This file controls external submissions.
+[AGENTS.md](AGENTS.md) documents the branch, commit and release conventions the
+maintainer and AI assistants follow in this repository. Contributors follow the
+same commit and pull request conventions.

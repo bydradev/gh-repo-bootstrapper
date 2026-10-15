@@ -3,6 +3,6 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md
     about: Do not open a public issue for anything exploitable. Read SECURITY.md for the private reporting process.
-  - name: Code contributions & patches policy
+  - name: Contributing guide
     url: https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md
-    about: This project does not accept external code, patches, or diffs. Read this before opening a PR.
+    about: How to open a pull request, sign off your commits, and which licence a contribution falls under.

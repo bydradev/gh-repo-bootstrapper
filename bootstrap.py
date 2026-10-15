@@ -10,7 +10,7 @@ Supported types:
   rust     Rust CI (fmt / clippy / cargo test) with gated Release Please.
   simple   Release Please only — no test workflows.
 
-Requirements: Python 3.9+, gh CLI (authenticated), git
+Requirements: Python 3.11+, gh CLI (authenticated), git
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ from typing import NoReturn
 # Startup version check
 # ---------------------------------------------------------------------------
 
-if sys.version_info < (3, 9):
-    sys.exit(f"error: Python 3.9+ required (got {sys.version})")
+if sys.version_info < (3, 11):
+    sys.exit(f"error: Python 3.11+ required (got {sys.version})")
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -6,14 +6,19 @@ name: dco
 # the owner, organisation members, collaborators and bots are skipped; a
 # skipped run still satisfies the check if it is ever made required (see
 # docs/branch-protection-runbook.md).
+#
+# pull_request_target runs this file as it is on main, so a pull request cannot
+# weaken the check by editing it, and it runs without waiting for a first-time
+# contributor's workflows to be approved. That trigger is unsafe only when it
+# runs the pull request's code or interpolates its text into a script; this
+# job does neither. Nothing is checked out, the commits are read through the
+# API, every pull-request value reaches the script through env (never through
+# ${{ }} in run), and the token below can only read.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
     branches: [main]
 
-# Fork pull requests run with a read-only token. Nothing from the pull request
-# is checked out or executed: the commits are read through the API, and every
-# pull-request value reaches the script through env, never through ${{ }} in run.
 permissions:
   contents: read
   pull-requests: read
@@ -40,7 +45,7 @@ jobs:
         run: |
           commits="$RUNNER_TEMP/commits.jsonl"
           gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
-            --jq '.[] | {sha, parents: (.parents | length), email: .commit.author.email, message: .commit.message}' \
+            --jq '.[] | {sha, parents: (.parents | length), committer: .committer.login, email: .commit.author.email, message: .commit.message}' \
             > "$commits"
           python3 - "$commits" "$PR_COMMITS" <<'PY'
           import json
@@ -57,12 +62,13 @@ jobs:
                   f"Read {len(commits)} of {expected} commits; split the pull "
                   "request so every commit can be checked."
               )
-          trailer = re.compile(r"^Signed-off-by: .+ <([^<>]+)>\s*$", re.MULTILINE | re.IGNORECASE)
+          trailer = re.compile(r"^Signed-off-by: [^\n]+ <([^<>\n]+)>[^\S\n]*$", re.MULTILINE | re.IGNORECASE)
           missing = []
           for commit in commits:
-              # A merge commit, such as GitHub's "Update branch", adds no
-              # authored change of its own.
-              if commit["parents"] > 1:
+              # A merge made by GitHub's "Update branch" button is committed by
+              # web-flow and adds no change of the contributor's. Any other
+              # merge could carry new content, so it needs a sign-off too.
+              if commit["parents"] > 1 and commit["committer"] == "web-flow":
                   continue
               emails = {email.lower() for email in trailer.findall(commit["message"])}
               if (commit["email"] or "").lower() not in emails:
@@ -72,8 +78,8 @@ jobs:
           if missing:
               print("These commits need a Signed-off-by line with the commit author's email:")
               print("\n".join(f"  {line}" for line in missing))
-              print("Add it with `git rebase --signoff origin/main` and force-push your branch.")
+              print("Add it with `git rebase --signoff upstream/main` and force-push your branch.")
               print("See CONTRIBUTING.md, 'Sign off every commit'.")
               sys.exit(1)
-          print("Every non-merge commit is signed off.")
+          print("Every commit is signed off.")
           PY

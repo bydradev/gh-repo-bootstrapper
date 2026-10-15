@@ -37,13 +37,18 @@ short, that you wrote the change or otherwise have the right to submit it under
 this project's licences.
 
 ```sh
-git commit -s                       # sign off a new commit
-git rebase --signoff origin/main    # sign off the commits already on your branch
+git commit -s    # sign off a new commit
+
+# Sign off the commits already on your branch, rebasing onto this repository's
+# main rather than your fork's:
+git remote add upstream https://github.com/bydradev/gh-repo-bootstrapper.git
+git fetch upstream
+git rebase --signoff upstream/main
 ```
 
 After a rebase, force-push your branch. The `dco` check lists any commit that
-is still missing a sign-off. Merge commits, such as the one GitHub's "Update
-branch" button creates, are not checked.
+is still missing a sign-off. The only commit it does not check is the merge
+GitHub's "Update branch" button creates.
 
 If an AI tool helped write a commit, add the `Co-Authored-By:` trailer that
 [AGENTS.md](AGENTS.md) describes. You still sign off, and you are still

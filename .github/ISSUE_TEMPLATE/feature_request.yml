@@ -33,7 +33,7 @@ body:
     id: solution
     attributes:
       label: Proposed behaviour
-      description: Describe what you'd like to happen, in prose — not code.
+      description: Describe what you'd like to happen.
     validations:
       required: true
 

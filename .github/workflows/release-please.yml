@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 # As in the release-please templates: one run at a time, and queue: max keeps
-# every waiting run instead of letting a newer push cancel a pending one.
+# every waiting run instead of letting a newer push cancel a pending one
+# (docs.github.com "Workflow syntax for GitHub Actions", checked 2026-10-15).
 concurrency:
   group: release-please
   cancel-in-progress: false

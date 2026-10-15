@@ -256,6 +256,18 @@ They're tables each repository edits, so they keep the plain `kept`
 behaviour, as do scripts, configs and the other workflows: `ci.yml` and
 `test.yml` hold each repository's own test lanes.
 
+The template's `release-please.yml` sets `concurrency.queue: max`, so a push
+never cancels the pending run of a release merge. actionlint 1.7.12 does not
+know that key yet; a repository that runs actionlint ignores it for that file:
+
+```yaml
+# .github/actionlint.yaml
+paths:
+  .github/workflows/release-please.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+```
+
 Every template-owned file carries a stamp line:
 
 ```text

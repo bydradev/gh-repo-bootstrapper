@@ -1,5 +1,5 @@
 # actionlint 1.7.12 does not know concurrency.queue yet. GitHub supports it
-# (changelog 2026-05-07, checked 2026-10-15); drop this once actionlint does.
+# (docs.github.com workflow syntax, checked 2026-10-15); drop this once actionlint does.
 paths:
   .github/workflows/release-please.yml:
     ignore:

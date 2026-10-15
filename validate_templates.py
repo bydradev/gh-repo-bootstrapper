@@ -990,7 +990,7 @@ def check_npm_script_assumptions(templates: dict = None, assumptions: set = None
 # A comment such as "# Pinned (PyPI, 2026-10-08)" records when a version in a
 # template was last checked against its source. Past this age it is reported
 # for a refresh.
-PIN_DATE_RE = re.compile(r"#[^\n]*\bPinned\b[^\n(]*\(([^,()\n]+), (\d{4}-\d{2}-\d{2})\)")
+PIN_DATE_RE = re.compile(r"#[^\n]*\bPinned\b[^\n(]*\(([^()\n]+), (\d{4}-\d{2}-\d{2})\)", re.IGNORECASE)
 PIN_MAX_AGE_DAYS = 90
 
 
@@ -1023,6 +1023,24 @@ def stale_pin_warnings(templates: dict = None, today: datetime.date = None) -> l
                     f"on {checked} ({age} days ago); check for a newer release and update the date"
                 )
     return warnings
+
+
+def check_dependabot_cooldown(label: str, files: dict) -> list:
+    """Every Dependabot update entry waits before proposing a new release."""
+    text = files.get(".github/dependabot.yml")
+    if text is None:
+        return [f"[{label}] .github/dependabot.yml is not generated"]
+    errors = []
+    for entry in (yaml.safe_load(text) or {}).get("updates") or []:
+        cooldown = entry.get("cooldown") if isinstance(entry, dict) else None
+        days = cooldown.get("default-days") if isinstance(cooldown, dict) else None
+        if not isinstance(days, int) or days < 1:
+            ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else entry
+            errors.append(
+                f"[{label}] .github/dependabot.yml {ecosystem} updates need cooldown.default-days, "
+                f"so a brand-new release is not proposed the day it is published"
+            )
+    return errors
 
 
 def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
@@ -3370,6 +3388,7 @@ def main() -> int:
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
         all_errors += check_release_please_config(label, cfg, files)
         all_errors += check_baseline_documents(label, cfg["repo_type"], files)
+        all_errors += check_dependabot_cooldown(label, files)
         all_errors += check_readme(label, cfg, files)
         all_errors += check_branch_protection_payload(label, cfg["repo_type"])
         all_errors += check_runbook(label, files)

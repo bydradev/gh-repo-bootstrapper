@@ -38,8 +38,8 @@ actionlint reports `vulnerability-alerts` as an unknown permission scope.
 3. **Done (2026-10-15).** actionlint 1.7.12 passes on the rendered workflows
    of all 11 configurations `validate_templates.py` renders, with that
    exception and one more: the release-please workflows set
-   `concurrency.queue: max`, which GitHub supports (changelog 2026-05-07,
-   checked 2026-10-15) and actionlint 1.7.12 reports as an unexpected key.
+   `concurrency.queue: max`, which GitHub supports (docs.github.com
+   "Workflow syntax for GitHub Actions", checked 2026-10-15) and actionlint 1.7.12 reports as an unexpected key.
    Where actionlint runs, ignore it the same way:
 
    ```yaml

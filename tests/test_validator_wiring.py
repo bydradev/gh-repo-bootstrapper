@@ -38,6 +38,7 @@ CHECKS = (
     "check_rust_suite",
     "check_release_please_config",
     "check_baseline_documents",
+    "check_dependabot_cooldown",
     "check_readme",
     "check_branch_protection_payload",
     "check_runbook",
@@ -138,7 +139,6 @@ class ValidatorWiringTests(unittest.TestCase):
             self.assertIn("no hub/skill/stamp self-test fixture ran", out)
 
 
-
 class StalePinTests(unittest.TestCase):
     TEMPLATES = {
         "test.yml": "steps:\n  # Pinned fallbacks (PyPI, 2026-01-01), so the suite holds\n",
@@ -174,6 +174,33 @@ class StalePinTests(unittest.TestCase):
             code = validate_templates.main()
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("WARNING: templates/x.yml:1: old", out.getvalue())
+
+
+class ReleaseQueueTests(unittest.TestCase):
+    def _files(self, concurrency):
+        body = validate_templates.yaml.safe_dump(
+            {"on": {"push": {"branches": ["main"]}}, "concurrency": concurrency, "jobs": {}}
+        )
+        return {".github/workflows/release-please.yml": body}
+
+    def test_the_release_group_must_keep_every_pending_run(self):
+        queued = {"group": "release-please", "cancel-in-progress": False, "queue": "max"}
+        self.assertEqual(validate_templates._workflow_hardening("t", self._files(queued)), [])
+        for missing in ({**queued, "queue": "single"}, {k: v for k, v in queued.items() if k != "queue"}):
+            errors = validate_templates._workflow_hardening("t", self._files(missing))
+            self.assertTrue(errors and "release-please.yml" in errors[0], (missing, errors))
+
+
+class DependabotCooldownTests(unittest.TestCase):
+    def test_every_update_entry_needs_a_cooldown(self):
+        good = "version: 2\nupdates:\n  - package-ecosystem: pip\n    cooldown:\n      default-days: 7\n"
+        bad = good + "  - package-ecosystem: github-actions\n    directory: /\n"
+        check = validate_templates.check_dependabot_cooldown
+        self.assertEqual(check("t", {".github/dependabot.yml": good}), [])
+        errors = check("t", {".github/dependabot.yml": bad})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("github-actions", errors[0])
+        self.assertTrue(check("t", {}))
 
 
 if __name__ == "__main__":

@@ -865,6 +865,40 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertIn("fix this structure", actions["AGENTS.md"][1])
         self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
 
+    def test_adopt_refuses_a_rebuild_around_an_html_block(self):
+        # CommonMark reads a fence line inside an HTML block as HTML, but the
+        # scan would open a fence there and read the user's section after it
+        # as code, so a rebuild would drop that section.
+        files = _render()
+        fence = "`" * 3
+        # `source` is a block tag in GitHub's cmark-gfm though not in CommonMark.
+        for opener, closer in (("<!-- old example", "-->"), ("<details><pre>", "</pre></details>"),
+                               ("<source", "")):
+            with self.subTest(opener):
+                edited = files["AGENTS.md"].replace(
+                    "## Project specifics",
+                    f"{opener}\n{fence}\n{closer}\n\n## My rules\n\nKeep this.\n\n{fence}sh\nmake\n{fence}\n\n"
+                    "## Project specifics", 1,
+                )
+                rows = bootstrap.compare_agents(files["AGENTS.md"], edited)
+                self.assertIn(("local", f"(HTML block: {opener})"), rows)
+                self._write("AGENTS.md", edited)
+                self._commit_all()
+                actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(
+                    self.repo, files, replace_generated=True, confirm=lambda _: True)}
+                self.assertEqual(actions["AGENTS.md"][0], "refused")
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), edited)
+
+    def test_html_inside_a_fence_or_a_line_of_text_is_not_an_html_block(self):
+        files = _render()
+        edited = files["AGENTS.md"].replace(
+            "## Project specifics",
+            "Text with <kbd>Ctrl</kbd> inline and an <https://example.com> link.\n\n"
+            "```html\n<!-- example -->\n<details>\n```\n\n## Project specifics", 1,
+        )
+        rows = bootstrap.compare_agents(files["AGENTS.md"], edited)
+        self.assertFalse([row for row in rows if row[1].startswith("(HTML block")], rows)
+
     def test_replacement_prompt_lists_missing_sections(self):
         files = _render()
         edited = files["AGENTS.md"].replace("## Definition of done\n\n", "## Definition of done\n\nX.\n\n", 1)

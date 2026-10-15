@@ -1450,6 +1450,23 @@ _CONTAINER_PREFIX_RE = re.compile(r"^[ \t]*(?:(?:>|(?:[-*+]|\d{1,9}[.)])(?=[ \t]
 _CONTAINED_HEADING_RE = re.compile(r"^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)+#{1,6}(?!#)[ \t]+\S")
 _SETEXT_UNDERLINE_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+# The start of a CommonMark HTML block, types 1 to 7. Its lines are raw HTML
+# up to its end condition, so a fence or heading inside one is text, which a
+# line scan cannot follow. The type-6 tags are CommonMark 0.31.2's plus
+# `source`, which GitHub's cmark-gfm also lists (both checked 2026-10-15).
+_HTML_BLOCK_TAGS = (
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
+    "dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|"
+    "hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|"
+    "search|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
+)
+_HTML_BLOCK_START_RE = re.compile(
+    r"^[ \t]*(?:<(?:script|pre|style|textarea)(?:[ \t>]|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\["
+    r"|</?(?:" + _HTML_BLOCK_TAGS + r")(?:[ \t>]|/>|$)"
+    r"|(?:<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][\w.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
+    r"[ \t]*/?>|</[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$)",
+    re.IGNORECASE,
+)
 RETIRED_SECTIONS: frozenset[str] = frozenset({
     "## Orchestration and delegation",
     "## Independent fresh-eyes review",
@@ -1526,7 +1543,9 @@ def _markdown_ambiguities(text: str) -> list:
     open at the end of the file, and a fence line indented four or more
     columns make section boundaries uncertain. CommonMark reads such a line as
     indented code at the top level but as a fence inside a list item; the
-    scan cannot tell which, so a wrong guess could hide later headings.
+    scan cannot tell which, so a wrong guess could hide later headings. An
+    HTML block (a comment, <pre>, <details> and so on) can hold a fence line
+    that the scan would open, so it is reported too.
 
     This is a line-level approximation, not a CommonMark block parser, and it
     errs towards reporting: a `---` thematic break after a list item or inside
@@ -1542,6 +1561,8 @@ def _markdown_ambiguities(text: str) -> list:
         # Judge blockquote and list content by what follows its markers, so
         # `> Ours` over `> ----` counts as a setext heading too.
         line = _CONTAINER_PREFIX_RE.sub("", raw_line)
+        if not in_fence and _HTML_BLOCK_START_RE.match(line) and line.strip() != _NEXTJS_RULES_PLACEHOLDER:
+            problems.append(f"(HTML block: {line.strip()})")
         if (
             not in_fence
             and _SETEXT_UNDERLINE_RE.match(line)

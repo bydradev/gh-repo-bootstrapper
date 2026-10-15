@@ -60,11 +60,17 @@ jobs:
               if [ -z "${1:-}" ] && [ -f setup.py ]; then echo package; fi
               return 0
             fi
-            python3 - "$@" <<'PY'
+            # -P keeps the repository off sys.path, so a project module
+            # named like a standard one (platform.py, say) is not imported.
+            python3 -P - "$@" <<'PY'
           import os, platform, re, sys, tomllib
           d = tomllib.load(open("pyproject.toml", "rb"))
           project = d.get("project", {})
-          extra = project.get("optional-dependencies", {}).get("dev")
+          # Extra and group names compare normalized, as pip and uv do, so
+          # `Dev` or `DEV` is the dev extra or group too.
+          def norm(name):
+              return re.sub(r"[-_.]+", "-", name).lower()
+          extra = next((v for k, v in project.get("optional-dependencies", {}).items() if norm(k) == "dev"), None)
           package = d.get("tool", {}).get("uv", {}).get("package")
           if package is None:
               # A setup.cfg counts only with setuptools' [metadata] or
@@ -102,6 +108,8 @@ jobs:
                   # rather than looked up on the package index by pip.
                   if name in including:
                       sys.exit(f"pyproject.toml: dependency group {name!r} includes itself")
+                  if including and name not in groups:
+                      sys.exit(f"pyproject.toml: dependency group {including[-1]!r} includes {name!r}, which is not defined")
                   return [r for item in groups.get(name, []) for r in (
                       group(canonicalize_name(item["include-group"]), (*including, name))
                       if isinstance(item, dict) else [item])]
@@ -145,7 +153,7 @@ jobs:
               print(*printed, sep="\n") if printed else None
           else:
               print(*(word for word, ok in (("package", package), ("extra", extra is not None),
-                                            ("group", "dev" in d.get("dependency-groups", {}))) if ok))
+                                            ("group", "dev" in map(norm, d.get("dependency-groups", {})))) if ok))
           PY
           }
           if [ -f uv.lock ]; then

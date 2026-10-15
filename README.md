@@ -669,7 +669,8 @@ variables in `--non-interactive` mode. The App key is the complete multi-line
 PEM file GitHub gives you, so the interactive prompt asks for the path to that
 `.pem` file rather than its text: a one-line prompt keeps only the first line
 of a pasted key. In either mode, a value that is not a complete, unencrypted
-RSA private key in the PKCS#1 or PKCS#8 PEM form GitHub issues (for example one
+RSA private key in PKCS#1 (`BEGIN RSA PRIVATE KEY`) or PKCS#8
+(`BEGIN PRIVATE KEY`) PEM form (for example one
 cut short before its `-----END … PRIVATE KEY-----` line, one missing lines of
 key data, or one converted to the OpenSSH format) is refused instead of being stored as a secret that fails on the
 first release. A `--dry-run` stores nothing, so it does not check the key. The path is read without echo, like a password, so a key pasted there

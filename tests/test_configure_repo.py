@@ -846,6 +846,20 @@ class PythonToolInstallTests(unittest.TestCase):
                                          "[dependency-groups]\ndev = [{include-group = \"Lint\"}, \"sample[test]\"]\n"
                                          "lint = [\"ruff\"]\n"},
                 ["pip install idna>=3 six helper ruff", "pip install ruff==0.16.10"]),
+            "a dev group that includes a missing group": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"missing\"}]\n"},
+                "includes 'missing', which is not defined"),
+            "an app with its own platform.py and requires-python": (
+                {"pyproject.toml": app.replace("[project]\n", "[project]\nrequires-python = \">=3.11\"\n"),
+                 "platform.py": "raise SystemExit('the project platform.py was imported')\n"},
+                ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "a package with a Dev extra and DEV group": (
+                {"pyproject.toml": project + "[project.optional-dependencies]\nDev = [\"pytest\"]\n"
+                                             "[dependency-groups]\nDEV = [\"pytest\"]\n"},
+                ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev",
+                 "pip install ruff==0.16.10"]),
+            "an app with a Dev group": ({"pyproject.toml": app + "[dependency-groups]\nDev = [\"pytest\"]\n"},
+                                        ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
             "a dev group that includes itself": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
                 "dependency group 'dev' includes itself"),

@@ -1,14 +1,19 @@
 """Regression tests for provider-free generated repository configuration."""
 
+import base64
 import contextlib
+import hashlib
 import io
 import json
+import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -208,12 +213,71 @@ class ConfigureRepoTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
 
 
+def _der(tag, content):
+    """One DER element: tag, definite length, content."""
+    length = len(content)
+    if length < 0x80:
+        return bytes([tag, length]) + content
+    size = (length.bit_length() + 7) // 8
+    return bytes([tag, 0x80 | size]) + length.to_bytes(size, "big") + content
+
+
+def _der_int(value):
+    return _der(0x02, value.to_bytes(value.bit_length() // 8 + 1, "big"))
+
+
+def _pem(label, der):
+    body = base64.b64encode(der).decode()
+    lines = [body[i:i + 64] for i in range(0, len(body), 64)]
+    return "\n".join([f"-----BEGIN {label}-----", *lines, f"-----END {label}-----"]) + "\n"
+
+
+def _test_rsa_key(qinv_offset=0, e_offset=0, d_offset=0):
+    """A complete, consistent PKCS#1 RSA key built from two public Mersenne
+    primes. It is far too small to protect anything; it exists so the
+    validator sees real key structure without a secret in the repository."""
+    p, q, e = 2**127 - 1, 2**107 - 1, 65537
+    d = pow(e, -1, (p - 1) * (q - 1)) + d_offset
+    numbers = (0, p * q, e + e_offset, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p) + qinv_offset)
+    return _der(0x30, b"".join(_der_int(n) for n in numbers))
+
+
+_TEST_RSA_DER = _test_rsa_key()
+
+
+def _der_sequence_body_after_version():
+    """The test key's eight INTEGERs after its version, for re-encoding."""
+    body = _TEST_RSA_DER[2:] if _TEST_RSA_DER[1] < 0x80 else _TEST_RSA_DER[2 + (_TEST_RSA_DER[1] & 0x7F):]
+    return body[3:]  # drop 02 01 00
+
+
+_TEST_PUBLIC_KEY = b"\x00" + _der(0x30, _der_int((2**127 - 1) * (2**107 - 1)) + _der_int(65537))
+
+
+def _pkcs8_with_public_key(public_key):
+    """The test key as version-1 PKCS#8, carrying public_key as its [1] field."""
+    return _pem("PRIVATE KEY", _der(0x30, _der_int(1) + _der(0x30, bytes.fromhex(
+        "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, public_key)))
+
+
+def _pkcs8_with_attributes(attributes):
+    """The test key as version-0 PKCS#8, carrying attributes as its [0] field."""
+    return _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+        "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0xA0, attributes)))
+
+
+# A friendlyName attribute (PKCS#9, 1.2.840.113549.1.9.20) holding a BMPString.
+_TEST_ATTRIBUTE = _der(0x30, bytes.fromhex("060a2a864886f70d01091401") + _der(0x31, _der(0x1E, "key".encode("utf-16-be"))))
+
+
 class ReleasePleaseAppKeyTests(unittest.TestCase):
     """The App key is a multi-line PEM block and must arrive whole."""
 
-    # Shaped like a PEM private key; the body is not key material.
-    KEY = "-----BEGIN RSA PRIVATE KEY-----\nbm90LWEta2V5\nbm90LWEta2V5\n-----END RSA PRIVATE KEY-----\n"
+    KEY = _pem("RSA PRIVATE KEY", _TEST_RSA_DER)
+    PKCS8_KEY = _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+        "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER)))
     FIRST_LINE = "-----BEGIN RSA PRIVATE KEY-----"
+    BODY_LINE = KEY.splitlines()[1]
 
     def _key_file(self, text):
         tmp = tempfile.TemporaryDirectory()
@@ -223,14 +287,106 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         return path
 
     def test_app_key_error_accepts_only_a_complete_pem_block(self):
+        self.assertGreaterEqual(len(self.KEY.splitlines()), 5, "the fixture needs several body lines")
         self.assertEqual(bootstrap.app_key_error(self.KEY), "")
-        self.assertEqual(bootstrap.app_key_error(self.KEY.replace("RSA ", "")), "")
+        self.assertEqual(bootstrap.app_key_error(self.PKCS8_KEY), "")
+        self.assertEqual(bootstrap.app_key_error(_pkcs8_with_public_key(_TEST_PUBLIC_KEY)), "")
         self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
         self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
         self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
         end_first = "-----END RSA PRIVATE KEY-----\n" + self.FIRST_LINE + "\n"
         self.assertIn("incomplete", bootstrap.app_key_error(end_first))
         self.assertIn("not a PEM private key", bootstrap.app_key_error("private-key"))
+
+    def test_app_key_error_refuses_key_data_that_is_cut_or_corrupted(self):
+        lines = self.KEY.splitlines(keepends=True)
+        flipped = list(self.BODY_LINE)
+        flipped[10] = "A" if flipped[10] != "A" else "B"
+        cases = {
+            "only the first body line": lines[0] + lines[1] + lines[-1],
+            "a middle line dropped": "".join(lines[:2] + lines[3:]),
+            "the last body line dropped": "".join(lines[:-2] + lines[-1:]),
+            "one character changed": self.KEY.replace(self.BODY_LINE, "".join(flipped)),
+            "not base64": self.KEY.replace(self.BODY_LINE, "not key material!"),
+            # Python's base64 skips these too, but a PEM reader does not.
+            "a vertical tab inside a line": self.KEY.replace(self.BODY_LINE, self.BODY_LINE[:20] + "\v" + self.BODY_LINE[20:]),
+            "a form feed inside a line": self.KEY.replace(self.BODY_LINE, self.BODY_LINE[:20] + "\f" + self.BODY_LINE[20:]),
+            "a no-break space inside a line": self.KEY.replace(
+                self.BODY_LINE, self.BODY_LINE[:20] + "\u00a0" + self.BODY_LINE[20:]),
+            "PKCS#1 data under a PKCS#8 label": self.KEY.replace("RSA PRIVATE", "PRIVATE"),
+            "PKCS#8 data under a PKCS#1 label": self.PKCS8_KEY.replace("PRIVATE KEY", "RSA PRIVATE KEY"),
+            "a PKCS#8 version of 2": _pem("PRIVATE KEY", _der(0x30, _der_int(2) + _der(0x30, bytes.fromhex(
+                "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER))),
+            "a PKCS#8 key with a trailing NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+                "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + b"\x05\x00")),
+            "a PKCS#8 public key under version 0": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+                "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, b"\x00"))),
+            # Node and OpenSSL refuse an unused-bit count over 7 (X.690, 8.6.2.2).
+            "a PKCS#8 public key with 8 unused bits": _pkcs8_with_public_key(b"\x08"),
+            "a PKCS#8 public key with unused bits": _pkcs8_with_public_key(b"\x01" + _TEST_PUBLIC_KEY[1:]),
+            "an empty PKCS#8 public key": _pkcs8_with_public_key(b"\x00"),
+            "a PKCS#8 public key for another modulus": _pkcs8_with_public_key(
+                b"\x00" + _der(0x30, _der_int((2**127 - 1) * (2**89 - 1)) + _der_int(65537))),
+            # Congruent modulo p - 1 and q - 1, but not below n, so it signs wrongly.
+            "a public exponent past the modulus": _pem("RSA PRIVATE KEY", _test_rsa_key(
+                e_offset=1000 * math.lcm(2**127 - 2, 2**107 - 2))),
+            # Congruent modulo p - 1 and q - 1, but not below n, so Node
+            # refuses to sign with it (RFC 8017, 3.2: d < n).
+            "a private exponent past the modulus": _pem("RSA PRIVATE KEY", _test_rsa_key(
+                d_offset=1000 * math.lcm(2**127 - 2, 2**107 - 2))),
+            "a PKCS#1 version encoded in two bytes": _pem("RSA PRIVATE KEY", _der(
+                0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
+            "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(
+                0x30, b"\x02\x81\x01\x00" + _der_sequence_body_after_version())),
+            # Congruent, but outside 0 < qInv < p, so signing fails.
+            "a CRT coefficient of qInv + p": _pem("RSA PRIVATE KEY", _test_rsa_key(qinv_offset=2**127 - 1)),
+            "PKCS#8 parameters that are not NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(
+                0x30, bytes.fromhex("06092a864886f70d010101") + b"\x02\x01\x00") + _der(0x04, _TEST_RSA_DER))),
+        }
+        for label, value in cases.items():
+            with self.subTest(label):
+                error = bootstrap.app_key_error(value)
+                self.assertIn("is incomplete or damaged", error)
+                self.assertNotIn(self.BODY_LINE, error)
+
+    def test_app_key_error_refuses_pkcs8_attributes(self):
+        # Valid or not, attributes are refused: GitHub never adds them, and
+        # Node fails to load a key whose attribute values do not decode.
+        for attributes in (_TEST_ATTRIBUTE, b"\xff", _der(0x30, bytes.fromhex("060180") + _der(0x31, b"\x05\x01\x00"))):
+            with self.subTest(attributes.hex()):
+                error = bootstrap.app_key_error(_pkcs8_with_attributes(attributes))
+                self.assertIn("carries PKCS#8 attributes", error)
+
+    def test_app_key_error_refuses_a_pkcs8_key_that_is_not_rsa(self):
+        # The EC P-256 algorithm identifier with an empty key: the algorithm
+        # is refused before the key is read.
+        ec = _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+            "06072a8648ce3d020106082a8648ce3d030107")) + _der(0x04, b"")))
+        self.assertIn("is not an RSA key", bootstrap.app_key_error(ec))
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl is not installed")
+    def test_app_key_error_accepts_keys_openssl_generates(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        pkcs8 = Path(tmp.name) / "pkcs8.pem"
+        pkcs1 = Path(tmp.name) / "pkcs1.pem"
+        made = [subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048",
+                                "-out", str(pkcs8)], capture_output=True)]
+        # -traditional is OpenSSL 3; 1.1 and LibreSSL already write PKCS#1.
+        made.append(subprocess.run(["openssl", "rsa", "-traditional", "-in", str(pkcs8), "-out", str(pkcs1)],
+                                   capture_output=True))
+        if made[-1].returncode:
+            made.append(subprocess.run(["openssl", "rsa", "-in", str(pkcs8), "-out", str(pkcs1)],
+                                       capture_output=True))
+        if made[0].returncode or made[-1].returncode or "BEGIN RSA PRIVATE KEY" not in pkcs1.read_text():
+            self.skipTest("this openssl cannot write both PKCS#8 and PKCS#1 keys")
+        for path in (pkcs8, pkcs1):
+            with self.subTest(path.name):
+                text = path.read_text()
+                self.assertEqual(bootstrap.app_key_error(text), "")
+                lines = text.splitlines(keepends=True)
+                self.assertIn("is incomplete or damaged",
+                              bootstrap.app_key_error(lines[0] + lines[1] + lines[-1]))
 
     def test_app_key_error_tolerates_crlf_and_trailing_spaces(self):
         self.assertEqual(bootstrap.app_key_error(self.KEY.replace("\n", "\r\n")), "")
@@ -247,7 +403,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             with self.subTest(expected):
                 error = bootstrap.app_key_error(value)
                 self.assertIn(expected, error)
-                self.assertNotIn("bm90LWEta2V5", error)
+                self.assertNotIn(self.BODY_LINE, error)
 
     def test_app_key_error_refuses_a_traditionally_encrypted_key(self):
         encrypted = self.KEY.replace(
@@ -291,7 +447,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
         self.assertIn("is incomplete", out.getvalue())
         self.assertIn("cannot read", out.getvalue())
-        self.assertNotIn("bm90LWEta2V5", out.getvalue())
+        self.assertNotIn(self.BODY_LINE, out.getvalue())
 
     def test_prompt_never_prints_back_a_key_pasted_in_place_of_a_path(self):
         good = self._key_file(self.KEY)
@@ -300,7 +456,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(bootstrap.prompt_app_key_file(), self.KEY)
         self.assertIn("enter the path to the .pem file instead", out.getvalue())
-        self.assertNotIn("bm90LWEta2V5", out.getvalue())
+        self.assertNotIn(self.BODY_LINE, out.getvalue())
         self.assertNotIn("RSA PRIVATE KEY", out.getvalue())
 
     def test_prompt_reads_a_bom_prefixed_key_from_a_home_relative_path(self):
@@ -645,9 +801,17 @@ class PythonToolInstallTests(unittest.TestCase):
                 f'echo "{name} $*" >> "$LOG"\n'
             )
             fake.chmod(0o755)
-        project = "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+        # The step's python3 must be one that can import packaging, as the
+        # workflow's (which has pip) can; this interpreter has pytest's.
+        python = bin_dir / "python3"
+        python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        python.chmod(0o755)
+        app = ("[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+               "dependencies = [\"idna>=3\", \"six; python_version >= '3'\", \"never; python_version < '3'\"]\n")
+        project = "[build-system]\nrequires = [\"setuptools\"]\nbuild-backend = \"setuptools.build_meta\"\n" + app
         extra = "[project.optional-dependencies]\ndev = [\"pytest\"]\n"
         group = "[dependency-groups]\ndev = [\"pytest\"]\n"
+        build = "[build-system]\nrequires = [\"poetry-core\"]\nbuild-backend = \"poetry.core.masonry.api\"\n"
         cases = {
             "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
                         ["pip install uv==0.12.24", "uv sync --locked --group dev",
@@ -665,6 +829,121 @@ class PythonToolInstallTests(unittest.TestCase):
                                        "pip install ruff==0.16.10"]),
             "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.16.10"]),
             "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a dev group in a scripts repository": ({"pyproject.toml": group},
+                                                    ["pip install pytest", "pip install ruff==0.16.10"]),
+            "a build backend without [project]": ({"pyproject.toml": build},
+                                                  ["pip install -e .", "pip install ruff==0.16.10"]),
+            "tool settings only": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
+                                   ["pip install ruff==0.16.10"]),
+            "tool settings and setup.py": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n", "setup.py": ""},
+                                           ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a uv init --no-package app with a dev group": ({"pyproject.toml": app + group},
+                                               ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+            "a uv init --no-package app with a dev extra": ({"pyproject.toml": app + extra},
+                                               ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+            "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
+                                                     ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a package with [tool.uv] package = false": ({"pyproject.toml": project + "[tool.uv]\npackage = false\n"},
+                                                         ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "an app whose dev extra names itself": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"Sample[test,lint]\", \"mypy\"]\n"
+                                         "test = [\"pytest\", \"sample[lint]\"]\nlint = [\"ruff\"]\n"},
+                ["pip install idna>=3 six mypy ruff pytest", "pip install ruff==0.16.10"]),
+            "markers, a cycle and extra markers": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\n"
+                                         "dev = [\"sample[test]; python_version >= '3'\", \"skip; python_version < '3'\","
+                                         " \"helper; extra == 'dev'\", \"at; platform_release != '@'\"]\n"
+                                         "test = [\"sample[dev]\", \"pytest; extra == 'test'\", \"nope; extra == 'dev'\","
+                                         " \"url @ https://example.com/pkg;a.whl ; python_version >= '3'\"]\n"},
+                ["pip install idna>=3 six helper at pytest url @ https://example.com/pkg;a.whl",
+                 "pip install ruff==0.16.10"]),
+            "a self-reference its own version does not satisfy": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]>=2\"]\ntest = [\"pytest\"]\n"},
+                "excludes this project's own version"),
+            "a requires-python this interpreter is outside": (
+                {"pyproject.toml": app.replace("[project]\n", "[project]\nrequires-python = \"<3\"\n")},
+                "requires-python '<3' excludes Python"),
+            "a dependency marked for the dev extra": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra == 'dev'\"") + extra},
+                ["pip install idna>=3 helper six pytest", "pip install ruff==0.16.10"]),
+            "a dependency marked for an extra not requested": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra == 'docs'\"") + extra},
+                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+            "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
+                                            ["pip install ruff==0.16.10"]),
+            "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
+            # pip installs a directory only with a pyproject.toml or setup.py.
+            "only setup.cfg": ({"setup.cfg": ""}, ["pip install ruff==0.16.10"]),
+            "setup.cfg metadata with tool settings": (
+                {"setup.cfg": "[metadata]\nname = sample\n", "pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
+                ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a flake8-only setup.cfg next to an app": (
+                {"setup.cfg": "[flake8]\nmax-line-length = 100\n", "pyproject.toml": app},
+                ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "a dev group that includes a group and names the app's extra": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ntest = [\"helper\"]\n"
+                                         "[dependency-groups]\ndev = [{include-group = \"Lint\"}, \"sample[test]\"]\n"
+                                         "lint = [\"ruff\"]\n"},
+                ["pip install idna>=3 six helper ruff", "pip install ruff==0.16.10"]),
+            "a dev group that includes a missing group": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"missing\"}]\n"},
+                "includes 'missing', which is not defined"),
+            "an app with its own platform.py and requires-python": (
+                {"pyproject.toml": app.replace("[project]\n", "[project]\nrequires-python = \">=3.11\"\n"),
+                 "platform.py": "raise SystemExit('the project platform.py was imported')\n"},
+                ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "a package with a Dev extra and DEV group": (
+                {"pyproject.toml": project + "[project.optional-dependencies]\nDev = [\"pytest\"]\n"
+                                             "[dependency-groups]\nDEV = [\"pytest\"]\n"},
+                ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev",
+                 "pip install ruff==0.16.10"]),
+            "an app with a Dev group": ({"pyproject.toml": app + "[dependency-groups]\nDev = [\"pytest\"]\n"},
+                                        ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+            "a dev group that is a string": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = \"pytest\"\n"},
+                "dependency group 'dev' is not a list"),
+            # pip installs the base requirements alongside an extra's, so a
+            # marker that holds without the extra keeps the dependency.
+            "a dependency excluded from the dev extra": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"") + extra},
+                ["pip install idna>=3 helper six pytest", "pip install ruff==0.16.10"]),
+            "a dependency excluded from an extra not requested": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"")},
+                ["pip install idna>=3 helper six", "pip install ruff==0.16.10"]),
+            "a malformed requirement in an extra not installed": (
+                {"pyproject.toml": app + extra + "docs = [\"not a req ???\"]\n"},
+                "'not a req ???' in project.optional-dependencies.docs is not a valid requirement"),
+            "a requirement that is not a string": (
+                {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", 3")},
+                "3 in project.dependencies is not a valid requirement"),
+            "a tool.uv package value that is a string": (
+                {"pyproject.toml": app + "[tool.uv]\npackage = \"false\"\n"},
+                "tool.uv.package must be true or false, not 'false'"),
+            "two groups that normalize alike": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [\"pytest\"]\nDev = [\"mypy\"]\n"},
+                "duplicate dependency group name 'Dev'"),
+            "two extras that normalize alike": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"pytest\"]\nDEV = [\"mypy\"]\n"},
+                "duplicate extra name 'DEV'"),
+            "an indented setup.cfg [metadata] next to an app": (
+                {"setup.cfg": "  [metadata]\n  name = sample\n", "pyproject.toml": app},
+                ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a dev group include with an extra key": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"lint\", typo = \"x\"}]\n"
+                                         "lint = [\"ruff\"]\n"},
+                "has a table that is not exactly"),
+            "dependencies that are a string": (
+                {"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\ndependencies = \"pytest\"\n"},
+                "project.dependencies is not a list"),
+            "a dev extra that is a string": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = \"pytest\"\n"},
+                "project.optional-dependencies.dev is not a list"),
+            "a dev group that includes itself": (
+                {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"dev\"}]\n"},
+                "dependency group 'dev' includes itself"),
+            "a self-reference to a URL": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample @ file:///tmp/sample-2.0.whl\"]\n"},
+                "installs this project from a URL"),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):
@@ -678,8 +957,169 @@ class PythonToolInstallTests(unittest.TestCase):
                     env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log),
                          "GITHUB_PATH": str(Path(tmp.name) / "github-path")},
                 )
+                if isinstance(installs, str):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(installs, result.stderr)
+                    continue
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(log.read_text().splitlines(), installs)
+                # packaging writes a direct reference as "name@ url" or
+                # "name @ url" depending on its version.
+                self.assertEqual(log.read_text().replace("@ ", " @ ").replace("  @", " @").splitlines(), installs)
+
+    @staticmethod
+    def _write_wheel(directory, name, version, metadata=""):
+        """Write an empty but valid wheel, so pip can install it offline."""
+        dist_info = f"{name}-{version}.dist-info"
+        files = {
+            f"{dist_info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n{metadata}",
+            f"{dist_info}/WHEEL": "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        }
+        record = []
+        for path, text in files.items():
+            digest = base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).rstrip(b"=").decode()
+            record.append(f"{path},sha256={digest},{len(text.encode())}")
+        files[f"{dist_info}/RECORD"] = "\n".join(record + [f"{dist_info}/RECORD,,"]) + "\n"
+        with zipfile.ZipFile(Path(directory) / f"{name}-{version}-py3-none-any.whl", "w") as wheel:
+            for path, text in files.items():
+                wheel.writestr(path, text)
+
+    def _real_pip(self):
+        """(install step script, temporary directory, pip argv) with pip 25.1+."""
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        venv = Path(tmp.name) / "venv"
+        subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, capture_output=True)
+        pip = [str(venv / "bin" / "python"), "-m", "pip"]
+        def pip_version():
+            version = subprocess.run(pip + ["--version"], capture_output=True, text=True, check=True).stdout.split()[1]
+            return version, tuple(int(part) for part in re.findall(r"\d+", version)[:2])
+
+        version, parsed = pip_version()
+        if parsed < (25, 1):
+            # Python 3.11 bundles an older pip; upgrade it when the index is
+            # reachable, as the workflow itself does.
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                subprocess.run(pip + ["install", "--quiet", "--timeout", "15", "--disable-pip-version-check",
+                                      "--upgrade", "pip>=25.1"], capture_output=True, timeout=120)
+            version, parsed = pip_version()
+        if parsed < (25, 1):
+            self.skipTest(f"pip {version} predates --group (25.1) and could not be upgraded")
+        return script, tmp, venv, pip
+
+    def _run_step(self, script, work, tmp, venv, wheels):
+        return subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+            cwd=work, capture_output=True, text=True,
+            env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
+                 "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),
+                 "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
+        )
+
+    def test_tests_import_a_project_that_is_not_installed(self):
+        # A project the step does not build (and one uv sync leaves
+        # uninstalled) is importable only from the repository root, which
+        # the test step must put on sys.path itself.
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+        command = next(step["run"] for step in steps
+                       if "pytest" in step.get("run", "") and step.get("name") != "Install dependencies")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        bin_dir = Path(tmp.name) / "bin"
+        bin_dir.mkdir()
+        # `python` keeps this interpreter (and its environment); `pytest` is
+        # what pip writes as the console script.
+        (bin_dir / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        (bin_dir / "pytest").write_text(
+            f"#!{sys.executable}\nimport sys\nimport pytest\nsys.exit(pytest.main())\n")
+        for script in bin_dir.iterdir():
+            script.chmod(0o755)
+        test = "def test_it():\n    from {} import value\n    assert value == 1\n"
+        layouts = {
+            "a scripts repository": ({"main.py": "value = 1\n", "helper.py": ""}, "main"),
+            "a flat package": ({"mypkg/__init__.py": "value = 1\n"}, "mypkg"),
+        }
+        for label, (sources, module) in layouts.items():
+            with self.subTest(label):
+                work = Path(tempfile.mkdtemp(dir=tmp.name))
+                (work / "pyproject.toml").write_text("[project]\nname = \"app\"\nversion = \"0.1.0\"\n")
+                for name, content in {**sources, "tests/test_it.py": test.format(module)}.items():
+                    (work / name).parent.mkdir(parents=True, exist_ok=True)
+                    (work / name).write_text(content)
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command],
+                    cwd=work, capture_output=True, text=True,
+                    env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": tmp.name},
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_project_that_is_not_a_package_installs_with_real_pip(self):
+        # The editable install a package gets would fail here: setuptools
+        # cannot discover a package among several top-level modules.
+        script, tmp, venv, pip = self._real_pip()
+        wheels = Path(tmp.name) / "wheels"
+        wheels.mkdir()
+        for name, pinned in (("devdep", "1.0"), ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")):
+            self._write_wheel(wheels, name, pinned)
+        self._write_wheel(wheels, "appdep", "1.0")
+        group = "[dependency-groups]\ndev = [\"devdep==1.0\"]\n"
+        layouts = {
+            "only a dev group": (group, ["devdep"]),
+            # What `uv init --no-package` writes: [project] without a [build-system].
+            "a uv init app": ("[project]\nname = \"app\"\nversion = \"0.1.0\"\n"
+                              "dependencies = [\"appdep==1.0\"]\n" + group, ["appdep", "devdep"]),
+        }
+        for label, (pyproject, installed) in layouts.items():
+            with self.subTest(label):
+                subprocess.run(pip + ["uninstall", "--yes", "--quiet", "devdep", "appdep"], capture_output=True)
+                work = Path(tempfile.mkdtemp(dir=tmp.name))
+                (work / "pyproject.toml").write_text(pyproject)
+                (work / "main.py").write_text("")
+                (work / "helper.py").write_text("")
+                result = self._run_step(script, work, tmp, venv, wheels)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                for name in installed:
+                    shown = subprocess.run(pip + ["show", name], capture_output=True, text=True)
+                    self.assertEqual(shown.returncode, 0, f"{name} not installed")
+
+    def test_dependency_markers_select_what_real_pip_selects(self):
+        # The step reads markers itself for a project it does not build, so
+        # it must pick the same dependencies pip picks from the metadata a
+        # build would write for the same pyproject.toml.
+        script, tmp, venv, pip = self._real_pip()
+        wheels = Path(tmp.name) / "wheels"
+        wheels.mkdir()
+        candidates = ("always", "baseonly", "withdev", "devonly", "neverdev")
+        for name, pinned in [(name, "1.0") for name in candidates] + [
+                ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")]:
+            self._write_wheel(wheels, name, pinned)
+        dependencies = ["always", "baseonly; extra != 'dev'", "withdev; extra == 'dev'"]
+        dev = ["devonly", "neverdev; extra != 'dev'"]
+        # What a build backend writes: an optional dependency's marker is
+        # joined with its extra.
+        self._write_wheel(wheels, "sample", "0.1.0", "Provides-Extra: dev\n" + "".join(
+            [f"Requires-Dist: {r}\n" for r in dependencies]
+            + [f"Requires-Dist: {r.split(';')[0].strip()} ; ({r.split(';')[1].strip()}) and extra == \"dev\"\n"
+               if ";" in r else f"Requires-Dist: {r} ; extra == \"dev\"\n" for r in dev]))
+        report = Path(tmp.name) / "report.json"
+        subprocess.run(pip + ["install", "--dry-run", "--ignore-installed", "--quiet", "--report", str(report),
+                              "--no-index", "--find-links", str(wheels), "sample[dev]"],
+                       check=True, capture_output=True)
+        expected = {item["metadata"]["name"] for item in json.loads(report.read_text())["install"]} - {"sample"}
+        self.assertEqual(expected, {"always", "baseonly", "withdev", "devonly"})
+        work = Path(tempfile.mkdtemp(dir=tmp.name))
+        (work / "pyproject.toml").write_text(
+            "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+            f"dependencies = {json.dumps(dependencies)}\n"
+            f"[project.optional-dependencies]\ndev = {json.dumps(dev)}\n")
+        result = self._run_step(script, work, tmp, venv, wheels)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        installed = {name for name in candidates
+                     if subprocess.run(pip + ["show", name], capture_output=True).returncode == 0}
+        self.assertEqual(installed, expected)
 
 
 if __name__ == "__main__":

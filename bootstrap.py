@@ -1408,8 +1408,11 @@ def _markdown_lines(text: str) -> list:
 def _markdown_ambiguities(text: str) -> list:
     """Structure the section parser does not model, so must not rewrite around.
 
-    Setext headings (a line underlined with === or ---) and a code fence left
-    open at the end of the file make section boundaries uncertain.
+    Setext headings (a line underlined with === or ---), a code fence left
+    open at the end of the file, and a fence line indented four or more
+    columns make section boundaries uncertain. CommonMark reads such a line as
+    indented code at the top level but as a fence inside a list item; the
+    scan cannot tell which, so a wrong guess could hide later headings.
 
     This is a line-level approximation, not a CommonMark block parser, and it
     errs towards reporting: a `---` thematic break after a list item or inside
@@ -1419,6 +1422,9 @@ def _markdown_ambiguities(text: str) -> list:
     rows, left_open = _markdown_scan(text)
     problems, previous = [], ""
     for _, raw_line, in_fence in rows:
+        fence = _FENCE_RE.match(raw_line)
+        if fence and len(raw_line.expandtabs(4)) - len(raw_line.expandtabs(4).lstrip()) >= 4:
+            problems.append(f"(code fence indented four or more columns: {raw_line.strip()})")
         # Judge blockquote and list content by what follows its markers, so
         # `> Ours` over `> ----` counts as a setext heading too.
         line = _CONTAINER_PREFIX_RE.sub("", raw_line)
@@ -1504,9 +1510,14 @@ def compare_agents(expected: str, actual: str) -> list:
             rows.append(("local", NEXTJS_BLOCK_MOVED))
         else:
             rows.append(("missing", "(`next dev` block)"))
+    fenced = {line.strip() for _, line, in_fence in _markdown_lines(act_generated) if in_fence}
     for heading, body in exp_sections:
         found = actual_by_heading.get(heading)
-        if not found:
+        if not found and heading in fenced:
+            # The heading is there but the scan placed it inside code, so its
+            # section's text would not be compared and a rebuild could drop it.
+            rows.append(("local", f"(generated heading read as code: {heading})"))
+        elif not found:
             rows.append(("missing", heading))
         elif len(found) == 1 and found[0].strip() == body.strip():
             rows.append(("same", heading))
@@ -2734,6 +2745,10 @@ def _adopt_file(
         local = [heading for row_status, heading in rows if row_status == "local"]
         if NEXTJS_BLOCK_MOVED in local:
             return ("refused", rel, "move the `next dev`-managed block back to the top of the file first")
+        structure = [heading for heading in local if heading.startswith("(")]
+        if structure:
+            return ("refused", rel, "fix this structure, or move it under ## Project specifics, first: "
+                    + "; ".join(structure))
         if local:
             return ("refused", rel, "move these under ## Project specifics first: " + "; ".join(local))
         differing = [heading for row_status, heading in rows if row_status in ("differs", "retired")]
@@ -2744,7 +2759,9 @@ def _adopt_file(
                 "edit; move local rules under ## Project specifics, then re-run with "
                 "--replace-generated-sections: " + "; ".join(differing),
             )
-        if differing and confirm is not None and not confirm(differing):
+        added = [f"{heading} (missing; will be added)" for row_status, heading in rows
+                 if row_status == "missing" and heading != NEXTJS_RULES_BEGIN]
+        if differing and confirm is not None and not confirm(differing + added):
             return ("refused", rel, "replacement of differing generated sections was not confirmed")
         _replace_anchored(parent, name, rebuild_agents(expected, current, replace_generated), identity)
     finally:
@@ -2889,7 +2906,8 @@ def create_and_push(cfg: dict, files: dict):
 
     repo_dir.parent.mkdir(parents=True, exist_ok=True)
     try:
-        _run_with_retry(["gh", "repo", "clone", full, str(repo_dir)])
+        # An absolute path, so a --name such as "-x/app" is never read as a flag.
+        _run_with_retry(["gh", "repo", "clone", full, str(Path(repo_dir).absolute())])
     except subprocess.CalledProcessError:
         print("The repository was created on GitHub. Clean up with:", file=sys.stderr)
         print(f"  gh repo delete {full}", file=sys.stderr)
@@ -2968,6 +2986,21 @@ def actions_policy_requests(cfg: dict) -> list:
     return requests
 
 
+# What each Actions policy request sets, as reported when configuration stops
+# part-way. The allowlist cannot be sent first: GitHub accepts it only once the
+# repository's policy is already "selected".
+_ACTIONS_POLICY_STEPS = {
+    "actions/permissions": "Actions policy (selected actions, SHA pinning)",
+    "actions/permissions/selected-actions": "Actions allowlist",
+    "actions/permissions/workflow": "default workflow token permissions",
+    "actions/permissions/fork-pr-workflows-private-repos": "fork pull request workflow policy",
+}
+
+
+def _actions_policy_step(endpoint: str) -> str:
+    return _ACTIONS_POLICY_STEPS[endpoint.split("/", 3)[3]]
+
+
 def actions_policy_changes(requests: list, current: dict) -> list:
     """(setting, current value, new value) rows where current differs from requests.
 
@@ -3001,6 +3034,20 @@ def configure_repo(cfg: dict, confirm=None):
     owner = cfg["owner"]
     repo = f"{owner}/{name}"
     existing = cfg.get("configure_only", False)
+    # Steps run in order and nothing is rolled back, so a failure part-way
+    # leaves the earlier ones applied; print_configuration_progress() reports
+    # which, from these lists.
+    cfg["configure_plan"] = plan = []
+    cfg["configured"] = done = []
+    if cfg.get("release_please_client_id"):
+        plan.append("RELEASE_PLEASE_CLIENT_ID variable")
+    if cfg.get("release_please_app_key"):
+        plan.append("RELEASE_PLEASE_APP_KEY secret")
+    plan.append("merge strategy")
+    requests = actions_policy_requests(cfg)
+    plan += [_actions_policy_step(endpoint) for endpoint, _ in requests]
+    if not existing:
+        plan.append("branch protection on main")
 
     def set_var(key: str, value: str):
         if value:
@@ -3012,6 +3059,7 @@ def configure_repo(cfg: dict, confirm=None):
                 input=value.encode(),
                 check=True,
             )
+            done.append(f"{key} variable")
 
     def set_secret(key: str, value: str):
         if value:
@@ -3021,6 +3069,7 @@ def configure_repo(cfg: dict, confirm=None):
                 input=value.encode(),
                 check=True,
             )
+            done.append(f"{key} secret")
 
     def api(method: str, endpoint: str, payload: dict, *, stderr=None):
         subprocess.run(
@@ -3061,16 +3110,17 @@ def configure_repo(cfg: dict, confirm=None):
         "allow_update_branch": True,
         "has_projects": True,
     })
+    done.append("merge strategy")
 
     # --- actions permissions ---
     print("  actions permissions")
-    requests = actions_policy_requests(cfg)
     if existing:
         # An existing repository may rely on actions or tag pins the generated
         # policy forbids, or on a writable default token; show before changing.
         changes = actions_policy_changes(requests, {endpoint: get(endpoint) for endpoint, _ in requests})
         if not changes:
             print("    already matches the generated policy")
+            done += [_actions_policy_step(endpoint) for endpoint, _ in requests]
             requests = []
         else:
             for key, current, new in changes:
@@ -3078,9 +3128,12 @@ def configure_repo(cfg: dict, confirm=None):
             if confirm is None or not confirm():
                 print("    left unchanged")
                 cfg["actions_policy_unchanged"] = True
+                for endpoint, _ in requests:
+                    plan.remove(_actions_policy_step(endpoint))
                 requests = []
     for endpoint, payload in requests:
         api("PUT", endpoint, payload)
+        done.append(_actions_policy_step(endpoint))
 
     # --- branch protection on main ---
     if existing:
@@ -3106,6 +3159,7 @@ def configure_repo(cfg: dict, confirm=None):
     try:
         api("PUT", f"repos/{repo}/branches/main/protection",
             branch_protection_payload(cfg["repo_type"]), stderr=subprocess.PIPE)
+        done.append("branch protection on main")
     except subprocess.CalledProcessError as exc:
         cfg["branch_protection_failed"] = True
         stderr_text = (exc.stderr or b"").decode(errors="replace").strip()
@@ -3116,6 +3170,33 @@ def configure_repo(cfg: dict, confirm=None):
             print("  warning: branch protection could not be set automatically.")
             if stderr_text:
                 print(f"    {stderr_text}")
+
+
+def print_configuration_progress(cfg: dict):
+    """After configure_repo() stopped part-way, say what was applied and what remains."""
+    plan, done = cfg.get("configure_plan", []), cfg.get("configured", [])
+    remaining = [step for step in plan if step not in done]
+    if not remaining:
+        return
+    out = sys.stderr
+    print("Configuration stopped part-way; nothing applied before the failure was undone.", file=out)
+    print(f"  Applied:     {', '.join(done) or 'nothing'}", file=out)
+    print(f"  Not applied: {', '.join(remaining) or 'nothing'}", file=out)
+    if "Actions policy (selected actions, SHA pinning)" in done and "Actions allowlist" in remaining:
+        print("  Actions are limited to the selected policy without its allowlist, so workflows", file=out)
+        print("  using third-party actions (including the PR title check) cannot run yet.", file=out)
+    # The interpreter and script as actually run, so the command works from
+    # any directory.
+    retry = [sys.executable, str(Path(__file__).resolve()), "--configure-only", "--name", cfg["name"],
+             "--type", cfg["repo_type"], "--org", cfg["owner"]]
+    if cfg.get("scheme"):
+        retry += ["--scheme", cfg["scheme"]]
+    print("  Apply the rest by running this interactively, which asks before changing the", file=out)
+    print(f"  Actions policy:\n    {shlex.join(retry)}", file=out)
+    print("  Press Enter at a credential prompt to keep a value already applied.", file=out)
+    if "branch protection on main" in remaining:
+        print("  --configure-only leaves branch protection alone; set it as", file=out)
+        print("  docs/branch-protection-runbook.md describes.", file=out)
 
 
 def print_success(cfg: dict):
@@ -3164,6 +3245,10 @@ def main():
     if args.check is not None or args.adopt is not None:
         if args.configure_only or args.dry_run:
             _die("--check and --adopt cannot be combined with --configure-only or --dry-run")
+        # These modes skip check_dependencies(), which also needs gh, but they
+        # ask git which files are tracked, ignored or changed.
+        if not shutil.which("git"):
+            _die("git not found — --check and --adopt need git; install it and try again")
         cfg = existing_repository_config(args)
         repo_dir = Path(cfg["repo_dir"])
         files = generate_files(cfg)
@@ -3173,7 +3258,8 @@ def main():
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
         def confirm(sections):
             print("\nAGENTS.md: these generated sections differ from the template and will be")
-            print("replaced with its text (the file is tracked, so git diff shows the change):")
+            print("replaced with its text, or are missing and will be added (the file is")
+            print("tracked, so git diff shows the change):")
             for heading in sections:
                 print(f"  {heading}")
             return args.non_interactive or prompt_yn("Replace them?", default=False)
@@ -3218,6 +3304,7 @@ def main():
             print_success(cfg)
         except subprocess.CalledProcessError as exc:
             print(f"\nerror: command failed: {exc.cmd}", file=sys.stderr)
+            print_configuration_progress(cfg)
             sys.exit(1)
         return
 
@@ -3260,9 +3347,8 @@ def main():
         print(f"\nerror: {detail}", file=sys.stderr)
         if cfg["files_pushed"]:
             # Configuration failed after a successful push. Don't delete the repo.
-            print("Files were pushed successfully. Fix configuration manually:", file=sys.stderr)
-            print(f"  gh repo edit {full}  # merge strategy", file=sys.stderr)
-            print(f"  gh api repos/{full}/branches/main/protection --method PUT ...  # branch protection", file=sys.stderr)
+            print("Files were pushed successfully.", file=sys.stderr)
+            print_configuration_progress(cfg)
         elif cfg["repo_created"]:
             print("The GitHub repository was created, but local setup or push failed.", file=sys.stderr)
             print("Inspect the cloned directory and retry, or clean up with:", file=sys.stderr)

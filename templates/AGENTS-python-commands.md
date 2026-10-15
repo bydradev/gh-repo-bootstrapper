@@ -20,5 +20,6 @@ projects" docs, checked 2026-10-15), a project with no `[build-system]` (and no
 `setup.py`, and no `setup.cfg` with `[metadata]` or `[options]`) isn't built
 unless it sets `[tool.uv] package = true`, and `package = false` skips the build
 even with them: install an unbuilt project's `[project]` dependencies, the dev
-extra's and the dev group without `-e .`. A package needs a `[build-system]`
-table (or `[tool.uv] package = true`), or CI will not install it either.
+extra's and the dev group without `-e .`. A package that has none of these,
+relying on pip's setuptools fallback, needs a `[build-system]` table (or
+`[tool.uv] package = true`), or CI will not install it either.

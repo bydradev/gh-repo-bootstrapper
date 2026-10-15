@@ -785,8 +785,10 @@ def _rsa_key_consistent(der: bytes) -> bool:
     version, n, e, d, p, q, dp, dq, qinv = (
         int.from_bytes(content, "big", signed=True) for _tag, content in items)
     # RFC 8017 (A.1.2) puts e between 3 and n - 1; an e that is only
-    # congruent to the right value still signs, but wrongly.
-    return (version == 0 and 3 <= e < n and min(d, p, q) > 1 and n == p * q
+    # congruent to the right value still signs, but wrongly. Section 3.2
+    # puts d below n; OpenSSL refuses a larger congruent d as an invalid
+    # keypair.
+    return (version == 0 and 3 <= e < n and 1 < d < n and min(p, q) > 1 and n == p * q
             and dp == d % (p - 1) and dq == d % (q - 1) and 0 < qinv < p and qinv * q % p == 1
             and e * d % (p - 1) == 1 and e * d % (q - 1) == 1)
 

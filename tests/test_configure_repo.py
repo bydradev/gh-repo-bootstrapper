@@ -232,12 +232,12 @@ def _pem(label, der):
     return "\n".join([f"-----BEGIN {label}-----", *lines, f"-----END {label}-----"]) + "\n"
 
 
-def _test_rsa_key(qinv_offset=0, e_offset=0):
+def _test_rsa_key(qinv_offset=0, e_offset=0, d_offset=0):
     """A complete, consistent PKCS#1 RSA key built from two public Mersenne
     primes. It is far too small to protect anything; it exists so the
     validator sees real key structure without a secret in the repository."""
     p, q, e = 2**127 - 1, 2**107 - 1, 65537
-    d = pow(e, -1, (p - 1) * (q - 1))
+    d = pow(e, -1, (p - 1) * (q - 1)) + d_offset
     numbers = (0, p * q, e + e_offset, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p) + qinv_offset)
     return _der(0x30, b"".join(_der_int(n) for n in numbers))
 
@@ -330,6 +330,10 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             # Congruent modulo p - 1 and q - 1, but not below n, so it signs wrongly.
             "a public exponent past the modulus": _pem("RSA PRIVATE KEY", _test_rsa_key(
                 e_offset=1000 * math.lcm(2**127 - 2, 2**107 - 2))),
+            # Congruent modulo p - 1 and q - 1, but not below n, so Node
+            # refuses to sign with it (RFC 8017, 3.2: d < n).
+            "a private exponent past the modulus": _pem("RSA PRIVATE KEY", _test_rsa_key(
+                d_offset=1000 * math.lcm(2**127 - 2, 2**107 - 2))),
             "a PKCS#1 version encoded in two bytes": _pem("RSA PRIVATE KEY", _der(
                 0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
             "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(

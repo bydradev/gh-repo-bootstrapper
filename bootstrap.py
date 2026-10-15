@@ -785,7 +785,7 @@ def _rsa_key_consistent(der: bytes) -> bool:
     version, n, e, d, p, q, dp, dq, qinv = (
         int.from_bytes(content, "big", signed=True) for _tag, content in items)
     return (version == 0 and min(e, d, p, q) > 1 and n == p * q
-            and dp == d % (p - 1) and dq == d % (q - 1) and qinv * q % p == 1
+            and dp == d % (p - 1) and dq == d % (q - 1) and 0 < qinv < p and qinv * q % p == 1
             and e * d % (p - 1) == 1 and e * d % (q - 1) == 1)
 
 

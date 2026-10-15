@@ -20,8 +20,8 @@ explicitly, so a `[tool.uv] default-groups` setting cannot leave them out. Witho
 `--group dev` when a PEP 735 `[dependency-groups] dev` group is declared (what
 `uv add --dev` writes), falling back to a plain `pip install -e .`. Like uv
 (uv's "Configuring projects" docs, checked 2026-10-15), CI builds the project
-only when it declares a `[build-system]` (or has a `setup.py` or `setup.cfg`),
-and `[tool.uv] package` overrides that. Otherwise,
+only when it declares a `[build-system]` (or has a `setup.py`, or a `setup.cfg`
+with `[metadata]` or `[options]`), and `[tool.uv] package` overrides that. Otherwise,
 as `uv init --no-package` writes (and `uv init` did before uv 0.12, per uv's
 "Creating projects" docs, checked 2026-10-15), it installs the `[project]`
 dependencies, the dev extra's and the dev group without building anything,

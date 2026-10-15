@@ -231,13 +231,13 @@ def _pem(label, der):
     return "\n".join([f"-----BEGIN {label}-----", *lines, f"-----END {label}-----"]) + "\n"
 
 
-def _test_rsa_key():
+def _test_rsa_key(qinv_offset=0):
     """A complete, consistent PKCS#1 RSA key built from two public Mersenne
     primes. It is far too small to protect anything; it exists so the
     validator sees real key structure without a secret in the repository."""
     p, q, e = 2**127 - 1, 2**107 - 1, 65537
     d = pow(e, -1, (p - 1) * (q - 1))
-    numbers = (0, p * q, e, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p))
+    numbers = (0, p * q, e, d, p, q, d % (p - 1), d % (q - 1), pow(q, -1, p) + qinv_offset)
     return _der(0x30, b"".join(_der_int(n) for n in numbers))
 
 
@@ -307,6 +307,8 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
                 0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
             "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(
                 0x30, b"\x02\x81\x01\x00" + _der_sequence_body_after_version())),
+            # Congruent, but outside 0 < qInv < p, so signing fails.
+            "a CRT coefficient of qInv + p": _pem("RSA PRIVATE KEY", _test_rsa_key(qinv_offset=2**127 - 1)),
             "PKCS#8 parameters that are not NULL": _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(
                 0x30, bytes.fromhex("06092a864886f70d010101") + b"\x02\x01\x00") + _der(0x04, _TEST_RSA_DER))),
         }
@@ -836,8 +838,15 @@ class PythonToolInstallTests(unittest.TestCase):
             "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
             # pip installs a directory only with a pyproject.toml or setup.py.
             "only setup.cfg": ({"setup.cfg": ""}, ["pip install ruff==0.16.10"]),
-            "setup.cfg with tool settings": ({"setup.cfg": "", "pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
-                                             ["pip install -e .", "pip install ruff==0.16.10"]),
+            "setup.cfg metadata with tool settings": (
+                {"setup.cfg": "[metadata]\nname = sample\n", "pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
+                ["pip install -e .", "pip install ruff==0.16.10"]),
+            "a flake8-only setup.cfg next to an app": (
+                {"setup.cfg": "[flake8]\nmax-line-length = 100\n", "pyproject.toml": app},
+                ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+            "a self-reference to a URL": (
+                {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample @ file:///tmp/sample-2.0.whl\"]\n"},
+                "installs this project from a URL"),
         }
         for label, (project_files, installs) in cases.items():
             with self.subTest(label):

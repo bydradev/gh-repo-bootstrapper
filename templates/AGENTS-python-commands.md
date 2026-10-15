@@ -17,6 +17,6 @@ otherwise
 `pip install -e ".[dev]"` as appropriate, adding `--group dev` (pip 25.1 or
 later) for a `[dependency-groups]` dev group. As with uv (uv's "Configuring
 projects" docs, checked 2026-10-15), a project with no `[build-system]` (and no
-`setup.py` or `setup.cfg`) isn't built: install its
-`[project]` dependencies and the dev group without `-e .`. A package needs a
+`setup.py`, and no `setup.cfg` with `[metadata]` or `[options]`) isn't built:
+install its `[project]` dependencies and the dev group without `-e .`. A package needs a
 `[build-system]` table, or CI will not install it either.

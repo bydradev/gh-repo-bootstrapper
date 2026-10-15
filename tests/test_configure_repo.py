@@ -259,6 +259,16 @@ def _pkcs8_with_public_key(public_key):
         "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0x81, public_key)))
 
 
+def _pkcs8_with_attributes(attributes):
+    """The test key as version-0 PKCS#8, carrying attributes as its [0] field."""
+    return _pem("PRIVATE KEY", _der(0x30, _der_int(0) + _der(0x30, bytes.fromhex(
+        "06092a864886f70d010101") + b"\x05\x00") + _der(0x04, _TEST_RSA_DER) + _der(0xA0, attributes)))
+
+
+# A friendlyName attribute (PKCS#9, 1.2.840.113549.1.9.20) holding a BMPString.
+_TEST_ATTRIBUTE = _der(0x30, bytes.fromhex("060a2a864886f70d01091401") + _der(0x31, _der(0x1E, "key".encode("utf-16-be"))))
+
+
 class ReleasePleaseAppKeyTests(unittest.TestCase):
     """The App key is a multi-line PEM block and must arrive whole."""
 
@@ -280,6 +290,7 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
         self.assertEqual(bootstrap.app_key_error(self.KEY), "")
         self.assertEqual(bootstrap.app_key_error(self.PKCS8_KEY), "")
         self.assertEqual(bootstrap.app_key_error(_pkcs8_with_public_key(_TEST_PUBLIC_KEY)), "")
+        self.assertEqual(bootstrap.app_key_error(_pkcs8_with_attributes(_TEST_ATTRIBUTE)), "")
         self.assertEqual(bootstrap.app_key_error(self.KEY.rstrip("\n")), "")
         self.assertIn("incomplete", bootstrap.app_key_error(self.FIRST_LINE))
         self.assertIn("incomplete", bootstrap.app_key_error(self.KEY.split("-----END")[0]))
@@ -316,6 +327,12 @@ class ReleasePleaseAppKeyTests(unittest.TestCase):
             "an empty PKCS#8 public key": _pkcs8_with_public_key(b"\x00"),
             "a PKCS#8 public key for another modulus": _pkcs8_with_public_key(
                 b"\x00" + _der(0x30, _der_int((2**127 - 1) * (2**89 - 1)) + _der_int(65537))),
+            # Node and WebCrypto refuse a key whose attributes do not decode.
+            "PKCS#8 attributes that are one stray byte": _pkcs8_with_attributes(b"\xff"),
+            "a PKCS#8 attribute that is not a SEQUENCE": _pkcs8_with_attributes(_der(0x04, b"x")),
+            "a PKCS#8 attribute without values": _pkcs8_with_attributes(_der(0x30, bytes.fromhex("0603550403"))),
+            "a PKCS#8 attribute value that does not decode": _pkcs8_with_attributes(
+                _der(0x30, bytes.fromhex("0603550403") + _der(0x31, b"\x0c\x05ab"))),
             "a PKCS#1 version encoded in two bytes": _pem("RSA PRIVATE KEY", _der(
                 0x30, b"\x02\x02\x00\x00" + _der_sequence_body_after_version())),
             "a long-form length for a short element": _pem("RSA PRIVATE KEY", _der(
@@ -876,9 +893,11 @@ class PythonToolInstallTests(unittest.TestCase):
             "a dev group that is a string": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = \"pytest\"\n"},
                 "dependency group 'dev' is not a list"),
+            # pip installs the base requirements alongside an extra's, so a
+            # marker that holds without the extra keeps the dependency.
             "a dependency excluded from the dev extra": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"") + extra},
-                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 helper six pytest", "pip install ruff==0.16.10"]),
             "a dependency excluded from an extra not requested": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"")},
                 ["pip install idna>=3 helper six", "pip install ruff==0.16.10"]),
@@ -930,11 +949,11 @@ class PythonToolInstallTests(unittest.TestCase):
                 self.assertEqual(log.read_text().replace("@ ", " @ ").replace("  @", " @").splitlines(), installs)
 
     @staticmethod
-    def _write_wheel(directory, name, version):
+    def _write_wheel(directory, name, version, metadata=""):
         """Write an empty but valid wheel, so pip can install it offline."""
         dist_info = f"{name}-{version}.dist-info"
         files = {
-            f"{dist_info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n",
+            f"{dist_info}/METADATA": f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n{metadata}",
             f"{dist_info}/WHEEL": "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
         }
         record = []
@@ -946,9 +965,8 @@ class PythonToolInstallTests(unittest.TestCase):
             for path, text in files.items():
                 wheel.writestr(path, text)
 
-    def test_a_project_that_is_not_a_package_installs_with_real_pip(self):
-        # The editable install a package gets would fail here: setuptools
-        # cannot discover a package among several top-level modules.
+    def _real_pip(self):
+        """(install step script, temporary directory, pip argv) with pip 25.1+."""
         files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
         steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
         script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
@@ -971,6 +989,21 @@ class PythonToolInstallTests(unittest.TestCase):
             version, parsed = pip_version()
         if parsed < (25, 1):
             self.skipTest(f"pip {version} predates --group (25.1) and could not be upgraded")
+        return script, tmp, venv, pip
+
+    def _run_step(self, script, work, tmp, venv, wheels):
+        return subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+            cwd=work, capture_output=True, text=True,
+            env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
+                 "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),
+                 "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
+        )
+
+    def test_a_project_that_is_not_a_package_installs_with_real_pip(self):
+        # The editable install a package gets would fail here: setuptools
+        # cannot discover a package among several top-level modules.
+        script, tmp, venv, pip = self._real_pip()
         wheels = Path(tmp.name) / "wheels"
         wheels.mkdir()
         for name, pinned in (("devdep", "1.0"), ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")):
@@ -990,17 +1023,47 @@ class PythonToolInstallTests(unittest.TestCase):
                 (work / "pyproject.toml").write_text(pyproject)
                 (work / "main.py").write_text("")
                 (work / "helper.py").write_text("")
-                result = subprocess.run(
-                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
-                    cwd=work, capture_output=True, text=True,
-                    env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
-                         "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),
-                         "PIP_DISABLE_PIP_VERSION_CHECK": "1"},
-                )
+                result = self._run_step(script, work, tmp, venv, wheels)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 for name in installed:
                     shown = subprocess.run(pip + ["show", name], capture_output=True, text=True)
                     self.assertEqual(shown.returncode, 0, f"{name} not installed")
+
+    def test_dependency_markers_select_what_real_pip_selects(self):
+        # The step reads markers itself for a project it does not build, so
+        # it must pick the same dependencies pip picks from the metadata a
+        # build would write for the same pyproject.toml.
+        script, tmp, venv, pip = self._real_pip()
+        wheels = Path(tmp.name) / "wheels"
+        wheels.mkdir()
+        candidates = ("always", "baseonly", "withdev", "devonly", "neverdev")
+        for name, pinned in [(name, "1.0") for name in candidates] + [
+                ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")]:
+            self._write_wheel(wheels, name, pinned)
+        dependencies = ["always", "baseonly; extra != 'dev'", "withdev; extra == 'dev'"]
+        dev = ["devonly", "neverdev; extra != 'dev'"]
+        # What a build backend writes: an optional dependency's marker is
+        # joined with its extra.
+        self._write_wheel(wheels, "sample", "0.1.0", "Provides-Extra: dev\n" + "".join(
+            [f"Requires-Dist: {r}\n" for r in dependencies]
+            + [f"Requires-Dist: {r.split(';')[0].strip()} ; ({r.split(';')[1].strip()}) and extra == \"dev\"\n"
+               if ";" in r else f"Requires-Dist: {r} ; extra == \"dev\"\n" for r in dev]))
+        report = Path(tmp.name) / "report.json"
+        subprocess.run(pip + ["install", "--dry-run", "--ignore-installed", "--quiet", "--report", str(report),
+                              "--no-index", "--find-links", str(wheels), "sample[dev]"],
+                       check=True, capture_output=True)
+        expected = {item["metadata"]["name"] for item in json.loads(report.read_text())["install"]} - {"sample"}
+        self.assertEqual(expected, {"always", "baseonly", "withdev", "devonly"})
+        work = Path(tempfile.mkdtemp(dir=tmp.name))
+        (work / "pyproject.toml").write_text(
+            "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"
+            f"dependencies = {json.dumps(dependencies)}\n"
+            f"[project.optional-dependencies]\ndev = {json.dumps(dev)}\n")
+        result = self._run_step(script, work, tmp, venv, wheels)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        installed = {name for name in candidates
+                     if subprocess.run(pip + ["show", name], capture_output=True).returncode == 0}
+        self.assertEqual(installed, expected)
 
 
 if __name__ == "__main__":

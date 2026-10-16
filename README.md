@@ -226,22 +226,26 @@ The fresh-eyes review runs as a separate reviewer agent,
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
 `fresh-eyes-review` skill. Neither gets an edit tool.
 
-The OpenCode reviewer has no edit, subagent or shell permission, so it is
-read-only by permission: it reviews the diff and validation results the
-implementer hands it and reads files with OpenCode's read tools. It gets no
-shell because OpenCode's shell rules see each command in a line separately and
-keep a redirect only when it sits directly on one command, so an allowed
-`git log` still writes in `git diff && git log > notes` (`tool/shell.ts` in
+The OpenCode reviewer has no built-in edit, subagent or shell tool. MCP,
+plugin and custom tools follow the user's OpenCode configuration, whose
+default allows them, so a connected server's write tools stay available to it.
+It reviews the diff and validation results the implementer hands it and reads
+files with OpenCode's read tools, which ask before reading most paths outside
+the project, such as a diff saved to a scratch directory. It gets no shell
+because OpenCode's shell rules see each command in a line separately and keep
+a redirect only when it sits directly on one command, so an allowed `git log`
+still writes in `git diff && git log > notes` (`tool/shell.ts`,
+`session/tools.ts` and `agent/agent.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
 current npm release, checked 2026-10-16).
 
 Claude Code could block a subagent's Bash commands with a `PreToolUse` hook in
 its frontmatter, but it skips a project subagent's frontmatter hooks in a
-folder whose workspace trust dialog was never accepted, and "a `-p` session
-doesn't count as trusted"
+folder whose workspace trust dialog was never accepted, such as a clone where
+it has only run as `claude -p`, which never shows that dialog
 ([Claude Code subagents](https://code.claude.com/docs/en/sub-agents) and
 [permissions](https://code.claude.com/docs/en/permissions), checked
-2026-10-16); the cross-family review recipe runs `claude -p`. Such a hook would
+2026-10-16). Whether such a hook runs would depend on the folder, and it would
 also have to parse shell commands, which the OpenCode case shows is hard to do
 completely. So the Claude Code reviewer is read-only by instruction: its file
 tells it to use Bash only for read-only commands.

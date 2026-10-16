@@ -30,9 +30,10 @@ Checks performed on each generated file:
     relative Markdown links in the hub and in every SKILL.md resolve from
     their own directory;
     every template-owned file carries a valid stamp; the reviewer agents get
-    no edit tool and leave the model unset, OpenCode's sets only the edit,
-    task and bash permissions, each to deny, and Claude Code's says to use
-    Bash only for read-only commands
+    no edit tool and leave the model unset, OpenCode's frontmatter holds
+    only description, mode and permission and sets only the edit, task and
+    bash permissions, each to deny, and Claude Code's says to use Bash only
+    for read-only commands
 
   - branch-protection payload semantics: bootstrap.branch_protection_payload()
     must pin the operator-ruled configuration (strict False, enforce_admins
@@ -241,9 +242,16 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("## Project specifics", HUB),
 )
 
-# Per-type mechanisms behind the shared worktree and scratch-output rules: where
-# a worktree's dependencies and build output live, so they are not multiplied.
-# Each lives in the type's local-validation skill.
+# Sentence each local-validation skill opens with, which routes agents to a
+# repository-owned validation skill first.
+LOCAL_VALIDATION_ROUTING = (
+    "If `## Project specifics` in `AGENTS.md` names a repository-owned validation skill, "
+    "load it first; where it is narrower, it governs."
+)
+# Per-type rules pinned to the type's local-validation skill: its routing
+# sentence, and the mechanisms behind the shared worktree and scratch-output
+# rules, such as where a worktree's dependencies and build output live, so they
+# are not multiplied.
 AGENTS_TYPE_REQUIREMENTS = {
     "nextjs": tuple(
         (phrase, _skill_path("local-validation-nextjs"))
@@ -252,15 +260,20 @@ AGENTS_TYPE_REQUIREMENTS = {
             "--trace=retain-on-failure",
             "stop a manually started `next dev`",
             "reported as `flaky`, not failed",
+            LOCAL_VALIDATION_ROUTING,
         )
     ),
-    "python": (("Never copy `.venv/`", _skill_path("local-validation-python")),),
+    "python": tuple(
+        (phrase, _skill_path("local-validation-python"))
+        for phrase in ("Never copy `.venv/`", LOCAL_VALIDATION_ROUTING)
+    ),
     "rust": tuple(
         (phrase, _skill_path("local-validation-rust"))
         for phrase in (
             "set `CARGO_TARGET_DIR` to one fixed directory",
             "Never copy `target/`",
             "the task that removes the last one deletes it too",
+            LOCAL_VALIDATION_ROUTING,
         )
     ),
     "swift": tuple(
@@ -269,6 +282,7 @@ AGENTS_TYPE_REQUIREMENTS = {
             "pass one fixed `-derivedDataPath` for that worktree",
             "Never choose a new derived-data path per run or per commit.",
             "does not change the app's `MARKETING_VERSION`",
+            LOCAL_VALIDATION_ROUTING,
         )
     ),
     "simple": (),
@@ -299,26 +313,32 @@ OPENCODE_REVIEWER = ".opencode/agents/fresh-eyes-reviewer.md"
 CLAUDE_WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 # A Claude Code subagent could block Bash commands with a PreToolUse hook in its
 # frontmatter, but Claude Code skips a project subagent's frontmatter hooks in
-# a folder whose workspace trust dialog was never accepted, and "a `-p` session
-# doesn't count as trusted" (code.claude.com/docs/en/sub-agents and
-# code.claude.com/docs/en/permissions, checked 2026-10-16): the cross-family
-# review recipe runs `claude -p`. Such a hook would also have to parse shell
-# commands, which OpenCode's rules below show is hard to do completely. So the
-# reviewer's body carries the rule.
+# a folder whose workspace trust dialog was never accepted, so whether the hook
+# runs would depend on the folder (code.claude.com/docs/en/sub-agents and
+# code.claude.com/docs/en/permissions, checked 2026-10-16). Such a hook would
+# also have to parse shell commands, which OpenCode's rules below show is hard
+# to do completely. So the reviewer's body carries the rule.
 CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
-# The OpenCode reviewer has no shell. OpenCode's shell rules see each command of
-# a line separately and keep a redirect only when it sits directly on one
-# command, so `git diff && git log > notes` passes any allow-list, while
+# The OpenCode reviewer has no built-in edit, subagent or shell tool; MCP,
+# plugin and custom tools still follow the user's OpenCode configuration, whose
+# default allows them. It has no shell because OpenCode's shell rules see each
+# command of a line separately and keep a redirect only when it sits directly
+# on one command, so `git diff && git log > notes` passes any allow-list, while
 # `bash: deny`, as the agent's last bash rule, hides the tool (Permission.disabled;
 # packages/opencode/src/tool/shell.ts and permission/index.ts at v1.19.3, the
 # current npm release, checked 2026-10-16). OpenCode matches a permission key
 # as a wildcard and the last matching rule wins, so the reviewer sets only
-# these keys: a later one, such as "*", could reopen them.
+# these keys: a later one, such as "*", could reopen them. Its frontmatter
+# holds only OPENCODE_REVIEWER_KEYS, because the deprecated `tools` map becomes
+# permission keys placed before `permission`'s own (ConfigAgentV1.normalize in
+# packages/core/src/v1/config/agent.ts), so `tools: {bash: false, "*": true}`
+# would end with `"*": allow` and reopen the shell.
 OPENCODE_REVIEWER_PERMISSIONS = {
     "edit": "",
     "task": " so it cannot launch a writer",
     "bash": " so it has no shell, whose rules cannot reliably stop a redirect",
 }
+OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
@@ -773,9 +793,9 @@ def _tool_names(tools) -> set:
 
 def check_reviewer_agents(label: str, files: dict) -> list:
     """Both fresh-eyes reviewer agents leave the model unset and get no edit
-    tool. OpenCode's sets only the edit, task and bash permissions, each to
-    deny; Claude Code's keeps Bash and says to use it only for read-only
-    commands."""
+    tool. OpenCode's frontmatter holds only OPENCODE_REVIEWER_KEYS and sets
+    only the edit, task and bash permissions, each to deny; Claude Code's
+    keeps Bash and says to use it only for read-only commands."""
     errors = []
     for path in (CLAUDE_REVIEWER, OPENCODE_REVIEWER):
         if path not in files:
@@ -799,6 +819,13 @@ def check_reviewer_agents(label: str, files: dict) -> list:
         else:
             if data.get("mode") != "subagent":
                 errors.append(f"[{label}] {path} must set 'mode: subagent'")
+            unknown = sorted(str(key) for key in data if key not in OPENCODE_REVIEWER_KEYS and key != "model")
+            if unknown:
+                errors.append(
+                    f"[{label}] {path} sets {unknown}; set only "
+                    + ", ".join(repr(key) for key in OPENCODE_REVIEWER_KEYS)
+                    + ", since a key such as the deprecated 'tools' map can reopen the shell or edits"
+                )
             permission = data.get("permission")
             permission = permission if isinstance(permission, dict) else {}
             for key, why in OPENCODE_REVIEWER_PERMISSIONS.items():
@@ -840,7 +867,7 @@ def _unfenced(text: str) -> str:
 
 
 def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
-    """Require the per-type worktree mechanisms and the repo-owned section layout.
+    """Require the per-type local-validation rules and the repo-owned section layout.
 
     `## Project specifics` must be the last second-level section so everything
     a repository adds sits below the generated sections, and the Next.js App
@@ -850,7 +877,7 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     agents = files.get("AGENTS.md", "")
     prose = _unfenced(agents)
     errors = _missing_phrases(
-        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} worktree guidance"
+        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} local-validation guidance"
     )
     headings = [line for line in prose.splitlines() if line.startswith("## ")]
     if not headings or headings[-1] != PROJECT_SPECIFICS_HEADING:
@@ -3031,6 +3058,19 @@ def run_self_tests() -> list:
                 errors.append(
                     f"self-test '{repo_type} missing {phrase!r}' did not fail as expected: {result}"
                 )
+        # Every local-validation skill keeps its routing sentence pinned, and
+        # rewording it away from that sentence fails.
+        validation_skill = _skill_path(f"local-validation-{repo_type}")
+        if validation_skill in files:
+            if (LOCAL_VALIDATION_ROUTING, validation_skill) not in AGENTS_TYPE_REQUIREMENTS[repo_type]:
+                errors.append(f"self-test '{repo_type} routing pin': {validation_skill} routing is not pinned")
+            unrouted = dict(files)
+            unrouted[validation_skill] = " ".join(files[validation_skill].split()).replace(
+                "load it first; ", "", 1
+            )
+            result = check_workspace_guidance(f"self-test:{repo_type} routing", repo_type, unrouted)
+            if not any(repr(LOCAL_VALIDATION_ROUTING) in e for e in result):
+                errors.append(f"self-test '{repo_type} skill routing' did not fail as expected: {result}")
         trailing = dict(files)
         trailing["AGENTS.md"] = files["AGENTS.md"] + "\n## Local notes\n\nText.\n"
         result = check_workspace_guidance(f"self-test:{repo_type} trailing", repo_type, trailing)
@@ -3268,8 +3308,9 @@ def _structure_self_tests() -> list:
 
     # (g) reviewer agents: a model, a write tool, a missing tools list, a
     # Claude Code reviewer without its Bash rule, a primary mode, an OpenCode
-    # edit, task or shell permission, or a later OpenCode permission key that
-    # could reopen them each fail.
+    # edit, task or shell permission, a later OpenCode permission key that
+    # could reopen them, or another OpenCode frontmatter key, such as the
+    # deprecated `tools` map, each fail.
     for name, path, old, new, needle in (
         ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
         ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
@@ -3285,6 +3326,10 @@ def _structure_self_tests() -> list:
          'bash:\n    "*": deny\n    "git diff *": allow', "permission.bash: deny"),
         ("opencode later wildcard allow", OPENCODE_REVIEWER, "bash: deny", 'bash: deny\n  "*": allow',
          "sets permission ['*']"),
+        ("opencode tools map", OPENCODE_REVIEWER, "mode: subagent",
+         'mode: subagent\ntools:\n  bash: false\n  "*": true', "sets ['tools']"),
+        ("opencode unknown key", OPENCODE_REVIEWER, "mode: subagent", "mode: subagent\nx-notes: review",
+         "sets ['x-notes']"),
     ):
         mutated = dict(files)
         if old not in files[path]:

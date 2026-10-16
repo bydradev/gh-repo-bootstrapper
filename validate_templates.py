@@ -246,7 +246,7 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("Screenshot guidance is capability-conditional", SCREENSHOT_SKILL_OWNER),
     ("do not assume browser or native", SCREENSHOT_SKILL_OWNER),
     (
-        "For changes affecting tracked screenshots or captured views, follow the "
+        "For changes to tracked screenshots or captured views, follow the "
         "repository's documented screenshot-review process when present.",
         HUB_WITHOUT_SCREENSHOT_SKILL,
     ),
@@ -909,12 +909,22 @@ def _invented_tooling(text: str) -> list:
     return [phrase for phrase in SCREENSHOT_FORBIDDEN_INVENTED_TOOLING if phrase.lower() in normalized]
 
 
+def expects_screenshots(cfg: dict) -> bool:
+    """Whether a configuration must render the screenshot-review skill and document.
+
+    Derived from the configuration itself rather than from
+    bootstrap.screenshot_review(), so a regression there shows up as a render
+    that check_screenshot_guidance rejects.
+    """
+    return cfg["repo_type"] in SCREENSHOT_PLATFORM_HEADINGS and bool(cfg.get("screenshots"))
+
+
 def check_screenshot_guidance(label: str, repo_type: str, files: dict, screenshots: bool) -> list:
     """Validate the composed screenshot contract and its configuration boundaries.
 
     screenshots is whether the configuration asks for the screenshot-review
-    skill and document (bootstrap.screenshot_review); only nextjs and swift
-    generate them, and only then.
+    skill and document (expects_screenshots); only nextjs and swift generate
+    them, and only then.
     """
     errors = []
     document = files.get(bootstrap.SCREENSHOT_REVIEW)
@@ -2368,7 +2378,7 @@ def run_self_tests() -> list:
     # the hub where no skill is generated.
     shot_cfgs = {}
     for _, cfg in configurations():
-        shot_cfgs.setdefault((cfg["repo_type"], bootstrap.screenshot_review(cfg)), cfg)
+        shot_cfgs.setdefault((cfg["repo_type"], expects_screenshots(cfg)), cfg)
     for (repo_type, screenshots), cfg in shot_cfgs.items():
         name = f"{repo_type} screenshots={screenshots}"
         files = bootstrap.generate_files(dict(cfg))
@@ -2398,7 +2408,7 @@ def run_self_tests() -> list:
                 "documented screenshot-review process", "screenshot process", 1
             )
             result = check_agents_guidance(f"self-test:{name} process sentence", no_process)
-            if not any("AGENTS.md is missing common guidance" in e and "For changes affecting tracked" in e
+            if not any("AGENTS.md is missing common guidance" in e and "For changes to tracked" in e
                        for e in result):
                 errors.append(f"self-test '{name} process sentence' did not fail as expected: {result}")
 
@@ -3528,7 +3538,7 @@ def main() -> int:
         all_errors += check_reviewer_agents(label, files)
         all_errors += check_workspace_guidance(label, cfg["repo_type"], files)
         all_errors += check_screenshot_guidance(
-            label, cfg["repo_type"], files, bootstrap.screenshot_review(cfg)
+            label, cfg["repo_type"], files, expects_screenshots(cfg)
         )
         all_errors += check_workflow_job_consistency(label, cfg["repo_type"], files)
         all_errors += check_workflow_permissions(label, files)

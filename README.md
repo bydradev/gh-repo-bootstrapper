@@ -368,6 +368,11 @@ Repositories adopted before stamps existed may have edited a legacy
 `docs/branch-protection-runbook.md` or `docs/screenshot-review.md`. Migrate
 once: move the local changes into `## Project specifics` or a repository-owned
 skill, delete the old file, and run `--adopt` to write the stamped version.
+For `docs/screenshot-review.md`, run `--adopt --screenshots`: without the flag,
+a `nextjs` or `swift` repository left with no template copy of the
+screenshot-review skill or doc no longer gets them, and the hub loses its
+pointer to the skill. The same holds for an edited, stamped screenshot-review
+skill or doc that you delete to regenerate.
 `--check` shows the local changes as a diff against the nearest released body.
 The diff needs the bootstrapper's git release tags; from a copy without them,
 `--check` prints a notice and skips it.
@@ -399,9 +404,13 @@ Pass the same
 type options the repository was generated with — `--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
 they shape report as drift. `--screenshots` is the exception: a `nextjs` or
-`swift` repository that already has `.agents/skills/screenshot-review/SKILL.md`
-or `docs/screenshot-review.md` is treated as using it, and the report says so,
-so `--adopt` keeps and updates those files without the flag. Pass the same
+`swift` repository that already has the template's copy of
+`.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
+treated as using it, and the report says so, so `--adopt` keeps and updates
+those files without the flag. The template's copy is a file with a stamp line,
+edited or not, or an unstamped doc whose text a release shipped. A
+repository's own `docs/screenshot-review.md`, such as its own screenshot-review
+process, does not count and is left alone. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type
 (for example `local-validation-nextjs` under `--type simple`), or a stamped
 `screenshot-review` skill this configuration does not generate, `--check`
@@ -475,11 +484,13 @@ and `--adopt` writes `docs/current-work.md` when it is missing.
 The `screenshot-review` skill and `docs/screenshot-review.md` are now
 generated only with `--screenshots`. Existing `nextjs` and `swift`
 repositories keep theirs: `--check` and `--adopt` treat a repository that has
-either file as using `--screenshots`. To drop them, move any rule of your own
-into a repository-owned skill, delete `.agents/skills/screenshot-review/`, its
-mirror `.claude/skills/screenshot-review` and `docs/screenshot-review.md`, then
-run `--adopt --replace-generated-sections`, which also takes the skill's row
-and pointer out of the hub.
+the template's copy of either file as using `--screenshots` (see
+[Checking and adopting](#checking-and-adopting)), and passing the flag
+silences their notice. To drop them, move any rule of your own into a
+repository-owned skill, delete `.agents/skills/screenshot-review/`, its mirror
+`.claude/skills/screenshot-review` and `docs/screenshot-review.md`, then run
+`--adopt --replace-generated-sections`, which also takes the skill's row and
+pointer out of the hub.
 
 `--replace-generated-sections` replaces a generated section that differs
 without showing its text. Before running it, compare each section `--check`
@@ -567,7 +578,7 @@ Full CI pipeline for Next.js applications.
 Options:
 
 - `--postgres` — adds a PostgreSQL 16 service container to the build job
-- `--screenshots` adds the `screenshot-review` skill and
+- `--screenshots` — adds the `screenshot-review` skill and
   `docs/screenshot-review.md`, for an app with a screenshot capture lane
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release

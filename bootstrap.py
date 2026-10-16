@@ -1305,6 +1305,15 @@ _TYPE_SKILL_ROWS = {
 _SCREENSHOT_SKILL_ROW = "| change screenshots or captured views | `screenshot-review` |\n"
 
 
+def _screenshot_doc(repo_type: str) -> str:
+    """docs/screenshot-review.md for a type in SCREENSHOT_TYPES, before its stamp."""
+    return _compose(
+        _load("docs-screenshot-review-common.md"),
+        "PLATFORM_GUIDANCE",
+        _load(f"docs-screenshot-review-{repo_type}.md"),
+    )
+
+
 def generate_files(cfg: dict) -> dict:
     name = cfg["name"]
     repo_type = cfg["repo_type"]
@@ -1345,14 +1354,12 @@ def generate_files(cfg: dict) -> dict:
         files[NEXTJS_ENFORCED_AUDIT_SCRIPT] = _load("audit-production.mjs")
         for path in NEXTJS_BASELINE_SCRIPTS:
             files[path] = _load(path.removeprefix("scripts/"))
-        screenshot_guidance = _load("docs-screenshot-review-nextjs.md")
     elif repo_type == "python":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
         files[".github/workflows/ci.yml"] = _load("ci.yml")
         files[".github/workflows/test.yml"] = _load("test-python.yml")
         files[".github/dependabot.yml"] = _load("dependabot-python.yml")
         files[".python-version"] = _load(".python-version")
-        screenshot_guidance = ""
 
     elif repo_type == "swift":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
@@ -1367,7 +1374,6 @@ def generate_files(cfg: dict) -> dict:
         # Dependabot entry at this point creates a permanently failing updater.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
         files[".swift-format"] = _load(".swift-format")
-        screenshot_guidance = _load("docs-screenshot-review-swift.md")
 
     elif repo_type == "rust":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
@@ -1377,19 +1383,13 @@ def generate_files(cfg: dict) -> dict:
         # Dependabot entry would be a permanently failing updater until one
         # exists. The generated AGENTS.md says when to add it.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
-        screenshot_guidance = ""
 
     else:  # simple
         files[".github/workflows/release-please.yml"] = _load("release-please-simple.yml")
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
-        screenshot_guidance = ""
 
     if screenshots:
-        files[SCREENSHOT_REVIEW] = _compose(
-            _load("docs-screenshot-review-common.md"),
-            "PLATFORM_GUIDANCE",
-            screenshot_guidance,
-        )
+        files[SCREENSHOT_REVIEW] = _screenshot_doc(repo_type)
 
     # Every generated repo is born with the runbook for the protection applied
     # below — all types get release-please, pr-title-check and required checks.
@@ -2914,6 +2914,15 @@ def _adopt_file(
                 "edited locally; move the repository's own jobs or steps into a separate "
                 "workflow, then delete the file to regenerate (see README, Template-owned files)",
             )
+        if rel in SCREENSHOT_FILES:
+            # Detection only sees the template's copies, so once this file is
+            # deleted a re-run without the flag may turn screenshot review off.
+            return (
+                "refused", rel,
+                "edited locally; move the change to ## Project specifics or a repo-owned skill, "
+                "then delete the file and re-run with --screenshots to regenerate it (without "
+                "the flag, a repository with neither screenshot file drops screenshot review)",
+            )
         return (
             "refused", rel,
             "edited locally; move the change to ## Project specifics or a repo-owned skill, "
@@ -3098,7 +3107,8 @@ def existing_repository_config(args) -> dict:
     elif not screenshots:
         # A repository generated before --screenshots existed has the skill and
         # doc; without this, --adopt would delete the stamped skill as orphaned.
-        found = [rel for rel in SCREENSHOT_FILES if os.path.lexists(repo_dir / rel)]
+        found = [rel for rel in SCREENSHOT_FILES
+                 if _template_screenshot_file(repo_dir, rel, args.repo_type)]
         screenshots = bool(found)
     return {
         "name": existing_repository_name(repo_dir),
@@ -3113,6 +3123,31 @@ def existing_repository_config(args) -> dict:
     }
 
 
+def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
+    """Whether the repository has the template's copy of a screenshot file.
+
+    That is a file with a stamp line, valid or edited, or an unstamped
+    docs/screenshot-review.md whose body is the current one or one a release
+    shipped before stamps. A repository's own file at that path, such as its
+    own screenshot-review process, does not count; nor does one behind a
+    symlink or one that cannot be read, which --adopt refuses rather than
+    deletes either way.
+    """
+    path = repo_dir / rel
+    if _symlink_in_path(repo_dir, rel) or not path.is_file():
+        return False
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    if any(line.startswith(STAMP_PREFIX) for line in text.splitlines()):
+        return True
+    if rel != SCREENSHOT_REVIEW:
+        return False
+    expected = stamp(_screenshot_doc(repo_type))
+    return _template_file_state(rel, expected, text) in ("same", "stale")
+
+
 def screenshot_review_notice(cfg: dict) -> str | None:
     """Why --check or --adopt kept screenshot review on without --screenshots."""
     found = cfg.get("screenshots_found")
@@ -3120,7 +3155,9 @@ def screenshot_review_notice(cfg: dict) -> str | None:
         return None
     return (
         f"notice: screenshot review is on without --screenshots, because the repository "
-        f"has {' and '.join(found)}; to drop it, see the README's \"Upgrading to 0.12.0\""
+        f"has the template's {' and '.join(found)}; pass --screenshots to silence this. "
+        f"To regenerate a screenshot file you deleted, re-run with --screenshots; to drop "
+        f"screenshot review, see the README's \"Upgrading to 0.12.0\""
     )
 
 

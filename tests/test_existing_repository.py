@@ -500,6 +500,22 @@ class ExistingRepositoryTests(unittest.TestCase):
             bootstrap.main()
         return stop.exception.code, out.getvalue()
 
+    def _write_repo(self, files: dict, links: dict = None) -> None:
+        """Write rendered files and their skill mirrors, then commit them."""
+        links = bootstrap._links_for_files(files) if links is None else links
+        for rel, text in files.items():
+            self._write(rel, text)
+        for rel, target in links.items():
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).symlink_to(target)
+        self._commit_all()
+
+    @staticmethod
+    def _older_skill(text: str) -> str:
+        """A validly stamped skill from an older template: stale, not edited."""
+        body = bootstrap.read_stamp(text)[1]
+        return bootstrap.stamp(body.replace("\n# Screenshot review\n", "\n# Screenshot review\n\nOlder text.\n", 1))
+
     def _v0_11_1_nextjs(self, screenshot_files: bool) -> str:
         """A committed v0.11.1-style Next.js repository; returns its own rules.
 
@@ -508,24 +524,16 @@ class ExistingRepositoryTests(unittest.TestCase):
         as every v0.11.1 Next.js repository did; without, its owner deleted them.
         """
         files = _render("nextjs", screenshots=True)
-        links = bootstrap._links_for_files(files)
         skill, doc = bootstrap.SCREENSHOT_FILES
         if screenshot_files:
-            body = bootstrap.read_stamp(files[skill])[1]
-            files[skill] = bootstrap.stamp(body.replace("\n# Screenshot review\n", "\n# Screenshot review\n\nOlder text.\n", 1))
+            files[skill] = self._older_skill(files[skill])
             self.assertTrue(bootstrap.stamp_is_valid(files[skill]))
         else:
             for rel in (skill, doc):
                 del files[rel]
-            del links[".claude/skills/screenshot-review"]
         mine = "### Stop and ask\n\n- Ask before touching billing.\n"
         files["AGENTS.md"] = _AGENTS_0_11_1_NEXTJS + "\n" + mine
-        for rel, text in files.items():
-            self._write(rel, text)
-        for rel, target in links.items():
-            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
-            (self.repo / rel).symlink_to(target)
-        self._commit_all()
+        self._write_repo(files)
         return mine
 
     def test_a_0_11_1_nextjs_repository_keeps_and_updates_its_screenshot_files_without_the_flag(self):
@@ -533,13 +541,14 @@ class ExistingRepositoryTests(unittest.TestCase):
         expected = _render("nextjs", screenshots=True)
         skill, doc = bootstrap.SCREENSHOT_FILES
         self.assertEqual(bootstrap.compare_repository(self.repo, expected)[skill][0], "stale")
-        notice = f"notice: screenshot review is on without --screenshots, because the repository has {skill} and {doc}"
+        notice = (f"notice: screenshot review is on without --screenshots, because the repository "
+                  f"has the template's {skill} and {doc}; pass --screenshots to silence this.")
         code, out = self._main("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive",
                                "--replace-generated-sections")
         self.assertEqual(code, 0, out)
         self.assertIn(notice, out)
         self.assertIn(f"updated  {skill}", out)
-        self.assertNotIn("deleted", out)
+        self.assertNotIn("  deleted  ", out)
         for rel in (skill, doc):
             self.assertEqual((self.repo / rel).read_text(), expected[rel])
         self.assertTrue((self.repo / ".claude/skills/screenshot-review").is_symlink())
@@ -547,6 +556,90 @@ class ExistingRepositoryTests(unittest.TestCase):
         code, out = self._main("--check", str(self.repo), "--type", "nextjs")
         self.assertEqual(code, 0, out)
         self.assertIn(notice, out)
+
+    def test_a_swift_repository_keeps_and_updates_its_screenshot_files_without_the_flag(self):
+        expected = _render("swift", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        self._write_repo({**expected, skill: self._older_skill(expected[skill])})
+        code, out = self._main("--adopt", str(self.repo), "--type", "swift", "--scheme", "App",
+                               "--non-interactive")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"the template's {skill} and {doc}; pass --screenshots to silence this.", out)
+        self.assertIn(f"updated  {skill}", out)
+        self.assertNotIn("  deleted  ", out)
+        for rel in (skill, doc):
+            self.assertEqual((self.repo / rel).read_text(), expected[rel])
+        code, out = self._main("--check", str(self.repo), "--type", "swift", "--scheme", "App")
+        self.assertEqual(code, 0, out)
+
+    def test_deleting_edited_screenshot_files_needs_the_flag_to_regenerate_them(self):
+        files = _render("nextjs", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        mirror = ".claude/skills/screenshot-review"
+        self._write_repo({**files, skill: files[skill] + "\nOur rule.\n", doc: files[doc] + "\nOur rule.\n"})
+        adopt = ("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive")
+
+        # Edited stamped copies still turn screenshot review on, and the
+        # refusal says how to regenerate them.
+        code, out = self._main(*adopt)
+        self.assertEqual(code, 1, out)
+        self.assertIn("pass --screenshots to silence this", out)
+        lines = out.splitlines()
+        for rel in (skill, doc):
+            refusal = next(line for line in lines if line.startswith(f"  refused  {rel} "))
+            self.assertIn("then delete the file and re-run with --screenshots to regenerate it", refusal)
+
+        # Deleting them and re-running without the flag turns screenshot
+        # review off: nothing is regenerated, and the hub's screenshot
+        # sections now differ from that configuration, so adopt refuses and
+        # changes nothing.
+        for rel in (skill, doc):
+            (self.repo / rel).unlink()
+        _git(self.repo, "commit", "-qam", "drop edited screenshot files")
+        code, out = self._main(*adopt)
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("notice:", out)
+        self.assertIn("refused  AGENTS.md", out)
+        self.assertIn("## Definition of done; ## Skills", out)
+        self.assertIn("Nothing was changed.", out)
+        for rel in (skill, doc):
+            self.assertFalse(os.path.lexists(self.repo / rel), rel)
+        self.assertTrue(os.path.islink(self.repo / mirror))
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), files["AGENTS.md"])
+
+        # With the flag, they are regenerated and the repository is aligned.
+        code, out = self._main(*adopt, "--screenshots")
+        self.assertEqual(code, 0, out)
+        for rel in (skill, doc):
+            self.assertIn(f"wrote    {rel}", out)
+            self.assertEqual((self.repo / rel).read_text(), files[rel])
+        self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/screenshot-review")
+        code, out = self._main("--check", str(self.repo), "--type", "nextjs")
+        self.assertEqual(code, 0, out)
+
+    def test_a_repositorys_own_screenshot_files_leave_screenshot_review_off(self):
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        files = _render("nextjs")
+        own = {
+            doc: "# Screenshot review\n\nOur own process: compare each view with the design file.\n",
+            skill: "---\nname: screenshot-review\ndescription: Our own screenshot process.\n---\n\n# Ours\n",
+        }
+        for rel, text in own.items():
+            with self.subTest(rel):
+                shutil.rmtree(self.repo)
+                self.repo.mkdir()
+                self._write_repo({**files, rel: text}, bootstrap._links_for_files(files))
+                code, out = self._main("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive")
+                self.assertEqual(code, 0, out)
+                self.assertNotIn("notice:", out)
+                self.assertIn("Nothing was changed.", out)
+                self.assertEqual((self.repo / rel).read_text(), text)
+                for other in (skill, doc, ".claude/skills/screenshot-review"):
+                    if other != rel:
+                        self.assertFalse(os.path.lexists(self.repo / other), other)
+                code, out = self._main("--check", str(self.repo), "--type", "nextjs")
+                self.assertEqual(code, 0, out)
+                self.assertIn("Aligned.", out)
 
     def test_a_repository_without_screenshot_files_stays_without_them(self):
         mine = self._v0_11_1_nextjs(screenshot_files=False)
@@ -591,10 +684,36 @@ class ExistingRepositoryTests(unittest.TestCase):
         cfg, _ = config("--type", "nextjs", "--screenshots")
         self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (True, []))
         self.assertIsNone(bootstrap.screenshot_review_notice(cfg))
-        self._write(doc, "# Screenshot review guidance\n")
-        cfg, _ = config("--type", "swift", "--scheme", "App")
-        self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (True, [doc]))
-        self.assertIn(f"because the repository has {doc};", bootstrap.screenshot_review_notice(cfg))
+
+        # Only the template's copy of a file turns screenshot review on.
+        rendered = _render("swift", screenshots=True)
+        legacy = _LEGACY_FIXTURES["sources"]["v0.5.5"]
+        legacy_doc = bootstrap._compose(
+            legacy["docs-screenshot-review-common.md"], "PLATFORM_GUIDANCE", legacy["docs-screenshot-review-swift.md"])
+        own_skill = "---\nname: screenshot-review\ndescription: Ours.\n---\n\n# Ours\n"
+        cases = {
+            "the repository's own doc": (doc, "# Our screenshot process\n", False),
+            "stamped doc": (doc, rendered[doc], True),
+            "edited stamped doc": (doc, rendered[doc] + "\nOurs.\n", True),
+            "unstamped current doc": (doc, bootstrap.read_stamp(rendered[doc])[1], True),
+            "unstamped v0.5.5 doc": (doc, legacy_doc, True),
+            "edited unstamped v0.5.5 doc": (doc, legacy_doc + "\nOurs.\n", False),
+            "the repository's own skill": (skill, own_skill, False),
+            "edited stamped skill": (skill, rendered[skill] + "\nOurs.\n", True),
+        }
+        for label, (rel, text, found) in cases.items():
+            with self.subTest(label):
+                shutil.rmtree(self.repo / ".agents", ignore_errors=True)
+                shutil.rmtree(self.repo / "docs", ignore_errors=True)
+                self._write(rel, text)
+                cfg, _ = config("--type", "swift", "--scheme", "App")
+                self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (found, [rel] if found else []))
+                notice = bootstrap.screenshot_review_notice(cfg)
+                if found:
+                    self.assertIn(f"the template's {rel}; pass --screenshots to silence this.", notice)
+                    self.assertIn("re-run with --screenshots", notice)
+                else:
+                    self.assertIsNone(notice)
         cfg, out = config("--type", "python", "--screenshots")
         self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (False, []))
         self.assertIn("--screenshots is only used with --type nextjs or swift; ignoring", out)

@@ -38,7 +38,8 @@ Checks performed on each generated file:
     release-please.yml callers must select the full suite for manual dispatch
     and for the Release Please release commit
   - runbook presence: every generated repo carries
-    docs/branch-protection-runbook.md with the load-bearing operational facts
+    docs/branch-protection-runbook.md with the load-bearing operational facts,
+    and without the incident run IDs and SHAs kept in docs/archive/
   - retired lanes: no generated file mentions the removed provider-deploy or
     production e2e lanes
   - the bootstrapper's own bug-report form offers exactly bootstrap.py's
@@ -347,13 +348,28 @@ BUG_FORM_TYPE_FALLBACK = "Not applicable / not generation-related"
 # naming flags every run sets, and --public, the complement of --private.
 BUG_FORM_UNLISTED_FLAGS = frozenset({"-h", "--help", "--name", "--type", "--org", "--public"})
 
+# The runbook's rules, one phrase each: the live rule names the required checks;
+# a re-run replays the stale merge ref; update-branch is the deterministic
+# lever; a reported skip passes but a check that never reports blocks forever;
+# reusable-workflow check names; runs waiting for approval; old failures do not
+# block; and never weakening protection without explicit operator authorization.
 RUNBOOK_REQUIRED_PHRASES = (
+    "source of truth for required checks",
+    "tests the same stale tree",
+    "stale merge ref",
     "update-branch",
     "skipped",
     "never reports",
+    "{caller job} / {reusable job}",
+    "Approve workflows to run",
     "latest result per check name",
     "disable protection",
+    "explicit operator authorization",
 )
+# Run IDs and commit SHAs from the incident behind the runbook belong in
+# docs/archive/branch-protection-incident.md, never in the generated procedure.
+RUNBOOK_INCIDENT_ID_RE = re.compile(r"`[0-9a-f]{7,40}`|\b\d{9,}\b")
+RUNBOOK_INCIDENT_ARCHIVE = "docs/archive/branch-protection-incident.md"
 
 
 def configurations():
@@ -2076,15 +2092,24 @@ def check_runbook(label: str, files: dict) -> list:
     """Every generated repo is born with the branch-protection runbook.
 
     Its facts were bought with real incidents; a generated repo that lacks
-    them rediscovers each one the hard way."""
+    them rediscovers each one the hard way. The incident's own run IDs and
+    SHAs stay in the bootstrapper's archive, so the procedure ships without
+    them."""
     content = files.get(BRANCH_PROTECTION_RUNBOOK)
     if content is None:
         return [f"[{label}] missing {BRANCH_PROTECTION_RUNBOOK}"]
-    return [
+    errors = [
         f"[{label}] {BRANCH_PROTECTION_RUNBOOK} is missing operational fact {phrase!r}"
         for phrase in RUNBOOK_REQUIRED_PHRASES
         if not _contains_prose(content, phrase)
     ]
+    body = bootstrap.read_stamp(content)[1]
+    errors += [
+        f"[{label}] {BRANCH_PROTECTION_RUNBOOK} names incident evidence {match!r}; "
+        f"keep run IDs and SHAs in {RUNBOOK_INCIDENT_ARCHIVE}"
+        for match in RUNBOOK_INCIDENT_ID_RE.findall(body)
+    ]
+    return errors
 
 
 def _read_file_or_none(path: Union[str, Path]) -> Optional[bytes]:
@@ -3270,6 +3295,12 @@ def _structure_self_tests() -> list:
         w for i, w in enumerate(wrapped) if i != dropped) + "\n"
     expect("rewrapped runbook missing a phrase", check_runbook("self-test:runbook", rewrapped),
            repr(RUNBOOK_REQUIRED_PHRASES[dropped]))
+    # Incident run IDs and SHAs belong in the archive, not the shipped runbook.
+    for evidence in ("30244655509", "`d975919`"):
+        with_evidence = dict(files)
+        with_evidence[BRANCH_PROTECTION_RUNBOOK] += f"\nRun {evidence} failed.\n"
+        expect(f"runbook naming {evidence}", check_runbook("self-test:runbook", with_evidence),
+               f"names incident evidence {evidence!r}")
     bare = {k: v for k, v in files.items() if k != bootstrap.SCREENSHOT_REVIEW}
     bare[HUB] = files[HUB].replace(HUB_SCREENSHOT_POINTER, "", 1)
     both = check_screenshot_guidance("self-test:shot", "nextjs", bare)

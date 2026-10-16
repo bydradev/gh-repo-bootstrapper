@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.11.0...v0.11.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* keep the generated baseline scripts prettier- and eslint-clean ([#95](https://github.com/bydradev/gh-repo-bootstrapper/issues/95)) ([48972f3](https://github.com/bydradev/gh-repo-bootstrapper/commit/48972f33c7b358ca0010f6bebef2b1f668e008ec))
+
 ## [0.11.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.10.0...v0.11.0) (2026-10-15)
 
 

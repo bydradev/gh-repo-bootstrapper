@@ -252,8 +252,8 @@ for (const sourcePath of walk(root)) {
   }
   // TypeScript reads @ts-nocheck only from a line comment, so a block form
   // suppresses nothing; it is counted anyway, which errs on the side of a row.
-  for (const _ of source.matchAll(/\/\*[*/]*\s*@ts-nocheck(?=\s|\*|$)/g))
-    suppressions.push(`${relativePath}\u0000@ts-nocheck`);
+  const blockNochecks = source.match(/\/\*[*/]*\s*@ts-nocheck(?=\s|\*|$)/g) ?? [];
+  suppressions.push(...blockNochecks.map(() => `${relativePath}\u0000@ts-nocheck`));
   for (const directive of tsBlockDirectives(source))
     suppressions.push(`${relativePath}\u0000${directive}`);
   // ESLint honours rule configuration only in block comments; a line comment

@@ -92,7 +92,7 @@ test("counts a line TypeScript directive with nothing after its name", () => {
 });
 
 test("counts a line directive followed by a glob once", () => {
-  const source = "/" + "/ @ts-ignore see src/**" + "/*.ts\nconst answer: number = \"wrong\";\n";
+  const source = "/" + "/ @ts-ignore see src/**" + '/*.ts\nconst answer: number = "wrong";\n';
   const row = "| 1 | @ts-ignore | sample.ts | fixture | 2099-01-01 |";
   assert.match(
     runFixture(source, { "docs/lint-baseline.md": `${lintHeader}\n${row}\n` }),

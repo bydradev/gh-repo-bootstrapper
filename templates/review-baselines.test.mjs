@@ -129,7 +129,9 @@ async function runFixture({
     const binDir = writeFakeNpm(root, fakeNpmScript ?? fakeNpmAuditJson(auditReport));
     // Start from the host environment without the variables the script reads,
     // so a developer's own GITHUB_TOKEN or a CI step summary never reaches it.
-    const { GITHUB_TOKEN, GITHUB_STEP_SUMMARY, ...hostEnv } = process.env;
+    const hostEnv = { ...process.env };
+    delete hostEnv.GITHUB_TOKEN;
+    delete hostEnv.GITHUB_STEP_SUMMARY;
     const child = spawn(process.execPath, [join(root, "scripts/review-baselines.mjs")], {
       cwd: root,
       env: {

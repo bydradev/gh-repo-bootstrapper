@@ -514,6 +514,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             + "\n" + mine,
             "under a list item": heading + "- Template note:\n\n"
             + "".join("  " + line for line in _GUIDANCE_0_5.splitlines(True)) + "\n" + mine,
+            "hard line break": heading + _GUIDANCE_0_5.replace("\n", "  \n", 1) + "\n" + mine,
             "none": heading + mine,
         }
         for name, owned in kept.items():

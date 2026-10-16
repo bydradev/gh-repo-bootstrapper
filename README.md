@@ -476,6 +476,10 @@ Then tidy `## Project specifics` by hand:
   name it in `## Project specifics`;
 - delete a sentence that only says a generated section applies as written.
 
+For `nextjs`, the hub no longer lists `npm run lint:fix` and `npm run format`;
+the generated `README.md` does. An existing repository's `README.md` is its
+own, so `--adopt` leaves it alone: add the line yourself if you want it.
+
 ### Upgrading to 0.11.0
 
 `bootstrap.py` now needs Python 3.11 or newer.

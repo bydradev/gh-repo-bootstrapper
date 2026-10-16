@@ -1643,8 +1643,8 @@ def _strip_retired_guidance(owned: str) -> str:
     starts at column 0 on every line, as the templates wrote it, and whose
     whitespace-normalized text is a retired guidance paragraph is removed with
     the blank lines after it (or, at the end of the section, before it); an
-    indented copy (under a list item, or indented code) is kept. Everything
-    else, whitespace included, is kept byte for byte.
+    indented copy (under a list item, or indented code) or one with a hard line
+    break is kept. Everything else, whitespace included, is kept byte for byte.
     """
     lines = _markdown_lines(owned)
     keep = [True] * len(lines)
@@ -1662,7 +1662,10 @@ def _strip_retired_guidance(owned: str) -> str:
             end += 1
         run = [line for _, line, _ in lines[index:end]]
         paragraph = " ".join(" ".join(run).split())
-        if paragraph in _RETIRED_SPECIFICS_GUIDANCE and not any(line[:1].isspace() for line in run):
+        # Leading spaces (a list item or code) and a trailing hard break are
+        # edits the whitespace-normalized comparison would not see.
+        edited = any(line[:1].isspace() or line.endswith("  ") for line in run)
+        if paragraph in _RETIRED_SPECIFICS_GUIDANCE and not edited:
             while end < len(lines) and not lines[end][2] and not lines[end][1].strip():
                 end += 1
             start = index

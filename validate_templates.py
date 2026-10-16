@@ -675,9 +675,39 @@ def check_skill_pointers(label: str, files: dict) -> list:
     ]
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """A safe loader that rejects a mapping key given twice. OpenCode's
+    frontmatter parser (gray-matter with js-yaml 3) throws on one and then
+    loads the agent with no frontmatter at all, while PyYAML keeps the last
+    value, so the validator would pass a reviewer OpenCode opens up."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue  # merged keys may be overridden, as in js-yaml
+        key = loader.construct_object(key_node, deep=True)
+        try:
+            duplicate = key in seen
+        except TypeError:
+            continue  # an unhashable key fails in construct_mapping below
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"found duplicate key {key!r}", key_node.start_mark
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=True)
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
+
+
 def _frontmatter(text: str):
     """(mapping, None) for a `---`-delimited YAML frontmatter block, or
-    (None, reason) when it is absent, unterminated, or not a mapping."""
+    (None, reason) when it is absent, unterminated, not a mapping, gives a key
+    twice, or has a line starting with `---` before its closing line (which
+    gray-matter, as OpenCode uses it, would take as the end)."""
     lines = text.split("\n")
     if not lines or lines[0] != "---":
         return None, "does not start with a '---' frontmatter line"
@@ -685,8 +715,11 @@ def _frontmatter(text: str):
         end = lines.index("---", 1)
     except ValueError:
         return None, "has no closing '---' frontmatter line"
+    early = next((line for line in lines[1:end] if line.startswith("---")), None)
+    if early is not None:
+        return None, f"has a frontmatter line {early!r} that starts with '---' before the closing '---' line"
     try:
-        data = yaml.safe_load("\n".join(lines[1:end]))
+        data = yaml.load("\n".join(lines[1:end]), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:
         return None, f"has invalid YAML frontmatter — {exc}"
     if not isinstance(data, dict):
@@ -3309,8 +3342,9 @@ def _structure_self_tests() -> list:
     # (g) reviewer agents: a model, a write tool, a missing tools list, a
     # Claude Code reviewer without its Bash rule, a primary mode, an OpenCode
     # edit, task or shell permission, a later OpenCode permission key that
-    # could reopen them, or another OpenCode frontmatter key, such as the
-    # deprecated `tools` map, each fail.
+    # could reopen them, another OpenCode frontmatter key, such as the
+    # deprecated `tools` map, or frontmatter OpenCode would read differently
+    # (a duplicate key, an early `---` line), each fail.
     for name, path, old, new, needle in (
         ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
         ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
@@ -3330,6 +3364,10 @@ def _structure_self_tests() -> list:
          'mode: subagent\ntools:\n  bash: false\n  "*": true', "sets ['tools']"),
         ("opencode unknown key", OPENCODE_REVIEWER, "mode: subagent", "mode: subagent\nx-notes: review",
          "sets ['x-notes']"),
+        ("opencode duplicate key", OPENCODE_REVIEWER, "  bash: deny", "  bash: deny\n  bash: deny",
+         "duplicate key 'bash'"),
+        ("opencode early delimiter", OPENCODE_REVIEWER, "mode: subagent",
+         "mode: subagent\nx: {a: b,\n---c: d}", "starts with '---'"),
     ):
         mutated = dict(files)
         if old not in files[path]:

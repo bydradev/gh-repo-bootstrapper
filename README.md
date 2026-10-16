@@ -224,7 +224,7 @@ points at it.
 The fresh-eyes review runs as a separate reviewer agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
-`fresh-eyes-review` skill. Neither gets an edit tool.
+`fresh-eyes-review` skill. Neither gets a built-in edit tool.
 
 The OpenCode reviewer has no built-in edit, subagent or shell tool. MCP,
 plugin and custom tools follow the user's OpenCode configuration, whose

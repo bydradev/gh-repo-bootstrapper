@@ -21,21 +21,21 @@ checks: read it with the commands below, never from another repository.
 
 ## A check fails on code that `main` already fixed
 
-**Check:** compare the base the failing run tested (its checkout log reads
-`Merge <head> into <base>`) with the `main` tip. By default Release Please
-updates its PR only when the release notes change, so its checks can test an
-old base.
+**Check:** compare the head and base the failing run tested (its checkout log
+reads `Merge <head> into <base>`) with the PR's current head and the `main`
+tip. By default Release Please updates its PR only when the release notes
+change, so its checks can test an old base.
 
-**Action:** if the base is the `main` tip, the failure is real: fix it. If not,
-the result is stale. Do not re-run: a re-run reuses the original event's
-commit and ref, so it tests the same stale tree. Waiting may not help, and a
-fresh event, such as a close and reopen, can still capture the stale merge
-ref. After one, read `mergeable` and `merge_commit_sha` together (a read can
-start a recompute; `null` means read again) and check the merge commit's
-parents. If it is still stale and `update-branch` is not authorized, try
-another fresh event. When authorized, `update-branch` merges `main` into the
-PR branch and starts new runs; Release Please later replaces that merge
-commit.
+**Action:** if both match, the failure is real: fix it. If the head differs,
+read the run for the current head instead. If the base differs, the result is
+stale. Do not re-run: a re-run reuses the original event's commit and ref, so
+it tests the same stale tree. Waiting may not help, and a fresh event, such as
+a close and reopen, can still capture the stale merge ref. After one, read
+`mergeable` and `merge_commit_sha` together (a read can start a recompute;
+`null` means read again) and check the merge commit's parents. If it is still
+stale and `update-branch` is not authorized, try another fresh event. When
+authorized, `update-branch` merges `main` into the PR branch and starts new
+runs; Release Please later replaces that merge commit.
 
 ## A required check stays pending
 

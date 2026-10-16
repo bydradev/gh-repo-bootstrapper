@@ -19,6 +19,28 @@ from pathlib import Path
 import bootstrap
 import validate_templates
 
+# The `## Project specifics` guidance of the v0.5.x and v0.6.0 to v0.11.x
+# templates, which --adopt --replace-generated-sections removes when unedited.
+_GUIDANCE_0_5 = (
+    "Rules that apply only to this repository live in this section, below every\n"
+    "generated section: product sources of truth, prime directives, points at which\n"
+    "to stop and ask the operator, and boundaries specific to this codebase. Keep\n"
+    "them here rather than editing the generated sections above, so template\n"
+    "updates can be applied without overwriting them. Where a rule here narrows or\n"
+    "conflicts with a generated section, it governs this repository \u2014 say so\n"
+    "explicitly, so the difference stays visible.\n"
+)
+_GUIDANCE_0_6 = (
+    _GUIDANCE_0_5.removesuffix("visible.\n")
+    + "visible. Put stop-and-ask lists and prime\n"
+    "directives first in this section, so they survive any truncation.\n"
+    "\n"
+    "Keep this section short. Long reference material (architecture, conventions,\n"
+    "API notes) belongs in a repository-owned skill under `.agents/skills/` with a\n"
+    "name that does not start with a template skill name; narrow a template skill\n"
+    "here, never by editing it.\n"
+)
+
 # Exact v0.5.5 nextjs/Swift renders (sample, My App, iphone, XcodeGen) and
 # historical docs from all release tags through v0.6.0. Captured from git show;
 # compressed here because tests must also run without tags in a shallow clone.
@@ -333,15 +355,18 @@ class ExistingRepositoryTests(unittest.TestCase):
     def test_adopt_keeps_existing_non_agents_files(self):
         files = _render()
         self._write("README.md", "# Mine\n")
+        self._write(bootstrap.CURRENT_WORK, "# Current work\n\nOurs.\n")
         actions = bootstrap.adopt_repository(self.repo, files)
-        self.assertIn(("kept", "README.md", "differs from the template; not overwritten"), actions)
+        for rel in ("README.md", bootstrap.CURRENT_WORK):
+            self.assertIn(("kept", rel, "differs from the template; not overwritten"), actions)
         self.assertEqual((self.repo / "README.md").read_text(), "# Mine\n")
+        self.assertEqual((self.repo / bootstrap.CURRENT_WORK).read_text(), "# Current work\n\nOurs.\n")
 
     def test_adopt_rebuilds_agents_keeping_project_specifics(self):
         files = _render()
         agents = files["AGENTS.md"]
         mine = "## Project specifics\n\n- Never touch the billing module.\n\n## Local notes\n\nKeep.\n"
-        generated = agents.split(bootstrap.PROJECT_SPECIFICS)[0]
+        generated = bootstrap._split_project_specifics(agents)[0]
         # A generated section the repository lacks, plus a repository-owned
         # tail: rebuilding is lossless, so no opt-in is needed.
         start = generated.index("## Preservation and destructive operations")
@@ -354,7 +379,71 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertNotIn("refused", {a for a, _, _ in actions}, actions)
         result = (self.repo / "AGENTS.md").read_text()
         self.assertTrue(result.endswith(mine))
-        self.assertEqual(result.split(bootstrap.PROJECT_SPECIFICS)[0], agents.split(bootstrap.PROJECT_SPECIFICS)[0])
+        self.assertEqual(bootstrap._split_project_specifics(result)[0], generated)
+
+    def test_adopt_upgrades_a_0_11_hub(self):
+        # The 0.11 hub carried two sections that are now Definition of done
+        # bullets, and opened `## Project specifics` with template guidance
+        # that now sits above it. Rebuilding drops all three and keeps the
+        # repository's own rules.
+        files = _render()
+        generated = bootstrap._split_project_specifics(files["AGENTS.md"])[0]
+        skills = generated.index("## Skills")
+        old_sections = (
+            "## Fresh-eyes review\n\nA different agent or reviewer must review substantial work.\n\n"
+            "## Recall is not evidence\n\nCheck capability claims against a primary source.\n\n"
+        )
+        mine = "### Stop and ask\n\n- Ask before touching billing.\n"
+        original = (generated[:skills] + old_sections + generated[skills:]
+                    + "## Project specifics\n\n" + _GUIDANCE_0_6 + "\n" + mine)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        rows = bootstrap.compare_agents(files["AGENTS.md"], original)
+        for heading in ("## Fresh-eyes review", "## Recall is not evidence",
+                        bootstrap.RETIRED_SPECIFICS_GUIDANCE):
+            self.assertIn(("retired", heading), rows)
+        self.assertFalse([heading for status, heading in rows if status == "local"], rows)
+        actions = bootstrap.adopt_repository(self.repo, files)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), original)
+        actions = bootstrap.adopt_repository(self.repo, files, True)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        result = (self.repo / "AGENTS.md").read_text()
+        self.assertEqual(result, generated + "## Project specifics\n\n" + mine)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)["AGENTS.md"][0], "same")
+
+    def test_retired_guidance_is_removed_only_when_unedited(self):
+        heading = "## Project specifics\n\n"
+        mine = "- Ask before touching billing.\n"
+        cases = {
+            "first": (heading + _GUIDANCE_0_6 + "\n" + mine, heading + mine),
+            "after the repository's rules": (
+                heading + mine + "\n" + _GUIDANCE_0_6, heading + mine,
+            ),
+            "only guidance": (heading + _GUIDANCE_0_6, "## Project specifics\n"),
+            "v0.5 paragraph": (
+                heading + _GUIDANCE_0_5 + "\n" + mine, heading + mine,
+            ),
+        }
+        for name, (owned, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(bootstrap._strip_retired_guidance(owned), expected)
+        edited_0_5 = _GUIDANCE_0_5.replace("say so\nexplicitly", "say so")
+        kept = {
+            "edited": heading + edited_0_5 + "\n" + mine,
+            "fenced": heading + "```text\n" + _GUIDANCE_0_5 + "```\n\n" + mine,
+            "none": heading + mine,
+        }
+        for name, owned in kept.items():
+            with self.subTest(name):
+                self.assertEqual(bootstrap._strip_retired_guidance(owned), owned)
+        # An edited first paragraph stays; the unedited second one goes.
+        edited_0_6 = _GUIDANCE_0_6.replace("say so\nexplicitly", "say so")
+        first = edited_0_6.split("\n\n")[0] + "\n"
+        self.assertEqual(
+            bootstrap._strip_retired_guidance(heading + edited_0_6 + "\n" + mine),
+            heading + first + "\n" + mine,
+        )
 
     def test_adopt_refuses_local_sections_outside_project_specifics(self):
         files = _render()
@@ -604,7 +693,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         script = (
             "import bootstrap\n"
             "f = bootstrap.generate_files({'name': 's', 'repo_type': 'simple', 'postgres': False})\n"
-            "assert '\\u2014' in f['AGENTS.md'] and '\\u00e2\\u20ac' not in f['AGENTS.md']\n"
+            "assert '\\u2026' in f['AGENTS.md'] and '\\u00e2\\u20ac' not in f['AGENTS.md']\n"
         )
         render = subprocess.run([sys.executable, "-c", script], cwd=root, env=env, capture_output=True)
         self.assertEqual(render.returncode, 0, render.stderr.decode(errors="replace"))
@@ -1703,9 +1792,14 @@ class ExistingRepositoryTests(unittest.TestCase):
             original = preamble + "".join(body for heading, body in sections if heading != retired_title)
         self._write("AGENTS.md", original)
         self._commit_all()
-        owned = bootstrap._split_project_specifics(original)[1].encode("utf-8")
+        # v0.5.5 opened `## Project specifics` with template guidance, which the
+        # rebuild drops; the rest of the section is kept byte for byte.
+        owned_text = bootstrap._split_project_specifics(original)[1]
+        self.assertIn("Rules that apply only to this repository", owned_text)
+        owned = bootstrap._strip_retired_guidance(owned_text).encode("utf-8")
         rows = bootstrap.compare_agents(files["AGENTS.md"], original)
         self.assertFalse([heading for status, heading in rows if status == "local"], rows)
+        self.assertIn(("retired", bootstrap.RETIRED_SPECIFICS_GUIDANCE), rows)
         if omit_retired:
             self.assertNotIn(("retired", retired_title), rows)
         else:

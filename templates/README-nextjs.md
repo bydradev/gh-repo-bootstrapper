@@ -52,6 +52,8 @@ npm run build
 npm run test:e2e
 ```
 
+`npm run lint:fix` and `npm run format` fix lint and formatting.
+
 CI runs them in three tiers. Pull requests run every check above except the
 browser suite. Ordinary pushes to `main` add the Chromium browser project. The
 Release Please merge runs the full suite, including every Playwright project.

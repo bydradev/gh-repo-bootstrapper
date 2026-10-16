@@ -1,7 +1,7 @@
 
 ## Tooling
 
-Run all checks before pushing:
+Run the checks your change affects before pushing:
 
 ```sh
 ruff format .     # format (CI runs ruff format --check .)
@@ -10,16 +10,5 @@ mypy .            # type check
 python -m pytest  # tests
 ```
 
-Install dependencies first, the way CI does: `uv sync` when `uv.lock` exists
-(adding `--group dev` and `--extra dev` for whichever the project declares);
-otherwise
-`pip install -r requirements-dev.txt`, `pip install -r requirements.txt`, or
-`pip install -e ".[dev]"` as appropriate, adding `--group dev` (pip 25.1 or
-later) for a `[dependency-groups]` dev group. As with uv (uv's "Configuring
-projects" docs, checked 2026-10-15), a project with no `[build-system]` (and no
-`setup.py`, and no `setup.cfg` with `[metadata]` or `[options]`) isn't built
-unless it sets `[tool.uv] package = true`, and `package = false` skips the build
-even with them: install an unbuilt project's `[project]` dependencies, the dev
-extra's and the dev group without `-e .`. A package that has none of these,
-relying on pip's setuptools fallback, needs a `[build-system]` table (or
-`[tool.uv] package = true`), or CI will not install it either.
+Install dependencies the way CI does (`uv sync --locked` with the dev group or
+extra when `uv.lock` exists); `local-validation-python` gives the full order.

@@ -187,8 +187,12 @@ keeps the repository's own branch protection.
 
 The generated `AGENTS.md` is a short hub. It holds the gates every agent must
 see (scope, GitHub operations, branches, commits, preservation, definition of
-done), the type's tooling commands, a skills table, and `## Project specifics`
-last. Detailed procedures live in skills that load when they're relevant:
+done), what an agent may do without asking and when it must stop and ask, the
+type's tooling commands, a skills table, and `## Project specifics` last.
+Unless a request says otherwise, the hub counts a code change as done when its
+PR is open, its checks pass and review findings are resolved; merging still
+needs explicit authorization. Detailed procedures live in skills that load
+when they're relevant:
 
 | Skill (`.agents/skills/<name>/SKILL.md`) | Types |
 |---|---|
@@ -214,6 +218,15 @@ runs as a separate read-only reviewer agent,
 `fresh-eyes-review` skill. The generated `.gitignore` ignores `.agents/*` and
 `.opencode/*` but re-includes `!.agents/skills/` and `!.opencode/agents/`, so
 these files are committed.
+
+`## Project specifics` belongs to the repository. The guidance on what goes
+there sits just above it, in a generated section, so it stays current through
+`--adopt`: durable rules with stop-and-ask items first, reference material in
+a repository-owned skill, and dated status in `docs/current-work.md`, a
+repository-owned file every type gets. The Next.js App Router note sits
+outside the `next dev`-managed markers because `next dev` rewrites everything
+between them; a repository on the Pages Router says so under
+`## Project specifics` rather than editing the note.
 
 Why split it? Harnesses cut long instruction files off, and `## Project
 specifics` is last, so it's lost first:
@@ -251,9 +264,9 @@ changes:
 - `.github/workflows/release-please.yml`;
 - `.github/workflows/baseline-review.yml` (`nextjs`).
 
-`docs/lint-baseline.md` and `docs/advisory-baseline.md` aren't in this set.
-They're tables each repository edits, so they keep the plain `kept`
-behaviour, as do scripts, configs and the other workflows: `ci.yml` and
+`docs/lint-baseline.md`, `docs/advisory-baseline.md` and
+`docs/current-work.md` aren't in this set. Each repository edits them, so they
+keep the plain `kept` behaviour, as do scripts, configs and the other workflows: `ci.yml` and
 `test.yml` hold each repository's own test lanes.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
@@ -365,7 +378,7 @@ Template-owned files get their own states:
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist — left behind by a retired template skill or a wrong `--type` | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
-| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading; any text under it is dropped too, so `--check` prints its line count and first lines |
+| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
 prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't
@@ -433,6 +446,26 @@ of `PATH` mid-run — so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.12.0
+
+The `AGENTS.md` hub changed: it gains an *Autonomy and escalation* section and
+a default for when a change is done, its attribution rules are shorter, and
+*Fresh-eyes review* and *Recall is not evidence* became *Definition of done*
+bullets. Run `--adopt --replace-generated-sections` to take it. The rebuild
+also removes the old guidance paragraphs at the top of `## Project specifics`
+when they are unedited, because the guidance now sits above the heading, and
+`--adopt` writes `docs/current-work.md` when it is missing.
+
+Then tidy `## Project specifics` by hand:
+
+- put stop-and-ask rules first;
+- move dated status, such as when the repository was pushed or that Release
+  Please is not set up yet, into `docs/current-work.md`;
+- move long reference material and corrections of template skills, such as
+  CI tiers, ports or test-server notes, into a repository-owned skill, and
+  name it in `## Project specifics`;
+- delete a sentence that only says a generated section applies as written.
+
 ### Upgrading to 0.11.0
 
 `bootstrap.py` now needs Python 3.11 or newer.
@@ -470,8 +503,9 @@ A Python repository that commits `uv.lock` should also switch its Dependabot
 ## Repository types
 
 Every type gets a type-specific `README.md` starter, `AGENTS.md` and
-`CLAUDE.md` (contribution guidance), `.gitignore`, `release-please-config.json`,
-and `.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
+`CLAUDE.md` (contribution guidance), `docs/current-work.md` (dated status),
+`.gitignore`, `release-please-config.json`, and
+`.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
 highlight the additional files and README guidance for that type.
 
 The generated `AGENTS.md` ends with a `## Project specifics` section. Put

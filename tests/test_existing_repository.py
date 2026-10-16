@@ -512,6 +512,8 @@ class ExistingRepositoryTests(unittest.TestCase):
             "fenced": heading + "```text\n" + _GUIDANCE_0_5 + "```\n\n" + mine,
             "indented": heading + "".join("    " + line for line in _GUIDANCE_0_5.splitlines(True))
             + "\n" + mine,
+            "under a list item": heading + "- Template note:\n\n"
+            + "".join("  " + line for line in _GUIDANCE_0_5.splitlines(True)) + "\n" + mine,
             "none": heading + mine,
         }
         for name, owned in kept.items():

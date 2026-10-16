@@ -10,10 +10,11 @@ These rules apply to a site meant to be found in search. If
 indexing or search, or says the site is not public, that governs.
 
 A public site serves `robots.txt` and a sitemap from the App Router metadata
-files `robots.ts` and `sitemap.ts`. Allow all crawlers and link the sitemap;
-disallow only paths with a reason, such as API routes that are not pages. Give
-personal or search-result pages `robots: { index: false, follow: true }` in
-their metadata, and leave them out of the sitemap.
+files `robots.ts` and `sitemap.ts`. Allow all crawlers, apart from the AI
+crawler policy below, and link the sitemap; disallow only paths with a reason,
+such as API routes that are not pages. Give personal or search-result pages
+`robots: { index: false, follow: true }` in their metadata, and leave them out
+of the sitemap.
 
 Keep AI crawler policy in one place: the hosting platform's bot controls when
 it has them, otherwise per-bot rules in `robots.ts`.

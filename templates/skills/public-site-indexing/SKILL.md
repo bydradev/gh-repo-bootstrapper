@@ -15,8 +15,8 @@ disallow only paths with a reason, such as API routes that are not pages. Give
 personal or search-result pages `robots: { index: false, follow: true }` in
 their metadata, and leave them out of the sitemap.
 
-Set AI crawler policy in the hosting platform's bot controls, not with per-bot
-rules in `robots.txt`, so the policy lives in one place.
+Keep AI crawler policy in one place: the hosting platform's bot controls when
+it has them, otherwise per-bot rules in `robots.ts`.
 
 When the host also serves the site on a default or per-deployment hostname,
 turn those hostnames off and send `X-Robots-Tag: noindex, nofollow` on them as

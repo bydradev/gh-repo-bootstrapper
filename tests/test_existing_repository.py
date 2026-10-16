@@ -502,6 +502,10 @@ class ExistingRepositoryTests(unittest.TestCase):
             "v0.5 paragraph": (
                 heading + _GUIDANCE_0_5 + "\n" + mine, heading + mine,
             ),
+            "before a later heading": (
+                heading + mine + "\n" + _GUIDANCE_0_6 + "\n## Later\n\nOurs.\n",
+                heading + mine + "\n## Later\n\nOurs.\n",
+            ),
         }
         for name, (owned, expected) in cases.items():
             with self.subTest(name):
@@ -515,6 +519,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             "under a list item": heading + "- Template note:\n\n"
             + "".join("  " + line for line in _GUIDANCE_0_5.splitlines(True)) + "\n" + mine,
             "hard line break": heading + _GUIDANCE_0_5.replace("\n", "  \n", 1) + "\n" + mine,
+            "under a later heading": heading + mine + "\n## Template history\n\n" + _GUIDANCE_0_5,
             "none": heading + mine,
         }
         for name, owned in kept.items():

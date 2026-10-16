@@ -1683,8 +1683,8 @@ def _strip_retired_guidance(owned: str) -> str:
     A paragraph is a run of non-blank lines outside code fences. One that
     starts at column 0 on every line, as the templates wrote it, and whose
     whitespace-normalized text is a retired guidance paragraph is removed with
-    the blank lines after it; an indented copy (a list item or indented code)
-    is kept. With nothing removed, `owned` comes back as is.
+    the blank lines after it; an indented copy (under a list item, or indented
+    code) is kept. With nothing removed, `owned` comes back as is.
     """
     lines = _markdown_lines(owned)
     keep = [True] * len(lines)

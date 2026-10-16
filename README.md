@@ -231,8 +231,8 @@ these files are committed.
 `## Project specifics` belongs to the repository. The guidance on what goes
 there is in a generated section of the hub, *When instructions and reality
 disagree*, so it stays current through `--adopt`: durable rules with
-stop-and-ask items first, never edits to the generated sections or stamped
-files, reference material in a repository-owned skill, and dated status in
+stop-and-ask items first, never edits to the generated sections or
+template-owned files, reference material in a repository-owned skill, and dated status in
 `docs/current-work.md`, a repository-owned file every type gets. The Next.js
 App Router note sits outside the `next dev`-managed markers because `next dev`
 rewrites everything between them; a repository on the Pages Router says so
@@ -468,8 +468,8 @@ The `AGENTS.md` hub changed: it gains an *Autonomy and escalation* section and
 a default for when a change is done, its attribution rules are shorter, and
 *Fresh-eyes review* and *Recall is not evidence* became *Definition of done*
 bullets. Run `--adopt --replace-generated-sections` to take it. The rebuild
-also removes the old guidance paragraphs at the top of `## Project specifics`
-when they are unedited, because the guidance is now in a generated section,
+also removes the old guidance paragraphs from `## Project specifics` when
+they are unedited, because the guidance is now in a generated section,
 and `--adopt` writes `docs/current-work.md` when it is missing.
 
 The `screenshot-review` skill and `docs/screenshot-review.md` are now

@@ -772,6 +772,8 @@ class ExistingRepositoryTests(unittest.TestCase):
             + "".join("  " + line for line in _GUIDANCE_0_5.splitlines(True)) + "\n" + mine,
             "hard line break": heading + _GUIDANCE_0_5.replace("\n", "  \n", 1) + "\n" + mine,
             "under a later heading": heading + mine + "\n## Template history\n\n" + _GUIDANCE_0_5,
+            "in an HTML comment": heading + "<!--\n\n" + _GUIDANCE_0_5 + "\n-->\n\n" + mine,
+            "beside an HTML block": heading + _GUIDANCE_0_5 + "\n<details>\n\nOurs.\n\n</details>\n",
             "none": heading + mine,
         }
         for name, owned in kept.items():

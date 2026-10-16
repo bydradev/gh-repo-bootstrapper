@@ -1686,9 +1686,14 @@ def _strip_retired_guidance(owned: str) -> str:
     the blank lines after it (or, at the end of the section, before it); an
     indented copy (under a list item, or indented code) or one with a hard line
     break is kept. Only `## Project specifics` itself is searched, up to the
-    next level-1 or level-2 heading. Everything else, whitespace included, is
-    kept byte for byte.
+    next level-1 or level-2 heading, and nothing is removed from a section with
+    structure `_markdown_ambiguities` reports, such as an HTML block. Everything
+    else, whitespace included, is kept byte for byte.
     """
+    if _markdown_ambiguities(owned):
+        # An HTML block (a comment, say) or other structure the line scan does
+        # not model could hide or enclose a copy: leave the section alone.
+        return owned
     lines = _markdown_lines(owned)
     keep = [True] * len(lines)
 

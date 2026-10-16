@@ -1639,9 +1639,11 @@ RETIRED_SPECIFICS_GUIDANCE = "(template guidance inside ## Project specifics)"
 def _strip_retired_guidance(owned: str) -> str:
     """The `## Project specifics` part without unedited older-template guidance.
 
-    A paragraph is a run of non-blank lines outside code fences. One whose
+    A paragraph is a run of non-blank lines outside code fences. One that
+    starts at column 0 on every line, as the templates wrote it, and whose
     whitespace-normalized text is a retired guidance paragraph is removed with
-    the blank lines after it; with nothing removed, `owned` comes back as is.
+    the blank lines after it; an indented copy (a list item or indented code)
+    is kept. With nothing removed, `owned` comes back as is.
     """
     lines = _markdown_lines(owned)
     keep = [True] * len(lines)
@@ -1657,8 +1659,9 @@ def _strip_retired_guidance(owned: str) -> str:
         end = index
         while end < len(lines) and text_line(end):
             end += 1
-        paragraph = " ".join(" ".join(line for _, line, _ in lines[index:end]).split())
-        if paragraph in _RETIRED_SPECIFICS_GUIDANCE:
+        run = [line for _, line, _ in lines[index:end]]
+        paragraph = " ".join(" ".join(run).split())
+        if paragraph in _RETIRED_SPECIFICS_GUIDANCE and not any(line[:1].isspace() for line in run):
             while end < len(lines) and not lines[end][2] and not lines[end][1].strip():
                 end += 1
             keep[index:end] = [False] * (end - index)
@@ -1695,7 +1698,8 @@ def compare_agents(expected: str, actual: str) -> list:
     --adopt would otherwise overwrite: a section, or a level-3+ subsection
     inside a generated section, outside `## Project specifics`, or structure
     the parser does not model. The `next dev` block and everything from
-    `## Project specifics` on are repository-owned and never compared.
+    `## Project specifics` on are repository-owned and never compared, except
+    that unedited guidance an older template put there is reported `retired`.
     """
     exp_generated, _ = _split_project_specifics(_mask_nextjs_rules(expected))
     act_generated, act_owned = _split_project_specifics(_mask_nextjs_rules(actual))
@@ -3467,8 +3471,8 @@ def main():
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
         def confirm(sections):
             print("\nAGENTS.md: these generated sections differ from the template and will be")
-            print("replaced with its text, or are missing and will be added (the file is")
-            print("tracked, so git diff shows the change):")
+            print("replaced with its text, are retired and will be removed, or are missing and")
+            print("will be added (the file is tracked, so git diff shows the change):")
             for heading in sections:
                 print(f"  {heading}")
             return args.non_interactive or prompt_yn("Replace them?", default=False)

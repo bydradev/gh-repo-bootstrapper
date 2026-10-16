@@ -220,13 +220,14 @@ runs as a separate read-only reviewer agent,
 these files are committed.
 
 `## Project specifics` belongs to the repository. The guidance on what goes
-there sits just above it, in a generated section, so it stays current through
-`--adopt`: durable rules with stop-and-ask items first, reference material in
-a repository-owned skill, and dated status in `docs/current-work.md`, a
-repository-owned file every type gets. The Next.js App Router note sits
-outside the `next dev`-managed markers because `next dev` rewrites everything
-between them; a repository on the Pages Router says so under
-`## Project specifics` rather than editing the note.
+there is in a generated section of the hub, *When instructions and reality
+disagree*, so it stays current through `--adopt`: durable rules with
+stop-and-ask items first, never edits to the generated sections or stamped
+files, reference material in a repository-owned skill, and dated status in
+`docs/current-work.md`, a repository-owned file every type gets. The Next.js
+App Router note sits outside the `next dev`-managed markers because `next dev`
+rewrites everything between them; a repository on the Pages Router says so
+under `## Project specifics` rather than editing the note.
 
 Why split it? Harnesses cut long instruction files off, and `## Project
 specifics` is last, so it's lost first:
@@ -401,7 +402,8 @@ an unclosed code fence, a fence indented four or more columns, an HTML
 block such as a `<!-- -->` comment or `<details>`, or a
 generated heading that falls inside a code block). The `next dev`-managed block and everything from
 `## Project specifics` on are the repository's own and are not compared,
-but the block must stay at the top of the file: a moved block is `local`,
+except that an unedited guidance paragraph from an older template there is
+`retired`. The block must stay at the top of the file: a moved block is `local`,
 and a missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
@@ -415,7 +417,8 @@ as `.worktrees/app/align` renders as `app`.
 existing file only when it's a `stale` template-owned file (see the table
 above), with one more exception that preserves repository-owned content:
 `AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
-everything after it) and the `next dev`-managed block. The rebuild is refused
+everything after it, less any `retired` guidance paragraph) and the
+`next dev`-managed block. The rebuild is refused
 while anything `local` remains — move those rules under `## Project specifics`
 first. A generated section whose text differs may be an older template or a
 local edit, and the script cannot tell which, so it is replaced only with
@@ -453,8 +456,15 @@ a default for when a change is done, its attribution rules are shorter, and
 *Fresh-eyes review* and *Recall is not evidence* became *Definition of done*
 bullets. Run `--adopt --replace-generated-sections` to take it. The rebuild
 also removes the old guidance paragraphs at the top of `## Project specifics`
-when they are unedited, because the guidance now sits above the heading, and
-`--adopt` writes `docs/current-work.md` when it is missing.
+when they are unedited, because the guidance is now in a generated section,
+and `--adopt` writes `docs/current-work.md` when it is missing.
+
+`--replace-generated-sections` replaces a generated section that differs
+without showing its text. Before running it, compare each section `--check`
+reports as `differs` with `templates/AGENTS.md` and move any rule of your own
+under `## Project specifics`; afterwards, review the result with `git diff`.
+For `nextjs`, that includes an edited *This project uses the App Router*
+note: the old template asked a Pages Router repository to replace it.
 
 Then tidy `## Project specifics` by hand:
 

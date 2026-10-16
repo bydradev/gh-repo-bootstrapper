@@ -41,6 +41,65 @@ _GUIDANCE_0_6 = (
     "here, never by editing it.\n"
 )
 
+# The exact v0.11.1 nextjs render of AGENTS.md (name "sample", no Postgres),
+# from `git archive v0.11.1`, so the upgrade test needs no tags.
+_AGENTS_0_11_1_NEXTJS = zlib.decompress(base64.b85decode(
+    (
+        'c-oCxZI0YXa{bR!q%nY3lB=q{!ooJXg~4hx+F4;GO`|o7{b3kp7MWF*(<GCVNmi*A`mu-b8GNukiQkJzve?}t+k&9(Dkd}I<3+@a'
+        'NWJ=p_1b**_J?;LuRHg7_&KfZ-gUz|j*UxZz5cc+zA--?d@}g^@yDOcaB$`$R&IVy<{U<I--T0A$cm$j$%oDyY%<&E?7i>yraIVe'
+        'kFEaxxBoJ)Z{MYrsX}+e5m<>2wyVv~H_oIXj@2+mXIgtUwrNc5cRLr&E{2vTMKeU}JMLNA!EVf*v$cp5UE_|n8_a(6wKKjmWfyAq'
+        'pKYkA#T6C1s(r#gp-NY!c@|v?&C%7m`9R?*#BUM~jjkF(Jl}AiHgqAnJ|sD(<VL0GZFLVLiJV;+%+{HsPksv}@^%!d4<?2%Jjdf5'
+        '_AsaD2g+`{Gb~WMjrpU40JZCJprtjqnXg>hWOHttP~Fq)e06Z0*ebfUt!uovJ*zy};aG}wVSc}Z>4vYWpIpSEtHy7y;A9u=;Ig}^'
+        'eS%9%nzao_O6mvI$BHLR=$bQ+ui)9isYS-F3T;d2>g?znlfTJ3ocwT5@0~)tH}}r<`sxs!Ggaek2Yp`=g>OH8|9@eykKt#y$BZcp'
+        '@Vf8KT^I)!i$Z=T)A*xe!1g_S9ik~ytghtKN*u-)Z!JNoubO9N&yQE-^9{~{Y^P8}d6bNW?-Yp;3BHfE_WL%eVwVSm<a+0Z>Hx)8'
+        'rm@g@5O^1@8!R6S{KZps=zcSp)_<lb?Z&*@DFy{<p6CM-Q)PF%(9{=YMdl*Q?7K7|09Jgdv6a&u608F#O%Tc-4K_^%?<K~^4CRN0'
+        'E&=FxPnGdPKSqe+u8Rf6q9YI?ivx(x0~H0hhm!*|smIEsKzQqui!STbyUOo;RkULo)IX5L9AG&!1e3;i#CIEd`7Z#8Ag8-n1mAyS'
+        'zQ>_W=v&&FNZK__J8upSA(93=j46jl&I#q++t=TJcngm+<|XOu{9g0Tn|B5wDa&ADm<Z^Fn{B~|jL#MUyGHcc#+0vrc>D3EPn)(b'
+        'ks@LmHs(*j@SN6mp@M(v8#DIsG4ye1Ncm9Nul4(=;f*6>Xd0>x6yjY`5}D7oF7F2${KeCL`k)FuL>z}hi2kn{^AdH4V*sQYqd+gZ'
+        'Uq+lNIwI^whUMTJE-msiybH{<zJo@zmeU+f&q43%faj3T8lYkHozv6<kRdlQRi^?$-8W94Wxfv*MQI4VY2ibpg)LGTq=NCF6i;%s'
+        '=P51I$`HECc||^NV_siGg5b3m8`S}Jk)#@ft(o((_F}?oW|V13fryUbD2I+6#IRHo0`1+3X|)MwqGiRTaRlyTw(*Lp0@N<@=yn`z'
+        'ju=5%?>Zb?d8c@q*NIv?#91ne+vr%B=nD54d6j^LRjd1r`A(BPQnciH%Ap&cADqhFGAvfGZI?to25Anw6@rnAI@?uFBta;T2*0zz'
+        'W0pze7!(UURZK_vymf_dQJw(OKPwy;=eM@=JEBw8)4`JTp$1aj{vhgHN?V5?@usNN*DzeYhEE5mG`+b&KBCVVO28?!!7o}q>B(I7'
+        'Y*+Y56h*C&k_hLR5a-mRzVU1Bk%Z+WNQ-6u%DCPX6BwPEC^|-8AN`TqC)AxvcSMv90pL&pkaaFcpeRmdH-u(oe(=K|$L-2|cyqf#'
+        'u0UKNW@|Nbz~Kw=D%;zwZ-8B=m16nDs?adOdjf_fk|}{e&uKiuVM#P=wa%U%Wr5=Vn*|idszP=Pi5Bw8fzh-`%h}!}7>ms%1p<ZO'
+        'UwKC^;CWy|t!;|hF@fXt-VO)YhHOBwzKsAYzUs$x(CVLU1_<&qH_7SJ+}_b#Qe>HL(%APQ=0E~N*q9HD<7|tA7MQPSESamDvO&Gn'
+        '5QVXWvyjD7!bY>2qA{pl8&EbRW86T53Lr?ku_-E66|8BPxN-!{??Nruc#89GX}g?zq}0S#<U=@+8R>q}Elv^BbV2xYS4;^vI>vos'
+        'c0>%0fY?;*5LyW)uMS44=$3V3$J{IUs0pZ}ZG0{Mo&$G&$qGxh=_|QWV&oyXv9%`0ZePqo5SJ`qFe=iIpY1Z7H|Pq03!t;NDLqzx'
+        'mC;e)z(F&F9JzE>z>a5yOeb5x#FbkUPFyPWrAEO(#wDtcuE=M7O{l*vGW&OOJhQiosVp_;E2s+dl{7sF@CSSEl;cbx61o}Q#j|qf'
+        'KVSX*Z~qNyQSJc#>GujpI{EN?hCN=py;Dv}EV<8>>m~ddbj1U@2fYR_wUC0XfO-$Nv21peXcSVV5Mq9_AYz5x2`NMm6c#ysl3H!>'
+        'Mz)3t{y-XXGXMT&?!<6#e)=EJ4#Uu=>#M8N>9na9D^#+y332}%#BezG?wNq^`89C8B{7Hfe!|!3T1_J+@}Fnx@E0;8{zMJ6Y_!T%'
+        'Q6f$4_#Md;e{M(L)bf_srO=ame-c6zdX?v9Iu#}9<YGl|v;H|n2f4nqj1AKYzV)Go9bUY6{SHQ6D@Ky}N9Lj(IyF?N7cYdKXWuJA'
+        'T4d+wB^<Q#5vqjV3XIm(g|q?K5jgZr^{CbopT4V_5yi?D<(sg6Er+>!{oVQ6ykeR8);xQKO<c3?K>xmdZe9)eb}j8@b7qgnr1fp7'
+        '8Zbal<jX~=Z<kY6=377yH__(CQq=_eNM0npH=VEUbphLva(V8&k9=p~kx^6yotSg>gh&m_gN^l?4J?fL_Om4|M8~i*vtYzNnM_u}'
+        'Jfl?Z^8sXmZUJ<PwR!R44Yv544PIuof6th)9;j<eS@asv164SZ_q=)kZd(5G<?sIGcfbADm;d%pd&h*Zt{T6NVH<|uvqq#%-fy#q'
+        'cgF2yzaOzb5B{}tr75>QFZ^)(WKG*|(qVf1<I~4s!!}8kYb>3=IEvYeR;dB|u|bRe2o<xVfh6O!rQS@*YE*78FWIpa6Jrkxb?s6W'
+        'y+lX4k<`Ni1#rS=9b8dNtvj=+@IxHc)w!3|DTo9DTvV1N+rgT}X}w+-FF<<H`~v-Xv0FkO{{K}}Z(eXCNj|p=Ny(w_azXrMwCS*x'
+        '(pi%i2Xm)|%G~M?&B0CBBdaip=A7J<f%~CB%%fsO3r&V7G;9E3o3ZW8Kd&Z>U3x7!&TK=Cg7qFPhAC;n^(0sco1+__t5<F<a|PFl'
+        '3=O-2rI<qt$!AxZW!IPDhL*b9hH%fm@g_&k$)T`xGkv{OM^MlKfm}37zUEdCRuk67RzE69p1a(JA%W^{_t80FchOx2S&V9QRu!lc'
+        'yu6xUIAJS+;}+#|*H{hkz3r!Q0z6qHY|ybL)+Bm+q=Ak3VMN%|mg+U377MhYG2?*9DUV5)PEvZqfu%|KnI%8OHWCaMB+cyu{yj)%'
+        '1wwbqqX3IiCMjjZ!X?2F*Qgzf;UW@SlfpCrQv;*xiJGgYT$Wpn8|~4H2lNi#*lpthjiXPbT_I}AXSFv0Y-m8KA3rgQK)Yc0E*<c4'
+        'o~3aey_0uPLdst_hvDF8ps8{A1~~zm6w?erhY*r(ao#;)H*YS%imrk!AGda=G+{3{_zMmJERN)L4|V{y`5M(H^;9}dN{of%nG52('
+        'cxj>2O#WJDyQG{P9zv-BV`mY^o<yJ8m$MMhra`)&N4A(qVpb^6g5un;u{l!)nEj%)2U<?^%9?2hP2Oe3aS5jBFuX1sR-9Lg?xazq'
+        'ip;4R^-t_m&NHDMGgY>hM&T{36^|De1N$10NB5w~$_p2B0isn$pM38!r+CtbrFpP|sICxgtAd-M?xL%SGI?7q&m|w>^z_2qPYf$r'
+        '5zZF@cy=*%4PC!zqNbWLab}tAiX9W(M`5-0cZn;J<R$X46XFW3G`N(>bC5-Mf3d~fwV^@5Hz~*EVAH*EzX-`FPOfRDxyw%YFQ;TX'
+        'jz^Kw?#Axnbe}z2YllTcMIkK;ht9V++Mo~Bp6HX^0n8zc5v)+y7|pRm4kPl|y(Z;U@HL~nB0Q(DNe-kuqyUE{TvMLsetn{MQJN*1'
+        ')8c^&i6ygC9MVM@(a50P6?{l1aUhNpB#HTaBLKeZ^RbL*>Ev))KMogbW>!iZNH)NcCq`#(B{Ol<Jx+%+&y__glo%2j(oD0@OA}d0'
+        'kXK=B>gk>%j{zCuQ-C(sx5V|>O}kBjM#ugERy(ZS*`*wcMe%wuHCKKreIOqKOhTS>)PmlVUr1XdA(UrIl3oNQs<W-d-ubl~lW%ua'
+        '6)oE0dM|^R9MgBM;w6*Uaie1w43JMF<sMN=7p^$8mk?V_(&i!0S=G-DnnvG+y14c^r{|zEl3pH6`SISKJ|b(MrW(jxAYSJ@ySgb5'
+        'n@axl3r#=7sPFP!lCpDh5{elrP0k1#vLT|h%VdHKjq*uoQTd71s9E#eM#*0~6kXp6GVsn|=0D$<x1ZkQoB6Sl(Q9QgMv~<)co*jd'
+        'Y!vfTd7mBPC!r3qgn?@w{P_lW^260)NSaIbv?Iv1AFdapL%fm)plCZ#2AEb+vO>JMWVOx>nun#_&3h?nxZZ+lLQ$;4Uex$%-e`Kn'
+        'aE8z4H>FEm2tD13F65FW7ehdaYxmMkFWffvjKsb_0Dmu?GUak<^=mfIlK0m54YH}}QRqTrGtDm_`eC`em|T&c>786kqYOJ=Hz#}6'
+        '*nf~_GbrTxL+INQ92*js`SL?qKtp=Bjp4K)W`BN{M>Y>=6at0Em5&Wl&Zj-&b=~8~*YdQSva6CWz(=MiM<jGmH#c9jPUFU@$<g8D'
+        '?VZNJr+eQtsMKGkQ9bXlzi2Cv_{@C4Gju#A|BFxDab-CEmJpL(Mcb<{kJ|@XuNfIDrnD}h?^>i?Mz)UK@#>uQ*Br0s{GPX9cs|L0'
+        'IpvwhDUX}&=1e;i8g3-lGs0RfQ|l?YJx*(q%CVJ(#Clr4)+DF<?XVH+o!r}PC4Y-9==t1UFqzLKgyjb9Qc$=~zFS|uTkA!nzBGgp'
+        '1y1q}hZl@;a|ukmJ$+bbdX|l)9pV2<n)&vxaK0~k;YN+r`*{+*(woF`qZ(ex!*umZ+S;p6e|q=+JzKkp9_p?1bkCWXVVgNV`d(b1'
+        'L&irHV7{$h-rlYNW%6yALlqb1n;&0K877wm8NYxQavaa<;ig-dBdJ3lJY8f5ohTM`9B=NVVu3y^`!B6yTlQO4dg)1{S#l0Z=mfn5'
+        'E#$&NIMkwZlSr8=-xKK}$~JI1hlY(YK{{Ma(}>FQ;z&&9^QeKYnHX^1wA~o(cdg;gwF=PL$P`3IzyUl+?T`l>_Nfpnos?qRE<JGx'
+        '`{QI;fr|?}R(TJX{|ivb%?%Q0{=Xlf!=qk`N;K27=qK}So4BR8xJ9p$pZZ<TI8RsNQsCj)u9_y<a`!wuxY|DeuAF7ao%<x(G_^F('
+        'Y^)BRQwg~<T>jsi0@Ox%>vI7dsF9G0<<)&Sb#6+GLj9kFM463TFf<hL^Cd0}6o<(Ple6<~Tz-?i_T*`yl(ow@3NxZO1o$6QRW?@'
+    )
+)).decode("utf-8")
+
 # Exact v0.5.5 nextjs/Swift renders (sample, My App, iphone, XcodeGen) and
 # historical docs from all release tags through v0.6.0. Captured from git show;
 # compressed here because tests must also run without tags in a shallow clone.
@@ -412,6 +471,25 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(result, generated + "## Project specifics\n\n" + mine)
         self.assertEqual(bootstrap.compare_repository(self.repo, files)["AGENTS.md"][0], "same")
 
+    def test_adopt_upgrades_the_real_0_11_1_nextjs_hub(self):
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "nextjs", "postgres": False})
+        mine = "### Stop and ask\n\n- Ask before touching billing.\n"
+        original = _AGENTS_0_11_1_NEXTJS + "\n" + mine
+        self.assertIn("## Fresh-eyes review", original)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        rows = bootstrap.compare_agents(files["AGENTS.md"], original)
+        self.assertFalse([heading for status, heading in rows if status == "local"], rows)
+        self.assertEqual(
+            sorted(heading for status, heading in rows if status == "retired"),
+            sorted(["## Fresh-eyes review", "## Recall is not evidence",
+                    bootstrap.RETIRED_SPECIFICS_GUIDANCE]),
+        )
+        actions = bootstrap.adopt_repository(self.repo, files, True)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        result = (self.repo / "AGENTS.md").read_text()
+        self.assertEqual(result, files["AGENTS.md"] + "\n" + mine)
+
     def test_retired_guidance_is_removed_only_when_unedited(self):
         heading = "## Project specifics\n\n"
         mine = "- Ask before touching billing.\n"
@@ -432,6 +510,8 @@ class ExistingRepositoryTests(unittest.TestCase):
         kept = {
             "edited": heading + edited_0_5 + "\n" + mine,
             "fenced": heading + "```text\n" + _GUIDANCE_0_5 + "```\n\n" + mine,
+            "indented": heading + "".join("    " + line for line in _GUIDANCE_0_5.splitlines(True))
+            + "\n" + mine,
             "none": heading + mine,
         }
         for name, owned in kept.items():

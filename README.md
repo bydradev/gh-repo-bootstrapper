@@ -456,8 +456,9 @@ a default for when a change is done, its attribution rules are shorter, and
 *Fresh-eyes review* and *Recall is not evidence* became *Definition of done*
 bullets. Run `--adopt --replace-generated-sections` to take it. The rebuild
 also removes the old guidance paragraphs from `## Project specifics` when
-they are unedited, because the guidance is now in a generated section,
-and `--adopt` writes `docs/current-work.md` when it is missing.
+they are unedited and above its first subheading, because the guidance is
+now in a generated section, and `--adopt` writes `docs/current-work.md` when
+it is missing.
 
 `--replace-generated-sections` replaces a generated section that differs
 without showing its text. Before running it, compare each section `--check`

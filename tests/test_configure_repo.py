@@ -749,9 +749,12 @@ class ReleaseCredentialsGuardTests(unittest.TestCase):
 
     CONDITION = "steps.credentials.outputs.configured == 'true'"
     WARNING = (
-        "::warning::Release Please is not configured, so releases are skipped until the "
-        "RELEASE_PLEASE_CLIENT_ID variable and the RELEASE_PLEASE_APP_KEY secret are both set."
+        "::warning::Release Please is not configured, or its credentials are not available to this run, "
+        "so releases are skipped until the RELEASE_PLEASE_CLIENT_ID variable and the "
+        "RELEASE_PLEASE_APP_KEY secret are both set."
     )
+    # The bootstrapper's own release workflow carries the same check.
+    OWN_WORKFLOW = Path(bootstrap.__file__).parent / ".github" / "workflows" / "release-please.yml"
 
     def _workflow(self, repo_type):
         files = bootstrap.generate_files(
@@ -793,11 +796,14 @@ class ReleaseCredentialsGuardTests(unittest.TestCase):
             "no client id": ("false", "true", "false"),
             "neither set": ("false", "false", "false"),
         }
-        for repo_type in ("nextjs", "python", "simple"):
-            check = self._workflow(repo_type)["jobs"]["release-please"]["steps"][0]
+        workflows = {repo_type: self._workflow(repo_type) for repo_type in ("nextjs", "python", "simple")}
+        workflows["bootstrapper own"] = yaml.safe_load(self.OWN_WORKFLOW.read_text())
+        for source, workflow in workflows.items():
+            check = workflow["jobs"]["release-please"]["steps"][0]
+            self.assertEqual(check.get("id"), "credentials", source)
             self.assertEqual(check.get("shell"), "bash")
             for label, (client_id, app_key, configured) in cases.items():
-                with self.subTest(repo_type=repo_type, case=label):
+                with self.subTest(source=source, case=label):
                     output.write_text("")
                     # GitHub runs a bash step as `bash --noprofile --norc -eo pipefail {0}`.
                     result = subprocess.run(

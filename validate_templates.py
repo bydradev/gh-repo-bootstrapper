@@ -1677,6 +1677,12 @@ def _executable_lines(script: str) -> list:
 # condition brings the failure back; any other condition, such as one with
 # always(), could run release-please after the untested-merge guard failed.
 # The env is compared whole, so the step never receives the key itself.
+# Deliberately strict: the condition is compared as text after whitespace is
+# collapsed, so an equivalent form (`${{ }}` around it, success() added, the
+# operands swapped) fails, and so does any future step with a condition of its
+# own, until this rule is changed with it. The script phrases only show that
+# the step can warn and set both outputs; tests/test_configure_repo.py runs the
+# script itself.
 RELEASE_CREDENTIALS_STEP_ID = "credentials"
 RELEASE_CREDENTIALS_ENV = {
     "HAS_CLIENT_ID": "${{ vars.RELEASE_PLEASE_CLIENT_ID != '' }}",
@@ -3437,6 +3443,21 @@ def _structure_self_tests() -> list:
                  .update({"if": "github.event_name == 'push'"})), "must run unconditionally")
     expect("credentials check without its warning",
            gates("swift", release, text=lambda t: t.replace("::warning::", "", 1)), "must warn")
+    expect("credentials check that never reports configured",
+           gates("python", release, text=lambda t: t.replace('"configured=true"', '"configured=false"', 1)),
+           "lacks ['configured=true']")
+    expect("credentials check that never reports missing",
+           gates("simple", release, text=lambda t: t.replace('"configured=false"', '"configured=true"', 1)),
+           "lacks ['configured=false']")
+    expect("credentials warning that names only the key",
+           gates("nextjs", release, text=lambda t: t.replace(
+               "the RELEASE_PLEASE_CLIENT_ID variable and ", "", 1)), "lacks ['RELEASE_PLEASE_CLIENT_ID']")
+    expect("credentials warning that names only the client ID",
+           gates("rust", release, text=lambda t: t.replace(
+               " and the RELEASE_PLEASE_APP_KEY secret", "", 1)), "lacks ['RELEASE_PLEASE_APP_KEY']")
+    expect("credentials condition wrapped in an expression",
+           gates("simple", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "app-token").update(
+               {"if": "${{ " + RELEASE_CREDENTIALS_CONDITION + " }}"})), "must run only")
     expect("token step that fails without credentials",
            gates("simple", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "app-token")
                  .pop("if")), "'Generate GitHub App token' must run only")

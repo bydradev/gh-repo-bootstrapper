@@ -26,13 +26,14 @@ jobs:
     timeout-minutes: 15
     steps:
       # Releases need the Release Please App's RELEASE_PLEASE_CLIENT_ID variable
-      # and RELEASE_PLEASE_APP_KEY secret. Until both are set, this step warns and
-      # the steps below are skipped, so the run passes instead of failing at the
-      # token step. A secret cannot be read in an `if:`, so the step gets only
-      # whether each one is set (true or false), never the key itself; an unset
-      # variable or secret reads as an empty string. Source: docs.github.com
-      # "Using secrets in GitHub Actions", "Contexts reference" (context
-      # availability) and "Evaluate expressions", checked 2026-10-16.
+      # and RELEASE_PLEASE_APP_KEY secret. When either is unset, or not available
+      # to this run, this step warns and the steps below are skipped, so the run
+      # passes instead of failing at the token step. A secret cannot be read in an
+      # `if:`, so the step gets only whether each one is set (true or false),
+      # never the key itself; an unset variable or secret reads as an empty
+      # string. Source: docs.github.com "Using secrets in GitHub Actions",
+      # "Contexts reference" (context availability) and "Evaluate expressions",
+      # checked 2026-10-16.
       - name: Check Release Please credentials
         id: credentials
         env:
@@ -42,7 +43,7 @@ jobs:
           if [ "$HAS_CLIENT_ID" = true ] && [ "$HAS_APP_KEY" = true ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Release Please is not configured, so releases are skipped until the RELEASE_PLEASE_CLIENT_ID variable and the RELEASE_PLEASE_APP_KEY secret are both set."
+            echo "::warning::Release Please is not configured, or its credentials are not available to this run, so releases are skipped until the RELEASE_PLEASE_CLIENT_ID variable and the RELEASE_PLEASE_APP_KEY secret are both set."
             echo "configured=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash

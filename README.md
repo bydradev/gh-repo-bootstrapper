@@ -692,15 +692,30 @@ warning annotation to the run that names `RELEASE_PLEASE_CLIENT_ID` and
 `RELEASE_PLEASE_APP_KEY` and says releases are skipped until both are set; the
 token and release steps after it are skipped, and the job passes. In every
 type but `simple`, the `test` job in the same workflow still runs and still
-gates the release. A run with that warning has not released anything. Once
-both are set, the next push to `main` runs the release; check that it creates
-or updates a release PR before treating release automation as operational.
-The check reads only whether each value is set, because GitHub does not allow
-secrets in `if:` conditions
+gates the release. A run with that warning has not released anything. The
+same happens when both exist but the run cannot read them: an organization
+secret whose access policy leaves the repository out
+([Secrets](https://docs.github.com/en/actions/concepts/security/secrets)), or
+a run that Dependabot triggers, which gets only Dependabot secrets
+([Dependabot on GitHub Actions](https://docs.github.com/en/code-security/reference/supply-chain-security/troubleshoot-dependabot/dependabot-on-actions)),
+both checked 2026-10-16. The check reads only whether each value is set,
+because GitHub does not allow secrets in `if:` conditions
 ([Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
 checked 2026-10-16). `release-please.yml` is template-owned, so `--adopt`
 brings the check to existing repositories; a repository whose release
 workflow is `local-modified` keeps its own behaviour.
+
+Once both are set, the next push to `main` runs the release; check that it
+creates or updates a release PR before treating release automation as
+operational. In every type but `simple`, a release PR merged while the
+credentials were missing is not released by a later push: the untested-merge
+guard fails each later run, because none of them tested that merge. Re-run
+the merge's own workflow run instead, and check that its release job no
+longer warns. GitHub allows a re-run up to 30 days after the original run
+([Re-running workflows and jobs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs),
+checked 2026-10-16). If the re-run still warns, or the run is too old, remove
+the `autorelease: pending` label from that release PR to abandon the release,
+then fix forward.
 
 If you skip them during setup, set them manually afterwards, reading the key
 from its file:

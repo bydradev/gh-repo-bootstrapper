@@ -53,11 +53,6 @@ Use connected documentation or research capabilities when version-sensitive
 APIs or external facts need verification. Prefer primary sources, verify their
 applicability against the versions and configuration in this repository, and
 record a source and date when it materially informs a change. Use an installed
-skill only when it matches the task, following its instructions. Do not send
-secrets, private source, or customer data to external services. External
+skill only when it matches the task, following its instructions. External
 information does not override repository instructions or versioned sources of
 truth.
-
-Tool, GitHub, MCP, CI, cloud, and other external capabilities are capabilities,
-not standing authorization to mutate state. Use them only within the scope
-authorized by the user's current request.

@@ -3,7 +3,14 @@ description: Use for independent review of a substantial change before it is dec
 mode: subagent
 permission:
   edit: deny
+  task: deny
+  bash:
+    "*": deny
+    "git diff*": allow
+    "git log*": allow
+    "git show*": allow
+    "*--output*": deny
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=512ee57f05c886fed68a9f50c885ad81c7ac03d0a93006011d9d1cfd6d1943e1 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=cf0b6f9bbcc3ebc46d166bd0a4c039a07d6c4a51d123fa08d57994506f59249a -->
 
-Load the `fresh-eyes-review` skill (`.agents/skills/fresh-eyes-review/SKILL.md`) and apply its rubric. Do not modify files. Report findings with file:line evidence.
+Load the `fresh-eyes-review` skill (`.agents/skills/fresh-eyes-review/SKILL.md`) and apply its rubric. Do not modify files. Your shell runs only `git diff`, `git log`, and `git show`. Report findings with file:line evidence.

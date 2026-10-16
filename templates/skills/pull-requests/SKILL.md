@@ -1,7 +1,7 @@
 ---
 name: pull-requests
 description: >-
-  Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, Co-Authored-By trailers in merge bodies, and the branch-protection runbook. Merge still requires explicit authorization.
+  Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
 
 # Pull requests (squash-merge + Release Please)
@@ -11,14 +11,14 @@ description: >-
 Standard PRs are squash-merged and parsed by Release Please — write them
 merge-ready:
 
-- **Title** — one Conventional Commit subject naming one concrete change, not a
+- **Title:** one Conventional Commit subject naming one concrete change, not a
   label summarizing several bundled changes (e.g. not
   `fix: address review follow-ups (path handling, branch protection, clone retry)`
   — that's a summary, not a change). If a PR bundles multiple distinct fixes,
   title it after the single most significant one and list the rest as extra
   changelog entries below, or split the PR. The title becomes the squash
   subject, the changelog entry, and the version-bump signal.
-- **Body** — optional prose describing the title's change, then any *extra*
+- **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,
   with any longer explanation on an *optional description line underneath* —
@@ -26,43 +26,39 @@ merge-ready:
   as its own commit subject and will truncate a long one mid-sentence in the
   rendered changelog. A PR body alone never reaches the branch — Release Please
   reads the squash commit — so these lines must also be carried into the merge
-  body; see *Squash merges* below. No `-`/`*` bullets, and don't repeat the
+  message; see *Squash merges* below. No `-`/`*` bullets, and don't repeat the
   title as an entry.
-- **CLI-authored bodies** — create multi-paragraph Markdown in a file passed to
+- **CLI-authored bodies:** create multi-paragraph Markdown in a file passed to
   `gh pr create` or `gh pr edit` with `--body-file`; a shell-quoted `\n` is
   literal text. Before marking a standard PR ready, read it back with
   `gh pr view <n> --json body --jq .body` and verify the paragraphs render.
-- **Squash merges** — the body given to `gh pr merge --squash` (`--body`, or
-  `--body-file` to match the rule above) *becomes* the squash commit message: it
-  replaces whatever GitHub would have generated, and that message is the only
-  thing Release Please reads. It must therefore carry the extra changelog entry
-  lines *and* every applicable `Co-Authored-By:` trailer — do not pass an empty
-  body, and do not assume the PR description is included. Write the prose, then
-  each entry line at column 0 and blank-line separated, then the trailers:
+- **Squash merges:** the squash commit message is all Release Please reads.
+  Whatever performs the merge must be given that message, which replaces the
+  one GitHub would have generated: the PR's prose, then each extra entry line
+  at column 0 and blank-line separated, then the applicable `Co-Authored-By:`
+  trailers, one per line. Do not pass an empty message, and do not assume the
+  PR description is included. With `gh`, for example:
 
   ```sh
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
   ```
 
-  where `<merge-body.md>` holds the PR's prose and entry lines followed by, for
-  example:
-
-  ```markdown
-  Co-Authored-By: Antigravity CLI (Gemini 3.8 Flash (High)) <224641728+gemini-cli-robot@users.noreply.github.com>
-  ```
-
-  If multiple co-authors or manual commits are squashed, include each applicable
-  `Co-Authored-By:` trailer separated by newlines. A one-line `--body` is
-  correct only when the PR has no extra entry lines. Only `feat` (or its
-  `feature` alias), `fix`, `perf`, and `revert` entries render: with no
-  `changelog-sections` configured, release-please leaves the section list to the
-  preset it depends on, whose defaults hide `docs`, `style`, `chore`, `refactor`,
-  `test`, `build`, and `ci` and define no `deps` type at all — so a `docs:`,
-  `ci:`, or `deps:` extra is absent from the changelog even when it is delivered.
-  (Verified against release-please v17.6.0 and
-  conventional-changelog-conventionalcommits 6.1.0, 2026-09-17.) Verify the resulting commit message after merging
+  The GitHub MCP server's `merge_pull_request` takes the message as
+  `commit_message`. A one-line message is correct only when the PR has no extra
+  entry lines. Verify the resulting commit message after merging
   (`git log -1 --format=%B`): a dropped entry line is otherwise invisible until
   the release PR is regenerated.
+- **Applicable trailers:** a trailer belongs to a commit an AI tool materially
+  wrote or changed, and names that tool and the model that ran it:
+  `Co-Authored-By: <Tool> (<model>) <address>`. Carry the squashed commits'
+  trailers into the merge message. Merging a change you did not write, such as
+  a Dependabot PR, adds no trailer.
+- **Rendered entries:** only `feat` (or its `feature` alias), `fix`, `perf`,
+  and `revert` entries render: with no `changelog-sections` configured,
+  release-please leaves the section list to the preset it depends on, whose
+  defaults hide `docs`, `style`, `chore`, `refactor`, `test`, `build`, and `ci`
+  and define no `deps` type at all, so a `docs:`, `ci:`, or `deps:` extra is
+  absent from the changelog even when it is delivered.
 
 ## Release Please pull requests
 
@@ -72,11 +68,18 @@ Release Please PRs are bot-generated release artifacts, not standard PRs.
   formatting rules.
 - When merge is authorized and the required checks and branch-protection
   requirements are satisfied, squash merge using GitHub's default title and
-  body content. Do not supply a custom squash title or body.
-- Do not add an AI co-author trailer unless it is already applicable to the
-  release commit itself.
+  body content. Do not supply a custom squash title or body, and add no
+  co-author trailer: you did not write the release commit.
 
-- **Blocked pull requests** — when a pull request is blocked by required
-  status checks (most often a release PR), follow
-  `docs/branch-protection-runbook.md` (repository root);
-  never weaken the required check set to land a change.
+## Blocked pull requests
+
+When required status checks block a pull request (most often a release PR),
+follow `docs/branch-protection-runbook.md` (repository root) and the
+`AGENTS.md` rule on the required check set.
+
+## Sources
+
+- Which changelog entries render: release-please v17.6.0 and
+  conventional-changelog-conventionalcommits 6.1.0, checked 2026-09-17.
+- `merge_pull_request` parameters: the `github/github-mcp-server` README,
+  checked 2026-10-16.

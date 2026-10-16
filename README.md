@@ -194,7 +194,7 @@ last. Detailed procedures live in skills that load when they're relevant:
 |---|---|
 | `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `delegation` | all |
 | `screenshot-review` | `nextjs`, `swift` |
-| `baseline-process` | `nextjs` |
+| `baseline-process`, `public-site-indexing` | `nextjs` |
 | `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
 
 `screenshot-review` carries the shared review process for a deterministic
@@ -207,13 +207,34 @@ or a section of one, and names it in `## Project specifics`;
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
 doesn't scan `.agents/` but does follow symlinked skill folders. Codex,
-OpenCode and Antigravity read `.agents/skills` directly. The fresh-eyes review
-runs as a separate read-only reviewer agent,
+OpenCode and Antigravity read `.agents/skills` directly. The generated
+`.gitignore` ignores `.agents/*` and `.opencode/*` but re-includes
+`!.agents/skills/` and `!.opencode/agents/`, so these files are committed.
+
+Each `local-validation-<type>` skill describes CI tiers, test configuration
+and formatter scope as generated, and says which repository file to check for
+the current ones. It tells agents to load first a repository-owned validation
+skill named in `## Project specifics`, which governs where it is narrower, so
+a repository keeps its own tiers, ports and test-server notes there rather
+than in `AGENTS.md`. `public-site-indexing` has no row in the hub's skills
+table, which keeps the Next.js hub within its byte budget: harnesses with
+skill support load it by its description, and `local-validation-nextjs`
+points at it.
+
+The fresh-eyes review runs as a separate reviewer agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
-`fresh-eyes-review` skill. The generated `.gitignore` ignores `.agents/*` and
-`.opencode/*` but re-includes `!.agents/skills/` and `!.opencode/agents/`, so
-these files are committed.
+`fresh-eyes-review` skill. The OpenCode reviewer is read-only by
+configuration: it denies edits, launching subagents, and every shell command
+except `git diff`, `git log` and `git show` without `--output`
+([OpenCode permissions](https://opencode.ai/docs/permissions/), checked
+2026-10-16). Claude Code has no subagent setting that limits Bash to
+read-only commands in every permission mode: a `disallowedTools` entry with a
+specifier removes the whole tool, and a subagent's `permissionMode` is ignored
+while the session runs in auto, `acceptEdits` or `bypassPermissions` mode
+([Claude Code subagents](https://code.claude.com/docs/en/sub-agents), checked
+2026-10-16). Its reviewer gets no write tools, and its file tells it to use
+Bash only for read-only commands.
 
 Why split it? Harnesses cut long instruction files off, and `## Project
 specifics` is last, so it's lost first:

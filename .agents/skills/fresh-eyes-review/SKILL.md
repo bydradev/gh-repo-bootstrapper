@@ -3,7 +3,7 @@ name: fresh-eyes-review
 description: >-
   Use before declaring substantial work complete or a branch or pull request ready for review, when acting as an independent reviewer, or after review fixes cause material changes. Covers who reviews, what to hand the reviewer, the review rubric, when to review and re-review, and a cross-family recipe using a read-only reviewer from another model family.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=365aed187dd68363d6f7c2c0abb24acd6d7293574a70d16bca8f0b4f4bc410f2 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=0af883fcbd504bad5e531199df20f48a1a3e8427fc49201afb4b1465fbb53b20 -->
 
 # Independent fresh-eyes review
 
@@ -36,6 +36,10 @@ work complete.
 
 If resolving review findings results in material changes, perform another
 independent fresh-eyes review of those changes before completion.
+
+After three review rounds with blocking findings still open, stop and escalate
+to the operator rather than starting another round: list the open findings,
+what each round changed, and your recommendation.
 
 ## Cross-family review recipe
 

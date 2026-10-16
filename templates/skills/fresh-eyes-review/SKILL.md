@@ -36,6 +36,10 @@ work complete.
 If resolving review findings results in material changes, perform another
 independent fresh-eyes review of those changes before completion.
 
+After three review rounds with blocking findings still open, stop and escalate
+to the operator rather than starting another round: list the open findings,
+what each round changed, and your recommendation.
+
 ## Cross-family review recipe
 
 This recipe works in any harness. Save the diff, the requested outcome, and the

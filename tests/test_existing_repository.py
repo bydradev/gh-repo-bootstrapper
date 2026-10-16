@@ -1442,6 +1442,36 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual((self.repo / rel).read_text(), files[rel])
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "same")
 
+    def test_skill_added_to_a_type_is_written_into_an_existing_repository(self):
+        # A Next.js repository adopted before public-site-indexing existed: the
+        # new skill and its mirror are missing, adopt writes both, and nothing
+        # else changes.
+        files = _render("nextjs")
+        bootstrap.adopt_repository(self.repo, files)
+        rel, mirror = ".agents/skills/public-site-indexing/SKILL.md", ".claude/skills/public-site-indexing"
+        shutil.rmtree(self.repo / Path(rel).parent)
+        (self.repo / mirror).unlink()
+        self._commit_all()
+        report = bootstrap.compare_repository(self.repo, files)
+        self.assertEqual({path: entry for path, entry in report.items() if entry[0] != "same"},
+                         {rel: ("missing", None), mirror: ("missing", None)})
+        check = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--check", str(self.repo), "--type", "nextjs"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(check.returncode, 1, check.stdout + check.stderr)
+        self.assertIn(rel, check.stdout)
+        self.assertIn(mirror, check.stdout)
+        adopt = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo), "--type", "nextjs"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(adopt.returncode, 0, adopt.stdout + adopt.stderr)
+        self.assertEqual((self.repo / rel).read_text(), files[rel])
+        self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/public-site-indexing")
+        report = bootstrap.compare_repository(self.repo, files)
+        self.assertTrue(all(status == "same" for status, _ in report.values()), report)
+
     def test_modified_skill_is_refused_even_with_replace_generated(self):
         files = _render()
         rel = ".agents/skills/pull-requests/SKILL.md"

@@ -1444,30 +1444,39 @@ class ExistingRepositoryTests(unittest.TestCase):
 
     def test_skill_added_to_a_type_is_written_into_an_existing_repository(self):
         # A Next.js repository adopted before public-site-indexing existed: the
-        # new skill and its mirror are missing, adopt writes both, and nothing
-        # else changes.
+        # new skill and its mirror are missing, and its stamped
+        # local-validation-nextjs is the older one, which does not point at the
+        # new skill. Adopt writes the first two, updates the third, and changes
+        # nothing else.
         files = _render("nextjs")
         bootstrap.adopt_repository(self.repo, files)
         rel, mirror = ".agents/skills/public-site-indexing/SKILL.md", ".claude/skills/public-site-indexing"
+        parent = ".agents/skills/local-validation-nextjs/SKILL.md"
         shutil.rmtree(self.repo / Path(rel).parent)
         (self.repo / mirror).unlink()
+        pointer = (" For `robots.txt`, the sitemap, `noindex`, or\n"
+                   "canonical hostnames, load `public-site-indexing` instead.")
+        body = bootstrap.read_stamp(files[parent])[1]
+        self.assertIn(pointer, body)
+        self._write(parent, bootstrap.stamp(body.replace(pointer, "", 1)))
         self._commit_all()
         report = bootstrap.compare_repository(self.repo, files)
-        self.assertEqual({path: entry for path, entry in report.items() if entry[0] != "same"},
-                         {rel: ("missing", None), mirror: ("missing", None)})
+        self.assertEqual({path: entry[0] for path, entry in report.items() if entry[0] != "same"},
+                         {rel: "missing", mirror: "missing", parent: "stale"})
         check = subprocess.run(
             [sys.executable, str(Path(bootstrap.__file__)), "--check", str(self.repo), "--type", "nextjs"],
             capture_output=True, text=True,
         )
         self.assertEqual(check.returncode, 1, check.stdout + check.stderr)
-        self.assertIn(rel, check.stdout)
-        self.assertIn(mirror, check.stdout)
+        for path in (rel, mirror, parent):
+            self.assertIn(path, check.stdout)
         adopt = subprocess.run(
             [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo), "--type", "nextjs"],
             capture_output=True, text=True,
         )
         self.assertEqual(adopt.returncode, 0, adopt.stdout + adopt.stderr)
         self.assertEqual((self.repo / rel).read_text(), files[rel])
+        self.assertEqual((self.repo / parent).read_text(), files[parent])
         self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/public-site-indexing")
         report = bootstrap.compare_repository(self.repo, files)
         self.assertTrue(all(status == "same" for status, _ in report.values()), report)

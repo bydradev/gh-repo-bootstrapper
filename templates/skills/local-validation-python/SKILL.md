@@ -20,7 +20,8 @@ order; check that repository-owned file for the current steps.
   `uv lock` and commit the result when it does. CI names a declared `dev` group
   and `dev` extra explicitly, so a `[tool.uv] default-groups` setting cannot
   leave them out.
-- **Otherwise:** `requirements-dev.txt`, then `requirements.txt`.
+- **Otherwise:** `requirements-dev.txt` if present, otherwise
+  `requirements.txt`.
 - **Otherwise, `pyproject.toml`:** like uv, CI builds the project only when it
   declares a `[build-system]` (or has a `setup.py`, or a `setup.cfg` with
   `[metadata]` or `[options]`), and `[tool.uv] package` overrides that. A

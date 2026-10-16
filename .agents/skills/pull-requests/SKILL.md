@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=73f52ca1ee328dbdedb73f3249e49b9fc042db7cec94dbcc3fd2f873a93e4c99 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=2a87a97a333c8a9a69f9878b11c58fa676fbcf23b3dce01afbbcdad93c39902a -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -44,16 +44,15 @@ merge-ready:
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
   ```
 
-  The GitHub MCP server's `merge_pull_request` takes the message as
-  `commit_message`. A one-line message is correct only when the PR has no extra
-  entry lines. Verify the resulting commit message after merging
-  (`git log -1 --format=%B`): a dropped entry line is otherwise invisible until
-  the release PR is regenerated.
+  With the GitHub MCP server's `merge_pull_request`, pass
+  `merge_method: squash` and the message as `commit_message`. A one-line
+  message is correct only when the PR has no extra entry lines. Verify the
+  resulting commit message after merging (`git log -1 --format=%B`): a dropped
+  entry line is otherwise invisible until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
-  wrote or changed, and names that tool and the model that ran it:
-  `Co-Authored-By: <Tool> (<model>) <address>`. Carry the squashed commits'
-  trailers into the merge message. Merging a change you did not write, such as
-  a Dependabot PR, adds no trailer.
+  wrote or changed, and names the tool and model as `AGENTS.md` specifies.
+  Carry the squashed commits' trailers into the merge message. Merging a change
+  you did not write, such as a Dependabot PR, adds no trailer.
 - **Rendered entries:** only `feat` (or its `feature` alias), `fix`, `perf`,
   and `revert` entries render: with no `changelog-sections` configured,
   release-please leaves the section list to the preset it depends on, whose

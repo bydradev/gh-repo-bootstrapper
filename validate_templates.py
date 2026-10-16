@@ -29,9 +29,10 @@ Checks performed on each generated file:
     every SKILL.md has valid agentskills.io frontmatter with a unique name;
     relative Markdown links in the hub and in every SKILL.md resolve from
     their own directory;
-    every template-owned file carries a valid stamp; the reviewer agents are
-    read-only (OpenCode's by permission, Claude Code's Bash by its stated
-    rule) and leave the model unset
+    every template-owned file carries a valid stamp; the reviewer agents get
+    no edit tool, OpenCode's shell allows only git diff, log and show and
+    denies --output and redirects, each states its shell rule, and both leave
+    the model unset
 
   - branch-protection payload semantics: bootstrap.branch_protection_payload()
     must pin the operator-ruled configuration (strict False, enforce_admins
@@ -296,16 +297,26 @@ SKILL_DESCRIPTION_MAX = 1024
 CLAUDE_REVIEWER = ".claude/agents/fresh-eyes-reviewer.md"
 OPENCODE_REVIEWER = ".opencode/agents/fresh-eyes-reviewer.md"
 CLAUDE_WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-# Claude Code cannot limit a subagent's Bash to read-only commands in its
-# frontmatter (a `disallowedTools` entry with a specifier removes the whole
-# tool, and a `permissionMode` is ignored under auto, acceptEdits, or bypass
-# modes; code.claude.com/docs/en/sub-agents, checked 2026-10-16), so the
-# reviewer's body carries the rule. OpenCode can: its reviewer denies every
-# shell command but these read-only ones, last match winning
-# (opencode.ai/docs/permissions, checked 2026-10-16).
+# A Claude Code subagent can block some Bash commands with a PreToolUse hook in
+# its frontmatter, which runs a script before each Bash command, so a template
+# would have to ship an executable script; and Claude Code skips a
+# project-level subagent's frontmatter hooks until the folder's workspace trust
+# dialog is accepted, where "a `-p` session doesn't count as trusted"
+# (code.claude.com/docs/en/sub-agents, checked 2026-10-16), which is how the
+# cross-family review recipe runs Claude Code. So the reviewer's body carries
+# the rule.
 CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
+# OpenCode matches each rule against each command of a shell line, `*` as any
+# text and a trailing " *" also matching the bare command, and the last match
+# wins (packages/core/src/util/wildcard.ts and packages/opencode/src/tool/shell.ts
+# and permission/index.ts at v1.19.3, the current npm release, checked
+# 2026-10-16). So "git diff *" admits `git diff` but not `git difftool`, and
+# the closing deny rules stop `--output` and a redirect that a command keeps.
+# A redirect on the last command of a `&&` list or a pipeline is dropped before
+# matching, so the body also carries the rule.
 OPENCODE_READ_ONLY_COMMANDS = ("git diff", "git log", "git show")
-OPENCODE_WRITE_FLAG_RULE = "*--output*"
+OPENCODE_WRITE_DENY_RULES = ("*--output*", "*>*")
+OPENCODE_REVIEWER_SHELL_RULE = "without `--output` or a redirect"
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
@@ -620,22 +631,25 @@ def check_skill_pointers(label: str, files: dict) -> list:
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
     )
 
-    def reached_through_skill(name: str) -> bool:
+    def unreached(name: str) -> Optional[str]:
+        """None when a listed skill names `name`, else why it is not reached."""
         parent = SKILLS_WITHOUT_HUB_ROW.get(name)
-        return parent in names and f"`{name}`" in _unfenced(files.get(_skill_path(parent), ""))
+        if parent is None:
+            return ""
+        if parent not in names:
+            return f", nor does {parent!r}, the skill that must name it"
+        if f"`{name}`" not in _unfenced(files.get(_skill_path(parent), "")):
+            return f" and listed skill {parent!r} does not name it"
+        return None
 
     return [
         f"[{label}] AGENTS.md points at skill {name!r}, but {_skill_path(name)} is not generated"
         for name in names
         if _skill_path(name) not in files
     ] + [
-        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table"
-        + (
-            f" and listed skill {SKILLS_WITHOUT_HUB_ROW[name]!r} does not name it"
-            if name in SKILLS_WITHOUT_HUB_ROW else ""
-        )
+        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table{unreached(name)}"
         for name in rendered
-        if name not in names and not reached_through_skill(name)
+        if name not in names and unreached(name) is not None
     ]
 
 
@@ -787,6 +801,9 @@ def check_reviewer_agents(label: str, files: dict) -> list:
             if permission.get("task") != "deny":
                 errors.append(f"[{label}] {path} must set 'permission.task: deny' so it cannot launch a writer")
             errors += _opencode_bash_errors(label, path, permission.get("bash"))
+            body = " ".join(files[path].split("\n---\n", 1)[-1].split())
+            if permission.get("bash") != "deny" and OPENCODE_REVIEWER_SHELL_RULE not in body:
+                errors.append(f"[{label}] {path} allows shell commands, so it must say {OPENCODE_REVIEWER_SHELL_RULE!r}")
     return errors
 
 
@@ -797,15 +814,22 @@ def _opencode_bash_errors(label: str, path: str, bash) -> list:
     rules = list(bash.items()) if isinstance(bash, dict) else []
     if not rules or rules[0] != ("*", "deny"):
         return [f"[{label}] {path} must deny every shell command first ('permission.bash' '\"*\": deny')"]
+    # `git diff*` would also admit `git difftool`, so only the bare command or
+    # the command followed by " *" may be allowed.
+    allowed = {pattern for command in OPENCODE_READ_ONLY_COMMANDS for pattern in (command, command + " *")}
     errors = [
-        f"[{label}] {path} allows shell command {pattern!r}, which is not read-only"
+        f"[{label}] {path} lets shell command {pattern!r} run ({action}); allow only "
+        + ", ".join(repr(command) for command in OPENCODE_READ_ONLY_COMMANDS)
+        + ", each alone or followed by ' *'"
         for pattern, action in rules[1:]
-        if action != "deny" and not pattern.startswith(OPENCODE_READ_ONLY_COMMANDS)
+        if action != "deny" and pattern not in allowed
     ]
-    if len(rules) > 1 and rules[-1] != (OPENCODE_WRITE_FLAG_RULE, "deny"):
+    closing = [(rule, "deny") for rule in OPENCODE_WRITE_DENY_RULES]
+    if any(action != "deny" for _, action in rules) and sorted(rules[-len(closing):]) != sorted(closing):
         errors.append(
-            f"[{label}] {path} must end 'permission.bash' with '{OPENCODE_WRITE_FLAG_RULE}: deny', "
-            "since git diff, log and show write a file with --output"
+            f"[{label}] {path} must end 'permission.bash' with "
+            + " and ".join(f"'{rule}: deny'" for rule in OPENCODE_WRITE_DENY_RULES)
+            + ", since an allowed git command writes a file with --output or a redirect"
         )
     return errors
 
@@ -3194,6 +3218,17 @@ def _structure_self_tests() -> list:
             errors.append(f"self-test 'skill reached through {parent}' fixture: {parent} does not name {name}")
         unnamed[_skill_path(parent)] = files[_skill_path(parent)].replace(f"`{name}`", "another skill")
         expect(f"{name} not named by {parent}", check_skill_pointers("self-test:ptr", unnamed), "does not name it")
+        # Naming it is not enough when the parent itself has no row.
+        orphaned = dict(files)
+        row = next((line for line in files[HUB].splitlines(keepends=True) if f"| `{parent}` |" in line), "")
+        if not row:
+            errors.append(f"self-test '{name} under unlisted {parent}' fixture: the hub has no {parent} row")
+        orphaned[HUB] = files[HUB].replace(row, "", 1) if row else files[HUB]
+        expect(
+            f"{name} under unlisted {parent}",
+            check_skill_pointers("self-test:ptr", orphaned),
+            f"{_skill_path(name)} is generated but has no row in the AGENTS.md skills table, nor does {parent!r}",
+        )
 
     # (d) frontmatter: unterminated, over-long description, name/dir mismatch,
     # bad name characters, empty description.
@@ -3264,9 +3299,16 @@ def _structure_self_tests() -> list:
          "must say"),
         ("opencode task allowed", OPENCODE_REVIEWER, "task: deny", "task: allow", "permission.task: deny"),
         ("opencode shell open", OPENCODE_REVIEWER, '"*": deny', '"*": allow', "deny every shell command first"),
-        ("opencode shell writer", OPENCODE_REVIEWER, '"git show*": allow', '"git show*": allow\n    "npm *": allow',
-         "'npm *', which is not read-only"),
-        ("opencode output flag allowed", OPENCODE_REVIEWER, '\n    "*--output*": deny', "", "--output"),
+        ("opencode shell writer", OPENCODE_REVIEWER, '"git show *": allow', '"git show *": allow\n    "npm *": allow',
+         "shell command 'npm *' run (allow)"),
+        ("opencode difftool prefix", OPENCODE_REVIEWER, '"git diff *": allow', '"git diff*": allow',
+         "shell command 'git diff*' run (allow)"),
+        ("opencode output flag allowed", OPENCODE_REVIEWER, '\n    "*--output*": deny', "", "'*--output*: deny'"),
+        ("opencode redirect allowed", OPENCODE_REVIEWER, '\n    "*>*": deny', "", "'*>*: deny'"),
+        ("opencode allow after the closing denies", OPENCODE_REVIEWER, '"*>*": deny',
+         '"*>*": deny\n    "git log": allow', "must end 'permission.bash'"),
+        ("opencode shell without its rule", OPENCODE_REVIEWER, OPENCODE_REVIEWER_SHELL_RULE, "freely",
+         "must say"),
     ):
         mutated = dict(files)
         if old not in files[path]:

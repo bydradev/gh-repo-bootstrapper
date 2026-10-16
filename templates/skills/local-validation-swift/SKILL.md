@@ -22,7 +22,9 @@ runtimes.
 ## CI validation tiers
 
 As generated, CI validates in two tiers. This repository owns
-`.github/workflows/ci.yml` and `test.yml`, so check them for its current tiers:
+`.github/workflows/ci.yml` and `test.yml`, so check them, and the `full` input
+that the template-owned `release-please.yml` passes to `test.yml`, for its
+current tiers:
 
 - **Pull requests (`ci.yml`) and ordinary pushes to `main`:** run only
   `xcrun swift-format lint --recursive --strict .`. `xcodebuild test` is

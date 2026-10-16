@@ -32,9 +32,9 @@ ulimit -n 10240 && npm run dev
 ```
 
 The limit concerns `next dev`'s file watching, so it applies to any command
-that starts `next dev`, including a Playwright `webServer` that runs it; check
-`playwright.config.ts`. An E2E suite that serves a production build does not
-need it.
+that starts `next dev`, including a Playwright `webServer` that runs it (check
+`playwright.config.ts`), for example `ulimit -n 10240 && npx playwright test`.
+An E2E suite that serves a production build does not need it.
 
 This is a non-persistent per-shell setting. Do not add it to shell profiles,
 change system limits, change CI, or alter Playwright configuration. A generated

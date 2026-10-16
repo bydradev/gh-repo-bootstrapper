@@ -43,16 +43,15 @@ merge-ready:
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
   ```
 
-  The GitHub MCP server's `merge_pull_request` takes the message as
-  `commit_message`. A one-line message is correct only when the PR has no extra
-  entry lines. Verify the resulting commit message after merging
-  (`git log -1 --format=%B`): a dropped entry line is otherwise invisible until
-  the release PR is regenerated.
+  With the GitHub MCP server's `merge_pull_request`, pass
+  `merge_method: squash` and the message as `commit_message`. A one-line
+  message is correct only when the PR has no extra entry lines. Verify the
+  resulting commit message after merging (`git log -1 --format=%B`): a dropped
+  entry line is otherwise invisible until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
-  wrote or changed, and names that tool and the model that ran it:
-  `Co-Authored-By: <Tool> (<model>) <address>`. Carry the squashed commits'
-  trailers into the merge message. Merging a change you did not write, such as
-  a Dependabot PR, adds no trailer.
+  wrote or changed, and names the tool and model as `AGENTS.md` specifies.
+  Carry the squashed commits' trailers into the merge message. Merging a change
+  you did not write, such as a Dependabot PR, adds no trailer.
 - **Rendered entries:** only `feat` (or its `feature` alias), `fix`, `perf`,
   and `revert` entries render: with no `changelog-sections` configured,
   release-please leaves the section list to the preset it depends on, whose

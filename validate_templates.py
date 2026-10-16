@@ -339,6 +339,14 @@ OPENCODE_REVIEWER_PERMISSIONS = {
     "bash": " so it has no shell, whose rules cannot reliably stop a redirect",
 }
 OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
+# OpenCode reads frontmatter with gray-matter and js-yaml 3, which differ from
+# PyYAML on merge keys, key types and Unicode line breaks, and several of those
+# differences load the agent with no frontmatter, so with the shell open
+# (packages/core/src/config/markdown.ts at v1.19.3, checked 2026-10-16). So the
+# reviewer's frontmatter is pinned line for line: a plain one-line description,
+# then exactly these lines.
+OPENCODE_REVIEWER_FRONTMATTER = ("mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny")
+OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [ -9;-~]+")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
@@ -850,6 +858,18 @@ def check_reviewer_agents(label: str, files: dict) -> list:
             if "Bash" in _tool_names(data.get("tools")) and CLAUDE_REVIEWER_SHELL_RULE not in body:
                 errors.append(f"[{label}] {path} grants Bash, so it must say {CLAUDE_REVIEWER_SHELL_RULE!r}")
         else:
+            head = files[path].split("\n")
+            head = head[1 : head.index("---", 1)]
+            if not (
+                head
+                and OPENCODE_REVIEWER_DESCRIPTION_RE.fullmatch(head[0])
+                and tuple(head[1:]) == OPENCODE_REVIEWER_FRONTMATTER
+            ):
+                errors.append(
+                    f"[{label}] {path} frontmatter must be a one-line 'description:' in printable ASCII "
+                    f"without a colon, then exactly {list(OPENCODE_REVIEWER_FRONTMATTER)}, since OpenCode's "
+                    "YAML parser reads other frontmatter differently and can load it with the shell open"
+                )
             if data.get("mode") != "subagent":
                 errors.append(f"[{label}] {path} must set 'mode: subagent'")
             unknown = sorted(str(key) for key in data if key not in OPENCODE_REVIEWER_KEYS and key != "model")
@@ -3344,7 +3364,8 @@ def _structure_self_tests() -> list:
     # edit, task or shell permission, a later OpenCode permission key that
     # could reopen them, another OpenCode frontmatter key, such as the
     # deprecated `tools` map, or frontmatter OpenCode would read differently
-    # (a duplicate key, an early `---` line), each fail.
+    # (a duplicate key, an early `---` line, a Unicode line break, a merge
+    # key), each fail.
     for name, path, old, new, needle in (
         ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
         ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
@@ -3368,6 +3389,10 @@ def _structure_self_tests() -> list:
          "duplicate key 'bash'"),
         ("opencode early delimiter", OPENCODE_REVIEWER, "mode: subagent",
          "mode: subagent\nx: {a: b,\n---c: d}", "starts with '---'"),
+        ("opencode unicode line break", OPENCODE_REVIEWER, "\nmode: subagent", "\u2028mode: subagent",
+         "frontmatter must be"),
+        ("opencode merge key", OPENCODE_REVIEWER, "  bash: deny", "  <<: {bash: allow}\n  bash: deny",
+         "frontmatter must be"),
     ):
         mutated = dict(files)
         if old not in files[path]:

@@ -152,11 +152,16 @@ def _skill_path(name: str) -> str:
 
 
 HUB = "AGENTS.md"
-# The screenshot process lives in the screenshot-review skill for the types
-# that generate one (nextjs, swift) and inline in the hub for every other type.
-# The privacy and pre-commit visual-review gates are pinned to the hub for
-# every type: a gate must not depend on loading a skill.
-SCREENSHOT_OWNER = "<screenshot-review skill, or the hub when the type has none>"
+# The screenshot process lives in the screenshot-review skill for the
+# configurations that generate one (nextjs and swift with --screenshots) and
+# inline in the hub for every other configuration. The privacy and pre-commit
+# visual-review gates are pinned to the hub for every configuration: a gate
+# must not depend on loading a skill.
+SCREENSHOT_OWNER = "<screenshot-review skill, or the hub when none is generated>"
+# Pinned only where the skill is generated; the hub without it leaves them out.
+SCREENSHOT_SKILL_OWNER = "<screenshot-review skill, when generated>"
+# Pinned to the hub only where no skill is generated; the skill words it its own way.
+HUB_WITHOUT_SCREENSHOT_SKILL = "<the hub, when no screenshot-review skill is generated>"
 SCREENSHOT_GATES = (
     "Treat screenshot generation and visual approval as separate gates.",
     "A successful screenshot-generation workflow means only that artifacts were produced; it is not visual approval.",
@@ -236,8 +241,13 @@ AGENTS_COMMON_REQUIREMENTS = (
         SCREENSHOT_OWNER,
     ),
     *((phrase, HUB) for phrase in SCREENSHOT_GATES),
-    ("Screenshot guidance is capability-conditional", SCREENSHOT_OWNER),
-    ("do not assume browser or native", SCREENSHOT_OWNER),
+    ("Screenshot guidance is capability-conditional", SCREENSHOT_SKILL_OWNER),
+    ("do not assume browser or native", SCREENSHOT_SKILL_OWNER),
+    (
+        "For changes affecting tracked screenshots or captured views, follow the "
+        "repository's documented screenshot-review process when present.",
+        HUB_WITHOUT_SCREENSHOT_SKILL,
+    ),
     ("## Definition of done", HUB),
     ("do not claim unrun checks passed.", HUB),
     ("Have a different agent or reviewer review substantial work", HUB),
@@ -374,16 +384,22 @@ RUNBOOK_REQUIRED_PHRASES = (
 
 
 def configurations():
-    """Yield (label, cfg) for every supported bootstrap.py configuration."""
-    for postgres in (False, True):
+    """Yield (label, cfg) for every supported bootstrap.py configuration.
+
+    Within a type, the configuration with --screenshots comes first, so a
+    self-test that takes the type's first configuration gets every file the
+    type can generate.
+    """
+    for postgres, screenshots in itertools.product((False, True), (True, False)):
         yield (
-            f"nextjs postgres={postgres}",
+            f"nextjs postgres={postgres} screenshots={screenshots}",
             {
                 "name": "sample-app",
                 "repo_type": "nextjs",
                 "postgres": postgres,
                 "scheme": "",
                 "destination": "",
+                "screenshots": screenshots,
             },
         )
 
@@ -398,11 +414,11 @@ def configurations():
         },
     )
 
-    for destination, xcodegen in itertools.product(
-        ("iphone", "ipad", "macos"), [False, True]
+    for destination, xcodegen, screenshots in itertools.product(
+        ("iphone", "ipad", "macos"), [False, True], [True, False]
     ):
         yield (
-            f"swift destination={destination} xcodegen={xcodegen}",
+            f"swift destination={destination} xcodegen={xcodegen} screenshots={screenshots}",
             {
                 "name": "sample-app",
                 "repo_type": "swift",
@@ -410,6 +426,7 @@ def configurations():
                 "scheme": "SampleApp",
                 "destination": destination,
                 "xcodegen": xcodegen,
+                "screenshots": screenshots,
             },
         )
 
@@ -537,9 +554,15 @@ def render_markdown(out_dir: Path) -> int:
     return 0
 
 
-def _owner_path(owner: str, files: dict) -> str:
+def _owner_path(owner: str, files: dict) -> Optional[str]:
+    """The file that must hold a phrase, or None where this render needs it nowhere."""
+    skill = SCREENSHOT_SKILL in files
     if owner == SCREENSHOT_OWNER:
-        return SCREENSHOT_SKILL if SCREENSHOT_SKILL in files else HUB
+        return SCREENSHOT_SKILL if skill else HUB
+    if owner == SCREENSHOT_SKILL_OWNER:
+        return SCREENSHOT_SKILL if skill else None
+    if owner == HUB_WITHOUT_SCREENSHOT_SKILL:
+        return None if skill else HUB
     return owner
 
 
@@ -549,6 +572,8 @@ def _missing_phrases(label: str, files: dict, pairs, kind: str) -> list:
     errors, normalized = [], {}
     for phrase, owner in pairs:
         path = _owner_path(owner, files)
+        if path is None:
+            continue
         if path not in files:
             errors.append(f"[{label}] missing {path}, which owns {kind} {phrase!r}")
             continue
@@ -882,23 +907,29 @@ def _invented_tooling(text: str) -> list:
     return [phrase for phrase in SCREENSHOT_FORBIDDEN_INVENTED_TOOLING if phrase.lower() in normalized]
 
 
-def check_screenshot_guidance(label: str, repo_type: str, files: dict) -> list:
-    """Validate the composed screenshot contract and its type boundaries."""
+def check_screenshot_guidance(label: str, repo_type: str, files: dict, screenshots: bool) -> list:
+    """Validate the composed screenshot contract and its configuration boundaries.
+
+    screenshots is whether the configuration asks for the screenshot-review
+    skill and document (bootstrap.screenshot_review); only nextjs and swift
+    generate them, and only then.
+    """
     errors = []
     document = files.get(bootstrap.SCREENSHOT_REVIEW)
     agents = files.get("AGENTS.md", "")
 
-    if repo_type not in SCREENSHOT_PLATFORM_HEADINGS:
+    if repo_type not in SCREENSHOT_PLATFORM_HEADINGS or not screenshots:
+        scope = repo_type if repo_type not in SCREENSHOT_PLATFORM_HEADINGS else f"{repo_type} without --screenshots"
         if document is not None:
             errors.append(
-                f"[{label}] {bootstrap.SCREENSHOT_REVIEW} must not be generated for {repo_type}"
+                f"[{label}] {bootstrap.SCREENSHOT_REVIEW} must not be generated for {scope}"
             )
         if "docs/screenshot-review.md" in agents:
-            errors.append(f"[{label}] {repo_type} AGENTS.md must not link screenshot guidance")
+            errors.append(f"[{label}] {scope} AGENTS.md must not link screenshot guidance")
         if SCREENSHOT_SKILL in files:
-            errors.append(f"[{label}] {SCREENSHOT_SKILL} must not be generated for {repo_type}")
+            errors.append(f"[{label}] {SCREENSHOT_SKILL} must not be generated for {scope}")
         if "`screenshot-review`" in agents:
-            errors.append(f"[{label}] {repo_type} AGENTS.md must not point at the screenshot-review skill")
+            errors.append(f"[{label}] {scope} AGENTS.md must not point at the screenshot-review skill")
         return errors
 
     if HUB_SCREENSHOT_POINTER not in " ".join(agents.split()):
@@ -2328,32 +2359,60 @@ def run_self_tests() -> list:
         )
 
     # Case 8b: the screenshot privacy and pre-commit review gates are pinned to
-    # the hub for every type, even where the screenshot-review skill repeats
-    # them, so dropping them from the hub fails closed.
-    for repo_type in ("nextjs", "swift", "python", "rust", "simple"):
-        cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
+    # the hub for every configuration, even where the screenshot-review skill
+    # repeats them, so dropping them from the hub fails closed. The
+    # capability-conditional sentence is pinned to the skill where it is
+    # generated and required nowhere else; the process sentence is pinned to
+    # the hub where no skill is generated.
+    shot_cfgs = {}
+    for _, cfg in configurations():
+        shot_cfgs.setdefault((cfg["repo_type"], bootstrap.screenshot_review(cfg)), cfg)
+    for (repo_type, screenshots), cfg in shot_cfgs.items():
+        name = f"{repo_type} screenshots={screenshots}"
         files = bootstrap.generate_files(dict(cfg))
-        result = check_agents_guidance(f"self-test:{repo_type} screenshot gates", files)
+        result = check_agents_guidance(f"self-test:{name} screenshot gates", files)
         if result:
-            errors.append(f"self-test '{repo_type} screenshot gates' unexpectedly failed: {result}")
-        files[HUB] = files[HUB].replace("Never capture live or private data", "Capture data", 1)
-        result = check_agents_guidance(f"self-test:{repo_type} screenshot gate dropped", files)
+            errors.append(f"self-test '{name} screenshot gates' unexpectedly failed: {result}")
+        dropped = dict(files)
+        dropped[HUB] = files[HUB].replace("Never capture live or private data", "Capture data", 1)
+        result = check_agents_guidance(f"self-test:{name} screenshot gate dropped", dropped)
         if not any("AGENTS.md is missing common guidance 'Never capture live" in e for e in result):
-            errors.append(f"self-test '{repo_type} screenshot gate dropped' did not fail as expected: {result}")
+            errors.append(f"self-test '{name} screenshot gate dropped' did not fail as expected: {result}")
+        if screenshots:
+            moved = dict(files)
+            moved[SCREENSHOT_SKILL] = files[SCREENSHOT_SKILL].replace(
+                "Screenshot guidance is capability-conditional", "Screenshot guidance", 1
+            )
+            moved[HUB] = files[HUB] + "\nScreenshot guidance is capability-conditional.\n"
+            result = check_agents_guidance(f"self-test:{name} capability sentence", moved)
+            if not any(f"{SCREENSHOT_SKILL} is missing common guidance 'Screenshot guidance is capability" in e
+                       for e in result):
+                errors.append(f"self-test '{name} capability sentence' did not fail as expected: {result}")
+        else:
+            if "capability-conditional" in files[HUB]:
+                errors.append(f"self-test '{name}' fixture still has the capability-conditional sentence")
+            no_process = dict(files)
+            no_process[HUB] = files[HUB].replace(
+                "documented screenshot-review process", "screenshot process", 1
+            )
+            result = check_agents_guidance(f"self-test:{name} process sentence", no_process)
+            if not any("AGENTS.md is missing common guidance" in e and "For changes affecting tracked" in e
+                       for e in result):
+                errors.append(f"self-test '{name} process sentence' did not fail as expected: {result}")
 
     # Case 6b: screenshot guidance is composed only for browser-capable and
-    # native configurations, and each safety/structure guard fails closed when
-    # its source is mutated.
+    # native configurations with --screenshots, and each safety/structure
+    # guard fails closed when its source is mutated.
     for repo_type in ("nextjs", "swift"):
-        cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
+        cfg = shot_cfgs[(repo_type, True)]
         files = bootstrap.generate_files(dict(cfg))
-        result = check_screenshot_guidance(f"self-test:{repo_type} screenshot guidance", repo_type, files)
+        result = check_screenshot_guidance(f"self-test:{repo_type} screenshot guidance", repo_type, files, True)
         if result:
             errors.append(f"self-test '{repo_type} screenshot guidance' unexpectedly failed: {result}")
 
         missing = dict(files)
         del missing[bootstrap.SCREENSHOT_REVIEW]
-        result = check_screenshot_guidance(f"self-test:{repo_type} missing screenshot document", repo_type, missing)
+        result = check_screenshot_guidance(f"self-test:{repo_type} missing screenshot document", repo_type, missing, True)
         if not any("missing docs/screenshot-review.md" in e for e in result):
             errors.append(f"self-test '{repo_type} missing screenshot document' did not fail as expected: {result}")
 
@@ -2361,7 +2420,7 @@ def run_self_tests() -> list:
         heading[bootstrap.SCREENSHOT_REVIEW] = files[bootstrap.SCREENSHOT_REVIEW].replace(
             SCREENSHOT_PLATFORM_HEADINGS[repo_type], "## Platform guidance", 1
         )
-        result = check_screenshot_guidance(f"self-test:{repo_type} heading drift", repo_type, heading)
+        result = check_screenshot_guidance(f"self-test:{repo_type} heading drift", repo_type, heading, True)
         if not any("missing heading" in e for e in result):
             errors.append(f"self-test '{repo_type} heading drift' did not fail as expected: {result}")
 
@@ -2369,7 +2428,7 @@ def run_self_tests() -> list:
         broken_link[bootstrap.SCREENSHOT_REVIEW] = files[bootstrap.SCREENSHOT_REVIEW].replace(
             "../AGENTS.md", "../missing-AGENTS.md", 1
         )
-        result = check_screenshot_guidance(f"self-test:{repo_type} broken screenshot link", repo_type, broken_link)
+        result = check_screenshot_guidance(f"self-test:{repo_type} broken screenshot link", repo_type, broken_link, True)
         if not any("broken local Markdown link" in e for e in result):
             errors.append(f"self-test '{repo_type} broken screenshot link' did not fail as expected: {result}")
 
@@ -2382,59 +2441,68 @@ def run_self_tests() -> list:
         platform_leak = dict(files)
         leak = "xcodebuild" if repo_type == "nextjs" else "browser capture"
         platform_leak[bootstrap.SCREENSHOT_REVIEW] += f"\n{leak}\n"
-        result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, platform_leak)
+        result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, platform_leak, True)
         if not any("leaks" in e for e in result):
             errors.append(f"self-test '{repo_type} platform separation' did not fail as expected: {result}")
 
         invented = dict(files)
         invented[bootstrap.SCREENSHOT_REVIEW] += "\nnpm run screenshots\n"
-        result = check_screenshot_guidance(f"self-test:{repo_type} invented tooling", repo_type, invented)
+        result = check_screenshot_guidance(f"self-test:{repo_type} invented tooling", repo_type, invented, True)
         if not any("invents tooling" in e for e in result):
             errors.append(f"self-test '{repo_type} invented tooling' did not fail as expected: {result}")
 
         skill_invented = dict(files)
         skill_invented[SCREENSHOT_SKILL] += "\nRun `npm run screenshots` to capture.\n"
-        result = check_screenshot_guidance(f"self-test:{repo_type} skill invented tooling", repo_type, skill_invented)
+        result = check_screenshot_guidance(f"self-test:{repo_type} skill invented tooling", repo_type, skill_invented, True)
         if not any("screenshot-review/SKILL.md invents tooling" in e for e in result):
             errors.append(f"self-test '{repo_type} skill invented tooling' did not fail as expected: {result}")
 
         for variant in ("npx  playwright test", "npx\tplaywright test", "npm run\nscreenshots"):
             spaced = dict(files)
             spaced[SCREENSHOT_SKILL] += f"\nRun `{variant}` to capture.\n"
-            result = check_screenshot_guidance(f"self-test:{repo_type} skill tooling spacing", repo_type, spaced)
+            result = check_screenshot_guidance(f"self-test:{repo_type} skill tooling spacing", repo_type, spaced, True)
             if not any("screenshot-review/SKILL.md invents tooling" in e for e in result):
                 errors.append(f"self-test '{repo_type} skill tooling spacing {variant!r}' did not fail as expected: {result}")
             spaced_doc = dict(files)
             spaced_doc[bootstrap.SCREENSHOT_REVIEW] += f"\nRun `{variant}` to capture.\n"
-            result = check_screenshot_guidance(f"self-test:{repo_type} document tooling spacing", repo_type, spaced_doc)
+            result = check_screenshot_guidance(f"self-test:{repo_type} document tooling spacing", repo_type, spaced_doc, True)
             if not any("screenshot-review.md invents tooling" in e for e in result):
                 errors.append(f"self-test '{repo_type} document tooling spacing {variant!r}' did not fail as expected: {result}")
 
         no_routing = dict(files)
         no_routing[SCREENSHOT_SKILL] = " ".join(files[SCREENSHOT_SKILL].split()).replace("load it first.", "", 1)
-        result = check_screenshot_guidance(f"self-test:{repo_type} skill routing", repo_type, no_routing)
+        result = check_screenshot_guidance(f"self-test:{repo_type} skill routing", repo_type, no_routing, True)
         if not any("missing its routing" in e for e in result):
             errors.append(f"self-test '{repo_type} skill routing' did not fail as expected: {result}")
 
         no_pointer = dict(files)
         no_pointer[HUB] = files[HUB].replace("Load `screenshot-review` for the full process.", "", 1)
-        result = check_screenshot_guidance(f"self-test:{repo_type} hub screenshot pointer", repo_type, no_pointer)
+        result = check_screenshot_guidance(f"self-test:{repo_type} hub screenshot pointer", repo_type, no_pointer, True)
         if not any("missing its pointer 'Load" in e for e in result):
             errors.append(f"self-test '{repo_type} hub screenshot pointer' did not fail as expected: {result}")
 
-    for repo_type in ("python", "rust", "simple"):
-        cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
-        files = bootstrap.generate_files(dict(cfg))
-        result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, files)
+        # The same render judged as a configuration without --screenshots
+        # fails, and the render without it judged as one with it fails too.
+        result = check_screenshot_guidance(f"self-test:{repo_type} flag mismatch", repo_type, files, False)
+        if not any(f"must not be generated for {repo_type} without --screenshots" in e for e in result):
+            errors.append(f"self-test '{repo_type} skill without --screenshots' did not fail as expected: {result}")
+        bare = bootstrap.generate_files(dict(shot_cfgs[(repo_type, False)]))
+        result = check_screenshot_guidance(f"self-test:{repo_type} flag mismatch", repo_type, bare, True)
+        if not any("missing its pointer 'Load" in e for e in result):
+            errors.append(f"self-test '{repo_type} --screenshots without skill' did not fail as expected: {result}")
+
+    for repo_type in ("nextjs", "swift", "python", "rust", "simple"):
+        files = bootstrap.generate_files(dict(shot_cfgs[(repo_type, False)]))
+        result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, files, False)
         if result:
             errors.append(f"self-test '{repo_type} screenshot omission' unexpectedly failed: {result}")
         pointer = dict(files)
         pointer[HUB] += "\nLoad `screenshot-review` for the full process.\n"
-        result = check_screenshot_guidance(f"self-test:{repo_type} stray screenshot pointer", repo_type, pointer)
+        result = check_screenshot_guidance(f"self-test:{repo_type} stray screenshot pointer", repo_type, pointer, False)
         if not any("must not point at the screenshot-review skill" in e for e in result):
             errors.append(f"self-test '{repo_type} stray screenshot pointer' did not fail as expected: {result}")
         files[bootstrap.SCREENSHOT_REVIEW] = "# Screenshot review guidance\n"
-        result = check_screenshot_guidance(f"self-test:{repo_type} unexpected screenshot document", repo_type, files)
+        result = check_screenshot_guidance(f"self-test:{repo_type} unexpected screenshot document", repo_type, files, False)
         if not any("must not be generated" in e for e in result):
             errors.append(f"self-test '{repo_type} unexpected screenshot document' did not fail as expected: {result}")
 
@@ -3241,7 +3309,7 @@ def _structure_self_tests() -> list:
     unpointed[SCREENSHOT_SKILL] = files[SCREENSHOT_SKILL].replace(SCREENSHOT_POINTER, "the guide", 1)
     expect(
         "screenshot skill without pointer",
-        check_screenshot_guidance("self-test:shot", "nextjs", unpointed),
+        check_screenshot_guidance("self-test:shot", "nextjs", unpointed, True),
         "missing its pointer",
     )
 
@@ -3295,7 +3363,7 @@ def _structure_self_tests() -> list:
            repr(RUNBOOK_REQUIRED_PHRASES[dropped]))
     bare = {k: v for k, v in files.items() if k != bootstrap.SCREENSHOT_REVIEW}
     bare[HUB] = files[HUB].replace(HUB_SCREENSHOT_POINTER, "", 1)
-    both = check_screenshot_guidance("self-test:shot", "nextjs", bare)
+    both = check_screenshot_guidance("self-test:shot", "nextjs", bare, True)
     expect("missing screenshot document keeps the pointer error", both, "missing its pointer")
     expect("missing screenshot document is reported", both, f"missing {bootstrap.SCREENSHOT_REVIEW}")
 
@@ -3457,7 +3525,9 @@ def main() -> int:
         all_errors += check_template_stamps(label, cfg, files)
         all_errors += check_reviewer_agents(label, files)
         all_errors += check_workspace_guidance(label, cfg["repo_type"], files)
-        all_errors += check_screenshot_guidance(label, cfg["repo_type"], files)
+        all_errors += check_screenshot_guidance(
+            label, cfg["repo_type"], files, bootstrap.screenshot_review(cfg)
+        )
         all_errors += check_workflow_job_consistency(label, cfg["repo_type"], files)
         all_errors += check_workflow_permissions(label, files)
         all_errors += check_sha_pinned_actions(label, files)

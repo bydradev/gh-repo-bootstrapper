@@ -193,6 +193,72 @@ class ConfigureRepoTests(unittest.TestCase):
 
         self.assertFalse({"vercel", "cloudflare", "vercel_token", "cloudflare_api_token"} & config.keys())
 
+    def test_screenshots_flag_is_used_for_nextjs_and_swift_only(self):
+        base = ["bootstrap.py", "--name", "sample", "--org", "octocat", "--non-interactive", "--dry-run"]
+        cases = {
+            ("nextjs",): False,
+            ("nextjs", "--screenshots"): True,
+            ("swift", "--scheme", "App"): False,
+            ("swift", "--scheme", "App", "--screenshots"): True,
+            ("python", "--screenshots"): False,
+            ("simple", "--screenshots"): False,
+        }
+        for (repo_type, *flags), expected in cases.items():
+            with self.subTest(repo_type=repo_type, flags=flags):
+                out = io.StringIO()
+                with patch.object(sys, "argv", base + ["--type", repo_type, *flags]), \
+                        contextlib.redirect_stdout(out):
+                    config = bootstrap.gather_config(bootstrap.parse_args())
+                self.assertIs(config["screenshots"], expected)
+                ignored = "--screenshots is only used with --type nextjs or swift; ignoring"
+                self.assertEqual(ignored in out.getvalue(), repo_type not in ("nextjs", "swift"))
+
+    def test_interactive_runs_ask_about_screenshots_with_no_as_the_default(self):
+        for repo_type, flags in (("nextjs", []), ("swift", ["--scheme", "App", "--destination", "macos"])):
+            with self.subTest(repo_type=repo_type):
+                asked = {}
+
+                def answer(question, default=True):
+                    asked[question] = default
+                    return False
+
+                argv = ["bootstrap.py", "--name", "sample", "--type", repo_type, "--org", "octocat",
+                        "--private", "--dry-run", *flags]
+                with patch.object(sys, "argv", argv), patch.object(bootstrap, "prompt_yn", answer), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    config = bootstrap.gather_config(bootstrap.parse_args())
+                self.assertIs(asked[bootstrap.SCREENSHOTS_QUESTION], False)
+                self.assertFalse(config["screenshots"])
+                asked.clear()
+                with patch.object(sys, "argv", argv + ["--screenshots"]), patch.object(bootstrap, "prompt_yn", answer), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    config = bootstrap.gather_config(bootstrap.parse_args())
+                self.assertNotIn(bootstrap.SCREENSHOTS_QUESTION, asked)
+                self.assertTrue(config["screenshots"])
+
+    def test_dry_run_and_summary_show_screenshot_review(self):
+        cfg = {"name": "sample", "owner": "octocat", "repo_type": "nextjs", "private": True,
+               "repo_dir": "sample", "postgres": False, "screenshots": False}
+        for screenshots in (False, True):
+            with self.subTest(screenshots=screenshots):
+                cfg["screenshots"] = screenshots
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    bootstrap.print_dry_run(cfg, bootstrap.generate_files(cfg))
+                self.assertIn(f"Screenshot review: {screenshots}", out.getvalue())
+                self.assertEqual(".claude/skills/screenshot-review ->" in out.getvalue(), screenshots)
+                argv = ["bootstrap.py", "--name", "sample", "--type", "nextjs", "--org", "octocat",
+                        "--non-interactive"] + (["--screenshots"] if screenshots else [])
+                out = io.StringIO()
+                env = {"RELEASE_PLEASE_APP_KEY": "", "RELEASE_PLEASE_CLIENT_ID": ""}
+                with patch.object(sys, "argv", argv), patch.dict(os.environ, env), \
+                        patch.object(bootstrap, "check_dependencies"), \
+                        patch.object(bootstrap, "create_and_push", side_effect=OSError("stop")), \
+                        contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()), \
+                        self.assertRaises(SystemExit):
+                    bootstrap.main()
+                self.assertEqual("Extras: screenshot review" in out.getvalue(), screenshots)
+
     def test_owner_must_be_a_plain_github_name(self):
         for owner in ("octocat", "my-org", "A1", "x" * 39, "mona-cat_octo"):
             self.assertEqual(bootstrap.validate_owner(owner), "", owner)

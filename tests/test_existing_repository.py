@@ -758,6 +758,10 @@ class ExistingRepositoryTests(unittest.TestCase):
                 heading + mine + "\n" + _GUIDANCE_0_6 + "\n## Later\n\nOurs.\n",
                 heading + mine + "\n## Later\n\nOurs.\n",
             ),
+            "before a subheading": (
+                heading + _GUIDANCE_0_6 + "\n### Tooling\n\nOurs.\n",
+                heading + "### Tooling\n\nOurs.\n",
+            ),
         }
         for name, (owned, expected) in cases.items():
             with self.subTest(name):
@@ -772,6 +776,8 @@ class ExistingRepositoryTests(unittest.TestCase):
             + "".join("  " + line for line in _GUIDANCE_0_5.splitlines(True)) + "\n" + mine,
             "hard line break": heading + _GUIDANCE_0_5.replace("\n", "  \n", 1) + "\n" + mine,
             "under a later heading": heading + mine + "\n## Template history\n\n" + _GUIDANCE_0_5,
+            "under a subheading": heading + mine + "\n### Historical template notes\n\n" + _GUIDANCE_0_5,
+            "under an empty subheading": heading + "###\n\n" + _GUIDANCE_0_5,
             "in an HTML comment": heading + "<!--\n\n" + _GUIDANCE_0_5 + "\n-->\n\n" + mine,
             "beside an HTML block": heading + _GUIDANCE_0_5 + "\n<details>\n\nOurs.\n\n</details>\n",
             "none": heading + mine,

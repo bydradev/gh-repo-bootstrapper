@@ -1487,6 +1487,8 @@ NEXTJS_RULES_END = "<!-- END:nextjs-agent-rules -->"
 _NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->"
 _SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
 _SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
+# Any ATX heading, an empty one included.
+_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?=[ \t]|$)")
 # A heading of any level behind blockquote or list markers (`> ## Ours`,
 # `- ## Ours`) is a subsection too, not text inside a generated paragraph.
 # Blockquote markers, and list markers only when followed by whitespace — a
@@ -1651,8 +1653,9 @@ def _subheadings(section: str) -> list:
 # The guidance paragraphs that templates through v0.11 put at the top of
 # `## Project specifics` (v0.5.0 to v0.5.5 the first, v0.6.0 on the second and
 # third). The guidance now sits in a generated section above the heading, so
-# --adopt --replace-generated-sections removes an unedited copy wherever it
-# appears in the section; an edited one is the repository's text and stays.
+# --adopt --replace-generated-sections removes an unedited copy from the
+# section's own text, before any subheading; an edited one, or one the
+# repository filed under a subheading, is the repository's text and stays.
 _RETIRED_SPECIFICS_GUIDANCE = frozenset(" ".join(paragraph.split()) for paragraph in (
     """Rules that apply only to this repository live in this section, below every
 generated section: product sources of truth, prime directives, points at which
@@ -1685,10 +1688,11 @@ def _strip_retired_guidance(owned: str) -> str:
     whitespace-normalized text is a retired guidance paragraph is removed with
     the blank lines after it (or, at the end of the section, before it); an
     indented copy (under a list item, or indented code) or one with a hard line
-    break is kept. Only `## Project specifics` itself is searched, up to the
-    next level-1 or level-2 heading, and nothing is removed from a section with
-    structure `_markdown_ambiguities` reports, such as an HTML block. Everything
-    else, whitespace included, is kept byte for byte.
+    break is kept. Only the section's own text is searched, up to its first
+    heading of any level, so a copy under a subheading is kept, and nothing is
+    removed from a section with structure `_markdown_ambiguities` reports, such
+    as an HTML block. Everything else, whitespace included, is kept byte for
+    byte.
     """
     if _markdown_ambiguities(owned):
         # An HTML block (a comment, say) or other structure the line scan does
@@ -1700,9 +1704,11 @@ def _strip_retired_guidance(owned: str) -> str:
     def text_line(index: int) -> bool:
         return not lines[index][2] and bool(lines[index][1].strip())
 
-    # Only the section itself: stop at the next level-1 or level-2 heading.
+    # Only the section's own text: stop at the first heading of any level, as
+    # the templates put the guidance at the top and a subheading is the
+    # repository's own structure.
     limit = next(
-        (i for i in range(1, len(lines)) if not lines[i][2] and _SECTION_HEADING_RE.match(lines[i][1])),
+        (i for i in range(1, len(lines)) if not lines[i][2] and _ATX_HEADING_RE.match(lines[i][1])),
         len(lines),
     )
     index = 1  # line 0 is the heading itself

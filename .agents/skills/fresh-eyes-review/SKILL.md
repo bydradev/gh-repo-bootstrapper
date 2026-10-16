@@ -3,7 +3,7 @@ name: fresh-eyes-review
 description: >-
   Use before declaring substantial work complete or a branch or pull request ready for review, when acting as an independent reviewer, or after review fixes cause material changes. Covers who reviews, what to hand the reviewer, the review rubric, when to review and re-review, and a cross-family recipe using a read-only reviewer from another model family.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=ea24d792f9d7f9b12dcb97b078421643d63dd31ce85acb87e62bbfd15250e654 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=15c06f17e081f8677ecf8b60821d73acaa05f9f5450f52b5254657e9376c67a7 -->
 
 # Independent fresh-eyes review
 
@@ -40,6 +40,12 @@ independent fresh-eyes review of those changes before completion.
 After three review rounds with blocking findings still open, stop and escalate
 to the operator rather than starting another round: list the open findings,
 what each round changed, and your recommendation.
+
+OpenCode's free-tier models on its own provider currently refuse an agent whose
+shell is denied, as this repository's OpenCode reviewer's is, with "can only be
+used from within OpenCode" (OpenCode issue 50627, open on 2026-10-16). Run that
+reviewer with another model or use another reviewer; don't loosen its
+permissions.
 
 ## Cross-family review recipe
 

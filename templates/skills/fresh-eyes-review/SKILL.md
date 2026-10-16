@@ -40,6 +40,12 @@ After three review rounds with blocking findings still open, stop and escalate
 to the operator rather than starting another round: list the open findings,
 what each round changed, and your recommendation.
 
+OpenCode's free-tier models on its own provider currently refuse an agent whose
+shell is denied, as this repository's OpenCode reviewer's is, with "can only be
+used from within OpenCode" (OpenCode issue 50627, open on 2026-10-16). Run that
+reviewer with another model or use another reviewer; don't loosen its
+permissions.
+
 ## Cross-family review recipe
 
 This recipe works in any harness. Save the diff, the requested outcome, the

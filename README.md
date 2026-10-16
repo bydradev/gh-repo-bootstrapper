@@ -238,6 +238,13 @@ still writes in `git diff && git log > notes` (`tool/shell.ts`,
 `session/tools.ts` and `agent/agent.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
 current npm release, checked 2026-10-16).
+OpenCode's free-tier models on its own provider currently refuse an agent
+whose shell is denied, with "OpenCode's free tier can only be used from within
+OpenCode" ([OpenCode issue 50627](https://github.com/anomalyco/opencode/issues/50627),
+open on 2026-10-16), so run this reviewer with another model. `bash: ask` or a
+narrow allow rule avoids that error, but a command that yields no pattern,
+such as a bare `> file`, skips the shell check, so either would let the
+reviewer write.
 
 Claude Code could block a subagent's Bash commands with a `PreToolUse` hook in
 its frontmatter, but it skips a project subagent's frontmatter hooks in a

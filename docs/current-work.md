@@ -1,8 +1,8 @@
 # Current work
 
-**Status:** steps 1 to 3 below are done. Step 4 remains: confirming the
-scheduled review's alert read on a live run, which needs a generated Next.js
-repository with Dependabot alerts.
+**Status:** all four steps below are done, and the completion gate is met.
+Pull requests bringing the generated repositories up to 0.11.0 were opened
+on 2026-10-16.
 
 ## `baseline-review.yml` and actionlint
 
@@ -48,8 +48,15 @@ actionlint reports `vulnerability-alerts` as an unknown permission scope.
          - 'unexpected key "queue" for "concurrency" section'
    ```
 
-4. Verify the scheduled workflow can still read the intended alert data before
-   propagating any canonical change to application repositories.
+4. **Done (2026-10-16).** The scheduled workflow reads the intended alert
+   data on a live generated repository. `bydradev/gh-actions-dashboard`'s
+   `baseline-review.yml` matches the canonical template (`--check` reports
+   `same`), and its scheduled run on 2026-10-12 (run 38294612389) succeeded
+   with "Dependabot parity: every dismissed alert has a row and every row has
+   a dismissed alert" against its one accepted advisory. That line needs the
+   Dependabot alerts API, which the job's `vulnerability-alerts: read` token
+   could therefore call. No generated repository carries a per-repository
+   permission workaround.
 
 **Completion gate:** template validation and actionlint agree, the scheduled
 review retains its intended read-only behaviour, and generated repositories do

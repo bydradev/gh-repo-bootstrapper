@@ -122,5 +122,8 @@ test("a GHSA row in the wrong case is refused with a clear message", () => {
     "| ghsa-aaaa-bbbb-cccc | example | high | runtime | No fixed release | Upstream fix | 2099-01-01 |";
   const result = runAudit(vulnerableReport, [row]);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /invalid GHSA identifier "ghsa-aaaa-bbbb-cccc"; write it as GitHub does/);
+  assert.match(
+    result.stderr,
+    /invalid GHSA identifier "ghsa-aaaa-bbbb-cccc"; write it as GitHub does/,
+  );
 });

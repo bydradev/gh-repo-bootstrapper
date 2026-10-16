@@ -53,6 +53,14 @@ jobs:
         with:
           node-version-file: templates/.nvmrc
       - run: node --test templates/*.test.mjs
+      # Generated Next.js repositories run Prettier with the template's
+      # .prettierrc.json and ESLint with --max-warnings=0 over these scripts, so
+      # an unformatted file or an unused variable here fails their CI. ESLint
+      # runs only no-unused-vars: the repositories bring their own config.
+      - name: Check generated script formatting and unused variables
+        run: |
+          npx --yes prettier@3.9.9 --config templates/.prettierrc.json --check "templates/*.mjs"
+          npx --yes eslint@9.39.4 --no-config-lookup --rule '{"no-unused-vars":"error"}' "templates/*.mjs"
       # Generated AGENTS.md, CLAUDE.md, READMEs and docs land in repositories
       # that may lint Markdown; keep them markdownlint-clean.
       - name: Lint generated Markdown

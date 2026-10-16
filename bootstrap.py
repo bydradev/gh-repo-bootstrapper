@@ -1642,8 +1642,9 @@ def _strip_retired_guidance(owned: str) -> str:
     A paragraph is a run of non-blank lines outside code fences. One that
     starts at column 0 on every line, as the templates wrote it, and whose
     whitespace-normalized text is a retired guidance paragraph is removed with
-    the blank lines after it; an indented copy (under a list item, or indented
-    code) is kept. With nothing removed, `owned` comes back as is.
+    the blank lines after it (or, at the end of the section, before it); an
+    indented copy (under a list item, or indented code) is kept. Everything
+    else, whitespace included, is kept byte for byte.
     """
     lines = _markdown_lines(owned)
     keep = [True] * len(lines)
@@ -1664,13 +1665,19 @@ def _strip_retired_guidance(owned: str) -> str:
         if paragraph in _RETIRED_SPECIFICS_GUIDANCE and not any(line[:1].isspace() for line in run):
             while end < len(lines) and not lines[end][2] and not lines[end][1].strip():
                 end += 1
-            keep[index:end] = [False] * (end - index)
+            start = index
+            if end == len(lines):
+                # Removed up to the end: also drop the blank lines before it.
+                while start > 1 and (
+                    not keep[start - 1] or (not lines[start - 1][2] and not lines[start - 1][1].strip())
+                ):
+                    start -= 1
+            keep[start:end] = [False] * (end - start)
         index = end
     if all(keep):
         return owned
     offsets = [offset for offset, _, _ in lines] + [len(owned)]
-    kept = "".join(owned[offsets[i] : offsets[i + 1]] for i in range(len(lines)) if keep[i])
-    return kept.rstrip() + "\n"
+    return "".join(owned[offsets[i] : offsets[i + 1]] for i in range(len(lines)) if keep[i])
 
 
 # A heading indented four or more spaces is an indented code block, not a heading.

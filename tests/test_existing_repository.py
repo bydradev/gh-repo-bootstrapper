@@ -519,6 +519,18 @@ class ExistingRepositoryTests(unittest.TestCase):
         for name, owned in kept.items():
             with self.subTest(name):
                 self.assertEqual(bootstrap._strip_retired_guidance(owned), owned)
+        # Removing guidance leaves the repository's own text byte for byte,
+        # including a hard line break and blank lines at the end.
+        for name, tail in {"hard break": "- Last rule.  \n", "blank lines": "- Last rule.\n\n\n"}.items():
+            with self.subTest(name):
+                self.assertEqual(
+                    bootstrap._strip_retired_guidance(heading + _GUIDANCE_0_6 + "\n" + tail),
+                    heading + tail,
+                )
+                self.assertEqual(
+                    bootstrap._strip_retired_guidance(heading + tail.rstrip("\n") + "\n\n" + _GUIDANCE_0_6),
+                    heading + tail.rstrip("\n") + "\n",
+                )
         # An edited first paragraph stays; the unedited second one goes.
         edited_0_6 = _GUIDANCE_0_6.replace("say so\nexplicitly", "say so")
         first = edited_0_6.split("\n\n")[0] + "\n"

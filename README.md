@@ -42,8 +42,10 @@ anything installed beyond a base Python interpreter.
   `if:` that is a falsy literal (`false`, `0`, `null`, `''`); the Python and
   Rust suite commands run once, unconditionally; the Next.js e2e runs and
   browser installs tied to their `full` conditions; the release job waiting for
-  `test` with no condition of its own; the release App token limited to contents
-  and pull requests; and pinned fallback versions of the Python CI tools
+  `test` with no condition of its own; its release steps skipped, with a
+  warning, only while the Release Please App credentials are missing; the
+  release App token limited to contents and pull requests; and pinned fallback
+  versions of the Python CI tools
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
@@ -683,6 +685,22 @@ by mistake is not shown; type it as plain text, without the quotes or
 backslashes a terminal adds when a file is dragged onto it. In
 `--non-interactive` mode, a key stored on one line with literal `\n`
 separators is accepted and turned back into PEM lines.
+
+Until both are set, `release-please.yml` skips the release instead of failing.
+The release job's first step, "Check Release Please credentials", adds a
+warning annotation to the run that names `RELEASE_PLEASE_CLIENT_ID` and
+`RELEASE_PLEASE_APP_KEY` and says releases are skipped until both are set; the
+token and release steps after it are skipped, and the job passes. In every
+type but `simple`, the `test` job in the same workflow still runs and still
+gates the release. A run with that warning has not released anything. Once
+both are set, the next push to `main` runs the release; check that it creates
+or updates a release PR before treating release automation as operational.
+The check reads only whether each value is set, because GitHub does not allow
+secrets in `if:` conditions
+([Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
+checked 2026-10-16). `release-please.yml` is template-owned, so `--adopt`
+brings the check to existing repositories; a repository whose release
+workflow is `local-modified` keeps its own behaviour.
 
 If you skip them during setup, set them manually afterwards, reading the key
 from its file:

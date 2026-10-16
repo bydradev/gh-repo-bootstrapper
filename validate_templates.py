@@ -1669,10 +1669,69 @@ def _executable_lines(script: str) -> list:
     return [line for line in script.splitlines() if not line.strip().startswith("#")]
 
 
+# A repository that has not set up the Release Please App yet must not fail
+# every push to main at the token step. The release job's first step reads
+# whether the RELEASE_PLEASE_CLIENT_ID variable and the RELEASE_PLEASE_APP_KEY
+# secret are set (GitHub allows no secret in an `if:`), warns when either is
+# not, and every later step runs only when both are. A later step without the
+# condition brings the failure back; any other condition, such as one with
+# always(), could run release-please after the untested-merge guard failed.
+# The env is compared whole, so the step never receives the key itself.
+RELEASE_CREDENTIALS_STEP_ID = "credentials"
+RELEASE_CREDENTIALS_ENV = {
+    "HAS_CLIENT_ID": "${{ vars.RELEASE_PLEASE_CLIENT_ID != '' }}",
+    "HAS_APP_KEY": "${{ secrets.RELEASE_PLEASE_APP_KEY != '' }}",
+}
+RELEASE_CREDENTIALS_CONDITION = "steps.credentials.outputs.configured == 'true'"
+RELEASE_CREDENTIALS_SCRIPT_PHRASES = (
+    "::warning::", "RELEASE_PLEASE_CLIENT_ID", "RELEASE_PLEASE_APP_KEY",
+    "configured=true", "configured=false",
+)
+
+
+def _release_credentials_errors(label: str, job) -> list:
+    """The release job skips, with a warning, only when its App credentials are missing."""
+    where = f"[{label}] release-please.yml job 'release-please'"
+    steps = (job.get("steps") if isinstance(job, dict) else None) or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else {}
+    if first.get("id") != RELEASE_CREDENTIALS_STEP_ID:
+        return [
+            f"{where} must start with the '{RELEASE_CREDENTIALS_STEP_ID}' step, which skips the "
+            f"release with a warning when the Release Please App credentials are missing"
+        ]
+    errors = []
+    if "if" in first:
+        errors.append(f"{where} step '{RELEASE_CREDENTIALS_STEP_ID}' must run unconditionally")
+    if first.get("env") != RELEASE_CREDENTIALS_ENV:
+        errors.append(
+            f"{where} step '{RELEASE_CREDENTIALS_STEP_ID}' env must be exactly {RELEASE_CREDENTIALS_ENV}, "
+            f"so it sees whether each credential is set and never the key itself; got {first.get('env')}"
+        )
+    script = "\n".join(_executable_lines(str(first.get("run", ""))))
+    missing = [phrase for phrase in RELEASE_CREDENTIALS_SCRIPT_PHRASES if phrase not in script]
+    if missing:
+        errors.append(
+            f"{where} step '{RELEASE_CREDENTIALS_STEP_ID}' must warn, naming both credentials, and set "
+            f"configured=true or configured=false; its script lacks {missing}"
+        )
+    for step in steps[1:]:
+        if not isinstance(step, dict):
+            continue
+        name = step.get("name") or step.get("uses") or step.get("run")
+        condition = " ".join(str(step.get("if", "")).split())
+        if condition != RELEASE_CREDENTIALS_CONDITION:
+            errors.append(
+                f"{where} step {name!r} must run only `if: {RELEASE_CREDENTIALS_CONDITION}`, "
+                f"got {step.get('if')!r}"
+            )
+    return errors
+
+
 def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
     """Executable gates the phrase and context checks cannot see.
 
-    A release that no longer waits for `test`, a suite step that cannot fail
+    A release that no longer waits for `test`, a release job that fails every
+    push while its App credentials are missing, a suite step that cannot fail
     or never runs, a job without a timeout, a third-party action the generated
     Actions policy would block, an App token wider than release-please needs,
     or an e2e run whose browsers do not match its projects all leave every
@@ -1739,6 +1798,8 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] release-please.yml job 'release-please' must not be conditional")
         if "if" in (release_jobs.get("test") or {}):
             errors.append(f"[{label}] release-please.yml job 'test' must not be conditional")
+    if ".github/workflows/release-please.yml" in files:
+        errors += _release_credentials_errors(label, release_jobs.get("release-please"))
 
     test = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
     test_jobs = test.get("jobs", {}) or {}
@@ -3359,6 +3420,32 @@ def _structure_self_tests() -> list:
     expect("release job that runs after a failed test",
            gates("nextjs", release, lambda w: w["jobs"]["release-please"].update({"if": "always()"})),
            "'release-please' must not be conditional")
+    # The release skips with a warning, rather than failing, only while the
+    # Release Please App credentials are missing.
+    expect("release without the credentials check",
+           gates("simple", release, lambda w: w["jobs"]["release-please"]["steps"].pop(0)),
+           "must start with the 'credentials' step")
+    expect("credentials check after the token step",
+           gates("python", release, lambda w: w["jobs"]["release-please"]["steps"].insert(
+               1, w["jobs"]["release-please"]["steps"].pop(0))), "must start with the 'credentials' step")
+    expect("credentials check that reads the key itself",
+           gates("nextjs", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "credentials")
+                 ["env"].update({"HAS_APP_KEY": "${{ secrets.RELEASE_PLEASE_APP_KEY }}"})),
+           "never the key itself")
+    expect("conditional credentials check",
+           gates("rust", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "credentials")
+                 .update({"if": "github.event_name == 'push'"})), "must run unconditionally")
+    expect("credentials check without its warning",
+           gates("swift", release, text=lambda t: t.replace("::warning::", "", 1)), "must warn")
+    expect("token step that fails without credentials",
+           gates("simple", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "app-token")
+                 .pop("if")), "'Generate GitHub App token' must run only")
+    expect("release that runs past a failed guard",
+           gates("nextjs", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "release").update(
+               {"if": f"always() && {RELEASE_CREDENTIALS_CONDITION}"})), "must run only")
+    expect("untested-merge guard that runs without credentials",
+           gates("python", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")
+                 .pop("if")), "'Refuse to tag an untested release merge' must run only")
     expect("python suite without the format check",
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(
                step(w, "test", lambda s: s.get("run") == "ruff format --check ."))),

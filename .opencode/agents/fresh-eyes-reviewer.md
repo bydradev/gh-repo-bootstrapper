@@ -4,14 +4,8 @@ mode: subagent
 permission:
   edit: deny
   task: deny
-  bash:
-    "*": deny
-    "git diff *": allow
-    "git log *": allow
-    "git show *": allow
-    "*--output*": deny
-    "*>*": deny
+  bash: deny
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=67655e2fe6f67dca752654dfe22ffeca47e796f0c305f3d70df88ba42ce74ca9 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=032d32904299878b9c0a595a2cc5ac7ffd533dcd3e7b1045c0130f33ad9cbe29 -->
 
-Load the `fresh-eyes-review` skill (`.agents/skills/fresh-eyes-review/SKILL.md`) and apply its rubric. Do not modify files: in the shell, run only `git diff`, `git log`, and `git show`, without `--output` or a redirect. Report findings with file:line evidence.
+Load the `fresh-eyes-review` skill (`.agents/skills/fresh-eyes-review/SKILL.md`) and apply its rubric. You have no shell: review the diff and validation results the implementer gives you or saved for you, and read files with the read tools. Do not modify files. Report findings with file:line evidence.

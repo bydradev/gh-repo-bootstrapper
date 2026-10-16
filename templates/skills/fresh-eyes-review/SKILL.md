@@ -42,8 +42,9 @@ what each round changed, and your recommendation.
 
 ## Cross-family review recipe
 
-This recipe works in any harness. Save the diff, the requested outcome, and the
-relevant requirements to the session's scratch directory (see the
+This recipe works in any harness. Save the diff, the requested outcome, the
+relevant requirements, and the validation results to the session's scratch
+directory (see the
 `worktrees-and-scratch` skill), write the reviewer prompt to a file there, then
 run the reviewer read-only from inside a git worktree:
 

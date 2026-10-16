@@ -30,9 +30,9 @@ Checks performed on each generated file:
     relative Markdown links in the hub and in every SKILL.md resolve from
     their own directory;
     every template-owned file carries a valid stamp; the reviewer agents get
-    no edit tool, OpenCode's shell allows only git diff, log and show and
-    denies --output and redirects, each states its shell rule, and both leave
-    the model unset
+    no edit tool and leave the model unset, OpenCode's sets only the edit,
+    task and bash permissions, each to deny, and Claude Code's says to use
+    Bash only for read-only commands
 
   - branch-protection payload semantics: bootstrap.branch_protection_payload()
     must pin the operator-ruled configuration (strict False, enforce_admins
@@ -297,26 +297,28 @@ SKILL_DESCRIPTION_MAX = 1024
 CLAUDE_REVIEWER = ".claude/agents/fresh-eyes-reviewer.md"
 OPENCODE_REVIEWER = ".opencode/agents/fresh-eyes-reviewer.md"
 CLAUDE_WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-# A Claude Code subagent can block some Bash commands with a PreToolUse hook in
-# its frontmatter, which runs a script before each Bash command, so a template
-# would have to ship an executable script; and Claude Code skips a
-# project-level subagent's frontmatter hooks until the folder's workspace trust
-# dialog is accepted, where "a `-p` session doesn't count as trusted"
-# (code.claude.com/docs/en/sub-agents, checked 2026-10-16), which is how the
-# cross-family review recipe runs Claude Code. So the reviewer's body carries
-# the rule.
+# A Claude Code subagent could block Bash commands with a PreToolUse hook in its
+# frontmatter, but Claude Code skips a project subagent's frontmatter hooks in
+# a folder whose workspace trust dialog was never accepted, and "a `-p` session
+# doesn't count as trusted" (code.claude.com/docs/en/sub-agents and
+# code.claude.com/docs/en/permissions, checked 2026-10-16): the cross-family
+# review recipe runs `claude -p`. Such a hook would also have to parse shell
+# commands, which OpenCode's rules below show is hard to do completely. So the
+# reviewer's body carries the rule.
 CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
-# OpenCode matches each rule against each command of a shell line, `*` as any
-# text and a trailing " *" also matching the bare command, and the last match
-# wins (packages/core/src/util/wildcard.ts and packages/opencode/src/tool/shell.ts
-# and permission/index.ts at v1.19.3, the current npm release, checked
-# 2026-10-16). So "git diff *" admits `git diff` but not `git difftool`, and
-# the closing deny rules stop `--output` and a redirect that a command keeps.
-# A redirect on the last command of a `&&` list or a pipeline is dropped before
-# matching, so the body also carries the rule.
-OPENCODE_READ_ONLY_COMMANDS = ("git diff", "git log", "git show")
-OPENCODE_WRITE_DENY_RULES = ("*--output*", "*>*")
-OPENCODE_REVIEWER_SHELL_RULE = "without `--output` or a redirect"
+# The OpenCode reviewer has no shell. OpenCode's shell rules see each command of
+# a line separately and keep a redirect only when it sits directly on one
+# command, so `git diff && git log > notes` passes any allow-list, while
+# `bash: deny`, as the agent's last bash rule, hides the tool (Permission.disabled;
+# packages/opencode/src/tool/shell.ts and permission/index.ts at v1.19.3, the
+# current npm release, checked 2026-10-16). OpenCode matches a permission key
+# as a wildcard and the last matching rule wins, so the reviewer sets only
+# these keys: a later one, such as "*", could reopen them.
+OPENCODE_REVIEWER_PERMISSIONS = {
+    "edit": "",
+    "task": " so it cannot launch a writer",
+    "bash": " so it has no shell, whose rules cannot reliably stop a redirect",
+}
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
@@ -770,7 +772,10 @@ def _tool_names(tools) -> set:
 
 
 def check_reviewer_agents(label: str, files: dict) -> list:
-    """Both fresh-eyes reviewer agents are read-only and leave the model unset."""
+    """Both fresh-eyes reviewer agents leave the model unset and get no edit
+    tool. OpenCode's sets only the edit, task and bash permissions, each to
+    deny; Claude Code's keeps Bash and says to use it only for read-only
+    commands."""
     errors = []
     for path in (CLAUDE_REVIEWER, OPENCODE_REVIEWER):
         if path not in files:
@@ -795,42 +800,17 @@ def check_reviewer_agents(label: str, files: dict) -> list:
             if data.get("mode") != "subagent":
                 errors.append(f"[{label}] {path} must set 'mode: subagent'")
             permission = data.get("permission")
-            if not isinstance(permission, dict) or permission.get("edit") != "deny":
-                errors.append(f"[{label}] {path} must set 'permission.edit: deny'")
             permission = permission if isinstance(permission, dict) else {}
-            if permission.get("task") != "deny":
-                errors.append(f"[{label}] {path} must set 'permission.task: deny' so it cannot launch a writer")
-            errors += _opencode_bash_errors(label, path, permission.get("bash"))
-            body = " ".join(files[path].split("\n---\n", 1)[-1].split())
-            if permission.get("bash") != "deny" and OPENCODE_REVIEWER_SHELL_RULE not in body:
-                errors.append(f"[{label}] {path} allows shell commands, so it must say {OPENCODE_REVIEWER_SHELL_RULE!r}")
-    return errors
-
-
-def _opencode_bash_errors(label: str, path: str, bash) -> list:
-    """The OpenCode reviewer's shell denies everything but read-only commands."""
-    if bash == "deny":
-        return []
-    rules = list(bash.items()) if isinstance(bash, dict) else []
-    if not rules or rules[0] != ("*", "deny"):
-        return [f"[{label}] {path} must deny every shell command first ('permission.bash' '\"*\": deny')"]
-    # `git diff*` would also admit `git difftool`, so only the bare command or
-    # the command followed by " *" may be allowed.
-    allowed = {pattern for command in OPENCODE_READ_ONLY_COMMANDS for pattern in (command, command + " *")}
-    errors = [
-        f"[{label}] {path} lets shell command {pattern!r} run ({action}); allow only "
-        + ", ".join(repr(command) for command in OPENCODE_READ_ONLY_COMMANDS)
-        + ", each alone or followed by ' *'"
-        for pattern, action in rules[1:]
-        if action != "deny" and pattern not in allowed
-    ]
-    closing = [(rule, "deny") for rule in OPENCODE_WRITE_DENY_RULES]
-    if any(action != "deny" for _, action in rules) and sorted(rules[-len(closing):]) != sorted(closing):
-        errors.append(
-            f"[{label}] {path} must end 'permission.bash' with "
-            + " and ".join(f"'{rule}: deny'" for rule in OPENCODE_WRITE_DENY_RULES)
-            + ", since an allowed git command writes a file with --output or a redirect"
-        )
+            for key, why in OPENCODE_REVIEWER_PERMISSIONS.items():
+                if permission.get(key) != "deny":
+                    errors.append(f"[{label}] {path} must set 'permission.{key}: deny'{why}")
+            others = sorted(str(key) for key in permission if key not in OPENCODE_REVIEWER_PERMISSIONS)
+            if others:
+                errors.append(
+                    f"[{label}] {path} sets permission {others}; set only "
+                    + ", ".join(repr(key) for key in OPENCODE_REVIEWER_PERMISSIONS)
+                    + ", since OpenCode matches each key as a wildcard, so a later key such as '*' can reopen them"
+                )
     return errors
 
 
@@ -3286,8 +3266,10 @@ def _structure_self_tests() -> list:
     )
     expect("rendered stamps", check_template_stamps("self-test:stamp", cfg, files), None)
 
-    # (g) reviewer agents: a model, a write tool, a missing tools list, an
-    # allowed edit, or a primary mode each fail.
+    # (g) reviewer agents: a model, a write tool, a missing tools list, a
+    # Claude Code reviewer without its Bash rule, a primary mode, an OpenCode
+    # edit, task or shell permission, or a later OpenCode permission key that
+    # could reopen them each fail.
     for name, path, old, new, needle in (
         ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
         ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
@@ -3298,17 +3280,11 @@ def _structure_self_tests() -> list:
         ("claude shell without its rule", CLAUDE_REVIEWER, CLAUDE_REVIEWER_SHELL_RULE, "use Bash freely",
          "must say"),
         ("opencode task allowed", OPENCODE_REVIEWER, "task: deny", "task: allow", "permission.task: deny"),
-        ("opencode shell open", OPENCODE_REVIEWER, '"*": deny', '"*": allow', "deny every shell command first"),
-        ("opencode shell writer", OPENCODE_REVIEWER, '"git show *": allow', '"git show *": allow\n    "npm *": allow',
-         "shell command 'npm *' run (allow)"),
-        ("opencode difftool prefix", OPENCODE_REVIEWER, '"git diff *": allow', '"git diff*": allow',
-         "shell command 'git diff*' run (allow)"),
-        ("opencode output flag allowed", OPENCODE_REVIEWER, '\n    "*--output*": deny', "", "'*--output*: deny'"),
-        ("opencode redirect allowed", OPENCODE_REVIEWER, '\n    "*>*": deny', "", "'*>*: deny'"),
-        ("opencode allow after the closing denies", OPENCODE_REVIEWER, '"*>*": deny',
-         '"*>*": deny\n    "git log": allow', "must end 'permission.bash'"),
-        ("opencode shell without its rule", OPENCODE_REVIEWER, OPENCODE_REVIEWER_SHELL_RULE, "freely",
-         "must say"),
+        ("opencode shell open", OPENCODE_REVIEWER, "bash: deny", "bash: allow", "permission.bash: deny"),
+        ("opencode shell allow rule", OPENCODE_REVIEWER, "bash: deny",
+         'bash:\n    "*": deny\n    "git diff *": allow', "permission.bash: deny"),
+        ("opencode later wildcard allow", OPENCODE_REVIEWER, "bash: deny", 'bash: deny\n  "*": allow',
+         "sets permission ['*']"),
     ):
         mutated = dict(files)
         if old not in files[path]:

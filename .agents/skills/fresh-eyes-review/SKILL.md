@@ -3,7 +3,7 @@ name: fresh-eyes-review
 description: >-
   Use before declaring substantial work complete or a branch or pull request ready for review, when acting as an independent reviewer, or after review fixes cause material changes. Covers who reviews, what to hand the reviewer, the review rubric, when to review and re-review, and a cross-family recipe using a read-only reviewer from another model family.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=0af883fcbd504bad5e531199df20f48a1a3e8427fc49201afb4b1465fbb53b20 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=ea24d792f9d7f9b12dcb97b078421643d63dd31ce85acb87e62bbfd15250e654 -->
 
 # Independent fresh-eyes review
 
@@ -43,8 +43,9 @@ what each round changed, and your recommendation.
 
 ## Cross-family review recipe
 
-This recipe works in any harness. Save the diff, the requested outcome, and the
-relevant requirements to the session's scratch directory (see the
+This recipe works in any harness. Save the diff, the requested outcome, the
+relevant requirements, and the validation results to the session's scratch
+directory (see the
 `worktrees-and-scratch` skill), write the reviewer prompt to a file there, then
 run the reviewer read-only from inside a git worktree:
 

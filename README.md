@@ -224,34 +224,27 @@ points at it.
 The fresh-eyes review runs as a separate reviewer agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
-`fresh-eyes-review` skill. Neither gets an edit tool, and each file tells the
-reviewer which shell commands it may run.
+`fresh-eyes-review` skill. Neither gets an edit tool.
 
-The OpenCode reviewer also cannot launch subagents, and its shell rules deny
-every command except `git diff`, `git log` and `git show`, then deny any
-command containing `--output` or `>`. OpenCode matches each rule against each
-command in a shell line, and the last matching rule wins, so `git difftool`
-and `git log > notes` are denied
-([OpenCode permissions](https://opencode.ai/docs/permissions/), and
-`util/wildcard.ts`, `tool/shell.ts` and `permission/index.ts` in
+The OpenCode reviewer has no edit, subagent or shell permission, so it is
+read-only by permission: it reviews the diff and validation results the
+implementer hands it and reads files with OpenCode's read tools. It gets no
+shell because OpenCode's shell rules see each command in a line separately and
+keep a redirect only when it sits directly on one command, so an allowed
+`git log` still writes in `git diff && git log > notes` (`tool/shell.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
-current npm release, checked 2026-10-16). These rules narrow the shell but do
-not make it read-only. OpenCode drops a redirect on the last command of a `&&`
-list or a pipeline before matching, so `git diff && git log > notes` runs, as
-it does on OpenCode's `dev` branch. And `git diff /dev/null .env` prints an
-untracked `.env`, which OpenCode otherwise denies reading by default, because
-git compares a path outside the work tree as if `--no-index` were given
-([git-diff](https://git-scm.com/docs/git-diff), checked 2026-10-16).
+current npm release, checked 2026-10-16).
 
-Claude Code can block some of a subagent's Bash commands with a `PreToolUse`
-hook in the agent's frontmatter, which runs a script before each Bash command.
-The template would have to ship that script as an executable file, and Claude
-Code skips a project-level subagent's frontmatter hooks until the folder's
-workspace trust dialog is accepted, where "a `-p` session doesn't count as
-trusted" ([Claude Code subagents](https://code.claude.com/docs/en/sub-agents),
-checked 2026-10-16); the cross-family review recipe runs Claude Code as
-`claude -p`. So the Claude Code reviewer's shell is read-only by instruction
-alone: its file tells it to use Bash only for read-only commands.
+Claude Code could block a subagent's Bash commands with a `PreToolUse` hook in
+its frontmatter, but it skips a project subagent's frontmatter hooks in a
+folder whose workspace trust dialog was never accepted, and "a `-p` session
+doesn't count as trusted"
+([Claude Code subagents](https://code.claude.com/docs/en/sub-agents) and
+[permissions](https://code.claude.com/docs/en/permissions), checked
+2026-10-16); the cross-family review recipe runs `claude -p`. Such a hook would
+also have to parse shell commands, which the OpenCode case shows is hard to do
+completely. So the Claude Code reviewer is read-only by instruction: its file
+tells it to use Bash only for read-only commands.
 
 Why split it? Harnesses cut long instruction files off, and `## Project
 specifics` is last, so it's lost first:

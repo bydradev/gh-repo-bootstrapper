@@ -344,9 +344,11 @@ OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
 # differences load the agent with no frontmatter, so with the shell open
 # (packages/core/src/config/markdown.ts at v1.19.3, checked 2026-10-16). So the
 # reviewer's frontmatter is pinned line for line: a plain one-line description,
-# then exactly these lines.
+# then exactly these lines. The description starts with a letter, so neither
+# parser reads it as a number, and must read back as its own text, so no tag,
+# quote, anchor, flow mapping or comment changes it.
 OPENCODE_REVIEWER_FRONTMATTER = ("mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny")
-OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [ -9;-~]+")
+OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [A-Za-z][ -9;-~]*")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
@@ -863,11 +865,12 @@ def check_reviewer_agents(label: str, files: dict) -> list:
             if not (
                 head
                 and OPENCODE_REVIEWER_DESCRIPTION_RE.fullmatch(head[0])
+                and data.get("description") == head[0][len("description: ") :]
                 and tuple(head[1:]) == OPENCODE_REVIEWER_FRONTMATTER
             ):
                 errors.append(
-                    f"[{label}] {path} frontmatter must be a one-line 'description:' in printable ASCII "
-                    f"without a colon, then exactly {list(OPENCODE_REVIEWER_FRONTMATTER)}, since OpenCode's "
+                    f"[{label}] {path} frontmatter must be a one-line 'description:' of plain text in "
+                    f"printable ASCII that starts with a letter and has no colon, then exactly {list(OPENCODE_REVIEWER_FRONTMATTER)}, since OpenCode's "
                     "YAML parser reads other frontmatter differently and can load it with the shell open"
                 )
             if data.get("mode") != "subagent":
@@ -3363,9 +3366,9 @@ def _structure_self_tests() -> list:
     # Claude Code reviewer without its Bash rule, a primary mode, an OpenCode
     # edit, task or shell permission, a later OpenCode permission key that
     # could reopen them, another OpenCode frontmatter key, such as the
-    # deprecated `tools` map, or frontmatter OpenCode would read differently
-    # (a duplicate key, an early `---` line, a Unicode line break, a merge
-    # key), each fail.
+    # deprecated `tools` map, or frontmatter off the pinned lines (a duplicate
+    # key, an early `---` line, a Unicode line break, a merge key, or a tagged,
+    # non-ASCII, numeric or commented description), each fail.
     for name, path, old, new, needle in (
         ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
         ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
@@ -3392,6 +3395,14 @@ def _structure_self_tests() -> list:
         ("opencode unicode line break", OPENCODE_REVIEWER, "\nmode: subagent", "\u2028mode: subagent",
          "frontmatter must be"),
         ("opencode merge key", OPENCODE_REVIEWER, "  bash: deny", "  <<: {bash: allow}\n  bash: deny",
+         "frontmatter must be"),
+        ("opencode tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!str Use",
+         "frontmatter must be"),
+        ("opencode non-ascii description", OPENCODE_REVIEWER, "or ready.\n", "or ready.\u00e9\n",
+         "frontmatter must be"),
+        ("opencode numeric description", OPENCODE_REVIEWER, "description: Use", "description: 1e3 Use",
+         "frontmatter must be"),
+        ("opencode description comment", OPENCODE_REVIEWER, "or ready.\n", "or ready. #x\n",
          "frontmatter must be"),
     ):
         mutated = dict(files)

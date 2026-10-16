@@ -446,7 +446,11 @@ exception shown under [Template-owned files](#template-owned-files).
 
 Every other changed file belongs to the repository. `--adopt` reports it as
 `kept` and leaves it alone, and `--check` reports it as `differs`. Merge these
-changes by hand from the file in `templates/` at the `v0.11.0` tag:
+changes by hand from the file in `templates/` at the `v0.11.0` tag. For the
+`nextjs` scripts, take `verify-baselines.mjs`, `verify-baselines.test.mjs`,
+`audit-production.test.mjs` and `review-baselines.test.mjs` from the next
+release instead: their `v0.11.0` copies fail a generated repository's Prettier
+check and its ESLint `--max-warnings=0` run.
 
 | Type | Repository file | Template | Change |
 |---|---|---|---|

@@ -34,11 +34,24 @@ class RunbookTest(unittest.TestCase):
     def test_incident_run_ids_and_shas_are_reported(self):
         files = validate_templates.bootstrap.generate_files(next(
             cfg for _, cfg in validate_templates.configurations() if cfg["repo_type"] == "simple"))
-        files[self.path] += "\nRun 30244655509 fetched `d975919`; `main` was `4d583c5`.\n"
+        files[self.path] += (
+            "\nRun 30244655509 fetched `d975919`; `main` was `4d583c5`.\n"
+            "At 07:13:11 UTC the ref f0aef8e passed, with parent 1c54021.\n"
+        )
         errors = validate_templates.check_runbook("x", files)
-        for evidence in ("30244655509", "`d975919`", "`4d583c5`"):
-            self.assertTrue(any(repr(evidence) in error for error in errors), errors)
-        self.assertEqual(len(errors), 3, errors)
+        evidence = ("30244655509", "`d975919`", "`4d583c5`", "07:13:11", "f0aef8e", "1c54021")
+        for item in evidence:
+            self.assertTrue(any(repr(item) in error for error in errors), errors)
+        self.assertEqual(len(errors), len(evidence), errors)
+
+    def test_plain_words_and_short_numbers_are_not_incident_evidence(self):
+        # All-letter hex words, short hex, version numbers, dates and times
+        # without seconds stay allowed.
+        body = "# Runbook\n\n" + "\n".join(validate_templates.RUNBOOK_REQUIRED_PHRASES) + (
+            "\nA deadbeef or `defaced` word, e2e, sha256, v0.11.1, 2026-10-16, 07:13 and"
+            " a 64-digit hex string " + "0a" * 32 + " are fine.\n"
+        )
+        self.assertEqual(validate_templates.check_runbook("x", {self.path: body}), [])
 
     def test_the_stamp_digest_is_not_incident_evidence(self):
         # A digest of 64 digits would match the run-ID pattern if the stamp

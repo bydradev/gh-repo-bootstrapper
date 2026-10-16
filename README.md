@@ -28,8 +28,8 @@ anything installed beyond a base Python interpreter.
   and no write scope outside `release-please.yml`
 - rendered Release Please config *values*, not just that the JSON parses
 - the branch-protection payload, the runbook (its pinned rules, and no
-  incident run IDs or SHAs), and the Next.js lint/advisory baseline policy
-  documents
+  incident run IDs, SHAs or timestamps), and the Next.js lint/advisory
+  baseline policy documents
 - the shared `AGENTS.md` worktree and scratch-output rules, each type's
   mechanism for keeping a worktree's dependencies and build output from
   multiplying, `## Project specifics` as the last section, and the Next.js
@@ -643,8 +643,8 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   checks, most often release PRs, is a short symptom, check and action
   procedure at
   [`docs/branch-protection-runbook.md`](docs/branch-protection-runbook.md)
-  and ships into every generated repository. The incident its rules came
-  from, with its run IDs and SHAs, is kept only in this repository, in
+  and ships into every generated repository. The incident behind several of
+  its rules, with its run IDs and SHAs, is kept only in this repository, in
   [`docs/archive/branch-protection-incident.md`](docs/archive/branch-protection-incident.md).
 
 With `--configure-only` the repository already exists, so two of these are

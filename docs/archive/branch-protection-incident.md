@@ -6,26 +6,29 @@
 > only the procedure, and its evidence lives here, in the bootstrapper, not
 > in generated repositories.
 
-The incident happened in late July 2026, in another repository, before the
-bootstrapper's initial public release. The record does not name the
-repository. Every SHA, run ID and timestamp below comes from the runbook as it
-stood from the initial public release (`529f31f`) to 0.11.1 (`d441718`). Read
-its last full text with
-`git show v0.11.1:templates/docs-branch-protection-runbook.md`.
+The incident happened in another repository, before the bootstrapper's
+initial public release. The record does not name the repository or the exact
+day. "Late July 2026" comes from the runbook's first version, at the initial
+public release (`529f31f`), which said "Dates refer to late July 2026"; later
+versions dropped that line. Every SHA, run ID and timestamp below comes from
+the runbook as it stood from `529f31f` to 0.11.1 (`d441718`). Read its last
+full text with `git show v0.11.1:templates/docs-branch-protection-runbook.md`
+and its first with `git show 529f31f:docs/branch-protection-runbook.md`.
 
 ## What happened
 
 A Release Please PR was open against a protected `main` with required checks.
 Its bot head stayed at `3bfd1f0` while `main` advanced without it, because
-Release Please updates its PR only when the release notes change
-(googleapis/release-please `src/manifest.ts`, checked 2026-10-16). A file that
+by default Release Please updates its PR only when the release notes change
+(googleapis/release-please `src/manifest.ts`, unless `always-update` is set,
+checked 2026-10-16). A file that
 failed a required check on the PR had already been fixed on `main`, so the PR
 was blocked correctly by the rules and wrongly in substance: the checks had
 evaluated a merge result that no longer matched what would be merged.
 
 ## Timeline
 
-All times UTC, on one day in late July 2026:
+All times UTC, on one day the record does not give:
 
 - 06:07:15: `main` advanced to `4d583c5`, which fixed the failing file.
 - 07:01:42, 54 minutes later: a close and reopen created run `30244655509`,

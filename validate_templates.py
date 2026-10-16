@@ -39,7 +39,7 @@ Checks performed on each generated file:
     and for the Release Please release commit
   - runbook presence: every generated repo carries
     docs/branch-protection-runbook.md with the load-bearing operational facts,
-    and without the incident run IDs and SHAs kept in docs/archive/
+    and without the incident run IDs, SHAs and timestamps kept in docs/archive/
   - retired lanes: no generated file mentions the removed provider-deploy or
     production e2e lanes
   - the bootstrapper's own bug-report form offers exactly bootstrap.py's
@@ -350,9 +350,10 @@ BUG_FORM_UNLISTED_FLAGS = frozenset({"-h", "--help", "--name", "--type", "--org"
 
 # The runbook's rules, one phrase each: the live rule names the required checks;
 # a re-run replays the stale merge ref; update-branch is the deterministic
-# lever; a reported skip passes but a check that never reports blocks forever;
-# reusable-workflow check names; runs waiting for approval; old failures do not
-# block; and never weakening protection without explicit operator authorization.
+# lever; a reported skip passes but a check that never reports blocks forever,
+# and no stand-in may fake a required name; reusable-workflow check names; runs
+# waiting for approval; old failures do not block; and never weakening
+# protection without explicit operator authorization.
 RUNBOOK_REQUIRED_PHRASES = (
     "source of truth for required checks",
     "tests the same stale tree",
@@ -360,15 +361,23 @@ RUNBOOK_REQUIRED_PHRASES = (
     "update-branch",
     "skipped",
     "never reports",
+    "add a stand-in that reports its name",
     "{caller job} / {reusable job}",
     "Approve workflows to run",
     "latest result per check name",
     "disable protection",
     "explicit operator authorization",
 )
-# Run IDs and commit SHAs from the incident behind the runbook belong in
-# docs/archive/branch-protection-incident.md, never in the generated procedure.
-RUNBOOK_INCIDENT_ID_RE = re.compile(r"`[0-9a-f]{7,40}`|\b\d{9,}\b")
+# Run IDs, commit SHAs and timestamps from the incident behind the runbook
+# belong in docs/archive/branch-protection-incident.md, never in the generated
+# procedure: a backticked hex string with a digit, a bare hex string that mixes
+# letters and digits, a number of nine or more digits, or an HH:MM:SS time.
+RUNBOOK_INCIDENT_ID_RE = re.compile(
+    r"`(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}`"
+    r"|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}\b"
+    r"|\b\d{9,}\b"
+    r"|\b\d{2}:\d{2}:\d{2}\b"
+)
 RUNBOOK_INCIDENT_ARCHIVE = "docs/archive/branch-protection-incident.md"
 
 
@@ -3296,7 +3305,7 @@ def _structure_self_tests() -> list:
     expect("rewrapped runbook missing a phrase", check_runbook("self-test:runbook", rewrapped),
            repr(RUNBOOK_REQUIRED_PHRASES[dropped]))
     # Incident run IDs and SHAs belong in the archive, not the shipped runbook.
-    for evidence in ("30244655509", "`d975919`"):
+    for evidence in ("30244655509", "`d975919`", "4d583c5", "07:13:11"):
         with_evidence = dict(files)
         with_evidence[BRANCH_PROTECTION_RUNBOOK] += f"\nRun {evidence} failed.\n"
         expect(f"runbook naming {evidence}", check_runbook("self-test:runbook", with_evidence),

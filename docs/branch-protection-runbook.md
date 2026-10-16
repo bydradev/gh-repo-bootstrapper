@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=5d21d2d1a7023e875fcf7f918cc3e66768994226faafcff74af72b5d1758b09a -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=e368a3c156f2d3a4ea908a83c70b36f885df0a16f23ae688020f3679c8fb523c -->
 # Branch protection runbook
 
 Use this when a required check blocks a pull request, most often a release
@@ -12,49 +12,58 @@ checks: read it with the commands below, never from another repository.
   pull request whose current merge result reports every required check.
 - A reusable workflow's job reports as `{caller job} / {reusable job}`:
   `test / build` and `test / e2e` for Next.js, `test / test` for Python, Swift
-  and Rust. A required check must match that name, not the job name inside
-  `test.yml`.
-- Release Please uses a token from this repository's GitHub App, so its PRs
-  start checks without approval. The operator sets variable
-  `RELEASE_PLEASE_CLIENT_ID` and secret `RELEASE_PLEASE_APP_KEY`; never put
-  either value in source, logs, issues or pull requests. The workflow's own
-  `GITHUB_TOKEN` stays at `contents: read`. Rely on release automation only
-  after its first release PR reports every required check.
+  and Rust, not the job name inside `test.yml`.
+- Release Please uses this repository's GitHub App token, so its PRs start
+  checks without approval; the workflow's own `GITHUB_TOKEN` stays at
+  `contents: read`. The operator sets variable `RELEASE_PLEASE_CLIENT_ID` and
+  secret `RELEASE_PLEASE_APP_KEY`; never put either in source, logs, issues or
+  pull requests. Trust release automation once its first release PR reports
+  every required check.
 
 ## A check fails on code that `main` already fixed
 
-**Check:** compare the parents of the PR's test merge commit with the `main`
-tip. Release Please updates its PR only when the release notes change, so its
-checks can describe a tree that no longer exists.
+**Check:** compare the base the failing run tested (its checkout log reads
+`Merge <head> into <base>`) with the `main` tip. By default Release Please
+updates its PR only when the release notes change, so its checks can test an
+old base.
 
-**Action:** do not re-run the check. A re-run reuses the original event's
-commit and ref, so it tests the same stale tree. A new event, such as closing
-and reopening the PR, can still capture the stale merge ref, so check the
-parents again after it. For a deterministic fix, and only when authorized,
-call `update-branch`: it merges `main` into the PR branch and starts new runs.
-Release Please replaces that merge commit when it next updates its PR.
+**Action:** if the base is the `main` tip, the failure is real: fix it. If not,
+the result is stale. Do not re-run: a re-run reuses the original event's
+commit and ref, so it tests the same stale tree. Waiting may not help, and a
+fresh event, such as a close and reopen, can still capture the stale merge
+ref. After one, read `mergeable` and `merge_commit_sha` together (a read can
+start a recompute; `null` means read again) and check the merge commit's
+parents. If it is still stale and `update-branch` is not authorized, try
+another fresh event. When authorized, `update-branch` merges `main` into the
+PR branch and starts new runs; Release Please later replaces that merge
+commit.
 
 ## A required check stays pending
 
-**Check:** run `gh pr checks` and find the case that applies:
+**Check:** compare the live rule's required checks with the names
+`gh pr checks` lists; a check that never reported is missing from it.
 
 - A job skipped by its own `if:` reports `skipped`, which satisfies a required
-  check. `pr-title-check.yml` relies on this for Release Please's PRs.
+  check; `pr-title-check.yml` relies on this for Release Please's PRs. A job
+  skipped because a job it needs failed may also pass, though nothing ran.
 - A check that never reports stays pending forever. A workflow skipped by a
   path, branch or commit-message filter never reports, and `pull_request`
   workflows do not run while the PR has a merge conflict.
-- Runs on a PR created or updated with `GITHUB_TOKEN` wait for approval. Check
-  who opened the PR and whether its runs are waiting. Someone with write
-  access selects **Approve workflows to run**; the App token avoids the wait.
+- The rule may require a name the current CI never reports. Do not make a
+  required job skip itself or add a stand-in that reports its name to satisfy
+  the rule. Correcting a name in the rule is a protection change: ask the
+  operator.
+- Runs on a PR created or updated with `GITHUB_TOKEN` wait for approval:
+  check the PR's author and its runs. Someone with write access selects
+  **Approve workflows to run**; the App token avoids the wait.
 
 **Action:** make the workflow report, and keep the check required.
 
 ## The checks list shows an old failure
 
-**Check:** whether a newer success follows it. GitHub uses the latest result
-per check name on the latest commit, so that old failure does not block.
-
-**Action:** read `mergeStateStatus` for the real blocker.
+GitHub uses the latest result per check name on the latest commit, so an old
+failure followed by a success does not block. `mergeStateStatus` names the
+real blocker.
 
 ## Still blocked
 
@@ -73,18 +82,23 @@ ask for explicit operator authorization. An approved temporary change must:
 4. restore protection immediately; and
 5. independently re-query the complete rule, App IDs included, and diff it.
 
-Making the protected path work is always the preferred fix; a temporary
-change is never the normal release procedure.
+Making the protected path work is always preferred; a temporary change is
+never the normal release procedure.
 
 ## Commands
 
 ```sh
-gh api repos/<owner>/<repo>/branches/main/protection
-gh pr view <n> --repo <owner>/<repo> --json mergeable,mergeStateStatus,statusCheckRollup
-gh pr checks <n> --repo <owner>/<repo>
-gh api repos/<owner>/<repo>/pulls/<n> --jq .merge_commit_sha
-gh api repos/<owner>/<repo>/commits/<sha> --jq '[.parents[].sha]'
-gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch
+R=repos/<owner>/<repo>; O=<owner>/<repo>
+gh api $R/branches/main/protection
+gh api $R/branches/main/protection --jq '.required_status_checks.checks[] | [.context, .app_id] | @tsv'
+gh pr checks <n> -R $O
+gh api $R/commits/<head-sha>/check-runs --jq '.check_runs[] | [.name, .app.id] | @tsv'
+gh pr view <n> -R $O --json mergeStateStatus
+gh api $R/pulls/<n> --jq '[.mergeable, .merge_commit_sha] | @tsv'
+gh api $R/commits/<merge-sha> --jq '[.parents[].sha]'
+gh api $R/commits/main --jq .sha
+gh run view <run-id> -R $O --log | grep -m1 'HEAD is now at'
+gh api -X PUT $R/pulls/<n>/update-branch  # changes the PR branch; only when authorized
 ```
 
 ## Sources
@@ -93,11 +107,10 @@ Checked 2026-10-16:
 
 - docs.github.com: "About protected branches", "Troubleshooting required
   status checks", "Status checks", "Re-running workflows and jobs", "Events
-  that trigger workflows" (`pull_request`), "GITHUB_TOKEN", and "REST API
-  endpoints for pull requests".
-- googleapis/release-please, `src/manifest.ts`: an open release PR is updated
-  only when its notes change.
-- Not documented: the `{caller job} / {reusable job}` name (confirm it with
-  `gh pr checks`), the stale merge ref after a reopen, and the latest result
-  rule. gh-repo-bootstrapper's `docs/archive/branch-protection-incident.md`
-  records the July 2026 incident where the last two were observed.
+  that trigger workflows", "GITHUB_TOKEN", "REST API endpoints for pull
+  requests".
+- googleapis/release-please `src/manifest.ts`: without `always-update`, an
+  open release PR is updated only when its notes change.
+- Observed, not documented: check names, the checkout log line, and, in this
+  incident, the stale merge ref after a reopen and the latest result rule:
+  <https://github.com/bydradev/gh-repo-bootstrapper/blob/main/docs/archive/branch-protection-incident.md>

@@ -73,8 +73,10 @@ another App or integration does not satisfy a check the rule ties to an App,
 and results on an earlier commit do not count. A workflow job's check
 counts only when its run was triggered by `push`, `pull_request`,
 `pull_request_review`, `pull_request_target`, `deployment` or
-`deployment_status` (`merge_group` for a merge queue); `gh run view` shows the
-event, and a `workflow_dispatch` run's checks never count.
+`deployment_status` (`merge_group` for a merge queue), and a
+`workflow_dispatch` run's checks never count. The run ID is in the check's
+details URL (`.../actions/runs/<run-id>/job/...`), and
+`gh run view <run-id> --json event` shows the event.
 
 **Action:** if a failure still counts under those rules, it is real: fix it,
 or read the section above when `main` already fixed it. `mergeStateStatus`
@@ -107,8 +109,9 @@ R=repos/<owner>/<repo>; O=<owner>/<repo>
 gh api $R/branches/main/protection
 gh api $R/branches/main/protection --jq '.required_status_checks.checks[] | [.context, .app_id] | @tsv'
 gh pr checks <n> -R $O
-gh api --paginate "$R/commits/<sha>/check-runs?per_page=100" --jq '.check_runs[] | [.name, .app.id, .conclusion] | @tsv'
+gh api --paginate "$R/commits/<sha>/check-runs?per_page=100" --jq '.check_runs[] | [.name, .app.id, .conclusion, .details_url] | @tsv'
 gh api --paginate "$R/commits/<sha>/statuses?per_page=100" --jq '.[] | [.context, .state, .creator.login] | @tsv'
+gh run view <run-id> -R $O --json event
 gh pr view <n> -R $O --json mergeStateStatus
 gh api $R/pulls/<n> --jq '[.head.sha, .mergeable, .merge_commit_sha] | @tsv'
 gh api $R/commits/<merge-sha> --jq '[.parents[].sha]'

@@ -810,6 +810,83 @@ class ReleaseGateGuardTests(unittest.TestCase):
                     self.assertEqual(output.read_text(), expected_output)
 
 
+class ReleaseCredentialsGuardTests(unittest.TestCase):
+    """Without the Release Please App credentials, the release is skipped with a warning."""
+
+    CONDITION = "steps.credentials.outputs.configured == 'true'"
+    WARNING = (
+        "::warning::Release Please is not configured, or its credentials are not available to this run, "
+        "so releases are skipped until the RELEASE_PLEASE_CLIENT_ID variable and the "
+        "RELEASE_PLEASE_APP_KEY secret are both set."
+    )
+    # The bootstrapper's own release workflow carries the same check.
+    OWN_WORKFLOW = Path(bootstrap.__file__).parent / ".github" / "workflows" / "release-please.yml"
+
+    def _workflow(self, repo_type):
+        files = bootstrap.generate_files(
+            {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        )
+        return yaml.safe_load(files[".github/workflows/release-please.yml"])
+
+    def test_every_release_step_after_the_check_needs_both_credentials(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type=repo_type):
+                workflow = self._workflow(repo_type)
+                job = workflow["jobs"]["release-please"]
+                check, *rest = job["steps"]
+                self.assertEqual(check["id"], "credentials")
+                self.assertNotIn("if", check)
+                # Only whether each one is set reaches the step, never the key.
+                self.assertEqual(check["env"], {
+                    "HAS_CLIENT_ID": "${{ vars.RELEASE_PLEASE_CLIENT_ID != '' }}",
+                    "HAS_APP_KEY": "${{ secrets.RELEASE_PLEASE_APP_KEY != '' }}",
+                })
+                self.assertEqual(rest[0]["id"], "app-token")
+                self.assertTrue(rest[-1]["uses"].startswith("googleapis/release-please-action@"))
+                for step in rest:
+                    self.assertEqual(step.get("if"), self.CONDITION, step.get("name") or step.get("uses"))
+                # The job itself stays unconditional, and the test job still gates it.
+                self.assertNotIn("if", job)
+                if repo_type != "simple":
+                    self.assertEqual(job["needs"], "test")
+                    self.assertNotIn("if", workflow["jobs"]["test"])
+
+    def test_check_warns_and_skips_until_both_credentials_are_set(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        output = Path(tmp.name) / "github-output"
+        # GitHub renders each `!= ''` comparison in the step env as true or false.
+        cases = {
+            "both set": ("true", "true", "true"),
+            "no app key": ("true", "false", "false"),
+            "no client id": ("false", "true", "false"),
+            "neither set": ("false", "false", "false"),
+        }
+        workflows = {repo_type: self._workflow(repo_type) for repo_type in ("nextjs", "python", "simple")}
+        workflows["bootstrapper own"] = yaml.safe_load(self.OWN_WORKFLOW.read_text())
+        for source, workflow in workflows.items():
+            check = workflow["jobs"]["release-please"]["steps"][0]
+            self.assertEqual(check.get("id"), "credentials", source)
+            self.assertEqual(check.get("shell"), "bash")
+            for label, (client_id, app_key, configured) in cases.items():
+                with self.subTest(source=source, case=label):
+                    output.write_text("")
+                    # GitHub runs a bash step as `bash --noprofile --norc -eo pipefail {0}`.
+                    result = subprocess.run(
+                        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", check["run"]],
+                        capture_output=True, text=True,
+                        env={"PATH": "/usr/bin:/bin", "GITHUB_OUTPUT": str(output),
+                             "HAS_CLIENT_ID": client_id, "HAS_APP_KEY": app_key},
+                    )
+                    # A missing credential never fails the run; it warns instead.
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(output.read_text(), f"configured={configured}\n")
+                    if configured == "true":
+                        self.assertEqual(result.stdout, "")
+                    else:
+                        self.assertEqual(result.stdout, self.WARNING + "\n")
+
+
 class PythonToolInstallTests(unittest.TestCase):
     """The generated Python suite installs pinned tools only when the project has none."""
 

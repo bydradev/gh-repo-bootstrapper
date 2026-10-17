@@ -1797,6 +1797,42 @@ class ExistingRepositoryTests(unittest.TestCase):
         forged = gated.replace("template=release-please-gated.yml", "template=release-please-simple.yml", 1)
         self.assertFalse(bootstrap.stamp_is_valid(forged, True))
 
+    def test_adopt_adds_the_credentials_check_keeping_older_action_pins(self):
+        # A 0.11.1 release workflow, stamped as it shipped, whose Dependabot is
+        # behind: the check needs no newer action, so adopt upgrades it as
+        # stale and keeps the repository's own pins.
+        tools = Path(bootstrap.__file__).parent
+        rel = ".github/workflows/release-please.yml"
+        older = "@" + "c" * 40 + " # v2.0.0"
+        for repo_type, name in (
+            ("nextjs", "release-please-nextjs.yml"),
+            ("python", "release-please-gated.yml"),
+            ("simple", "release-please-simple.yml"),
+        ):
+            with self.subTest(repo_type=repo_type):
+                released = subprocess.run(
+                    ["git", "-C", str(tools), "show", f"v0.11.1:templates/{name}"], capture_output=True, text=True,
+                )
+                if released.returncode:
+                    self.skipTest("release tags unavailable")
+                self.assertNotIn("id: credentials", released.stdout)
+                pin = re.search(r"create-github-app-token(@\S+ # \S+)", released.stdout)[1]
+                shipped = bootstrap.stamp(released.stdout.replace(pin, older, 1), True, template=name)
+                # A fresh repository per case: adopt writes the other files.
+                self.repo = Path(self._tmp.name) / f"credentials-{repo_type}"
+                self.repo.mkdir()
+                files = _render(repo_type)
+                self._write(rel, shipped)
+                self._commit_all()
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
+                rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
+                self.assertEqual(rows[rel], "updated")
+                written = (self.repo / rel).read_text()
+                self.assertIn("create-github-app-token" + older, written)
+                self.assertTrue(bootstrap.stamp_is_valid(written, True))
+                self.assertEqual(bootstrap._unpinned(written), bootstrap._unpinned(files[rel]))
+                self.assertIn("id: credentials", written)
+
     def test_legacy_digest_table_is_reproducible(self):
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self._legacy_templates()):
             self.assertEqual(bootstrap.compute_legacy_digests(), self._legacy_docs(bootstrap.LEGACY_TEMPLATE_DIGESTS))

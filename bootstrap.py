@@ -110,30 +110,59 @@ _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
     "fresh-eyes-review", "delegation",
 )
-# A skill in some types but not all is type-specific: --check reports a stamped
-# copy of one under another --type as `(--type)`, and --adopt refuses. Before
-# removing a skill from one type while keeping it in another, plan how existing
-# repositories of the first type drop their stamped copy, or adopt will refuse.
+# The skills every configuration of a type generates; template_skills() adds
+# the screenshot-review skill when the configuration asks for it. A skill that
+# some configurations generate and others do not is configuration-specific:
+# --check reports a stamped copy of one that this configuration does not
+# generate as `(--type)`, and --adopt refuses. Before removing a skill from one
+# type while keeping it in another, plan how existing repositories of the
+# first type drop their stamped copy, or adopt will refuse.
 TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "simple": _GENERAL_SKILLS,
     "python": _GENERAL_SKILLS + ("local-validation-python",),
     "rust": _GENERAL_SKILLS + ("local-validation-rust",),
-    "swift": _GENERAL_SKILLS + ("local-validation-swift", "screenshot-review"),
-    "nextjs": _GENERAL_SKILLS + (
-        "local-validation-nextjs", "baseline-process", "screenshot-review",
-    ),
+    "swift": _GENERAL_SKILLS + ("local-validation-swift",),
+    "nextjs": _GENERAL_SKILLS + ("local-validation-nextjs", "baseline-process"),
 }
+# The screenshot-review skill and docs/screenshot-review.md are generated only
+# for these types, and only with --screenshots (cfg["screenshots"]). --check
+# and --adopt also turn it on for a repository of these types that already has
+# either file, so its stamped copies are updated rather than deleted.
+SCREENSHOT_REVIEW_SKILL = "screenshot-review"
+SCREENSHOT_TYPES = ("nextjs", "swift")
+SCREENSHOT_FILES = (f".agents/skills/{SCREENSHOT_REVIEW_SKILL}/SKILL.md", SCREENSHOT_REVIEW)
+SCREENSHOTS_QUESTION = "Add the screenshot-review skill and doc (for a screenshot capture lane)?"
+SCREENSHOTS_IGNORED = "warning: --screenshots is only used with --type nextjs or swift; ignoring"
 _TEMPLATE_AGENTS = {
     ".claude/agents/fresh-eyes-reviewer.md": "agents/claude-fresh-eyes-reviewer.md",
     ".opencode/agents/fresh-eyes-reviewer.md": "agents/opencode-fresh-eyes-reviewer.md",
 }
 
 
+def screenshot_review(cfg) -> bool:
+    """True when this configuration generates the screenshot-review skill and doc."""
+    return cfg["repo_type"] in SCREENSHOT_TYPES and bool(cfg.get("screenshots"))
+
+
+def template_skills(cfg) -> tuple[str, ...]:
+    """The template skills this configuration generates."""
+    names = TEMPLATE_SKILLS[cfg["repo_type"]]
+    return names + (SCREENSHOT_REVIEW_SKILL,) if screenshot_review(cfg) else names
+
+
+def _skill_sets() -> list[set[str]]:
+    """The template skill set of every configuration, with and without --screenshots."""
+    return [
+        set(template_skills({"repo_type": repo_type, "screenshots": screenshots}))
+        for repo_type in TEMPLATE_SKILLS for screenshots in (False, True)
+    ]
+
+
 def template_owned_paths(cfg) -> list[str]:
     """The complete template-owned manifest for this configuration."""
-    paths = [f".agents/skills/{name}/SKILL.md" for name in TEMPLATE_SKILLS[cfg["repo_type"]]]
+    paths = [f".agents/skills/{name}/SKILL.md" for name in template_skills(cfg)]
     paths += list(_TEMPLATE_AGENTS) + ["docs/branch-protection-runbook.md"]
-    if cfg["repo_type"] in ("nextjs", "swift"):
+    if screenshot_review(cfg):
         paths.append(SCREENSHOT_REVIEW)
     paths += [".github/workflows/pr-title-check.yml", ".github/workflows/release-please.yml"]
     if cfg["repo_type"] == "nextjs":
@@ -147,7 +176,7 @@ def _skill_mirrors(names) -> dict[str, str]:
 
 def generate_links(cfg) -> dict[str, str]:
     """Claude's relative directory mirrors of the shared skills."""
-    return _skill_mirrors(TEMPLATE_SKILLS[cfg["repo_type"]])
+    return _skill_mirrors(template_skills(cfg))
 
 
 def _digest(text: str) -> str:
@@ -607,6 +636,7 @@ def build_parser() -> argparse.ArgumentParser:
               ./bootstrap.py --name my-app --type swift --scheme MyApp --xcodegen
               ./bootstrap.py --name my-service --type rust --private
               ./bootstrap.py --name my-app --type nextjs --postgres --dry-run
+              ./bootstrap.py --name my-app --type nextjs --screenshots
               ./bootstrap.py --name my-app --type nextjs --configure-only
               ./bootstrap.py --check ../my-app --type nextjs
               ./bootstrap.py --adopt ../my-app --type nextjs
@@ -630,6 +660,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Target destination for xcodebuild test (swift only, default: iphone)")
     p.add_argument("--xcodegen", action="store_true",
                    help="Generate the Xcode project from project.yml in CI (swift only)")
+    p.add_argument("--screenshots", action="store_true",
+                   help="Add the screenshot-review skill and docs/screenshot-review.md, for a "
+                        "repository with a screenshot capture lane (nextjs and swift only)")
     p.add_argument("--configure-only", action="store_true",
                    help="Apply GitHub configuration to an existing repo (skip file generation)")
     existing = p.add_mutually_exclusive_group()
@@ -1084,6 +1117,7 @@ def gather_config(args) -> dict:
     scheme = ""
     destination = ""
     xcodegen = False
+    screenshots = False
 
     if repo_type == "nextjs":
         postgres = args.postgres
@@ -1095,6 +1129,9 @@ def gather_config(args) -> dict:
             print("warning: --xcodegen is only used with --type swift; ignoring")
         if not ni and not args.postgres:
             postgres = prompt_yn("Include PostgreSQL service in tests?", default=False)
+        screenshots = args.screenshots
+        if not ni and not args.screenshots:
+            screenshots = prompt_yn(SCREENSHOTS_QUESTION, default=False)
 
     elif repo_type == "swift":
         if args.postgres:
@@ -1116,6 +1153,9 @@ def gather_config(args) -> dict:
         xcodegen = args.xcodegen
         if not ni and not args.xcodegen:
             xcodegen = prompt_yn("Generate the Xcode project from project.yml?", default=False)
+        screenshots = args.screenshots
+        if not ni and not args.screenshots:
+            screenshots = prompt_yn(SCREENSHOTS_QUESTION, default=False)
 
     else:  # python, rust, simple
         if args.postgres:
@@ -1126,6 +1166,8 @@ def gather_config(args) -> dict:
             print("warning: --destination is only used with --type swift; ignoring")
         if args.xcodegen:
             print("warning: --xcodegen is only used with --type swift; ignoring")
+        if args.screenshots:
+            print(SCREENSHOTS_IGNORED)
 
     # --- GitHub variables and secrets ---
     # Non-interactive: read from environment variables.
@@ -1157,6 +1199,7 @@ def gather_config(args) -> dict:
         "scheme": scheme,
         "destination": destination,
         "xcodegen": xcodegen,
+        "screenshots": screenshots,
         "configure_only": configure_only,
         "release_please_client_id": release_please_client_id,
         "release_please_app_key": release_please_app_key,
@@ -1254,15 +1297,21 @@ _TYPE_SKILL_ROWS = {
     "nextjs": (
         "| run local validation | `local-validation-nextjs` |\n",
         "| touch lint or audit baselines | `baseline-process` |\n",
-        "| change screenshots or captured views | `screenshot-review` |\n",
     ),
-    "swift": (
-        "| run local validation | `local-validation-swift` |\n",
-        "| change screenshots or captured views | `screenshot-review` |\n",
-    ),
+    "swift": ("| run local validation | `local-validation-swift` |\n",),
     "rust": ("| run local validation | `local-validation-rust` |\n",),
     "python": ("| run local validation | `local-validation-python` |\n",),
 }
+_SCREENSHOT_SKILL_ROW = "| change screenshots or captured views | `screenshot-review` |\n"
+
+
+def _screenshot_doc(repo_type: str) -> str:
+    """docs/screenshot-review.md for a type in SCREENSHOT_TYPES, before its stamp."""
+    return _compose(
+        _load("docs-screenshot-review-common.md"),
+        "PLATFORM_GUIDANCE",
+        _load(f"docs-screenshot-review-{repo_type}.md"),
+    )
 
 
 def generate_files(cfg: dict) -> dict:
@@ -1271,6 +1320,7 @@ def generate_files(cfg: dict) -> dict:
     postgres = cfg["postgres"]
     destination = cfg.get("destination") or "iphone"
     xcodegen = bool(cfg.get("xcodegen"))
+    screenshots = screenshot_review(cfg)
 
     files = {}
 
@@ -1304,14 +1354,12 @@ def generate_files(cfg: dict) -> dict:
         files[NEXTJS_ENFORCED_AUDIT_SCRIPT] = _load("audit-production.mjs")
         for path in NEXTJS_BASELINE_SCRIPTS:
             files[path] = _load(path.removeprefix("scripts/"))
-        screenshot_guidance = _load("docs-screenshot-review-nextjs.md")
     elif repo_type == "python":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
         files[".github/workflows/ci.yml"] = _load("ci.yml")
         files[".github/workflows/test.yml"] = _load("test-python.yml")
         files[".github/dependabot.yml"] = _load("dependabot-python.yml")
         files[".python-version"] = _load(".python-version")
-        screenshot_guidance = ""
 
     elif repo_type == "swift":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
@@ -1326,7 +1374,6 @@ def generate_files(cfg: dict) -> dict:
         # Dependabot entry at this point creates a permanently failing updater.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
         files[".swift-format"] = _load(".swift-format")
-        screenshot_guidance = _load("docs-screenshot-review-swift.md")
 
     elif repo_type == "rust":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
@@ -1336,19 +1383,13 @@ def generate_files(cfg: dict) -> dict:
         # Dependabot entry would be a permanently failing updater until one
         # exists. The generated AGENTS.md says when to add it.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
-        screenshot_guidance = ""
 
     else:  # simple
         files[".github/workflows/release-please.yml"] = _load("release-please-simple.yml")
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
-        screenshot_guidance = ""
 
-    if repo_type in ("nextjs", "swift"):
-        files[SCREENSHOT_REVIEW] = _compose(
-            _load("docs-screenshot-review-common.md"),
-            "PLATFORM_GUIDANCE",
-            screenshot_guidance,
-        )
+    if screenshots:
+        files[SCREENSHOT_REVIEW] = _screenshot_doc(repo_type)
 
     # Every generated repo is born with the runbook for the protection applied
     # below — all types get release-please, pr-title-check and required checks.
@@ -1392,18 +1433,18 @@ def generate_files(cfg: dict) -> dict:
     agents = _load("AGENTS.md")
     agents = _compose(agents, "TYPE_PREAMBLE", preamble)
     agents = _compose(agents, "TYPE_TOOLING", tooling)
-    agents = _compose(agents, "SKILL_ROWS_TYPE", "".join(_TYPE_SKILL_ROWS.get(repo_type, ())))
-    if repo_type in ("nextjs", "swift"):
-        # The screenshot privacy and pre-commit review gates stay in the hub;
-        # the fragment points at the screenshot-review skill for the process.
-        agents = _compose(
-            agents, "SCREENSHOT_REVIEW_REF", _load("AGENTS-screenshot-review-ref-skill.md")
-        )
-    else:
-        # No screenshot-review skill for this type: keep the generic rule inline.
-        agents = _compose(
-            agents, "SCREENSHOT_REVIEW_REF", _load("AGENTS-screenshot-review-ref-generic.md")
-        )
+    skill_rows = "".join(_TYPE_SKILL_ROWS.get(repo_type, ()))
+    if screenshots:
+        skill_rows += _SCREENSHOT_SKILL_ROW
+    agents = _compose(agents, "SKILL_ROWS_TYPE", skill_rows)
+    # The screenshot privacy and pre-commit review gates stay in the hub for
+    # every configuration. With the screenshot-review skill, the fragment points
+    # at it for the process; without it, the fragment must not.
+    agents = _compose(
+        agents, "SCREENSHOT_REVIEW_REF",
+        _load("AGENTS-screenshot-review-ref-skill.md" if screenshots
+              else "AGENTS-screenshot-review-ref-generic.md"),
+    )
     files["AGENTS.md"] = agents
     files[".gitignore"] = _load(".gitignore")
     if repo_type == "swift" and xcodegen:
@@ -1413,7 +1454,7 @@ def generate_files(cfg: dict) -> dict:
     files["release-please-config.json"] = _release_please_config(name, repo_type)
     files[".release-please-manifest.json"] = json.dumps({".": "0.1.0"}, indent=2) + "\n"
 
-    for skill in TEMPLATE_SKILLS[repo_type]:
+    for skill in template_skills(cfg):
         content = _load(f"skills/{skill}/SKILL.md")
         if skill == "local-validation-swift":
             content = _compose(content, "XCODEGEN_DEPENDENCY_NOTE", _extract_section(delta, "DEPENDENCY_NOTE"))
@@ -2358,11 +2399,12 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
         Path(path).parent.name: path for path in files
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
     }
-    # Another type's template skills would be deleted as orphans under a wrong
-    # --type; they are reported instead, and compare_repository turns any of
-    # them into a (--type) refusal.
-    every = {name for names in TEMPLATE_SKILLS.values() for name in names}
-    shared = set.intersection(*(set(names) for names in TEMPLATE_SKILLS.values()))
+    # Template skills that this configuration does not render, such as another
+    # type's, would be deleted as orphans under a wrong --type or a missing
+    # --screenshots; they are reported instead, and compare_repository turns
+    # any of them into a (--type) refusal.
+    sets = _skill_sets()
+    every, shared = set.union(*sets), set.intersection(*sets)
     other_type = every - shared - set(skill_paths) if skill_paths else set()
     extras.update(_symlinked_skill_collisions(repo_dir, files, skill_paths))
     for base in (".agents/skills", ".claude/agents", ".opencode/agents"):
@@ -2406,7 +2448,12 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
                         extras[skill_paths[skill_name]] = ("shadowed", f"shadowed by {rel}")
                         continue
                     if stamped and skill_name in other_type:
-                        extras[rel] = ("other-type", f"template skill `{skill_name}` of another repository type")
+                        extras[rel] = ("other-type", (
+                            f"template skill `{skill_name}`, which only --type "
+                            f"{' or '.join(SCREENSHOT_TYPES)} with --screenshots generates"
+                            if skill_name == SCREENSHOT_REVIEW_SKILL
+                            else f"template skill `{skill_name}` of another repository type"
+                        ))
                         continue
                 if stamped:
                     extras[rel] = (
@@ -2491,10 +2538,10 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     if mismatch:
         report[TYPE_MISMATCH] = (
             "differs",
-            "this repository holds template skills of another repository type ("
+            "this repository holds template skills that this configuration does not generate ("
             + ", ".join(mismatch)
-            + "), which this --type does not generate; re-run with the type the repository "
-            "was generated with",
+            + "); re-run with the --type, and --screenshots where it applies, that the "
+            "repository was generated with",
         )
     for rel, target in links.items():
         path = repo_dir / rel
@@ -2537,6 +2584,9 @@ def _retired_section_text(repo_dir: Path, rows: list) -> dict[str, list[str]]:
 def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     """Print a --check report; return True when the repository is aligned."""
     print(f"\n{repo_dir} — compared with the '{cfg['repo_type']}' template")
+    notice = screenshot_review_notice(cfg)
+    if notice:
+        print(f"  {notice}")
     aligned = True
     for rel, (status, detail) in sorted(report.items()):
         if status != "same":
@@ -2795,7 +2845,8 @@ def adopt_repository(
     mirrors = _links_for_files(files) if links is None else links
     report = compare_repository(repo_dir, files) if links is None else compare_repository(repo_dir, files, links)
     if TYPE_MISMATCH in report:
-        # A wrong --type would delete the real type's skills as orphans.
+        # A wrong --type or a missing --screenshots would delete the template
+        # skills this configuration does not render as orphans.
         return [("refused", TYPE_MISMATCH, report[TYPE_MISMATCH][1] + "; nothing was changed")]
     for rel, (status, detail) in sorted(report.items()):
         try:
@@ -2890,6 +2941,15 @@ def _adopt_file(
                 "refused", rel,
                 "edited locally; move the repository's own jobs or steps into a separate "
                 "workflow, then delete the file to regenerate (see README, Template-owned files)",
+            )
+        if rel in SCREENSHOT_FILES:
+            # Detection only sees the template's copies, so once this file is
+            # deleted a re-run without the flag may turn screenshot review off.
+            return (
+                "refused", rel,
+                "edited locally; move the change to ## Project specifics or a repo-owned skill, "
+                "then delete the file and re-run with --screenshots to regenerate it (without "
+                "the flag, a repository with neither screenshot file drops screenshot review)",
             )
         return (
             "refused", rel,
@@ -3067,6 +3127,17 @@ def existing_repository_config(args) -> dict:
     repo_dir = Path(raw).expanduser().resolve()
     if not repo_dir.is_dir():
         _die(f"not a directory: {repo_dir}")
+    screenshots, found = bool(args.screenshots), []
+    if args.repo_type not in SCREENSHOT_TYPES:
+        if screenshots:
+            print(SCREENSHOTS_IGNORED)
+        screenshots = False
+    elif not screenshots:
+        # A repository generated before --screenshots existed has the skill and
+        # doc; without this, --adopt would delete the stamped skill as orphaned.
+        found = [rel for rel in SCREENSHOT_FILES
+                 if _template_screenshot_file(repo_dir, rel, args.repo_type)]
+        screenshots = bool(found)
     return {
         "name": existing_repository_name(repo_dir),
         "repo_dir": str(repo_dir),
@@ -3075,7 +3146,47 @@ def existing_repository_config(args) -> dict:
         "scheme": args.scheme or "",
         "destination": args.destination or "iphone",
         "xcodegen": bool(args.xcodegen),
+        "screenshots": screenshots,
+        "screenshots_found": found,
     }
+
+
+def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
+    """Whether the repository has the template's copy of a screenshot file.
+
+    That is a file with a stamp line, valid or edited, or an unstamped
+    docs/screenshot-review.md whose body is the current one or one a release
+    shipped before stamps. A repository's own file at that path, such as its
+    own screenshot-review process, does not count; nor does one behind a
+    symlink or one that cannot be read, which --adopt refuses rather than
+    deletes either way.
+    """
+    path = repo_dir / rel
+    if _symlink_in_path(repo_dir, rel) or not path.is_file():
+        return False
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    if any(line.startswith(STAMP_PREFIX) for line in text.splitlines()):
+        return True
+    if rel != SCREENSHOT_REVIEW:
+        return False
+    expected = stamp(_screenshot_doc(repo_type))
+    return _template_file_state(rel, expected, text) in ("same", "stale")
+
+
+def screenshot_review_notice(cfg: dict) -> str | None:
+    """Why --check or --adopt kept screenshot review on without --screenshots."""
+    found = cfg.get("screenshots_found")
+    if not found:
+        return None
+    return (
+        f"notice: screenshot review is on without --screenshots, because the repository "
+        f"has the template's {' and '.join(found)}; pass --screenshots to silence this. "
+        f"To regenerate a screenshot file you deleted, re-run with --screenshots; to drop "
+        f"screenshot review, see the README's \"Upgrading to 0.12.0\""
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3097,6 +3208,8 @@ def print_dry_run(cfg: dict, files: dict):
             f"Destination: {cfg.get('destination', 'iphone')}  |  "
             f"XcodeGen: {cfg.get('xcodegen', False)}"
         )
+    if cfg["repo_type"] in SCREENSHOT_TYPES:
+        print(f"  Screenshot review: {screenshot_review(cfg)}")
     print(f"{'=' * 60}\n")
 
     for path in sorted(files):
@@ -3497,6 +3610,9 @@ def main():
             aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
             sys.exit(0 if aligned else 1)
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
+        notice = screenshot_review_notice(cfg)
+        if notice:
+            print(f"  {notice}")
         def confirm(sections):
             print("\nAGENTS.md: these generated sections differ from the template and will be")
             print("replaced with its text, are retired and will be removed, or are missing and")
@@ -3559,12 +3675,13 @@ def main():
     vis = "private" if cfg["private"] else "public"
     print(f"\nAbout to create: {cfg['owner']}/{cfg['name']} ({cfg['repo_type']}, {vis})")
     print(f"  Local path: {cfg['repo_dir']}/")
-    if cfg["repo_type"] == "nextjs":
-        extras = []
-        if cfg["postgres"]:
-            extras.append("Postgres tests")
-        if extras:
-            print(f"  Extras: {', '.join(extras)}")
+    extras = []
+    if cfg["repo_type"] == "nextjs" and cfg["postgres"]:
+        extras.append("Postgres tests")
+    if screenshot_review(cfg):
+        extras.append("screenshot review")
+    if extras:
+        print(f"  Extras: {', '.join(extras)}")
     print(f"  Files:  {len(files)}")
 
     if not args.non_interactive:

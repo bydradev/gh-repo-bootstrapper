@@ -110,14 +110,12 @@ well.
   including failure paths where practical. For user-facing changes, also
   verify the rendered or running product; tests alone do not establish visual
   or interaction quality.
-- Screenshot guidance is capability-conditional: do not assume browser or
-  native capture tooling exists in this repository. Treat screenshot
-  generation and visual approval as separate gates. For changes affecting
-  tracked screenshots or captured views, follow the repository's documented
-  screenshot-review process when present. A successful screenshot-generation
-  workflow means only that artifacts were produced; it is not visual approval.
-  Never capture live or private data, and do not commit regenerated assets
-  until the required visual and privacy review has passed.
+- Treat screenshot generation and visual approval as separate gates. For
+  changes to tracked screenshots or captured views, follow the repository's
+  documented screenshot-review process when present. A successful
+  screenshot-generation workflow means only that artifacts were produced; it is
+  not visual approval. Never capture live or private data, and do not commit
+  regenerated assets until the required visual and privacy review has passed.
 - Have a different agent or reviewer review substantial work before it is done
   or ready for review (`fresh-eyes-review`); resolve valid blocking findings.
 - Check platform, API, or dependency capability claims, and anything

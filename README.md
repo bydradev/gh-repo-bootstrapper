@@ -131,6 +131,7 @@ confirm before creating anything.
 | `--scheme TEXT` | Xcode scheme name for `xcodebuild test` (swift only) |
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
+| `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs and swift only) |
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
@@ -149,6 +150,9 @@ confirm before creating anything.
 
 # Next.js with PostgreSQL tests in an org
 ./bootstrap.py --name data-app --type nextjs --postgres --org my-org
+
+# Next.js app with a screenshot capture lane
+./bootstrap.py --name my-site --type nextjs --screenshots
 
 # Python library
 ./bootstrap.py --name my-tool --type python --public
@@ -197,7 +201,7 @@ when they're relevant:
 | Skill (`.agents/skills/<name>/SKILL.md`) | Types |
 |---|---|
 | `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `delegation` | all |
-| `screenshot-review` | `nextjs`, `swift` |
+| `screenshot-review` | `nextjs`, `swift`, with `--screenshots` |
 | `baseline-process` | `nextjs` |
 | `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
 
@@ -206,7 +210,12 @@ capture lane (image classes, complete-set review, acceptance criteria, promotion
 safety) without naming any capture tool. A repository with its own capture lane
 or visual-verification procedure keeps those facts in a repository-owned skill,
 or a section of one, and names it in `## Project specifics`;
-`screenshot-review` tells agents to load that skill first.
+`screenshot-review` tells agents to load that skill first. The skill and
+`docs/screenshot-review.md` are generated only with `--screenshots`. Every hub
+keeps the screenshot gates in *Definition of done*: generation is not visual
+approval, no live or private data, and no regenerated assets committed before
+review. Without the skill, that bullet sends agents to the repository's own
+screenshot-review process when it has one.
 
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
@@ -260,7 +269,7 @@ changes:
 - the generated skills;
 - the two reviewer agents;
 - `docs/branch-protection-runbook.md`;
-- `docs/screenshot-review.md`;
+- `docs/screenshot-review.md` (`nextjs` and `swift`, with `--screenshots`);
 - `.github/workflows/pr-title-check.yml`;
 - `.github/workflows/release-please.yml`;
 - `.github/workflows/baseline-review.yml` (`nextjs`).
@@ -359,6 +368,12 @@ Repositories adopted before stamps existed may have edited a legacy
 `docs/branch-protection-runbook.md` or `docs/screenshot-review.md`. Migrate
 once: move the local changes into `## Project specifics` or a repository-owned
 skill, delete the old file, and run `--adopt` to write the stamped version.
+For `docs/screenshot-review.md`, run `--adopt --screenshots`: without the flag,
+a `nextjs` or `swift` repository left with no template copy of the
+screenshot-review skill or doc counts as not using screenshot review, so
+`--adopt` refuses its `AGENTS.md`, and with `--replace-generated-sections`
+takes the skill's row and pointer out of the hub. The same holds for an
+edited, stamped screenshot-review skill or doc that you delete to regenerate.
 `--check` shows the local changes as a diff against the nearest released body.
 The diff needs the bootstrapper's git release tags; from a copy without them,
 `--check` prints a notice and skips it.
@@ -389,11 +404,21 @@ material into a repository-owned skill.
 Pass the same
 type options the repository was generated with — `--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
-they shape report as drift. Pass the same `--type` too: when the repository
-holds a template-owned skill of another type (for example
-`local-validation-nextjs` under `--type simple`), `--check` reports `(--type)`
-and `--adopt` refuses before changing anything, since it would otherwise
-delete that type's skills. For `AGENTS.md` it reports per section: a
+they shape report as drift. `--screenshots` is the exception: a `nextjs` or
+`swift` repository that already has the template's copy of
+`.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
+treated as using it, and the report says so, so `--adopt` keeps and updates
+those files without the flag. The template's copy is a file with a stamp line,
+edited or not, or an unstamped doc whose text a release shipped. A
+repository's own `docs/screenshot-review.md`, such as its own screenshot-review
+process, does not count. Without the template's skill it is left alone; next
+to the template's skill it is reported as `local-modified`, as before, so
+move it to another path first. Pass the same
+`--type` too: when the repository holds a template-owned skill of another type
+(for example `local-validation-nextjs` under `--type simple`), or a stamped
+`screenshot-review` skill this configuration does not generate, `--check`
+reports `(--type)` and `--adopt` refuses before changing anything, since it
+would otherwise delete those skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local` —
 repository text outside `## Project specifics`, including a subsection added
@@ -459,6 +484,20 @@ also removes the old guidance paragraphs from `## Project specifics` when
 they are unedited and above its first subheading, because the guidance is
 now in a generated section, and `--adopt` writes `docs/current-work.md` when
 it is missing.
+
+The `screenshot-review` skill and `docs/screenshot-review.md` are now
+generated only with `--screenshots`. Existing `nextjs` and `swift`
+repositories keep theirs: `--check` and `--adopt` treat a repository that has
+the template's copy of either file as using `--screenshots` (see
+[Checking and adopting](#checking-and-adopting)), and passing the flag
+silences their notice. To drop them, move any rule of your own into a
+repository-owned skill, delete `.agents/skills/screenshot-review/`, its mirror
+`.claude/skills/screenshot-review` and `docs/screenshot-review.md`, then run
+`--adopt --replace-generated-sections`, which also takes the skill's row and
+pointer out of the hub. To add them to a repository later, run
+`--adopt --screenshots --replace-generated-sections`. Without the skill, the
+screenshot bullet in *Definition of done* keeps the screenshot gates but drops
+"Screenshot guidance is capability-conditional".
 
 `--replace-generated-sections` replaces a generated section that differs
 without showing its text. Before running it, compare each section `--check`
@@ -550,6 +589,8 @@ Full CI pipeline for Next.js applications.
 Options:
 
 - `--postgres` — adds a PostgreSQL 16 service container to the build job
+- `--screenshots` — adds the `screenshot-review` skill and
+  `docs/screenshot-review.md`, for an app with a screenshot capture lane
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
 caller contract. `test.yml` is necessarily scaffold-general: it retains that
@@ -603,7 +644,9 @@ CI pipeline for Swift/Xcode projects.
 
 Requires `--scheme`. Destination defaults to `iphone` (an available iPhone
 simulator, picked dynamically in CI); pass `--destination ipad` for an iPad
-simulator or `--destination macos` for a macOS destination.
+simulator or `--destination macos` for a macOS destination. Pass
+`--screenshots` for an app with a screenshot capture lane: it adds the
+`screenshot-review` skill and `docs/screenshot-review.md`.
 
 Pass `--xcodegen` when `project.yml` will be the source of truth and generated
 `.xcodeproj` output should stay out of git. The generated `AGENTS.md` explains
@@ -754,7 +797,10 @@ it separate from `release-please.yml`.
 ## Non-interactive mode
 
 All prompts can be bypassed by combining `--non-interactive` with the relevant
-flags. Secrets and the Release Please key are read from environment variables:
+flags. The optional features `--postgres`, `--xcodegen` and `--screenshots`
+stay off unless their flag is passed; an interactive run asks about each, with
+No as the default. Secrets and the Release Please key are read from
+environment variables:
 
 | Environment variable | Used when |
 |---|---|

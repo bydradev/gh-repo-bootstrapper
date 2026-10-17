@@ -5,6 +5,7 @@ import inspect
 import io
 import re
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import validate_templates
@@ -139,6 +140,43 @@ class ValidatorWiringTests(unittest.TestCase):
             code, out = self._main(fixtures_per_run=0)
             self.assertEqual(code, 1)
             self.assertIn("no hub/skill/stamp self-test fixture ran", out)
+
+
+class OwnTemplateCopyTests(unittest.TestCase):
+    # Listed by hand, like CHECKS: lists derived from the check's own
+    # constants would shrink along with them.
+    COVERED = (
+        "AGENTS.md", "CLAUDE.md", ".agents/skills/x/SKILL.md", ".claude/skills/x",
+        ".claude/agents/x.md", ".opencode/agents/x.md",
+    )
+    FAILING = (
+        "stale", "local-modified", "missing", "differs", "orphaned", "dangling", "other-type",
+        "shadowed", "symlink", "ignored", "unreadable",
+    )
+
+    def _check(self, report):
+        with patch.object(validate_templates.bootstrap, "compare_repository", return_value=report):
+            return validate_templates.check_own_template_copies("t", Path("."))
+
+    def test_every_status_but_same_fails_in_every_covered_path(self):
+        for rel in self.COVERED:
+            self.assertEqual(self._check({rel: ("same", None)}), [], rel)
+            for status in self.FAILING:
+                with self.subTest(rel=rel, status=status):
+                    errors = self._check({rel: (status, None)})
+                    self.assertEqual(len(errors), 1, errors)
+                    self.assertIn(f"{rel} does not match this repository's `--type simple` render: {status}", errors[0])
+
+    def test_files_outside_the_agent_files_are_not_checked(self):
+        for rel in ("README.md", ".github/workflows/pr-title-check.yml", "docs/current-work.md", "(--type)"):
+            self.assertEqual(self._check({rel: ("local-modified", None)}), [], rel)
+
+    def test_a_bare_shadowed_skill_says_how_to_restore_it(self):
+        errors = self._check({".agents/skills/x/SKILL.md": ("shadowed", None)})
+        self.assertIn("shadowed, an unstamped file at a template skill's path; move any change", errors[0])
+        self.assertIn("then delete it and run `./bootstrap.py --adopt . --type simple --non-interactive`", errors[0])
+        detailed = self._check({".agents/skills/x/SKILL.md": ("shadowed", "frontmatter name collides")})
+        self.assertTrue(detailed[0].endswith("shadowed, frontmatter name collides"), detailed)
 
 
 class StalePinTests(unittest.TestCase):

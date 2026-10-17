@@ -818,12 +818,14 @@ def _frontmatter(text: str):
         data = yaml.load("\n".join(lines[1:end]), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:
         return None, f"has invalid YAML frontmatter — {exc}"
-    except (ValueError, KeyError, AttributeError, TypeError) as exc:
-        # SafeLoader's constructors raise these, not a YAMLError, for a
-        # malformed tagged value: `!!bool Use` a KeyError, `!!int x` a
-        # ValueError, `!!timestamp x` an AttributeError, and an unhashable
-        # key such as `? !!set {a}` a TypeError.
-        return None, f"has a frontmatter value PyYAML cannot construct — {type(exc).__name__}: {exc}"
+    except Exception as exc:
+        # SafeLoader raises plain Python exceptions, not a YAMLError, for many
+        # malformed values: `!!bool Use` a KeyError, `!!int ""` an IndexError,
+        # `!!timestamp x` an AttributeError, a 180-part base-60 `!!float` an
+        # OverflowError, an unhashable key a TypeError, and deep nesting a
+        # RecursionError. Listing them misses the next one, so the validator
+        # reports any of them instead of crashing.
+        return None, f"has frontmatter PyYAML cannot load — {type(exc).__name__}: {exc}"
     if not isinstance(data, dict):
         return None, "frontmatter is not a mapping"
     return data, None
@@ -2480,7 +2482,13 @@ def check_own_template_copies(label: str, repo_dir: Path) -> list:
         # and stamps its pr-title-check.yml; neither change belongs in the fix.
         adopt = "`./bootstrap.py --adopt . --type simple --non-interactive{}`"
         commit = ", committing only the agent files it changes"
-        if status in ("shadowed", "symlink", "ignored", "unreadable"):
+        if status == "shadowed" and not detail:
+            # bootstrap gives no detail for a template skill's path holding an
+            # unstamped file, such as the copy with its stamp line deleted.
+            detail = "an unstamped file at a template skill's path"
+            fix = ("move any change you want to keep into the template under templates/, then delete "
+                   "it and run " + adopt.format("") + commit)
+        elif status in ("shadowed", "symlink", "ignored", "unreadable"):
             fix = None  # the detail says what is wrong, such as a name collision to rename
         elif rel == "AGENTS.md":
             if isinstance(detail, list):
@@ -3674,7 +3682,13 @@ def _structure_self_tests() -> list:
         ("opencode description comment", OPENCODE_REVIEWER, "or ready.\n", "or ready. #x\n",
          "frontmatter must be"),
         ("opencode bool-tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!bool Use",
-         "PyYAML cannot construct"),
+         "PyYAML cannot load — KeyError"),
+        ("opencode empty int-tagged value", OPENCODE_REVIEWER, "mode: subagent", 'mode: subagent\nx: !!int ""',
+         "PyYAML cannot load — IndexError"),
+        ("opencode base-60 float value", OPENCODE_REVIEWER, "mode: subagent",
+         "mode: subagent\nx: !!float " + ":".join(["1"] * 180), "PyYAML cannot load — OverflowError"),
+        ("opencode deeply nested value", OPENCODE_REVIEWER, "mode: subagent",
+         "mode: subagent\nx: " + "[" * 5000 + "]" * 5000, "PyYAML cannot load — RecursionError"),
     ):
         mutated = dict(files)
         if old not in files[path]:
@@ -3924,8 +3938,8 @@ def _structure_self_tests() -> list:
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
 
     # This repository's own agent files: a copy of the render passes, Project
-    # specifics are its own, and an edited, stale, missing or extra copy, a
-    # moved link, or an edited generated hub section fails.
+    # specifics are its own, and an edited, stale, missing, unstamped or extra
+    # copy, a moved link, or an edited generated hub section fails.
     own = {
         rel: text for rel, text in bootstrap.generate_files(dict(OWN_COPY_CONFIG)).items()
         if rel in OWN_COPY_FILES or rel.startswith(OWN_COPY_DIRS)
@@ -3934,12 +3948,17 @@ def _structure_self_tests() -> list:
     link_rel = f".claude/skills/{Path(skill_rel).parent.name}"
     stale_skill = bootstrap.stamp(bootstrap.read_stamp(own[skill_rel])[1] + "\nAn older line.\n")
     orphan = ".agents/skills/retired/SKILL.md"
+    other_type = ".agents/skills/local-validation-nextjs/SKILL.md"
     for name, edits, failure in (
         ("own copies of the render", {}, None),
         ("own Project specifics edited", {HUB: own[HUB] + "\nOur own rule.\n"}, None),
         ("own skill edited", {skill_rel: own[skill_rel] + "\nA local edit.\n"}, (skill_rel, "local-modified")),
         ("own skill stale", {skill_rel: stale_skill}, (skill_rel, "stale")),
         ("own skill missing", {skill_rel: None}, (skill_rel, "missing")),
+        ("own skill unstamped", {skill_rel: bootstrap.read_stamp(own[skill_rel])[1]},
+         (skill_rel, "shadowed, an unstamped file at a template skill's path; move any change")),
+        ("own Claude reviewer edited", {CLAUDE_REVIEWER: own[CLAUDE_REVIEWER] + "\nA local edit.\n"},
+         (CLAUDE_REVIEWER, "local-modified")),
         ("own OpenCode reviewer shell open",
          {OPENCODE_REVIEWER: own[OPENCODE_REVIEWER].replace("  bash: deny", "  bash: allow", 1)},
          (OPENCODE_REVIEWER, "local-modified")),
@@ -3949,6 +3968,9 @@ def _structure_self_tests() -> list:
         ("own CLAUDE.md edited", {"CLAUDE.md": own["CLAUDE.md"] + "Read the README too.\n"}, ("CLAUDE.md", "differs")),
         ("own retired template skill", {orphan: bootstrap.stamp("---\nname: retired\ndescription: x\n---\n")},
          (orphan, "orphaned")),
+        ("own other type's template skill",
+         {other_type: bootstrap.stamp("---\nname: local-validation-nextjs\ndescription: x\n---\n")},
+         (other_type, "other-type")),
         ("own skill link moved", {link_rel: "../../.agents/skills/retired"}, (link_rel, "differs, wrong mirror target")),
         ("own skill link missing", {link_rel: None}, (link_rel, "missing")),
         ("own dangling skill link", {".claude/skills/retired": "../../.agents/skills/retired"},

@@ -32,8 +32,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Releases need the Release Please App's RELEASE_PLEASE_CLIENT_ID variable
+      # and RELEASE_PLEASE_APP_KEY secret. When either is unset, or not available
+      # to this run, this step warns and the steps below are skipped, so the run
+      # passes instead of failing at the token step; the test job still runs and
+      # gates as before. A release PR merged meanwhile is not released, and the
+      # guard below refuses it on later runs: once both are set, re-run that
+      # merge's own workflow run, or remove its "autorelease: pending" label to
+      # abandon it. A secret cannot be read in an `if:`, so the step gets only
+      # whether each one is set (true or false), never the key itself; an unset
+      # variable or secret reads as an empty string. Source: docs.github.com
+      # "Using secrets in GitHub Actions", "Contexts reference" (context
+      # availability) and "Evaluate expressions", checked 2026-10-16.
+      - name: Check Release Please credentials
+        id: credentials
+        env:
+          HAS_CLIENT_ID: ${{ vars.RELEASE_PLEASE_CLIENT_ID != '' }}
+          HAS_APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY != '' }}
+        run: |
+          if [ "$HAS_CLIENT_ID" = true ] && [ "$HAS_APP_KEY" = true ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Release Please is not configured, or its credentials are not available to this run, so releases are skipped until the RELEASE_PLEASE_CLIENT_ID variable and the RELEASE_PLEASE_APP_KEY secret are both set."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
       - name: Generate GitHub App token
         id: app-token
+        if: steps.credentials.outputs.configured == 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           client-id: ${{ vars.RELEASE_PLEASE_CLIENT_ID }}
@@ -53,6 +80,7 @@ jobs:
       # and rework this guard before moving to a multi-package config.
       - name: Refuse to tag an untested release merge
         id: guard
+        if: steps.credentials.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
@@ -91,6 +119,7 @@ jobs:
 
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
+        if: steps.credentials.outputs.configured == 'true'
         with:
           token: ${{ steps.app-token.outputs.token }}
           skip-github-release: ${{ steps.guard.outputs.release != 'true' }}

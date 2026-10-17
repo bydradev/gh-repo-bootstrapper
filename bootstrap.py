@@ -392,6 +392,17 @@ def stamp(text: str, is_yaml: bool = False, template: str | None = None) -> str:
     return body[:offset] + marker + body[offset:]
 
 
+def _stamp_slot(text: str) -> str:
+    """The line stamp() puts a Markdown stamp on, after any BOM: the first
+    after closed YAML frontmatter, or the first line. Blank lines before it
+    are skipped, as Prettier adds one after frontmatter. Lines end only at
+    Markdown's line endings, not at U+2028 or the other separators
+    str.splitlines() honours, so none of those can start a line here."""
+    lines = re.split(r"\r\n?|\n", text.removeprefix("\ufeff"))
+    start = lines.index("---", 1) + 1 if lines[0] == "---" and "---" in lines[1:] else 0
+    return next((line for line in lines[start:] if line.strip(" \t")), "")
+
+
 def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
     found = _find_stamp(text, is_yaml)
     if found is None:
@@ -3159,10 +3170,14 @@ def existing_repository_config(args) -> dict:
 def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     """Whether the repository has the template's copy of a screenshot file.
 
-    That is a file with a stamp line, valid or edited, or an unstamped
+    That is a file whose stamp, valid or edited, is its first non-blank line
+    or the first after its frontmatter (even behind a byte-order mark an
+    editor added), or an unstamped
     docs/screenshot-review.md whose body is the current one or one a release
     shipped before stamps. A repository's own file at that path, such as its
-    own screenshot-review process, does not count; nor does one behind a
+    own screenshot-review process, does not count, even one that shows the
+    stamp further down, in a sentence or a code example, and neither does a
+    copy whose stamp was moved out of that line; nor does one behind a
     symlink or one that cannot be read, which --adopt refuses rather than
     deletes either way.
     """
@@ -3173,9 +3188,11 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return False
-    if any(line.startswith(STAMP_PREFIX) for line in text.splitlines()):
+    if _stamp_slot(text).startswith(STAMP_PREFIX):
         return True
-    if rel != SCREENSHOT_REVIEW:
+    # Only a doc with no stamp anywhere is compared with the shipped bodies: a
+    # stamp moved out of its slot would still compare as the template's copy.
+    if rel != SCREENSHOT_REVIEW or has_stamp_text(text):
         return False
     expected = stamp(_screenshot_doc(repo_type))
     return _template_file_state(rel, expected, text) in ("same", "stale")

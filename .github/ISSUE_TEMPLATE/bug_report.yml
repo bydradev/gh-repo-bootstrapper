@@ -2,6 +2,7 @@ name: Bug Report
 description: Report incorrect or broken behaviour in bootstrap.py or a generated repository
 title: "[Bug]: "
 labels: ["bug"]
+type: Bug
 body:
   - type: markdown
     attributes:

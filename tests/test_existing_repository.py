@@ -725,6 +725,10 @@ class ExistingRepositoryTests(unittest.TestCase):
                 doc, f"# Our screenshot process\n\nGenerated files start with:\n\n```html\n{example}\n```\n", False),
             "the repository's own doc with a stamp after U+2028": (doc, f"# Our screenshot process\u2028{example}\n", False),
             "the repository's own doc with a stamp after U+0085": (doc, f"# Our screenshot process\x85{example}\n", False),
+            "the repository's own doc starting with U+2028 before a stamp": (doc, f"\u2028{example}\n", False),
+            "the repository's own doc with a U+2028 line before a stamp": (doc, f"\u2028\n{example}\n", False),
+            "the repository's own skill with U+2028 around its frontmatter": (
+                skill, f"---\u2028name: screenshot-review\u2028---\u2028{example}\n", False),
             "the repository's own skill with a stamp in a fenced code example": (
                 skill, f"{own_skill}\n~~~\n{example}\n~~~\n", False),
             "the repository's own skill with unclosed frontmatter": (skill, "---\nname: screenshot-review\n", False),

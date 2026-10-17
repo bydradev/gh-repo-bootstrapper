@@ -395,10 +395,12 @@ def stamp(text: str, is_yaml: bool = False, template: str | None = None) -> str:
 def _stamp_slot(text: str) -> str:
     """The line stamp() puts a Markdown stamp on, after any BOM: the first
     after closed YAML frontmatter, or the first line. Blank lines before it
-    are skipped, as Prettier adds one after frontmatter."""
-    lines = text.removeprefix("\ufeff").splitlines()
-    start = lines.index("---", 1) + 1 if lines[:1] == ["---"] and "---" in lines[1:] else 0
-    return next((line for line in lines[start:] if line.strip()), "")
+    are skipped, as Prettier adds one after frontmatter. Lines end only at
+    Markdown's line endings, not at U+2028 or the other separators
+    str.splitlines() honours, so none of those can start a line here."""
+    lines = re.split(r"\r\n?|\n", text.removeprefix("\ufeff"))
+    start = lines.index("---", 1) + 1 if lines[0] == "---" and "---" in lines[1:] else 0
+    return next((line for line in lines[start:] if line.strip(" \t")), "")
 
 
 def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:

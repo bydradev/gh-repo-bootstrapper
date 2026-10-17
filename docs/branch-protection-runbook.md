@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=91bfd009bd7dc2156a5e9cbfc9a1013d08aca015d4ab3ae9a984a157a8f7a86e -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=642a1d94f09a97e7633dbc169512d8a1cb8c12a328253d6e122132cc44f33c59 -->
 # Branch protection runbook
 
 Use this when a required check blocks a pull request, most often a release
@@ -69,7 +69,11 @@ GitHub counts the latest check run per name from the same App on that commit,
 so a failed run followed by a successful re-run does not block. Nothing else
 replaces a failure: a commit status and a check run with the same name must
 both pass, a result from another App does not satisfy a check the rule ties to
-an App, and results on an earlier commit do not count.
+an App, and results on an earlier commit do not count. A workflow job's check
+counts only when its run was triggered by `push`, `pull_request`,
+`pull_request_review`, `pull_request_target`, `deployment` or
+`deployment_status` (`merge_group` for a merge queue); `gh run view` shows the
+event, and a `workflow_dispatch` run's checks never count.
 
 **Action:** if a failure still counts under those rules, it is real: fix it,
 or read the section above when `main` already fixed it. `mergeStateStatus`
@@ -102,10 +106,10 @@ R=repos/<owner>/<repo>; O=<owner>/<repo>
 gh api $R/branches/main/protection
 gh api $R/branches/main/protection --jq '.required_status_checks.checks[] | [.context, .app_id] | @tsv'
 gh pr checks <n> -R $O
-gh api $R/commits/<sha>/check-runs --jq '.check_runs[] | [.name, .app.id, .conclusion] | @tsv'
-gh api $R/commits/<sha>/status --jq '.statuses[] | [.context, .state] | @tsv'
+gh api --paginate "$R/commits/<sha>/check-runs?per_page=100" --jq '.check_runs[] | [.name, .app.id, .conclusion] | @tsv'
+gh api --paginate "$R/commits/<sha>/status?per_page=100" --jq '.statuses[] | [.context, .state] | @tsv'
 gh pr view <n> -R $O --json mergeStateStatus
-gh api $R/pulls/<n> --jq '[.mergeable, .merge_commit_sha] | @tsv'
+gh api $R/pulls/<n> --jq '[.head.sha, .mergeable, .merge_commit_sha] | @tsv'
 gh api $R/commits/<merge-sha> --jq '[.parents[].sha]'
 gh api $R/commits/main --jq .sha
 gh run view <run-id> -R $O --log | grep -m1 'HEAD is now at'

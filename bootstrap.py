@@ -3159,7 +3159,8 @@ def existing_repository_config(args) -> dict:
 def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     """Whether the repository has the template's copy of a screenshot file.
 
-    That is a file with a stamp line, valid or edited, or an unstamped
+    That is a file with the stamp text anywhere, valid or edited, as
+    _template_file_state counts an edited copy, or an unstamped
     docs/screenshot-review.md whose body is the current one or one a release
     shipped before stamps. A repository's own file at that path, such as its
     own screenshot-review process, does not count; nor does one behind a
@@ -3173,7 +3174,7 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return False
-    if any(line.startswith(STAMP_PREFIX) for line in text.splitlines()):
+    if has_stamp_text(text):
         return True
     if rel != SCREENSHOT_REVIEW:
         return False

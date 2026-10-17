@@ -691,15 +691,47 @@ class ExistingRepositoryTests(unittest.TestCase):
         legacy_doc = bootstrap._compose(
             legacy["docs-screenshot-review-common.md"], "PLATFORM_GUIDANCE", legacy["docs-screenshot-review-swift.md"])
         own_skill = "---\nname: screenshot-review\ndescription: Ours.\n---\n\n# Ours\n"
+        example = f"{bootstrap.STAMP_PREFIX}{'0' * 64} -->"
+        # Prettier puts a blank line between frontmatter and the stamp.
+        formatted_skill = rendered[skill].replace("\n---\n<!--", "\n---\n\n<!--", 1)
+        self.assertNotEqual(formatted_skill, rendered[skill])
         cases = {
             "the repository's own doc": (doc, "# Our screenshot process\n", False),
             "stamped doc": (doc, rendered[doc], True),
             "edited stamped doc": (doc, rendered[doc] + "\nOurs.\n", True),
+            "edited stamped doc with a thematic break": (doc, rendered[doc] + "\n---\n\nOurs.\n", True),
             "unstamped current doc": (doc, bootstrap.read_stamp(rendered[doc])[1], True),
             "unstamped v0.5.5 doc": (doc, legacy_doc, True),
             "edited unstamped v0.5.5 doc": (doc, legacy_doc + "\nOurs.\n", False),
             "the repository's own skill": (skill, own_skill, False),
             "edited stamped skill": (skill, rendered[skill] + "\nOurs.\n", True),
+            # A stamp on the first non-blank line, or the first after the
+            # frontmatter, marks the template's copy, even behind a byte-order
+            # mark an editor added or with CRLF line ends, so the file is
+            # refused as edited rather than dropped from the comparison. A
+            # stamp anywhere else does not: indented, in a sentence, in a code
+            # example, or after a line separator.
+            "empty doc": (doc, "", False),
+            "doc with a BOM before its stamp": (doc, "\ufeff" + rendered[doc], True),
+            "doc with CRLF line ends": (doc, rendered[doc].replace("\n", "\r\n"), True),
+            "skill with a BOM and CRLF line ends": (skill, "\ufeff" + rendered[skill].replace("\n", "\r\n"), True),
+            "skill formatted by Prettier": (skill, formatted_skill, True),
+            "doc with its stamp indented": (doc, "\t" + rendered[doc], False),
+            "the repository's own doc quoting the stamp": (
+                doc, f"# Our screenshot process\n\nGenerated files start with {bootstrap.STAMP_PREFIX}... -->.\n", False),
+            "the repository's own doc with a stamp in an indented code example": (
+                doc, f"# Our screenshot process\n\nGenerated files start with:\n\n    {example}\n", False),
+            "the repository's own doc with a stamp in a fenced code example": (
+                doc, f"# Our screenshot process\n\nGenerated files start with:\n\n```html\n{example}\n```\n", False),
+            "the repository's own doc with a stamp after U+2028": (doc, f"# Our screenshot process\u2028{example}\n", False),
+            "the repository's own doc with a stamp after U+0085": (doc, f"# Our screenshot process\x85{example}\n", False),
+            "the repository's own doc starting with U+2028 before a stamp": (doc, f"\u2028{example}\n", False),
+            "the repository's own doc with a U+2028 line before a stamp": (doc, f"\u2028\n{example}\n", False),
+            "the repository's own skill with U+2028 around its frontmatter": (
+                skill, f"---\u2028name: screenshot-review\u2028---\u2028{example}\n", False),
+            "the repository's own skill with a stamp in a fenced code example": (
+                skill, f"{own_skill}\n~~~\n{example}\n~~~\n", False),
+            "the repository's own skill with unclosed frontmatter": (skill, "---\nname: screenshot-review\n", False),
         }
         for label, (rel, text, found) in cases.items():
             with self.subTest(label):

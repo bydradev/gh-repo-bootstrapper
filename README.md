@@ -27,7 +27,8 @@ anything installed beyond a base Python interpreter.
   explicitly, with `ci.yml` and `test.yml` pinned to exactly `contents: read`
   and no write scope outside `release-please.yml`
 - rendered Release Please config *values*, not just that the JSON parses
-- the branch-protection payload, the runbook, and the Next.js lint/advisory
+- the branch-protection payload, the runbook (its pinned rules, and no
+  incident run IDs, SHAs or timestamps), and the Next.js lint/advisory
   baseline policy documents
 - the shared `AGENTS.md` worktree and scratch-output rules, each type's
   mechanism for keeping a worktree's dependencies and build output from
@@ -774,10 +775,13 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   self-review on a solo repository. `enforce_admins: true`, so the gates bind
   the account doing the merging; `strict` is left false, because a
   "branch must be up to date" requirement strands every open PR — release PRs
-  worst — on each advance of `main`. The operational runbook for PRs blocked by
-  those checks — most often release PRs — lives at
+  worst — on each advance of `main`. The runbook for PRs blocked by those
+  checks, most often release PRs, is a short symptom, check and action
+  procedure at
   [`docs/branch-protection-runbook.md`](docs/branch-protection-runbook.md)
-  and ships into every generated repository.
+  and ships into every generated repository. The incident behind several of
+  its rules, with its run IDs and SHAs, is kept only in this repository, in
+  [`docs/archive/branch-protection-incident.md`](docs/archive/branch-protection-incident.md).
 
 With `--configure-only` the repository already exists, so two of these are
 handled differently. Branch protection on `main` is never replaced: the script

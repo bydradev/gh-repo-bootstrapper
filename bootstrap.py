@@ -392,6 +392,16 @@ def stamp(text: str, is_yaml: bool = False, template: str | None = None) -> str:
     return body[:offset] + marker + body[offset:]
 
 
+def _stamp_slot(text: str) -> str:
+    """The line stamp() puts a Markdown stamp on, after any BOM: the one after
+    closed YAML frontmatter, or the first."""
+    lines = text.removeprefix("\ufeff").splitlines() or [""]
+    if lines[0] == "---" and "---" in lines[1:]:
+        closer = lines.index("---", 1)
+        return lines[closer + 1] if closer + 1 < len(lines) else ""
+    return lines[0]
+
+
 def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
     found = _find_stamp(text, is_yaml)
     if found is None:
@@ -3159,12 +3169,12 @@ def existing_repository_config(args) -> dict:
 def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     """Whether the repository has the template's copy of a screenshot file.
 
-    That is a file with a stamp line, valid or edited, even behind a
-    byte-order mark an editor added, or an unstamped
+    That is a file with a stamp, valid or edited, on the line the template
+    puts it (even behind a byte-order mark an editor added), or an unstamped
     docs/screenshot-review.md whose body is the current one or one a release
     shipped before stamps. A repository's own file at that path, such as its
-    own screenshot-review process, does not count, even one that quotes the
-    stamp in a sentence or an indented code example; nor does one behind a
+    own screenshot-review process, does not count, even one that shows the
+    stamp further down, in a sentence or a code example; nor does one behind a
     symlink or one that cannot be read, which --adopt refuses rather than
     deletes either way.
     """
@@ -3175,7 +3185,7 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return False
-    if any(line.startswith(STAMP_PREFIX) for line in text.removeprefix("\ufeff").splitlines()):
+    if _stamp_slot(text).startswith(STAMP_PREFIX):
         return True
     if rel != SCREENSHOT_REVIEW:
         return False

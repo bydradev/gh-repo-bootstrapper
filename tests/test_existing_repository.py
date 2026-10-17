@@ -691,6 +691,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         legacy_doc = bootstrap._compose(
             legacy["docs-screenshot-review-common.md"], "PLATFORM_GUIDANCE", legacy["docs-screenshot-review-swift.md"])
         own_skill = "---\nname: screenshot-review\ndescription: Ours.\n---\n\n# Ours\n"
+        example = f"{bootstrap.STAMP_PREFIX}{'0' * 64} -->"
         cases = {
             "the repository's own doc": (doc, "# Our screenshot process\n", False),
             "stamped doc": (doc, rendered[doc], True),
@@ -700,16 +701,26 @@ class ExistingRepositoryTests(unittest.TestCase):
             "edited unstamped v0.5.5 doc": (doc, legacy_doc + "\nOurs.\n", False),
             "the repository's own skill": (skill, own_skill, False),
             "edited stamped skill": (skill, rendered[skill] + "\nOurs.\n", True),
-            # A byte-order mark an editor added before the stamp still marks
-            # the template's copy, so the file is refused as edited rather than
-            # dropped from the comparison; a stamp quoted in a sentence or an
-            # indented code example does not.
+            # A stamp on the line the template puts it marks the template's
+            # copy, even behind a byte-order mark an editor added or with CRLF
+            # line ends, so the file is refused as edited rather than dropped
+            # from the comparison. A stamp anywhere else does not: in a
+            # sentence, a code example, or after a line separator.
+            "empty doc": (doc, "", False),
             "doc with a BOM before its stamp": (doc, "\ufeff" + rendered[doc], True),
+            "doc with CRLF line ends": (doc, rendered[doc].replace("\n", "\r\n"), True),
+            "skill with a BOM and CRLF line ends": (skill, "\ufeff" + rendered[skill].replace("\n", "\r\n"), True),
             "the repository's own doc quoting the stamp": (
                 doc, f"# Our screenshot process\n\nGenerated files start with {bootstrap.STAMP_PREFIX}... -->.\n", False),
-            "the repository's own doc with a stamp in a code example": (
-                doc, f"# Our screenshot process\n\nGenerated files start with:\n\n    {bootstrap.STAMP_PREFIX}{'0' * 64} -->\n",
-                False),
+            "the repository's own doc with a stamp in an indented code example": (
+                doc, f"# Our screenshot process\n\nGenerated files start with:\n\n    {example}\n", False),
+            "the repository's own doc with a stamp in a fenced code example": (
+                doc, f"# Our screenshot process\n\nGenerated files start with:\n\n```html\n{example}\n```\n", False),
+            "the repository's own doc with a stamp after U+2028": (doc, f"# Our screenshot process\u2028{example}\n", False),
+            "the repository's own doc with a stamp after U+0085": (doc, f"# Our screenshot process\x85{example}\n", False),
+            "the repository's own skill with a stamp in a fenced code example": (
+                skill, f"{own_skill}\n~~~\n{example}\n~~~\n", False),
+            "the repository's own skill with unclosed frontmatter": (skill, "---\nname: screenshot-review\n", False),
         }
         for label, (rel, text, found) in cases.items():
             with self.subTest(label):

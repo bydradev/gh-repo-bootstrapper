@@ -58,6 +58,8 @@ Release Please merge runs the full suite, including every Playwright project.
 A green pull request therefore does not mean the browser suite passed; run
 `npm run test:e2e` locally for changes to browser-facing UI or interactions.
 
+`npm run lint:fix` and `npm run format` fix lint and formatting.
+
 ## Deployment
 
 Deployment is application-owned. The generated `release-please.yml` only tests

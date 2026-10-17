@@ -3159,12 +3159,12 @@ def existing_repository_config(args) -> dict:
 def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     """Whether the repository has the template's copy of a screenshot file.
 
-    That is a file with a stamp line, valid or edited, even one an editor
-    indented or put a byte-order mark before, or an unstamped
+    That is a file with a stamp line, valid or edited, even behind a
+    byte-order mark an editor added, or an unstamped
     docs/screenshot-review.md whose body is the current one or one a release
     shipped before stamps. A repository's own file at that path, such as its
     own screenshot-review process, does not count, even one that quotes the
-    stamp inside a sentence; nor does one behind a
+    stamp in a sentence or an indented code example; nor does one behind a
     symlink or one that cannot be read, which --adopt refuses rather than
     deletes either way.
     """
@@ -3175,7 +3175,7 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return False
-    if any(line.lstrip(" \t\ufeff").startswith(STAMP_PREFIX) for line in text.splitlines()):
+    if any(line.startswith(STAMP_PREFIX) for line in text.removeprefix("\ufeff").splitlines()):
         return True
     if rel != SCREENSHOT_REVIEW:
         return False

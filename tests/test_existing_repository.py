@@ -700,14 +700,16 @@ class ExistingRepositoryTests(unittest.TestCase):
             "edited unstamped v0.5.5 doc": (doc, legacy_doc + "\nOurs.\n", False),
             "the repository's own skill": (skill, own_skill, False),
             "edited stamped skill": (skill, rendered[skill] + "\nOurs.\n", True),
-            # A stamp line an editor damaged still marks the template's copy,
-            # so the file is refused as edited rather than dropped from the
-            # comparison; a stamp quoted inside a sentence does not.
+            # A byte-order mark an editor added before the stamp still marks
+            # the template's copy, so the file is refused as edited rather than
+            # dropped from the comparison; a stamp quoted in a sentence or an
+            # indented code example does not.
             "doc with a BOM before its stamp": (doc, "\ufeff" + rendered[doc], True),
-            "skill with an indented stamp": (
-                skill, rendered[skill].replace(bootstrap.STAMP_PREFIX, "  " + bootstrap.STAMP_PREFIX), True),
             "the repository's own doc quoting the stamp": (
                 doc, f"# Our screenshot process\n\nGenerated files start with {bootstrap.STAMP_PREFIX}... -->.\n", False),
+            "the repository's own doc with a stamp in a code example": (
+                doc, f"# Our screenshot process\n\nGenerated files start with:\n\n    {bootstrap.STAMP_PREFIX}{'0' * 64} -->\n",
+                False),
         }
         for label, (rel, text, found) in cases.items():
             with self.subTest(label):

@@ -3176,7 +3176,8 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     docs/screenshot-review.md whose body is the current one or one a release
     shipped before stamps. A repository's own file at that path, such as its
     own screenshot-review process, does not count, even one that shows the
-    stamp further down, in a sentence or a code example; nor does one behind a
+    stamp further down, in a sentence or a code example, and neither does a
+    copy whose stamp was moved out of that line; nor does one behind a
     symlink or one that cannot be read, which --adopt refuses rather than
     deletes either way.
     """
@@ -3189,7 +3190,9 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
         return False
     if _stamp_slot(text).startswith(STAMP_PREFIX):
         return True
-    if rel != SCREENSHOT_REVIEW:
+    # Only a doc with no stamp anywhere is compared with the shipped bodies: a
+    # stamp moved out of its slot would still compare as the template's copy.
+    if rel != SCREENSHOT_REVIEW or has_stamp_text(text):
         return False
     expected = stamp(_screenshot_doc(repo_type))
     return _template_file_state(rel, expected, text) in ("same", "stale")

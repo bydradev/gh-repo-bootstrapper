@@ -695,6 +695,8 @@ class ExistingRepositoryTests(unittest.TestCase):
         # Prettier puts a blank line between frontmatter and the stamp.
         formatted_skill = rendered[skill].replace("\n---\n<!--", "\n---\n\n<!--", 1)
         self.assertNotEqual(formatted_skill, rendered[skill])
+        doc_stamp, doc_body = rendered[doc].split("\n", 1)
+        self.assertTrue(doc_stamp.startswith(bootstrap.STAMP_PREFIX))
         cases = {
             "the repository's own doc": (doc, "# Our screenshot process\n", False),
             "stamped doc": (doc, rendered[doc], True),
@@ -716,6 +718,12 @@ class ExistingRepositoryTests(unittest.TestCase):
             "doc with CRLF line ends": (doc, rendered[doc].replace("\n", "\r\n"), True),
             "skill with a BOM and CRLF line ends": (skill, "\ufeff" + rendered[skill].replace("\n", "\r\n"), True),
             "skill formatted by Prettier": (skill, formatted_skill, True),
+            "skill with spaces and a tab on the line before its stamp": (
+                skill, rendered[skill].replace("\n---\n<!--", "\n---\n \t\n<!--", 1), True),
+            "doc with a blank line before its stamp": (doc, "\n" + rendered[doc], True),
+            "skill with CR line ends": (skill, rendered[skill].replace("\n", "\r"), True),
+            "doc with a damaged stamp": (doc, f"{bootstrap.STAMP_PREFIX}damaged -->\n{doc_body}", True),
+            "doc with its stamp moved to the end": (doc, f"{doc_body}{doc_stamp}\n", False),
             "doc with its stamp indented": (doc, "\t" + rendered[doc], False),
             "the repository's own doc quoting the stamp": (
                 doc, f"# Our screenshot process\n\nGenerated files start with {bootstrap.STAMP_PREFIX}... -->.\n", False),

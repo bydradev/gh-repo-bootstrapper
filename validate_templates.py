@@ -819,9 +819,10 @@ def _frontmatter(text: str):
     except yaml.YAMLError as exc:
         return None, f"has invalid YAML frontmatter — {exc}"
     except (ValueError, KeyError, AttributeError, TypeError) as exc:
-        # SafeLoader's scalar constructors raise these, not a YAMLError, for a
+        # SafeLoader's constructors raise these, not a YAMLError, for a
         # malformed tagged value: `!!bool Use` a KeyError, `!!int x` a
-        # ValueError, `!!timestamp x` an AttributeError.
+        # ValueError, `!!timestamp x` an AttributeError, and an unhashable
+        # key such as `? !!set {a}` a TypeError.
         return None, f"has a frontmatter value PyYAML cannot construct — {type(exc).__name__}: {exc}"
     if not isinstance(data, dict):
         return None, "frontmatter is not a mapping"
@@ -2475,22 +2476,30 @@ def check_own_template_copies(label: str, repo_dir: Path) -> list:
     for rel, (status, detail) in sorted(report.items()):
         if status == "same" or not (rel in OWN_COPY_FILES or rel.startswith(OWN_COPY_DIRS)):
             continue
-        adopt = "`./bootstrap.py --adopt . --type simple --non-interactive"
-        if rel == "AGENTS.md":
+        # The adopt run also refuses this repository's own release-please.yml
+        # and stamps its pr-title-check.yml; neither change belongs in the fix.
+        adopt = "`./bootstrap.py --adopt . --type simple --non-interactive{}`"
+        commit = ", committing only the agent files it changes"
+        if status in ("shadowed", "symlink", "ignored", "unreadable"):
+            fix = None  # the detail says what is wrong, such as a name collision to rename
+        elif rel == "AGENTS.md":
             if isinstance(detail, list):
                 detail = "; ".join(f"{heading} {row}" for row, heading in detail if row != "same")
-            fix = (f"move a local change into the template under templates/ or into ## Project "
-                   f"specifics, then run {adopt} --replace-generated-sections`")
+            fix = ("move a local change into the template under templates/ or into ## Project "
+                   "specifics, then run " + adopt.format(" --replace-generated-sections") + commit)
         elif status in ("missing", "stale"):
-            fix = f"run {adopt}` to write the current render"
+            fix = "run " + adopt.format("") + commit
         elif status in ("orphaned", "dangling", "other-type"):
             fix = "the render no longer has it, so delete it"
+        elif rel.startswith(".claude/skills/"):
+            fix = "delete it and run " + adopt.format("") + " to recreate the link" + commit
         else:
-            fix = f"move the change into the template under templates/, then delete the copy and run {adopt}`"
+            fix = ("move the change into the template under templates/, then delete the copy and run "
+                   + adopt.format("") + commit)
         errors.append(
             f"[{label}] {rel} does not match this repository's `--type simple` render: {status}"
             + (f", {detail}" if isinstance(detail, str) and detail else "")
-            + f"; {fix}"
+            + (f"; {fix}" if fix else "")
         )
     return errors
 
@@ -3941,17 +3950,23 @@ def _structure_self_tests() -> list:
         ("own retired template skill", {orphan: bootstrap.stamp("---\nname: retired\ndescription: x\n---\n")},
          (orphan, "orphaned")),
         ("own skill link moved", {link_rel: "../../.agents/skills/retired"}, (link_rel, "differs, wrong mirror target")),
+        ("own skill link missing", {link_rel: None}, (link_rel, "missing")),
+        ("own dangling skill link", {".claude/skills/retired": "../../.agents/skills/retired"},
+         (".claude/skills/retired", "dangling")),
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            # An edit under .claude/skills/ sets a link's target, or None to drop it.
+            links = {**bootstrap._links_for_files(own), **{
+                rel: target for rel, target in edits.items() if rel.startswith(".claude/skills/")}}
             for rel, text in {**own, **edits}.items():
-                if text is None or rel == link_rel:
-                    continue
-                (root / rel).parent.mkdir(parents=True, exist_ok=True)
-                (root / rel).write_text(text)
-            for rel, target in bootstrap._links_for_files(own).items():
-                (root / rel).parent.mkdir(parents=True, exist_ok=True)
-                os.symlink(edits.get(rel, target) if rel == link_rel else target, root / rel)
+                if text is not None and not rel.startswith(".claude/skills/"):
+                    (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (root / rel).write_text(text)
+            for rel, target in links.items():
+                if target is not None:
+                    (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                    os.symlink(target, root / rel)
             needle = failure and f"{failure[0]} does not match this repository's `--type simple` render: {failure[1]}"
             expect(name, check_own_template_copies("self-test:own", root), needle)
     return errors

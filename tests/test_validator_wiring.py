@@ -43,12 +43,14 @@ CHECKS = (
     "check_branch_protection_payload",
     "check_runbook",
     "check_runbook_copy_matches_template",
+    "check_own_template_copies",
     "check_legacy_digests",
     "check_bug_form",
 )
 RUN_ONCE = {
     "run_self_tests", "check_npm_script_assumptions",
-    "check_runbook_copy_matches_template", "check_legacy_digests", "check_bug_form",
+    "check_runbook_copy_matches_template", "check_own_template_copies", "check_legacy_digests",
+    "check_bug_form",
 }
 OWN_WORKFLOWS = "bootstrapper own workflows"
 ALSO_ON_OWN_WORKFLOWS = {"check_sha_pinned_actions", "check_workflow_gates"}

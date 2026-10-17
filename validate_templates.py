@@ -352,8 +352,9 @@ BUG_FORM_UNLISTED_FLAGS = frozenset({"-h", "--help", "--name", "--type", "--org"
 # a re-run replays the stale merge ref; update-branch is the deterministic
 # lever; a reported skip passes but a check that never reports blocks forever,
 # and no stand-in may fake a required name; reusable-workflow check names; runs
-# waiting for approval; old failures do not block; and never weakening
-# protection without explicit operator authorization.
+# waiting for approval; a re-run's success replaces its failed run, but a
+# commit status and a check run with the same name must both pass; and never
+# weakening protection without explicit operator authorization.
 RUNBOOK_REQUIRED_PHRASES = (
     "source of truth for required checks",
     "tests the same stale tree",
@@ -364,7 +365,8 @@ RUNBOOK_REQUIRED_PHRASES = (
     "add a stand-in that reports its name",
     "{caller job} / {reusable job}",
     "Approve workflows to run",
-    "latest result per check name",
+    "latest check run per name",
+    "must both pass",
     "disable protection",
     "explicit operator authorization",
 )

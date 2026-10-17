@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=19e1420936dcfa37031fcfd5ff0976e65657da1a64a0a17fbc01e8e6bd851306 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=91bfd009bd7dc2156a5e9cbfc9a1013d08aca015d4ab3ae9a984a157a8f7a86e -->
 # Branch protection runbook
 
 Use this when a required check blocks a pull request, most often a release
@@ -61,9 +61,19 @@ runs; Release Please later replaces that merge commit.
 
 ## The checks list shows an old failure
 
-GitHub uses the latest result per check name on the latest commit, so an old
-failure followed by a success does not block. `mergeStateStatus` names the
-real blocker.
+**Check:** find the commit GitHub evaluates: the PR's test merge commit
+(`merge_commit_sha`) when it has a status, otherwise its head commit. List
+that commit's check runs and its commit statuses with the commands below.
+
+GitHub counts the latest check run per name from the same App on that commit,
+so a failed run followed by a successful re-run does not block. Nothing else
+replaces a failure: a commit status and a check run with the same name must
+both pass, a result from another App does not satisfy a check the rule ties to
+an App, and results on an earlier commit do not count.
+
+**Action:** if a failure still counts under those rules, it is real: fix it,
+or read the section above when `main` already fixed it. `mergeStateStatus`
+confirms whether the PR is still blocked.
 
 ## Still blocked
 
@@ -92,7 +102,8 @@ R=repos/<owner>/<repo>; O=<owner>/<repo>
 gh api $R/branches/main/protection
 gh api $R/branches/main/protection --jq '.required_status_checks.checks[] | [.context, .app_id] | @tsv'
 gh pr checks <n> -R $O
-gh api $R/commits/<head-sha>/check-runs --jq '.check_runs[] | [.name, .app.id] | @tsv'
+gh api $R/commits/<sha>/check-runs --jq '.check_runs[] | [.name, .app.id, .conclusion] | @tsv'
+gh api $R/commits/<sha>/status --jq '.statuses[] | [.context, .state] | @tsv'
 gh pr view <n> -R $O --json mergeStateStatus
 gh api $R/pulls/<n> --jq '[.mergeable, .merge_commit_sha] | @tsv'
 gh api $R/commits/<merge-sha> --jq '[.parents[].sha]'
@@ -103,14 +114,16 @@ gh api -X PUT $R/pulls/<n>/update-branch  # changes the PR branch; only when aut
 
 ## Sources
 
-Checked 2026-10-16:
+Checked 2026-10-16, and "Troubleshooting required status checks" again on
+2026-10-17:
 
 - docs.github.com: "About protected branches", "Troubleshooting required
   status checks", "Status checks", "Re-running workflows and jobs", "Events
   that trigger workflows", "GITHUB_TOKEN", "REST API endpoints for pull
-  requests".
+  requests", "REST API endpoints for check runs", "REST API endpoints for
+  commit statuses".
 - googleapis/release-please `src/manifest.ts`: without `always-update`, an
   open release PR is updated only when its notes change.
 - Observed, not documented: check names, the checkout log line, and, in this
-  incident, the stale merge ref after a reopen and the latest result rule:
+  incident, the stale merge ref after a reopen and the latest check run rule:
   <https://github.com/bydradev/gh-repo-bootstrapper/blob/main/docs/archive/branch-protection-incident.md>

@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.12.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.11.1...v0.12.0) (2026-10-17)
+
+
+### Features
+
+* add a public-site-indexing skill for Next.js repositories ([d1e1000](https://github.com/bydradev/gh-repo-bootstrapper/commit/d1e1000beb2997e7bb4f26827eb75840527243a4))
+* add an autonomy and escalation section to the generated agents.md ([#97](https://github.com/bydradev/gh-repo-bootstrapper/issues/97)) ([54c394c](https://github.com/bydradev/gh-repo-bootstrapper/commit/54c394c09340100c03566ed9a4a57ba8f52f86e4))
+* generate docs/current-work.md for dated repository status ([54c394c](https://github.com/bydradev/gh-repo-bootstrapper/commit/54c394c09340100c03566ed9a4a57ba8f52f86e4))
+* generate the screenshot-review skill only with --screenshots ([#100](https://github.com/bydradev/gh-repo-bootstrapper/issues/100)) ([311f98b](https://github.com/bydradev/gh-repo-bootstrapper/commit/311f98bbc66765126e8d922eba307d5a3cd64d6a))
+
+
+### Bug Fixes
+
+* count a screenshot file with a damaged stamp as the template's copy ([#103](https://github.com/bydradev/gh-repo-bootstrapper/issues/103)) ([bd0d116](https://github.com/bydradev/gh-repo-bootstrapper/commit/bd0d116c48e8539fc5f4fddb29001162e6d59284))
+* remove the OpenCode reviewer's built-in edit, subagent and shell tools ([d1e1000](https://github.com/bydradev/gh-repo-bootstrapper/commit/d1e1000beb2997e7bb4f26827eb75840527243a4))
+* remove unedited older-template guidance from project specifics on adopt ([54c394c](https://github.com/bydradev/gh-repo-bootstrapper/commit/54c394c09340100c03566ed9a4a57ba8f52f86e4))
+* rewrite the branch-protection runbook as a short procedure ([#99](https://github.com/bydradev/gh-repo-bootstrapper/issues/99)) ([50dcffa](https://github.com/bydradev/gh-repo-bootstrapper/commit/50dcffa4d6ffef6630f6772f130719736df0a77d))
+* skip the release with a warning when release please credentials are missing ([#98](https://github.com/bydradev/gh-repo-bootstrapper/issues/98)) ([f0763b8](https://github.com/bydradev/gh-repo-bootstrapper/commit/f0763b8d75a0fc3bbc73ac085a2055766a14a787))
+* stop template skills stating facts about repository-owned files ([#101](https://github.com/bydradev/gh-repo-bootstrapper/issues/101)) ([d1e1000](https://github.com/bydradev/gh-repo-bootstrapper/commit/d1e1000beb2997e7bb4f26827eb75840527243a4))
+
 ## [0.11.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.11.0...v0.11.1) (2026-10-16)
 
 

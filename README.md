@@ -454,8 +454,8 @@ they shape report as drift. `--screenshots` is the exception: a `nextjs` or
 `.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
 treated as using it, and the report says so, so `--adopt` keeps and updates
 those files without the flag. The template's copy is a file with a stamp line,
-edited or not, even with spaces or a byte-order mark before the stamp, or an
-unstamped doc whose text a release shipped. A
+edited or not, even with spaces, tabs or a byte-order mark before the stamp, or
+an unstamped doc whose text a release shipped. A
 repository's own `docs/screenshot-review.md`, such as its own screenshot-review
 process, does not count. Without the template's skill it is left alone; next
 to the template's skill it is reported as `local-modified`, as before, so

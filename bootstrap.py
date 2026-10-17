@@ -117,12 +117,17 @@ _GENERAL_SKILLS = (
 # generate as `(--type)`, and --adopt refuses. Before removing a skill from one
 # type while keeping it in another, plan how existing repositories of the
 # first type drop their stamped copy, or adopt will refuse.
+# Every skill has a row in the hub's skills table (_TYPE_SKILL_ROWS) except
+# those in validate_templates.SKILLS_WITHOUT_HUB_ROW, which another listed
+# skill names instead, to keep the hub within its byte budget.
 TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "simple": _GENERAL_SKILLS,
     "python": _GENERAL_SKILLS + ("local-validation-python",),
     "rust": _GENERAL_SKILLS + ("local-validation-rust",),
     "swift": _GENERAL_SKILLS + ("local-validation-swift",),
-    "nextjs": _GENERAL_SKILLS + ("local-validation-nextjs", "baseline-process"),
+    "nextjs": _GENERAL_SKILLS + (
+        "local-validation-nextjs", "baseline-process", "public-site-indexing",
+    ),
 }
 # The screenshot-review skill and docs/screenshot-review.md are generated only
 # for these types, and only with --screenshots (cfg["screenshots"]). --check

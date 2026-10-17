@@ -23,12 +23,17 @@ Checks performed on each generated file:
     guidance,
     each phrase in the hub or in the template-owned skill that now owns it
   - AGENTS.md hub structure: the generated part fits its byte budget, has no
-    bare `@path` imports, and points only at skills the render contains;
+    bare `@path` imports, and points only at skills the render contains,
+    and every rendered skill has a row or is named by the listed skill
+    SKILLS_WITHOUT_HUB_ROW gives for it;
     every SKILL.md has valid agentskills.io frontmatter with a unique name;
     relative Markdown links in the hub and in every SKILL.md resolve from
     their own directory;
-    every template-owned file carries a valid stamp; the reviewer agents are
-    read-only and leave the model unset
+    every template-owned file carries a valid stamp; the reviewer agents get
+    no edit tool and leave the model unset, OpenCode's frontmatter holds
+    only description, mode and permission and sets only the edit, task and
+    bash permissions, each to deny, and Claude Code's says to use Bash only
+    for read-only commands
 
   - branch-protection payload semantics: bootstrap.branch_protection_payload()
     must pin the operator-ruled configuration (strict False, enforce_admins
@@ -266,9 +271,16 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("dated status in `docs/current-work.md`", HUB),
 )
 
-# Per-type mechanisms behind the shared worktree and scratch-output rules: where
-# a worktree's dependencies and build output live, so they are not multiplied.
-# Each lives in the type's local-validation skill.
+# Sentence each local-validation skill opens with, which routes agents to a
+# repository-owned validation skill first.
+LOCAL_VALIDATION_ROUTING = (
+    "If `## Project specifics` in `AGENTS.md` names a repository-owned validation skill, "
+    "load it first; where it is narrower, it governs."
+)
+# Per-type rules pinned to the type's local-validation skill: its routing
+# sentence, and the mechanisms behind the shared worktree and scratch-output
+# rules, such as where a worktree's dependencies and build output live, so they
+# are not multiplied.
 AGENTS_TYPE_REQUIREMENTS = {
     "nextjs": tuple(
         (phrase, _skill_path("local-validation-nextjs"))
@@ -277,15 +289,20 @@ AGENTS_TYPE_REQUIREMENTS = {
             "--trace=retain-on-failure",
             "stop a manually started `next dev`",
             "reported as `flaky`, not failed",
+            LOCAL_VALIDATION_ROUTING,
         )
     ),
-    "python": (("Never copy `.venv/`", _skill_path("local-validation-python")),),
+    "python": tuple(
+        (phrase, _skill_path("local-validation-python"))
+        for phrase in ("Never copy `.venv/`", LOCAL_VALIDATION_ROUTING)
+    ),
     "rust": tuple(
         (phrase, _skill_path("local-validation-rust"))
         for phrase in (
             "set `CARGO_TARGET_DIR` to one fixed directory",
             "Never copy `target/`",
             "the task that removes the last one deletes it too",
+            LOCAL_VALIDATION_ROUTING,
         )
     ),
     "swift": tuple(
@@ -294,6 +311,7 @@ AGENTS_TYPE_REQUIREMENTS = {
             "pass one fixed `-derivedDataPath` for that worktree",
             "Never choose a new derived-data path per run or per commit.",
             "does not change the app's `MARKETING_VERSION`",
+            LOCAL_VALIDATION_ROUTING,
         )
     ),
     "simple": (),
@@ -310,6 +328,10 @@ HUB_CEILING_BYTES = 10_000
 AT_IMPORT_RE = re.compile(r"(^|\s)@[\w./-]+")
 INLINE_CODE_RE = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
 SKILLS_HEADING = "## Skills"
+# Skills reached through another skill instead of a row in the hub's skills
+# table, to keep the hub within HUB_BUDGET_BYTES: {skill: listed skill that
+# must name it}. Harnesses with skill support also load them by description.
+SKILLS_WITHOUT_HUB_ROW = {"public-site-indexing": "local-validation-nextjs"}
 SKILL_ROW_RE = re.compile(r"^\|.*\|\s*`([^`]+)`\s*\|\s*$")
 SKILL_PATH_RE = re.compile(r"^\.agents/skills/([^/]+)/SKILL\.md$")
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -318,6 +340,44 @@ SKILL_DESCRIPTION_MAX = 1024
 CLAUDE_REVIEWER = ".claude/agents/fresh-eyes-reviewer.md"
 OPENCODE_REVIEWER = ".opencode/agents/fresh-eyes-reviewer.md"
 CLAUDE_WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+# A Claude Code subagent could block Bash commands with a PreToolUse hook in its
+# frontmatter, but Claude Code skips a project subagent's frontmatter hooks in
+# a folder whose workspace trust dialog was never accepted, so whether the hook
+# runs would depend on the folder (code.claude.com/docs/en/sub-agents and
+# code.claude.com/docs/en/permissions, checked 2026-10-16). Such a hook would
+# also have to parse shell commands, which OpenCode's rules below show is hard
+# to do completely. So the reviewer's body carries the rule.
+CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
+# The OpenCode reviewer has no built-in edit, subagent or shell tool; MCP,
+# plugin and custom tools still follow the user's OpenCode configuration, whose
+# default allows them. It has no shell because OpenCode's shell rules see each
+# command of a line separately and keep a redirect only when it sits directly
+# on one command, so `git diff && git log > notes` passes any allow-list, while
+# `bash: deny`, as the agent's last bash rule, hides the tool (Permission.disabled;
+# packages/opencode/src/tool/shell.ts and permission/index.ts at v1.19.3, the
+# current npm release, checked 2026-10-16). OpenCode matches a permission key
+# as a wildcard and the last matching rule wins, so the reviewer sets only
+# these keys: a later one, such as "*", could reopen them. Its frontmatter
+# holds only OPENCODE_REVIEWER_KEYS, because the deprecated `tools` map becomes
+# permission keys placed before `permission`'s own (ConfigAgentV1.normalize in
+# packages/core/src/v1/config/agent.ts), so `tools: {bash: false, "*": true}`
+# would end with `"*": allow` and reopen the shell.
+OPENCODE_REVIEWER_PERMISSIONS = {
+    "edit": "",
+    "task": " so it cannot launch a writer",
+    "bash": " so it has no shell, whose rules cannot reliably stop a redirect",
+}
+OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
+# OpenCode reads frontmatter with gray-matter and js-yaml 3, which differ from
+# PyYAML on merge keys, key types and Unicode line breaks, and several of those
+# differences load the agent with no frontmatter, so with the shell open
+# (packages/core/src/config/markdown.ts at v1.19.3, checked 2026-10-16). So the
+# reviewer's frontmatter is pinned line for line: a plain one-line description,
+# then exactly these lines. The description starts with a letter, so neither
+# parser reads it as a number, and must read back as its own text, so no tag,
+# quote, anchor, flow mapping or comment changes it.
+OPENCODE_REVIEWER_FRONTMATTER = ("mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny")
+OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [A-Za-z][ -9;-~]*")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
@@ -636,7 +696,8 @@ def check_skill_pointers(label: str, files: dict) -> list:
     """The hub's `## Skills` table and the rendered skills match both ways.
 
     A skill without a row is never loaded, because the table is how a harness
-    without native skill support finds it.
+    without native skill support finds it. The one exception is a skill in
+    SKILLS_WITHOUT_HUB_ROW, which the listed skill it names must point at.
     """
     names = _hub_skill_names(files.get(HUB, ""))
     if not names:
@@ -645,20 +706,62 @@ def check_skill_pointers(label: str, files: dict) -> list:
         Path(path).parent.name for path in files
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
     )
+
+    def unreached(name: str) -> Optional[str]:
+        """None when a listed skill names `name`, else why it is not reached."""
+        parent = SKILLS_WITHOUT_HUB_ROW.get(name)
+        if parent is None:
+            return ""
+        if parent not in names:
+            return f", nor does {parent!r}, the skill that must name it"
+        if f"`{name}`" not in _unfenced(files.get(_skill_path(parent), "")):
+            return f" and listed skill {parent!r} does not name it"
+        return None
+
     return [
         f"[{label}] AGENTS.md points at skill {name!r}, but {_skill_path(name)} is not generated"
         for name in names
         if _skill_path(name) not in files
     ] + [
-        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table"
+        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table{unreached(name)}"
         for name in rendered
-        if name not in names
+        if name not in names and unreached(name) is not None
     ]
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """A safe loader that rejects a mapping key given twice. OpenCode's
+    frontmatter parser (gray-matter with js-yaml 3) throws on one and then
+    loads the agent with no frontmatter at all, while PyYAML keeps the last
+    value, so the validator would pass a reviewer OpenCode opens up."""
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue  # merged keys may be overridden, as in js-yaml
+        key = loader.construct_object(key_node, deep=True)
+        try:
+            duplicate = key in seen
+        except TypeError:
+            continue  # an unhashable key fails in construct_mapping below
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"found duplicate key {key!r}", key_node.start_mark
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=True)
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 def _frontmatter(text: str):
     """(mapping, None) for a `---`-delimited YAML frontmatter block, or
-    (None, reason) when it is absent, unterminated, or not a mapping."""
+    (None, reason) when it is absent, unterminated, not a mapping, gives a key
+    twice, or has a line starting with `---` before its closing line (which
+    gray-matter, as OpenCode uses it, would take as the end)."""
     lines = text.split("\n")
     if not lines or lines[0] != "---":
         return None, "does not start with a '---' frontmatter line"
@@ -666,8 +769,11 @@ def _frontmatter(text: str):
         end = lines.index("---", 1)
     except ValueError:
         return None, "has no closing '---' frontmatter line"
+    early = next((line for line in lines[1:end] if line.startswith("---")), None)
+    if early is not None:
+        return None, f"has a frontmatter line {early!r} that starts with '---' before the closing '---' line"
     try:
-        data = yaml.safe_load("\n".join(lines[1:end]))
+        data = yaml.load("\n".join(lines[1:end]), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:
         return None, f"has invalid YAML frontmatter — {exc}"
     if not isinstance(data, dict):
@@ -773,7 +879,10 @@ def _tool_names(tools) -> set:
 
 
 def check_reviewer_agents(label: str, files: dict) -> list:
-    """Both fresh-eyes reviewer agents are read-only and leave the model unset."""
+    """Both fresh-eyes reviewer agents leave the model unset and get no edit
+    tool. OpenCode's frontmatter holds only OPENCODE_REVIEWER_KEYS and sets
+    only the edit, task and bash permissions, each to deny; Claude Code's
+    keeps Bash and says to use it only for read-only commands."""
     errors = []
     for path in (CLAUDE_REVIEWER, OPENCODE_REVIEWER):
         if path not in files:
@@ -791,12 +900,44 @@ def check_reviewer_agents(label: str, files: dict) -> list:
             writers = sorted(_tool_names(data.get("tools")) & set(CLAUDE_WRITE_TOOLS))
             if writers:
                 errors.append(f"[{label}] {path} must be read-only but grants {writers}")
+            body = " ".join(files[path].split("\n---\n", 1)[-1].split())
+            if "Bash" in _tool_names(data.get("tools")) and CLAUDE_REVIEWER_SHELL_RULE not in body:
+                errors.append(f"[{label}] {path} grants Bash, so it must say {CLAUDE_REVIEWER_SHELL_RULE!r}")
         else:
+            head = files[path].split("\n")
+            head = head[1 : head.index("---", 1)]
+            if not (
+                head
+                and OPENCODE_REVIEWER_DESCRIPTION_RE.fullmatch(head[0])
+                and data.get("description") == head[0][len("description: ") :]
+                and tuple(head[1:]) == OPENCODE_REVIEWER_FRONTMATTER
+            ):
+                errors.append(
+                    f"[{label}] {path} frontmatter must be a one-line 'description:' of plain text in "
+                    f"printable ASCII that starts with a letter and has no colon, then exactly {list(OPENCODE_REVIEWER_FRONTMATTER)}, since OpenCode's "
+                    "YAML parser reads other frontmatter differently and can load it with the shell open"
+                )
             if data.get("mode") != "subagent":
                 errors.append(f"[{label}] {path} must set 'mode: subagent'")
+            unknown = sorted(str(key) for key in data if key not in OPENCODE_REVIEWER_KEYS and key != "model")
+            if unknown:
+                errors.append(
+                    f"[{label}] {path} sets {unknown}; set only "
+                    + ", ".join(repr(key) for key in OPENCODE_REVIEWER_KEYS)
+                    + ", since a key such as the deprecated 'tools' map can reopen the shell or edits"
+                )
             permission = data.get("permission")
-            if not isinstance(permission, dict) or permission.get("edit") != "deny":
-                errors.append(f"[{label}] {path} must set 'permission.edit: deny'")
+            permission = permission if isinstance(permission, dict) else {}
+            for key, why in OPENCODE_REVIEWER_PERMISSIONS.items():
+                if permission.get(key) != "deny":
+                    errors.append(f"[{label}] {path} must set 'permission.{key}: deny'{why}")
+            others = sorted(str(key) for key in permission if key not in OPENCODE_REVIEWER_PERMISSIONS)
+            if others:
+                errors.append(
+                    f"[{label}] {path} sets permission {others}; set only "
+                    + ", ".join(repr(key) for key in OPENCODE_REVIEWER_PERMISSIONS)
+                    + ", since OpenCode matches each key as a wildcard, so a later key such as '*' can reopen them"
+                )
     return errors
 
 
@@ -826,7 +967,7 @@ def _unfenced(text: str) -> str:
 
 
 def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
-    """Require the per-type worktree mechanisms and the repo-owned section layout.
+    """Require the per-type local-validation rules and the repo-owned section layout.
 
     `## Project specifics` must be the last second-level section so everything
     a repository adds sits below the generated sections, and the Next.js App
@@ -836,7 +977,7 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     agents = files.get("AGENTS.md", "")
     prose = _unfenced(agents)
     errors = _missing_phrases(
-        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} worktree guidance"
+        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} local-validation guidance"
     )
     headings = [line for line in prose.splitlines() if line.startswith("## ")]
     if not headings or headings[-1] != PROJECT_SPECIFICS_HEADING:
@@ -3072,6 +3213,19 @@ def run_self_tests() -> list:
                 errors.append(
                     f"self-test '{repo_type} missing {phrase!r}' did not fail as expected: {result}"
                 )
+        # Every local-validation skill keeps its routing sentence pinned, and
+        # rewording it away from that sentence fails.
+        validation_skill = _skill_path(f"local-validation-{repo_type}")
+        if validation_skill in files:
+            if (LOCAL_VALIDATION_ROUTING, validation_skill) not in AGENTS_TYPE_REQUIREMENTS[repo_type]:
+                errors.append(f"self-test '{repo_type} routing pin': {validation_skill} routing is not pinned")
+            unrouted = dict(files)
+            unrouted[validation_skill] = " ".join(files[validation_skill].split()).replace(
+                "load it first; ", "", 1
+            )
+            result = check_workspace_guidance(f"self-test:{repo_type} routing", repo_type, unrouted)
+            if not any(repr(LOCAL_VALIDATION_ROUTING) in e for e in result):
+                errors.append(f"self-test '{repo_type} skill routing' did not fail as expected: {result}")
         trailing = dict(files)
         trailing["AGENTS.md"] = files["AGENTS.md"] + "\n## Local notes\n\nText.\n"
         result = check_workspace_guidance(f"self-test:{repo_type} trailing", repo_type, trailing)
@@ -3236,6 +3390,24 @@ def _structure_self_tests() -> list:
     unlisted = dict(files)
     unlisted[HUB] = files[HUB].replace("| fan out to subagents | `delegation` |\n", "", 1)
     expect("generated skill without a row", check_skill_pointers("self-test:ptr", unlisted), "has no row")
+    # A skill without a row passes only while its listed parent skill names it.
+    for name, parent in SKILLS_WITHOUT_HUB_ROW.items():
+        unnamed = dict(files)
+        if f"`{name}`" not in files.get(_skill_path(parent), ""):
+            errors.append(f"self-test 'skill reached through {parent}' fixture: {parent} does not name {name}")
+        unnamed[_skill_path(parent)] = files[_skill_path(parent)].replace(f"`{name}`", "another skill")
+        expect(f"{name} not named by {parent}", check_skill_pointers("self-test:ptr", unnamed), "does not name it")
+        # Naming it is not enough when the parent itself has no row.
+        orphaned = dict(files)
+        row = next((line for line in files[HUB].splitlines(keepends=True) if f"| `{parent}` |" in line), "")
+        if not row:
+            errors.append(f"self-test '{name} under unlisted {parent}' fixture: the hub has no {parent} row")
+        orphaned[HUB] = files[HUB].replace(row, "", 1) if row else files[HUB]
+        expect(
+            f"{name} under unlisted {parent}",
+            check_skill_pointers("self-test:ptr", orphaned),
+            f"{_skill_path(name)} is generated but has no row in the AGENTS.md skills table, nor does {parent!r}",
+        )
 
     # (d) frontmatter: unterminated, over-long description, name/dir mismatch,
     # bad name characters, empty description.
@@ -3293,8 +3465,13 @@ def _structure_self_tests() -> list:
     )
     expect("rendered stamps", check_template_stamps("self-test:stamp", cfg, files), None)
 
-    # (g) reviewer agents: a model, a write tool, a missing tools list, an
-    # allowed edit, or a primary mode each fail.
+    # (g) reviewer agents: a model, a write tool, a missing tools list, a
+    # Claude Code reviewer without its Bash rule, a primary mode, an OpenCode
+    # edit, task or shell permission, a later OpenCode permission key that
+    # could reopen them, another OpenCode frontmatter key, such as the
+    # deprecated `tools` map, or frontmatter off the pinned lines (a duplicate
+    # key, an early `---` line, a Unicode line break, a merge key, or a tagged,
+    # non-ASCII, numeric or commented description), each fail.
     for name, path, old, new, needle in (
         ("claude model", CLAUDE_REVIEWER, "tools:", "model: opus\ntools:", "'model'"),
         ("claude write tool", CLAUDE_REVIEWER, "tools: Read,", "tools: Read, Edit,", "'Edit'"),
@@ -3302,6 +3479,34 @@ def _structure_self_tests() -> list:
         ("opencode model", OPENCODE_REVIEWER, "mode:", "model: x/y\nmode:", "'model'"),
         ("opencode edit allowed", OPENCODE_REVIEWER, "edit: deny", "edit: allow", "permission.edit: deny"),
         ("opencode primary", OPENCODE_REVIEWER, "mode: subagent", "mode: primary", "mode: subagent"),
+        ("claude shell without its rule", CLAUDE_REVIEWER, CLAUDE_REVIEWER_SHELL_RULE, "use Bash freely",
+         "must say"),
+        ("opencode task allowed", OPENCODE_REVIEWER, "task: deny", "task: allow", "permission.task: deny"),
+        ("opencode shell open", OPENCODE_REVIEWER, "bash: deny", "bash: allow", "permission.bash: deny"),
+        ("opencode shell allow rule", OPENCODE_REVIEWER, "bash: deny",
+         'bash:\n    "*": deny\n    "git diff *": allow', "permission.bash: deny"),
+        ("opencode later wildcard allow", OPENCODE_REVIEWER, "bash: deny", 'bash: deny\n  "*": allow',
+         "sets permission ['*']"),
+        ("opencode tools map", OPENCODE_REVIEWER, "mode: subagent",
+         'mode: subagent\ntools:\n  bash: false\n  "*": true', "sets ['tools']"),
+        ("opencode unknown key", OPENCODE_REVIEWER, "mode: subagent", "mode: subagent\nx-notes: review",
+         "sets ['x-notes']"),
+        ("opencode duplicate key", OPENCODE_REVIEWER, "  bash: deny", "  bash: deny\n  bash: deny",
+         "duplicate key 'bash'"),
+        ("opencode early delimiter", OPENCODE_REVIEWER, "mode: subagent",
+         "mode: subagent\nx: {a: b,\n---c: d}", "starts with '---'"),
+        ("opencode unicode line break", OPENCODE_REVIEWER, "\nmode: subagent", "\u2028mode: subagent",
+         "frontmatter must be"),
+        ("opencode merge key", OPENCODE_REVIEWER, "  bash: deny", "  <<: {bash: allow}\n  bash: deny",
+         "frontmatter must be"),
+        ("opencode tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!str Use",
+         "frontmatter must be"),
+        ("opencode non-ascii description", OPENCODE_REVIEWER, "or ready.\n", "or ready.\u00e9\n",
+         "frontmatter must be"),
+        ("opencode numeric description", OPENCODE_REVIEWER, "description: Use", "description: 1e3 Use",
+         "frontmatter must be"),
+        ("opencode description comment", OPENCODE_REVIEWER, "or ready.\n", "or ready. #x\n",
+         "frontmatter must be"),
     ):
         mutated = dict(files)
         if old not in files[path]:

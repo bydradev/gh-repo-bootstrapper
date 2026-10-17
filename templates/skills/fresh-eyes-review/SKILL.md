@@ -36,10 +36,21 @@ work complete.
 If resolving review findings results in material changes, perform another
 independent fresh-eyes review of those changes before completion.
 
+After three review rounds with blocking findings still open, stop and escalate
+to the operator rather than starting another round: list the open findings,
+what each round changed, and your recommendation.
+
+OpenCode's free-tier models on its own provider currently refuse an agent whose
+shell is denied, as this repository's OpenCode reviewer's is, with "can only be
+used from within OpenCode" (OpenCode issue 50627, open on 2026-10-16). Run that
+reviewer with another model or use another reviewer; don't loosen its
+permissions.
+
 ## Cross-family review recipe
 
-This recipe works in any harness. Save the diff, the requested outcome, and the
-relevant requirements to the session's scratch directory (see the
+This recipe works in any harness. Save the diff, the requested outcome, the
+relevant requirements, and the validation results to the session's scratch
+directory (see the
 `worktrees-and-scratch` skill), write the reviewer prompt to a file there, then
 run the reviewer read-only from inside a git worktree:
 

@@ -1,11 +1,17 @@
 ---
 name: local-validation-nextjs
-description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, or Playwright E2E. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev`, `EMFILE` fallbacks, Playwright traces and flaky results, the CI validation tiers, how a worktree gets its dependencies, and the indexing files a public site ships (`robots.txt`, sitemap, noindex on non-canonical hostnames)."
+description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, or Playwright E2E. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev` and when it applies, `EMFILE` fallbacks, Playwright traces and flaky results, the CI validation tiers as generated and where to check them, and how a worktree gets its dependencies."
 ---
 
 # Local validation for Next.js
 
-The commands to run before pushing are in the `## Tooling` section of `AGENTS.md`. This skill covers what to do when they misbehave locally, and how CI runs them.
+If `## Project specifics` in `AGENTS.md` names a repository-owned validation
+skill, load it first; where it is narrower, it governs.
+
+The commands to run before pushing are in the `## Tooling` section of
+`AGENTS.md`. This skill covers what to do when they misbehave locally, and how
+CI runs them as generated. For `robots.txt`, the sitemap, `noindex`, or
+canonical hostnames, load `public-site-indexing` instead.
 
 ## Local browser-validation constraints
 
@@ -25,9 +31,10 @@ Next.js development server:
 ulimit -n 10240 && npm run dev
 ```
 
-The limit concerns `next dev`'s file watching. When the repository's E2E
-suite serves a production build instead of `next dev`, it is not an E2E
-requirement.
+The limit concerns `next dev`'s file watching, so it applies to any command
+that starts `next dev`, including a Playwright `webServer` that runs it (check
+`playwright.config.ts`), for example `ulimit -n 10240 && npx playwright test`.
+An E2E suite that serves a production build does not need it.
 
 This is a non-persistent per-shell setting. Do not add it to shell profiles,
 change system limits, change CI, or alter Playwright configuration. A generated
@@ -35,8 +42,7 @@ repository owns its server lifecycle, ports, and test scripts, so follow its
 local documentation before combining a manual dev server with browser tests.
 `next dev` takes a lock in the project's build directory and refuses to start
 a second server for the same project, so stop a manually started `next dev`
-before running an E2E suite that starts its own (checked against Next.js
-16.3.5's `dist/build/lockfile.js` and `setup-dev-bundler.js`, 2026-09-29).
+before running an E2E suite that starts its own.
 If Next.js or Watchpack still reports `EMFILE: too many open files, watch`,
 treat it as local host resource exhaustion. Run `npm run test:e2e:local` when that script is available.
 Otherwise, run the project's normal Playwright suite with one worker, for
@@ -54,49 +60,32 @@ solely to resolve a local validation failure. If the serial command still fails,
 record the exact error and report the limitation rather than claiming the
 validation passed.
 
-Check the trace settings before re-running a failed local Playwright test. A
-common configuration — `trace: "on-first-retry"` with no retries outside CI —
-records nothing for a local failure, because only a retry is traced, so the
-attempt that already failed cannot be recovered. Re-run with
-`--trace=retain-on-failure` so the next failure is traced rather than lost too,
-and run with it from the start when a failure must be diagnosable the first
-time. Prefer it to `--retries=1` for intermittent failures: `on-first-retry`
-traces the retry, not the attempt that failed. Do not change the Playwright
-configuration merely to obtain a trace (trace modes checked against the
-`--trace` choices in Playwright 1.63.0's `playwright test --help`, 2026-09-29).
+Before re-running a failed local Playwright test, check `trace` and `retries`
+in `playwright.config.ts`. With `trace: "on-first-retry"` and no retries
+outside CI, a common setup, a local failure records nothing, because only a
+retry is traced, so the attempt that already failed cannot be recovered. Re-run
+with `--trace=retain-on-failure` so the next failure is traced rather than lost
+too, and run with it from the start when a failure must be diagnosable the
+first time. Prefer it to `--retries=1` for intermittent failures:
+`on-first-retry` traces the retry, not the attempt that failed. Do not change
+the Playwright configuration merely to obtain a trace.
 
 Playwright clears its output directory (`test-results/` by default) at the
 start of every run, so copy any failure output you need before re-running.
 When CI retries failed tests, a test that fails and then passes on a retry is
 reported as `flaky`, not failed, and the run stays green unless it is
 configured to fail on flaky tests (`failOnFlakyTests`); read the report's flaky
-count instead of treating a green run as proof nothing failed (checked against
-Playwright 1.63.0's `outputDir`, test-status, and `failOnFlakyTests`
-documentation, 2026-09-29).
+count instead of treating a green run as proof nothing failed.
 
 ## CI validation tiers
 
-In CI, automated validation runs in three tiers:
+As generated, CI validates in three tiers. This repository owns
+`.github/workflows/ci.yml` and `test.yml`, so check them, and the `test.yml`
+call in `release-please.yml`, for its current tiers:
 
-- **Pull requests (`ci.yml`):** Runs fast validation (`build` only: production advisory audit, baseline verification, lint, format check, typecheck, unit tests, production build) with browser E2E skipped.
-- **Push to `main` (`release-please.yml`):** Runs the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
-- **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** Runs the full validation suite, including every Playwright project.
-
-## Indexing and crawlers
-
-A public site serves `robots.txt` and a sitemap from the App Router metadata
-files `robots.ts` and `sitemap.ts`. Allow all crawlers and link the sitemap;
-disallow only paths with a reason, such as API routes that are not pages. Give
-personal or search-result pages `robots: { index: false, follow: true }` in
-their metadata, and leave them out of the sitemap.
-
-Set AI crawler policy in the hosting platform's bot controls, not with per-bot
-rules in `robots.txt`, so the policy lives in one place.
-
-When the host also serves the site on a default or per-deployment hostname,
-turn those hostnames off and send `X-Robots-Tag: noindex, nofollow` on them as
-a backstop, so only the canonical domain is indexed. For a static export, make
-the CI export check require `out/robots.txt` and `out/sitemap.xml`.
+- **Pull requests (`ci.yml`):** fast validation (the `build` job only: production advisory audit, baseline verification, lint, format check, typecheck, unit tests, production build) with browser E2E skipped.
+- **Push to `main` (`release-please.yml`):** the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
+- **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** the full validation suite, including every Playwright project.
 
 ## Worktrees
 
@@ -105,3 +94,13 @@ dependencies in it with `npm ci`, which reuses the shared npm cache, only when
 a check needs them, and remove them with the worktree. Never copy
 `node_modules`, `.next`, `test-results`, or `playwright-report` into a
 verification copy.
+
+## Sources
+
+- `next dev` build-directory lock: Next.js 16.3.5 `dist/build/lockfile.js` and
+  `setup-dev-bundler.js`, checked 2026-09-29.
+- Trace modes: the `--trace` choices in Playwright 1.63.0's
+  `playwright test --help`, checked 2026-09-29.
+- Output directory, flaky status, and `failOnFlakyTests`: Playwright 1.63.0's
+  `outputDir`, test-status, and `failOnFlakyTests` documentation, checked
+  2026-09-29.

@@ -50,6 +50,13 @@ anything installed beyond a base Python interpreter.
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
+- the bootstrapper's own agent files (the general skills and their
+  `.claude/skills` links, both reviewer agents, `CLAUDE.md`, and `AGENTS.md`
+  above `## Project specifics`), which must match its `--type simple` render.
+  To refresh them, the error suggests `./bootstrap.py --adopt . --type simple`;
+  that run also stamps `pr-title-check.yml` and refuses `release-please.yml`,
+  which is this repository's own and stays as it is, so commit only the agent
+  files it changes
 - the bootstrapper's own bug-report form, whose repository types and flags must
   match `bootstrap.py`'s parser
 

@@ -393,13 +393,12 @@ def stamp(text: str, is_yaml: bool = False, template: str | None = None) -> str:
 
 
 def _stamp_slot(text: str) -> str:
-    """The line stamp() puts a Markdown stamp on, after any BOM: the one after
-    closed YAML frontmatter, or the first."""
-    lines = text.removeprefix("\ufeff").splitlines() or [""]
-    if lines[0] == "---" and "---" in lines[1:]:
-        closer = lines.index("---", 1)
-        return lines[closer + 1] if closer + 1 < len(lines) else ""
-    return lines[0]
+    """The line stamp() puts a Markdown stamp on, after any BOM: the first
+    after closed YAML frontmatter, or the first line. Blank lines before it
+    are skipped, as Prettier adds one after frontmatter."""
+    lines = text.removeprefix("\ufeff").splitlines()
+    start = lines.index("---", 1) + 1 if lines[:1] == ["---"] and "---" in lines[1:] else 0
+    return next((line for line in lines[start:] if line.strip()), "")
 
 
 def stamp_is_valid(text: str, is_yaml: bool = False) -> bool:
@@ -3169,8 +3168,9 @@ def existing_repository_config(args) -> dict:
 def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     """Whether the repository has the template's copy of a screenshot file.
 
-    That is a file with a stamp, valid or edited, on the line the template
-    puts it (even behind a byte-order mark an editor added), or an unstamped
+    That is a file whose stamp, valid or edited, is its first non-blank line
+    or the first after its frontmatter (even behind a byte-order mark an
+    editor added), or an unstamped
     docs/screenshot-review.md whose body is the current one or one a release
     shipped before stamps. A repository's own file at that path, such as its
     own screenshot-review process, does not count, even one that shows the

@@ -453,11 +453,12 @@ they shape report as drift. `--screenshots` is the exception: a `nextjs` or
 `swift` repository that already has the template's copy of
 `.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
 treated as using it, and the report says so, so `--adopt` keeps and updates
-those files without the flag. The template's copy is a file with a stamp,
-edited or not, on the line the template puts it (even behind a byte-order
-mark), or an unstamped doc whose text a release shipped. A repository's own
-`docs/screenshot-review.md`, such as its own screenshot-review process, does
-not count, even one that shows the stamp in an example further down. Without the template's skill it is left alone; next
+those files without the flag. The template's copy is a file whose stamp,
+edited or not, is its first non-blank line or the first after its frontmatter
+(even behind a byte-order mark), or an unstamped doc whose text a release
+shipped. A repository's own `docs/screenshot-review.md`, such as its own
+screenshot-review process, does not count, even one that shows the stamp in
+an example further down. Without the template's skill it is left alone; next
 to the template's skill it is reported as `local-modified`, as before, so
 move it to another path first. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type

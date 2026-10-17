@@ -35,6 +35,7 @@ CHECKS = (
     "check_workflow_permissions",
     "check_sha_pinned_actions",
     "check_workflow_gates",
+    "check_secrets_word",
     "check_reusable_workflow_inputs",
     "check_release_full_suite_contract",
     "check_rust_suite",
@@ -55,7 +56,7 @@ RUN_ONCE = {
     "check_bug_form",
 }
 OWN_WORKFLOWS = "bootstrapper own workflows"
-ALSO_ON_OWN_WORKFLOWS = {"check_sha_pinned_actions", "check_workflow_gates"}
+ALSO_ON_OWN_WORKFLOWS = {"check_sha_pinned_actions", "check_workflow_gates", "check_secrets_word"}
 LABELS = [label for label, _ in validate_templates.configurations()]
 
 
@@ -275,6 +276,56 @@ class ReleaseQueueTests(unittest.TestCase):
         errors = validate_templates._workflow_hardening("t", files)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("queue: max", errors[0])
+
+
+class SecretsWordTests(unittest.TestCase):
+    PATH = ".github/workflows/release-please.yml"
+
+    def _check(self, body, path=PATH):
+        return validate_templates.check_secrets_word("t", {path: body})
+
+    def test_static_references_and_mapping_keys_pass(self):
+        body = (
+            "jobs:\n"
+            "  test:\n"
+            "    uses: ./.github/workflows/test.yml\n"
+            "    secrets:\n"
+            "      APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY }}\n"
+            "  release:\n"
+            "    steps:\n"
+            "      # A secret cannot be read in an `if:`; Secrets.GITHUB_TOKEN is static.\n"
+            "      - env:\n"
+            "          HAS_APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY != '' }}\n"
+            "          TOKEN: ${{secrets.GITHUB_TOKEN}}\n"
+            "          NOTE: secretsless, mysecrets and secrets_store are other words\n"
+        )
+        self.assertEqual(self._check(body), [])
+
+    def test_the_word_anywhere_else_fails_with_its_line(self):
+        for line in (
+            '# Source: "Using secrets in GitHub Actions"',
+            "# https://docs.github.com/en/actions/how-tos/use-secrets",
+            "# SECRETS are set in the settings",
+            "ALL: ${{ toJSON(secrets) }}",
+            "KEY: ${{ secrets['RELEASE_PLEASE_APP_KEY'] }}",
+            "KEY: ${{ secrets . RELEASE_PLEASE_APP_KEY }}",
+            "secrets: inherit",
+            "secrets:\nAPP_KEY: x",
+        ):
+            with self.subTest(line):
+                errors = self._check("name: release-please\n" + line + "\n")
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn(f"{self.PATH}:2 uses the word", errors[0])
+
+    def test_only_workflows_are_checked(self):
+        self.assertEqual(self._check("# Using secrets\n", path="docs/notes.yml"), [])
+        self.assertEqual(len(self._check("# Using secrets\n", path=".github/workflows/ci.yaml")), 1)
+
+    def test_the_shipped_release_workflows_pass(self):
+        for template in ("release-please-gated.yml", "release-please-nextjs.yml", "release-please-simple.yml"):
+            with self.subTest(template):
+                text = (Path(validate_templates.__file__).parent / "templates" / template).read_text()
+                self.assertEqual(self._check(text), [])
 
 
 class DependabotCooldownTests(unittest.TestCase):

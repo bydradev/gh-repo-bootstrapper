@@ -47,6 +47,10 @@ anything installed beyond a base Python interpreter.
   warning, only while the Release Please App credentials are missing; the
   release App token limited to contents and pull requests; and pinned fallback
   versions of the Python CI tools
+- the word `secrets` in every generated workflow and in this repository's own
+  only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
+  because some generated repositories run workflow validators that refuse it
+  anywhere else, comments and URLs included
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
@@ -527,6 +531,16 @@ every race with a concurrent process — for example one moving a directory out
 of `PATH` mid-run — so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.12.1
+
+`release-please.yml` changes only in a comment, which no longer uses the word
+`secrets` except in `secrets.NAME`: some repositories' workflow validators
+refuse the word anywhere else, comments and URLs included. `--check` reports
+the file as `stale`, and `--adopt` updates it. A repository that kept its
+0.11.0 `release-please.yml` for that reason can take it now, which also brings
+in 0.12.0's credentials check (see
+[GitHub App — Release Please](#github-app--release-please)).
 
 ### Upgrading to 0.12.0
 

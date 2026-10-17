@@ -63,8 +63,9 @@ jobs:
       # abandon it. A secret cannot be read in an `if:`, so the step gets only
       # whether each one is set (true or false), never the key itself; an unset
       # variable or secret reads as an empty string. Source: docs.github.com
-      # "Using secrets in GitHub Actions", "Contexts reference" (context
-      # availability) and "Evaluate expressions", checked 2026-10-16.
+      # "Contexts reference" (context availability, and "Available contexts" on
+      # a property that does not exist) and "Evaluate expressions", checked
+      # 2026-10-17.
       - name: Check Release Please credentials
         id: credentials
         env:

@@ -42,6 +42,9 @@ Checks performed on each generated file:
   - release-gated full-suite contract: rendered Python, Swift, and Rust
     release-please.yml callers must select the full suite for manual dispatch
     and for the Release Please release commit
+  - the word `secrets`: every generated workflow, and the bootstrapper's own,
+    uses it only as a static secrets.NAME or a `secrets:` mapping key, as
+    some generated repositories' raw-text workflow validators require
   - runbook presence: every generated repo carries
     docs/branch-protection-runbook.md with the load-bearing operational facts,
     and without the incident run IDs, SHAs and timestamps kept in docs/archive/
@@ -2192,6 +2195,40 @@ def _workflow_hardening(label: str, files: dict) -> list:
     return errors
 
 
+# Some generated repositories run workflow validators that read each workflow's
+# raw bytes, comments included, because without a YAML parser a comment cannot
+# be told from script text, nor a static secrets.NAME from a dynamic read such
+# as toJSON(...) or an index. They refuse every word `secrets`, in any letter
+# case, that is neither followed by `.NAME` nor a `secrets:` key that ends its
+# line and opens a deeper `name:` mapping, so a URL slug such as `use-secrets`
+# fails too. Those repositories cannot edit a template-owned workflow, so the
+# templates keep to the same rule: these are those validators' regexes, applied
+# the same way to the UTF-8 bytes.
+SECRETS_WORD_RE = re.compile(rb"\bsecrets\b", re.IGNORECASE)
+STATIC_SECRET_RE = re.compile(rb"\.[A-Za-z_][A-Za-z0-9_]*")
+SECRETS_MAPPING_RE = re.compile(
+    rb"^( *)secrets:[ ]*\r?\n(?:[ ]*\r?\n)*\1 +[A-Za-z_][A-Za-z0-9_-]*:(?: |\r?\n)", re.MULTILINE
+)
+
+
+def check_secrets_word(label: str, files: dict) -> list:
+    """No workflow uses the word `secrets` except as `secrets.NAME` or a `secrets:` mapping key."""
+    errors = []
+    for path in _workflow_paths(files):
+        data = files[path].encode("utf-8")
+        mapping_keys = {match.end(1) for match in SECRETS_MAPPING_RE.finditer(data)}
+        for match in SECRETS_WORD_RE.finditer(data):
+            if STATIC_SECRET_RE.match(data, match.end()) or match.start() in mapping_keys:
+                continue
+            line = data.count(b"\n", 0, match.start()) + 1
+            errors.append(
+                f"[{label}] {path}:{line} uses the word {match.group().decode()!r} other than as a "
+                f"static secrets.NAME or a `secrets:` mapping key, which the workflow validators of "
+                f"some generated repositories refuse anywhere, comments and URLs included; reword it"
+            )
+    return errors
+
+
 def _own_workflow_files() -> dict:
     return {
         f".github/workflows/{path.name}": path.read_text()
@@ -3942,6 +3979,41 @@ def _structure_self_tests() -> list:
            gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
 
+    # 0.12.0's release workflows cited the "Using secrets in GitHub Actions"
+    # page in a comment, and generated repositories whose workflow validators
+    # refuse that word kept their older release-please.yml.
+    def secrets_word(repo_type, text):
+        render = bootstrap.generate_files(dict(next(c for _, c in configurations() if c["repo_type"] == repo_type)))
+        render[release] = text(render[release])
+        return check_secrets_word("self-test:secrets", render)
+
+    def before_credentials(addition):
+        anchor = "      - name: Check Release Please credentials\n"
+        return lambda t: t.replace(anchor, addition + anchor, 1)
+
+    for repo_type in ("nextjs", "python", "simple"):
+        expect(f"secrets word in a clean {repo_type} render", secrets_word(repo_type, lambda t: t), None)
+    for name, addition in (
+        ("the 0.12.0 citation", '      # "Using secrets in GitHub Actions", checked 2026-10-16.\n'),
+        ("a docs URL slug", "      # docs.github.com/en/actions/how-tos/write-workflows/use-secrets\n"),
+        ("a capitalised word", "      # Secrets are set in the repository settings.\n"),
+        ("a dynamic read", "      # env: ALL: ${{ toJSON(secrets) }}\n"),
+        ("an index", "      # env: KEY: ${{ secrets['RELEASE_PLEASE_APP_KEY'] }}\n"),
+    ):
+        expect(f"secrets word as {name}", secrets_word("nextjs", before_credentials(addition)),
+               "uses the word")
+    caller = "    uses: ./.github/workflows/test.yml\n"
+    expect("secrets: mapping on a reusable call",
+           secrets_word("python", lambda t: t.replace(
+               caller, caller + "    secrets:\n\n      APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY }}\n", 1)), None)
+    expect("secrets: inherit on a reusable call",
+           secrets_word("python", lambda t: t.replace(caller, caller + "    secrets: inherit\n", 1)),
+           "uses the word 'secrets'")
+    expect("secrets: mapping whose key is not deeper",
+           secrets_word("python", lambda t: t.replace(
+               caller, caller + "    secrets:\n    APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY }}\n", 1)),
+           "uses the word 'secrets'")
+
     # This repository's own agent files: a copy of the render passes, Project
     # specifics are its own, and an edited, stale, missing, unstamped or extra
     # copy, a moved link, or an edited generated hub section fails.
@@ -4043,6 +4115,7 @@ def main() -> int:
         all_errors += check_workflow_permissions(label, files)
         all_errors += check_sha_pinned_actions(label, files)
         all_errors += check_workflow_gates(label, cfg["repo_type"], files)
+        all_errors += check_secrets_word(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
@@ -4067,6 +4140,7 @@ def main() -> int:
     all_errors += check_bug_form("bootstrapper self", None if form is None else form.decode())
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_workflow_gates("bootstrapper own workflows", "simple", _own_workflow_files())
+    all_errors += check_secrets_word("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_legacy_digests()
     if STRUCTURE_FIXTURES_RUN[0] == 0:
         all_errors.append("no hub/skill/stamp self-test fixture ran; run_self_tests() is not wired in")

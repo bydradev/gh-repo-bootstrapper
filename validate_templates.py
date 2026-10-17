@@ -2498,6 +2498,10 @@ def check_own_template_copies(label: str, repo_dir: Path) -> list:
                    "specifics, then run " + adopt.format(" --replace-generated-sections") + commit)
         elif status in ("missing", "stale"):
             fix = "run " + adopt.format("") + commit
+            if status == "missing" and os.path.lexists(repo_dir / rel):
+                # compare_repository reports a directory at a file's path as
+                # missing, and the adopt run cannot write the file over it.
+                fix = "something other than a file is at this path; move it aside, then " + fix
         elif status in ("orphaned", "dangling", "other-type"):
             fix = "the render no longer has it, so delete it"
         elif rel.startswith(".claude/skills/"):
@@ -3948,6 +3952,7 @@ def _structure_self_tests() -> list:
     skill_rel = next(rel for rel in sorted(own) if SKILL_PATH_RE.match(rel))
     link_rel = f".claude/skills/{Path(skill_rel).parent.name}"
     stale_skill = bootstrap.stamp(bootstrap.read_stamp(own[skill_rel])[1] + "\nAn older line.\n")
+    directory = object()  # an edit that puts a directory where a file belongs
     orphan = ".agents/skills/retired/SKILL.md"
     other_type = ".agents/skills/local-validation-nextjs/SKILL.md"
     for name, edits, failure in (
@@ -3955,7 +3960,9 @@ def _structure_self_tests() -> list:
         ("own Project specifics edited", {HUB: own[HUB] + "\nOur own rule.\n"}, None),
         ("own skill edited", {skill_rel: own[skill_rel] + "\nA local edit.\n"}, (skill_rel, "local-modified")),
         ("own skill stale", {skill_rel: stale_skill}, (skill_rel, "stale")),
-        ("own skill missing", {skill_rel: None}, (skill_rel, "missing")),
+        ("own skill missing", {skill_rel: None}, (skill_rel, "missing; run")),
+        ("own CLAUDE.md replaced by a directory", {"CLAUDE.md": directory},
+         ("CLAUDE.md", "missing; something other than a file is at this path; move it aside, then run")),
         ("own skill unstamped", {skill_rel: bootstrap.read_stamp(own[skill_rel])[1]},
          (skill_rel, "shadowed, an unstamped file at a template skill's path; move any change")),
         ("own Claude reviewer edited", {CLAUDE_REVIEWER: own[CLAUDE_REVIEWER] + "\nA local edit.\n"},
@@ -3983,7 +3990,9 @@ def _structure_self_tests() -> list:
             links = {**bootstrap._links_for_files(own), **{
                 rel: target for rel, target in edits.items() if rel.startswith(".claude/skills/")}}
             for rel, text in {**own, **edits}.items():
-                if text is not None and not rel.startswith(".claude/skills/"):
+                if text is directory:
+                    (root / rel).mkdir(parents=True)
+                elif text is not None and not rel.startswith(".claude/skills/"):
                     (root / rel).parent.mkdir(parents=True, exist_ok=True)
                     (root / rel).write_text(text)
             for rel, target in links.items():

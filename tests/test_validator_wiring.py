@@ -4,6 +4,7 @@ import contextlib
 import inspect
 import io
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -155,8 +156,23 @@ class OwnTemplateCopyTests(unittest.TestCase):
     )
 
     def _check(self, report):
-        with patch.object(validate_templates.bootstrap, "compare_repository", return_value=report):
-            return validate_templates.check_own_template_copies("t", Path("."))
+        with patch.object(validate_templates.bootstrap, "compare_repository", return_value=report), \
+                tempfile.TemporaryDirectory() as tmp:
+            return validate_templates.check_own_template_copies("t", Path(tmp))
+
+    def test_main_checks_the_validator_s_own_directory(self):
+        roots = []
+
+        def record(label, repo_dir):
+            if label == "bootstrapper self":  # not the self-tests' temporary copies
+                roots.append(Path(repo_dir).resolve())
+            return []
+        # From another directory, so a path relative to the working directory fails.
+        with tempfile.TemporaryDirectory() as tmp, contextlib.chdir(tmp), \
+                patch.object(validate_templates, "check_own_template_copies", side_effect=record), \
+                contextlib.redirect_stdout(io.StringIO()):
+            validate_templates.main()
+        self.assertEqual(roots, [Path(validate_templates.__file__).resolve().parent])
 
     def test_every_status_but_same_fails_in_every_covered_path(self):
         for rel in self.COVERED:

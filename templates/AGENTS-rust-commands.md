@@ -1,7 +1,7 @@
 
 ## Tooling
 
-Run all checks before pushing:
+Run the checks your change affects before pushing:
 
 ```sh
 cargo fmt --all -- --check                             # format (matches CI)

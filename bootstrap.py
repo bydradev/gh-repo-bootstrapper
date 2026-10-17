@@ -87,6 +87,7 @@ NEXTJS_BASELINE_SCRIPTS = (
 )
 NEXTJS_BASELINE_REVIEW_WORKFLOW = ".github/workflows/baseline-review.yml"
 SCREENSHOT_REVIEW = "docs/screenshot-review.md"
+CURRENT_WORK = "docs/current-work.md"
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
@@ -1352,6 +1353,9 @@ def generate_files(cfg: dict) -> dict:
     # Every generated repo is born with the runbook for the protection applied
     # below — all types get release-please, pr-title-check and required checks.
     files["docs/branch-protection-runbook.md"] = _load("docs-branch-protection-runbook.md")
+    # Repository-owned: dated status the hub sends agents to, so it stays out
+    # of AGENTS.md. --adopt writes it only when missing.
+    files[CURRENT_WORK] = _load("docs-current-work.md")
 
     preamble = ""
     tooling = ""
@@ -1442,6 +1446,8 @@ NEXTJS_RULES_END = "<!-- END:nextjs-agent-rules -->"
 _NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->"
 _SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
 _SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
+# Any ATX heading, an empty one included.
+_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?=[ \t]|$)")
 # A heading of any level behind blockquote or list markers (`> ## Ours`,
 # `- ## Ours`) is a subsection too, not text inside a generated paragraph.
 # Blockquote markers, and list markers only when followed by whitespace — a
@@ -1477,6 +1483,8 @@ RETIRED_SECTIONS: frozenset[str] = frozenset({
     "## Screenshot review",
     "## Local browser-validation constraints",
     "## Formatting",
+    "## Fresh-eyes review",
+    "## Recall is not evidence",
 })
 _TYPE_RETIRED_SECTIONS = {
     "nextjs": frozenset({"## Baseline process", "## Local browser-validation constraints"}),
@@ -1601,6 +1609,98 @@ def _subheadings(section: str) -> list:
     ]
 
 
+# The guidance paragraphs that templates through v0.11 put at the top of
+# `## Project specifics` (v0.5.0 to v0.5.5 the first, v0.6.0 on the second and
+# third). The guidance now sits in a generated section above the heading, so
+# --adopt --replace-generated-sections removes an unedited copy from the
+# section's own text, before any subheading; an edited one, or one the
+# repository filed under a subheading, is the repository's text and stays.
+_RETIRED_SPECIFICS_GUIDANCE = frozenset(" ".join(paragraph.split()) for paragraph in (
+    """Rules that apply only to this repository live in this section, below every
+generated section: product sources of truth, prime directives, points at which
+to stop and ask the operator, and boundaries specific to this codebase. Keep
+them here rather than editing the generated sections above, so template
+updates can be applied without overwriting them. Where a rule here narrows or
+conflicts with a generated section, it governs this repository — say so
+explicitly, so the difference stays visible.""",
+    """Rules that apply only to this repository live in this section, below every
+generated section: product sources of truth, prime directives, points at which
+to stop and ask the operator, and boundaries specific to this codebase. Keep
+them here rather than editing the generated sections above, so template
+updates can be applied without overwriting them. Where a rule here narrows or
+conflicts with a generated section, it governs this repository — say so
+explicitly, so the difference stays visible. Put stop-and-ask lists and prime
+directives first in this section, so they survive any truncation.""",
+    """Keep this section short. Long reference material (architecture, conventions,
+API notes) belongs in a repository-owned skill under `.agents/skills/` with a
+name that does not start with a template skill name; narrow a template skill
+here, never by editing it.""",
+))
+RETIRED_SPECIFICS_GUIDANCE = "(template guidance inside ## Project specifics)"
+
+
+def _strip_retired_guidance(owned: str) -> str:
+    """The `## Project specifics` part without unedited older-template guidance.
+
+    A paragraph is a run of non-blank lines outside code fences. One that
+    starts at column 0 on every line, as the templates wrote it, and whose
+    whitespace-normalized text is a retired guidance paragraph is removed with
+    the blank lines after it (or, at the end of the section, before it); an
+    indented copy (under a list item, or indented code) or one with a hard line
+    break is kept. Only the section's own text is searched, up to its first
+    heading of any level, so a copy under a subheading is kept, and nothing is
+    removed from a section with structure `_markdown_ambiguities` reports, such
+    as an HTML block. Everything else, whitespace included, is kept byte for
+    byte.
+    """
+    if _markdown_ambiguities(owned):
+        # An HTML block (a comment, say) or other structure the line scan does
+        # not model could hide or enclose a copy: leave the section alone.
+        return owned
+    lines = _markdown_lines(owned)
+    keep = [True] * len(lines)
+
+    def text_line(index: int) -> bool:
+        return not lines[index][2] and bool(lines[index][1].strip())
+
+    # Only the section's own text: stop at the first heading of any level, as
+    # the templates put the guidance at the top and a subheading is the
+    # repository's own structure.
+    limit = next(
+        (i for i in range(1, len(lines)) if not lines[i][2] and _ATX_HEADING_RE.match(lines[i][1])),
+        len(lines),
+    )
+    index = 1  # line 0 is the heading itself
+    while index < limit:
+        if not text_line(index):
+            index += 1
+            continue
+        end = index
+        while end < limit and text_line(end):
+            end += 1
+        run = [line for _, line, _ in lines[index:end]]
+        paragraph = " ".join(" ".join(run).split())
+        # Leading spaces (a list item or code) and a trailing hard break are
+        # edits the whitespace-normalized comparison would not see.
+        edited = any(line[:1].isspace() or line.endswith("  ") for line in run)
+        if paragraph in _RETIRED_SPECIFICS_GUIDANCE and not edited:
+            while end < limit and not lines[end][2] and not lines[end][1].strip():
+                end += 1
+            start = index
+            if end == len(lines):
+                # Removed up to the end: also drop the blank lines before it.
+                while start > 1 and (
+                    not keep[start - 1] or (not lines[start - 1][2] and not lines[start - 1][1].strip())
+                ):
+                    start -= 1
+            keep[start:end] = [False] * (end - start)
+        index = end
+    if all(keep):
+        return owned
+    offsets = [offset for offset, _, _ in lines] + [len(owned)]
+    return "".join(owned[offsets[i] : offsets[i + 1]] for i in range(len(lines)) if keep[i])
+
+
 # A heading indented four or more spaces is an indented code block, not a heading.
 _PROJECT_SPECIFICS_RE = re.compile(r" {0,3}" + re.escape("## Project specifics") + r"[ \t]*")
 NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
@@ -1626,7 +1726,8 @@ def compare_agents(expected: str, actual: str) -> list:
     --adopt would otherwise overwrite: a section, or a level-3+ subsection
     inside a generated section, outside `## Project specifics`, or structure
     the parser does not model. The `next dev` block and everything from
-    `## Project specifics` on are repository-owned and never compared.
+    `## Project specifics` on are repository-owned and never compared, except
+    that unedited guidance an older template put there is reported `retired`.
     """
     exp_generated, _ = _split_project_specifics(_mask_nextjs_rules(expected))
     act_generated, act_owned = _split_project_specifics(_mask_nextjs_rules(actual))
@@ -1691,6 +1792,8 @@ def compare_agents(expected: str, actual: str) -> list:
             rows.append(("local", heading))
     if act_owned is None:
         rows.append(("missing", PROJECT_SPECIFICS))
+    elif _strip_retired_guidance(act_owned) != act_owned:
+        rows.append(("retired", RETIRED_SPECIFICS_GUIDANCE))
     if _nextjs_rules_block(expected) and not _nextjs_rules_block(actual):
         rows.append(("missing", NEXTJS_RULES_BEGIN))
     return rows
@@ -1700,8 +1803,9 @@ def rebuild_agents(expected: str, actual: str, replace_generated: bool = False) 
     """The rendered AGENTS.md with the repository's own parts carried over.
 
     Keeps the repository's `## Project specifics` section (and everything after
-    it) and its `next dev`-managed block. Callers must first confirm that
-    compare_agents() reports no `local` rows, or repository text is lost.
+    it), less any unedited guidance from an older template, and its `next
+    dev`-managed block. Callers must first confirm that compare_agents()
+    reports no `local` rows, or repository text is lost.
     """
     rows = compare_agents(expected, actual)
     retired = [heading for status, heading in rows if status == "retired"]
@@ -1710,6 +1814,8 @@ def rebuild_agents(expected: str, actual: str, replace_generated: bool = False) 
         raise ValueError("cannot drop retired sections: " + "; ".join(local or retired))
     generated, template_owned = _split_project_specifics(expected)
     _, owned = _split_project_specifics(actual)
+    if owned is not None:
+        owned = _strip_retired_guidance(owned)
     repo_block, template_block = _nextjs_rules_block(actual), _nextjs_rules_block(expected)
     if repo_block and template_block:
         generated = generated.replace(template_block, repo_block, 1)
@@ -3393,8 +3499,8 @@ def main():
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
         def confirm(sections):
             print("\nAGENTS.md: these generated sections differ from the template and will be")
-            print("replaced with its text, or are missing and will be added (the file is")
-            print("tracked, so git diff shows the change):")
+            print("replaced with its text, are retired and will be removed, or are missing and")
+            print("will be added (the file is tracked, so git diff shows the change):")
             for heading in sections:
                 print(f"  {heading}")
             return args.non_interactive or prompt_yn("Replace them?", default=False)

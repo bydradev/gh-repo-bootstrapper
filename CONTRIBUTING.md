@@ -1,6 +1,7 @@
 # Contributing
 
 Bug reports, feature requests, questions and pull requests are all welcome.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Issues
 
@@ -64,11 +65,14 @@ The repository has two licences, split by directory:
   [MIT-0](templates/LICENSE). These files are copied into the repositories
   `bootstrap.py` creates, and MIT-0 lets their owners use them without keeping
   any notice or attribution.
-- Everything else is [Apache-2.0](LICENSE).
+- Everything else is [Apache-2.0](LICENSE), except
+  [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), which is adapted from the
+  Contributor Covenant and keeps its CC BY-SA 4.0 licence.
 
 A contribution is made under the licence of the directory it changes. Changes
-under `templates/` are contributed under MIT-0, and all other changes under
-Apache-2.0, as its section 5 provides.
+under `templates/` are contributed under MIT-0, changes to `CODE_OF_CONDUCT.md`
+under CC BY-SA 4.0, and all other changes under Apache-2.0, as its section 5
+provides.
 
 ## Forking
 

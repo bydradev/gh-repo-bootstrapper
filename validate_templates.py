@@ -49,6 +49,9 @@ Checks performed on each generated file:
     production e2e lanes
   - the bootstrapper's own bug-report form offers exactly bootstrap.py's
     repository types and flags
+  - the bootstrapper's own agent files (general skills, their .claude/skills
+    links, both reviewer agents, CLAUDE.md, and AGENTS.md above
+    `## Project specifics`) match its `--type simple` render
 
 Also runs a handful of self-contained self-tests (see run_self_tests())
 against synthetic workflow fixtures to prove the missing/unexpected-context
@@ -70,6 +73,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import textwrap
 from collections import Counter
 from pathlib import Path
@@ -425,6 +429,17 @@ REPO_RUNBOOK = "docs/branch-protection-runbook.md"
 TEMPLATE_RUNBOOK = "templates/docs-branch-protection-runbook.md"
 REPO_RUNBOOK_PATH = Path(__file__).parent / REPO_RUNBOOK
 TEMPLATE_RUNBOOK_PATH = Path(__file__).parent / TEMPLATE_RUNBOOK
+
+# This repository's own agent files are its `--type simple` render: the general
+# skills and their .claude/skills links, both reviewer agents, CLAUDE.md, and
+# AGENTS.md above `## Project specifics`. check_own_template_copies compares
+# them, so an edit to a copy here, such as `bash: allow` in the OpenCode
+# reviewer, fails instead of passing every check that reads only the templates.
+OWN_COPY_CONFIG = {
+    "name": "gh-repo-bootstrapper", "repo_type": "simple", "postgres": False, "scheme": "", "screenshots": False,
+}
+OWN_COPY_FILES = ("AGENTS.md", "CLAUDE.md")
+OWN_COPY_DIRS = (".agents/skills/", ".claude/skills/", ".claude/agents/", ".opencode/agents/")
 
 # The bug-report form asks which repository type and which flags were in play.
 # Its choices must follow bootstrap.py's parser: a supported type or flag missing
@@ -803,6 +818,15 @@ def _frontmatter(text: str):
         data = yaml.load("\n".join(lines[1:end]), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:
         return None, f"has invalid YAML frontmatter — {exc}"
+    except Exception as exc:
+        # SafeLoader raises plain Python exceptions, not a YAMLError, for many
+        # malformed values: `!!bool Use` a KeyError, `!!int ""` an IndexError,
+        # `!!timestamp x` an AttributeError, a 180-part base-60 `!!float` an
+        # OverflowError, an unhashable key a TypeError, and deep nesting a
+        # RecursionError. Listing them misses the next one, so the validator
+        # reports any of them instead of crashing, with the YAMLError wording
+        # so a self-test holds whichever way a PyYAML release raises.
+        return None, f"has invalid YAML frontmatter — PyYAML raised {type(exc).__name__}: {exc}"
     if not isinstance(data, dict):
         return None, "frontmatter is not a mapping"
     return data, None
@@ -2441,6 +2465,54 @@ def check_runbook_copy_matches_template(
     return []
 
 
+def check_own_template_copies(label: str, repo_dir: Path) -> list:
+    """This repository's own copies of the template's agent files match its render.
+
+    Compared as `./bootstrap.py --check . --type simple` compares them: a
+    template-owned copy must equal the current render, AGENTS.md only above
+    `## Project specifics`, CLAUDE.md exactly, and each .claude/skills link
+    must point at its skill. A missing copy, a stamped skill or agent the
+    render no longer has, and a dangling link fail too.
+    """
+    report = bootstrap.compare_repository(repo_dir, bootstrap.generate_files(dict(OWN_COPY_CONFIG)))
+    errors = []
+    for rel, (status, detail) in sorted(report.items()):
+        if status == "same" or not (rel in OWN_COPY_FILES or rel.startswith(OWN_COPY_DIRS)):
+            continue
+        # The adopt run also refuses this repository's own release-please.yml
+        # and stamps its pr-title-check.yml; neither change belongs in the fix.
+        adopt = "`./bootstrap.py --adopt . --type simple --non-interactive{}`"
+        commit = ", committing only the agent files it changes"
+        if status == "shadowed" and not detail:
+            # bootstrap gives no detail for a template skill's path holding an
+            # unstamped file, such as the copy with its stamp line deleted.
+            detail = "an unstamped file at a template skill's path"
+            fix = ("move any change you want to keep into the template under templates/, then delete "
+                   "it and run " + adopt.format("") + commit)
+        elif status in ("shadowed", "symlink", "ignored", "unreadable"):
+            fix = None  # the detail says what is wrong, such as a name collision to rename
+        elif rel == "AGENTS.md":
+            if isinstance(detail, list):
+                detail = "; ".join(f"{heading} {row}" for row, heading in detail if row != "same")
+            fix = ("move a local change into the template under templates/ or into ## Project "
+                   "specifics, then run " + adopt.format(" --replace-generated-sections") + commit)
+        elif status in ("missing", "stale"):
+            fix = "run " + adopt.format("") + commit
+        elif status in ("orphaned", "dangling", "other-type"):
+            fix = "the render no longer has it, so delete it"
+        elif rel.startswith(".claude/skills/"):
+            fix = "delete it and run " + adopt.format("") + " to recreate the link" + commit
+        else:
+            fix = ("move the change into the template under templates/, then delete the copy and run "
+                   + adopt.format("") + commit)
+        errors.append(
+            f"[{label}] {rel} does not match this repository's `--type simple` render: {status}"
+            + (f", {detail}" if isinstance(detail, str) and detail else "")
+            + (f"; {fix}" if fix else "")
+        )
+    return errors
+
+
 def _form_field(form: dict, field_id: str) -> dict:
     for field in form.get("body") or []:
         if isinstance(field, dict) and field.get("id") == field_id:
@@ -3610,6 +3682,14 @@ def _structure_self_tests() -> list:
          "frontmatter must be"),
         ("opencode description comment", OPENCODE_REVIEWER, "or ready.\n", "or ready. #x\n",
          "frontmatter must be"),
+        ("opencode bool-tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!bool Use",
+         "has invalid YAML frontmatter"),
+        ("opencode empty int-tagged value", OPENCODE_REVIEWER, "mode: subagent", 'mode: subagent\nx: !!int ""',
+         "has invalid YAML frontmatter"),
+        ("opencode base-60 float value", OPENCODE_REVIEWER, "mode: subagent",
+         "mode: subagent\nx: !!float " + ":".join(["1"] * 180), "has invalid YAML frontmatter"),
+        ("opencode deeply nested value", OPENCODE_REVIEWER, "mode: subagent",
+         "mode: subagent\nx: " + "[" * 5000 + "]" * 5000, "has invalid YAML frontmatter"),
     ):
         mutated = dict(files)
         if old not in files[path]:
@@ -3857,6 +3937,61 @@ def _structure_self_tests() -> list:
     expect("full e2e run with Chromium only",
            gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
+
+    # This repository's own agent files: a copy of the render passes, Project
+    # specifics are its own, and an edited, stale, missing, unstamped or extra
+    # copy, a moved link, or an edited generated hub section fails.
+    own = {
+        rel: text for rel, text in bootstrap.generate_files(dict(OWN_COPY_CONFIG)).items()
+        if rel in OWN_COPY_FILES or rel.startswith(OWN_COPY_DIRS)
+    }
+    skill_rel = next(rel for rel in sorted(own) if SKILL_PATH_RE.match(rel))
+    link_rel = f".claude/skills/{Path(skill_rel).parent.name}"
+    stale_skill = bootstrap.stamp(bootstrap.read_stamp(own[skill_rel])[1] + "\nAn older line.\n")
+    orphan = ".agents/skills/retired/SKILL.md"
+    other_type = ".agents/skills/local-validation-nextjs/SKILL.md"
+    for name, edits, failure in (
+        ("own copies of the render", {}, None),
+        ("own Project specifics edited", {HUB: own[HUB] + "\nOur own rule.\n"}, None),
+        ("own skill edited", {skill_rel: own[skill_rel] + "\nA local edit.\n"}, (skill_rel, "local-modified")),
+        ("own skill stale", {skill_rel: stale_skill}, (skill_rel, "stale")),
+        ("own skill missing", {skill_rel: None}, (skill_rel, "missing")),
+        ("own skill unstamped", {skill_rel: bootstrap.read_stamp(own[skill_rel])[1]},
+         (skill_rel, "shadowed, an unstamped file at a template skill's path; move any change")),
+        ("own Claude reviewer edited", {CLAUDE_REVIEWER: own[CLAUDE_REVIEWER] + "\nA local edit.\n"},
+         (CLAUDE_REVIEWER, "local-modified")),
+        ("own OpenCode reviewer shell open",
+         {OPENCODE_REVIEWER: own[OPENCODE_REVIEWER].replace("  bash: deny", "  bash: allow", 1)},
+         (OPENCODE_REVIEWER, "local-modified")),
+        ("own hub section edited",
+         {HUB: own[HUB].replace("## Definition of done\n", "## Definition of done\n\nOur own gate.\n", 1)},
+         (HUB, "differs, ## Definition of done differs")),
+        ("own CLAUDE.md edited", {"CLAUDE.md": own["CLAUDE.md"] + "Read the README too.\n"}, ("CLAUDE.md", "differs")),
+        ("own retired template skill", {orphan: bootstrap.stamp("---\nname: retired\ndescription: x\n---\n")},
+         (orphan, "orphaned")),
+        ("own other type's template skill",
+         {other_type: bootstrap.stamp("---\nname: local-validation-nextjs\ndescription: x\n---\n")},
+         (other_type, "other-type")),
+        ("own skill link moved", {link_rel: "../../.agents/skills/retired"}, (link_rel, "differs, wrong mirror target")),
+        ("own skill link missing", {link_rel: None}, (link_rel, "missing")),
+        ("own dangling skill link", {".claude/skills/retired": "../../.agents/skills/retired"},
+         (".claude/skills/retired", "dangling")),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # An edit under .claude/skills/ sets a link's target, or None to drop it.
+            links = {**bootstrap._links_for_files(own), **{
+                rel: target for rel, target in edits.items() if rel.startswith(".claude/skills/")}}
+            for rel, text in {**own, **edits}.items():
+                if text is not None and not rel.startswith(".claude/skills/"):
+                    (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (root / rel).write_text(text)
+            for rel, target in links.items():
+                if target is not None:
+                    (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                    os.symlink(target, root / rel)
+            needle = failure and f"{failure[0]} does not match this repository's `--type simple` render: {failure[1]}"
+            expect(name, check_own_template_copies("self-test:own", root), needle)
     return errors
 
 
@@ -3918,6 +4053,7 @@ def main() -> int:
         _read_file_or_none(REPO_RUNBOOK_PATH),
         _read_file_or_none(TEMPLATE_RUNBOOK_PATH),
     )
+    all_errors += check_own_template_copies("bootstrapper self", Path(__file__).parent)
     form = _read_file_or_none(BUG_FORM_PATH)
     all_errors += check_bug_form("bootstrapper self", None if form is None else form.decode())
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())

@@ -63,6 +63,39 @@ function successfulRelease(updatedAt = new Date().toISOString()) {
   return { ...capturedSuccessfulReleaseRun, updated_at: updatedAt };
 }
 
+// The release job of the generated release-please.yml as GitHub's jobs API
+// lists it. Without the Release Please credentials the token step and the
+// steps after it are "completed" with the conclusion "skipped", and there is
+// no post step for the token action.
+function releaseJob(tokenConclusion) {
+  const step = (number, name, conclusion = "success") => ({
+    number,
+    name,
+    status: "completed",
+    conclusion,
+  });
+  return {
+    name: "release-please",
+    status: "completed",
+    conclusion: "success",
+    steps: [
+      step(1, "Set up job"),
+      step(2, "Check Release Please credentials"),
+      step(3, "Generate GitHub App token", tokenConclusion),
+      step(4, "Refuse to tag an untested release merge", tokenConclusion),
+      step(5, "Run googleapis/release-please-action@<sha>", tokenConclusion),
+      step(6, "Complete job"),
+    ],
+  };
+}
+
+const testJob = {
+  name: "test / build",
+  status: "completed",
+  conclusion: "success",
+  steps: [{ number: 1, name: "Set up job", status: "completed", conclusion: "success" }],
+};
+
 async function runFixture({
   rows,
   lintRows = [],
@@ -71,9 +104,11 @@ async function runFixture({
   latestReleaseRuns = [successfulRelease()],
   unfilteredReleaseRuns = latestReleaseRuns,
   successfulReleaseRuns = latestReleaseRuns,
+  releaseJobs = [testJob, releaseJob("success")],
   token = true,
   dependabotStatus = 200,
   releaseStatus = 200,
+  jobsStatus = 200,
   auditReport = auditReportMatching("GHSA-aaaa-bbbb-cccc"),
   fakeNpmScript,
 }) {
@@ -112,6 +147,11 @@ async function runFixture({
                 : unfilteredReleaseRuns,
         }),
       );
+      return;
+    }
+    if (/^\/repos\/bydradev\/fixture\/actions\/runs\/\d+\/jobs$/.test(url.pathname)) {
+      response.statusCode = jobsStatus;
+      response.end(JSON.stringify({ total_count: releaseJobs.length, jobs: releaseJobs }));
       return;
     }
     response.statusCode = 404;
@@ -368,7 +408,7 @@ test("reports a successful release run older than the declared stale threshold",
 });
 
 test("reports a failed latest release run as stale and exits non-zero", async () => {
-  const { code, output } = await runFixture({
+  const { code, output, requests } = await runFixture({
     rows: [documented],
     alerts: matchingAlert,
     latestReleaseRuns: [{ ...successfulRelease(), conclusion: "failure" }],
@@ -380,6 +420,95 @@ test("reports a failed latest release run as stale and exits non-zero", async ()
     /Release pipeline: stale — latest completed `release-please\.yml` run concluded failure/,
   );
   assert.match(output, /older than 14 days is reported as stale/);
+  // Only a successful run's jobs are read.
+  assert.deepEqual(
+    requests.filter((request) => request.includes("/jobs")),
+    [],
+  );
+});
+
+test("reports a release skipped for missing credentials as not configured", async () => {
+  const { code, output, requests } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [testJob, releaseJob("skipped")],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: not configured — the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\) skipped the release because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it; releases stay skipped until both are set\./,
+  );
+  assert.doesNotMatch(output, /Release pipeline: last successful/);
+  assert.deepEqual(
+    requests.filter((request) => request.includes("/jobs")),
+    ["/repos/bydradev/fixture/actions/runs/30230627141/jobs?filter=latest&per_page=100"],
+  );
+});
+
+test("reports a release whose App token step ran as healthy", async () => {
+  const { code, output, requests } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [testJob, releaseJob("success")],
+  });
+  assert.equal(code, 0, output);
+  assert.match(
+    output,
+    /Release pipeline: last successful `release-please\.yml` run completed successfully/,
+  );
+  assert.doesNotMatch(output, /not configured/);
+  assert.equal(requests.filter((request) => request.includes("/jobs")).length, 1);
+});
+
+test("judges a release workflow without the credentials check by its conclusion", async () => {
+  // A customised workflow: a skipped step of another name, and no credentials check.
+  const customised = {
+    ...releaseJob("success"),
+    steps: [
+      { number: 1, name: "Set up job", status: "completed", conclusion: "success" },
+      { number: 2, name: "Create token", status: "completed", conclusion: "skipped" },
+      { number: 3, name: "Generate GitHub App token", status: "completed", conclusion: "skipped" },
+      { number: 4, name: "Complete job", status: "completed", conclusion: "success" },
+    ],
+  };
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [testJob, customised],
+  });
+  assert.equal(code, 0, output);
+  assert.match(
+    output,
+    /Release pipeline: last successful `release-please\.yml` run completed successfully/,
+  );
+  assert.doesNotMatch(output, /not configured/);
+});
+
+test("reports unavailable release jobs without claiming the release healthy", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    jobsStatus: 403,
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: could not be determined — Release Please jobs API returned 403/,
+  );
+  assert.doesNotMatch(output, /Release pipeline: last successful/);
+});
+
+test("reports a successful release run without a run id as undetermined", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    latestReleaseRuns: [{ ...successfulRelease(), id: undefined }],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: could not be determined — Release Please API returned a completed run without a run id/,
+  );
 });
 
 test("reports orphan detection as unavailable when npm audit returns an error response", async () => {

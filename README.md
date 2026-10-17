@@ -542,6 +542,20 @@ the file as `stale`, and `--adopt` updates it. A repository that kept its
 in 0.12.0's credentials check (see
 [GitHub App — Release Please](#github-app--release-please)).
 
+For `nextjs`, the weekly baseline review no longer counts a release that was
+skipped for missing credentials as healthy. When the latest completed
+`release-please.yml` run succeeded, it reads that run's jobs, and if the run
+checked the Release Please credentials and skipped its App token step, it
+reports `Release pipeline: not configured` and fails, as the review did before
+0.12.0, when such runs failed. `scripts/review-baselines.mjs` and
+`scripts/review-baselines.test.mjs` belong to the repository, so `--adopt`
+keeps them and `--check` reports them as `differs`, even when they are
+unchanged from 0.12.0. Copy both from `templates/` at the `v0.12.1` tag, or
+merge the change into an edited copy by hand. Take them together: the 0.12.0
+test file answers the new jobs request with a 404, so its healthy-release
+tests fail. `baseline-review.yml` already grants `actions: read`, which the
+jobs request needs.
+
 ### Upgrading to 0.12.0
 
 The `AGENTS.md` hub changed: it gains an *Autonomy and escalation* section and
@@ -864,7 +878,10 @@ because GitHub does not allow secrets in `if:` conditions
 ([Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
 checked 2026-10-16). `release-please.yml` is template-owned, so `--adopt`
 brings the check to existing repositories; a repository whose release
-workflow is `local-modified` keeps its own behaviour.
+workflow is `local-modified` keeps its own behaviour. In a `nextjs`
+repository, the weekly baseline review reports a successful run that skipped
+the release this way as `Release pipeline: not configured`, and fails, until
+both are set.
 
 Once both are set, the next push to `main` runs the release; check that it
 creates or updates a release PR before treating release automation as

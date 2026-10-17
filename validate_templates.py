@@ -824,8 +824,9 @@ def _frontmatter(text: str):
         # `!!timestamp x` an AttributeError, a 180-part base-60 `!!float` an
         # OverflowError, an unhashable key a TypeError, and deep nesting a
         # RecursionError. Listing them misses the next one, so the validator
-        # reports any of them instead of crashing.
-        return None, f"has frontmatter PyYAML cannot load — {type(exc).__name__}: {exc}"
+        # reports any of them instead of crashing, with the YAMLError wording
+        # so a self-test holds whichever way a PyYAML release raises.
+        return None, f"has invalid YAML frontmatter — PyYAML raised {type(exc).__name__}: {exc}"
     if not isinstance(data, dict):
         return None, "frontmatter is not a mapping"
     return data, None
@@ -3682,13 +3683,13 @@ def _structure_self_tests() -> list:
         ("opencode description comment", OPENCODE_REVIEWER, "or ready.\n", "or ready. #x\n",
          "frontmatter must be"),
         ("opencode bool-tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!bool Use",
-         "PyYAML cannot load — KeyError"),
+         "has invalid YAML frontmatter"),
         ("opencode empty int-tagged value", OPENCODE_REVIEWER, "mode: subagent", 'mode: subagent\nx: !!int ""',
-         "PyYAML cannot load — IndexError"),
+         "has invalid YAML frontmatter"),
         ("opencode base-60 float value", OPENCODE_REVIEWER, "mode: subagent",
-         "mode: subagent\nx: !!float " + ":".join(["1"] * 180), "PyYAML cannot load — OverflowError"),
+         "mode: subagent\nx: !!float " + ":".join(["1"] * 180), "has invalid YAML frontmatter"),
         ("opencode deeply nested value", OPENCODE_REVIEWER, "mode: subagent",
-         "mode: subagent\nx: " + "[" * 5000 + "]" * 5000, "PyYAML cannot load — RecursionError"),
+         "mode: subagent\nx: " + "[" * 5000 + "]" * 5000, "has invalid YAML frontmatter"),
     ):
         mutated = dict(files)
         if old not in files[path]:

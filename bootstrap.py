@@ -87,6 +87,7 @@ NEXTJS_BASELINE_SCRIPTS = (
 )
 NEXTJS_BASELINE_REVIEW_WORKFLOW = ".github/workflows/baseline-review.yml"
 SCREENSHOT_REVIEW = "docs/screenshot-review.md"
+CURRENT_WORK = "docs/current-work.md"
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
@@ -109,10 +110,13 @@ _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
     "fresh-eyes-review", "delegation",
 )
-# A skill in some types but not all is type-specific: --check reports a stamped
-# copy of one under another --type as `(--type)`, and --adopt refuses. Before
-# removing a skill from one type while keeping it in another, plan how existing
-# repositories of the first type drop their stamped copy, or adopt will refuse.
+# The skills every configuration of a type generates; template_skills() adds
+# the screenshot-review skill when the configuration asks for it. A skill that
+# some configurations generate and others do not is configuration-specific:
+# --check reports a stamped copy of one that this configuration does not
+# generate as `(--type)`, and --adopt refuses. Before removing a skill from one
+# type while keeping it in another, plan how existing repositories of the
+# first type drop their stamped copy, or adopt will refuse.
 # Every skill has a row in the hub's skills table (_TYPE_SKILL_ROWS) except
 # those in validate_templates.SKILLS_WITHOUT_HUB_ROW, which another listed
 # skill names instead, to keep the hub within its byte budget.
@@ -120,23 +124,50 @@ TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "simple": _GENERAL_SKILLS,
     "python": _GENERAL_SKILLS + ("local-validation-python",),
     "rust": _GENERAL_SKILLS + ("local-validation-rust",),
-    "swift": _GENERAL_SKILLS + ("local-validation-swift", "screenshot-review"),
+    "swift": _GENERAL_SKILLS + ("local-validation-swift",),
     "nextjs": _GENERAL_SKILLS + (
-        "local-validation-nextjs", "baseline-process", "screenshot-review",
-        "public-site-indexing",
+        "local-validation-nextjs", "baseline-process", "public-site-indexing",
     ),
 }
+# The screenshot-review skill and docs/screenshot-review.md are generated only
+# for these types, and only with --screenshots (cfg["screenshots"]). --check
+# and --adopt also turn it on for a repository of these types that already has
+# either file, so its stamped copies are updated rather than deleted.
+SCREENSHOT_REVIEW_SKILL = "screenshot-review"
+SCREENSHOT_TYPES = ("nextjs", "swift")
+SCREENSHOT_FILES = (f".agents/skills/{SCREENSHOT_REVIEW_SKILL}/SKILL.md", SCREENSHOT_REVIEW)
+SCREENSHOTS_QUESTION = "Add the screenshot-review skill and doc (for a screenshot capture lane)?"
+SCREENSHOTS_IGNORED = "warning: --screenshots is only used with --type nextjs or swift; ignoring"
 _TEMPLATE_AGENTS = {
     ".claude/agents/fresh-eyes-reviewer.md": "agents/claude-fresh-eyes-reviewer.md",
     ".opencode/agents/fresh-eyes-reviewer.md": "agents/opencode-fresh-eyes-reviewer.md",
 }
 
 
+def screenshot_review(cfg) -> bool:
+    """True when this configuration generates the screenshot-review skill and doc."""
+    return cfg["repo_type"] in SCREENSHOT_TYPES and bool(cfg.get("screenshots"))
+
+
+def template_skills(cfg) -> tuple[str, ...]:
+    """The template skills this configuration generates."""
+    names = TEMPLATE_SKILLS[cfg["repo_type"]]
+    return names + (SCREENSHOT_REVIEW_SKILL,) if screenshot_review(cfg) else names
+
+
+def _skill_sets() -> list[set[str]]:
+    """The template skill set of every configuration, with and without --screenshots."""
+    return [
+        set(template_skills({"repo_type": repo_type, "screenshots": screenshots}))
+        for repo_type in TEMPLATE_SKILLS for screenshots in (False, True)
+    ]
+
+
 def template_owned_paths(cfg) -> list[str]:
     """The complete template-owned manifest for this configuration."""
-    paths = [f".agents/skills/{name}/SKILL.md" for name in TEMPLATE_SKILLS[cfg["repo_type"]]]
+    paths = [f".agents/skills/{name}/SKILL.md" for name in template_skills(cfg)]
     paths += list(_TEMPLATE_AGENTS) + ["docs/branch-protection-runbook.md"]
-    if cfg["repo_type"] in ("nextjs", "swift"):
+    if screenshot_review(cfg):
         paths.append(SCREENSHOT_REVIEW)
     paths += [".github/workflows/pr-title-check.yml", ".github/workflows/release-please.yml"]
     if cfg["repo_type"] == "nextjs":
@@ -150,7 +181,7 @@ def _skill_mirrors(names) -> dict[str, str]:
 
 def generate_links(cfg) -> dict[str, str]:
     """Claude's relative directory mirrors of the shared skills."""
-    return _skill_mirrors(TEMPLATE_SKILLS[cfg["repo_type"]])
+    return _skill_mirrors(template_skills(cfg))
 
 
 def _digest(text: str) -> str:
@@ -610,6 +641,7 @@ def build_parser() -> argparse.ArgumentParser:
               ./bootstrap.py --name my-app --type swift --scheme MyApp --xcodegen
               ./bootstrap.py --name my-service --type rust --private
               ./bootstrap.py --name my-app --type nextjs --postgres --dry-run
+              ./bootstrap.py --name my-app --type nextjs --screenshots
               ./bootstrap.py --name my-app --type nextjs --configure-only
               ./bootstrap.py --check ../my-app --type nextjs
               ./bootstrap.py --adopt ../my-app --type nextjs
@@ -633,6 +665,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Target destination for xcodebuild test (swift only, default: iphone)")
     p.add_argument("--xcodegen", action="store_true",
                    help="Generate the Xcode project from project.yml in CI (swift only)")
+    p.add_argument("--screenshots", action="store_true",
+                   help="Add the screenshot-review skill and docs/screenshot-review.md, for a "
+                        "repository with a screenshot capture lane (nextjs and swift only)")
     p.add_argument("--configure-only", action="store_true",
                    help="Apply GitHub configuration to an existing repo (skip file generation)")
     existing = p.add_mutually_exclusive_group()
@@ -1087,6 +1122,7 @@ def gather_config(args) -> dict:
     scheme = ""
     destination = ""
     xcodegen = False
+    screenshots = False
 
     if repo_type == "nextjs":
         postgres = args.postgres
@@ -1098,6 +1134,9 @@ def gather_config(args) -> dict:
             print("warning: --xcodegen is only used with --type swift; ignoring")
         if not ni and not args.postgres:
             postgres = prompt_yn("Include PostgreSQL service in tests?", default=False)
+        screenshots = args.screenshots
+        if not ni and not args.screenshots:
+            screenshots = prompt_yn(SCREENSHOTS_QUESTION, default=False)
 
     elif repo_type == "swift":
         if args.postgres:
@@ -1119,6 +1158,9 @@ def gather_config(args) -> dict:
         xcodegen = args.xcodegen
         if not ni and not args.xcodegen:
             xcodegen = prompt_yn("Generate the Xcode project from project.yml?", default=False)
+        screenshots = args.screenshots
+        if not ni and not args.screenshots:
+            screenshots = prompt_yn(SCREENSHOTS_QUESTION, default=False)
 
     else:  # python, rust, simple
         if args.postgres:
@@ -1129,6 +1171,8 @@ def gather_config(args) -> dict:
             print("warning: --destination is only used with --type swift; ignoring")
         if args.xcodegen:
             print("warning: --xcodegen is only used with --type swift; ignoring")
+        if args.screenshots:
+            print(SCREENSHOTS_IGNORED)
 
     # --- GitHub variables and secrets ---
     # Non-interactive: read from environment variables.
@@ -1160,6 +1204,7 @@ def gather_config(args) -> dict:
         "scheme": scheme,
         "destination": destination,
         "xcodegen": xcodegen,
+        "screenshots": screenshots,
         "configure_only": configure_only,
         "release_please_client_id": release_please_client_id,
         "release_please_app_key": release_please_app_key,
@@ -1257,15 +1302,21 @@ _TYPE_SKILL_ROWS = {
     "nextjs": (
         "| run local validation | `local-validation-nextjs` |\n",
         "| touch lint or audit baselines | `baseline-process` |\n",
-        "| change screenshots or captured views | `screenshot-review` |\n",
     ),
-    "swift": (
-        "| run local validation | `local-validation-swift` |\n",
-        "| change screenshots or captured views | `screenshot-review` |\n",
-    ),
+    "swift": ("| run local validation | `local-validation-swift` |\n",),
     "rust": ("| run local validation | `local-validation-rust` |\n",),
     "python": ("| run local validation | `local-validation-python` |\n",),
 }
+_SCREENSHOT_SKILL_ROW = "| change screenshots or captured views | `screenshot-review` |\n"
+
+
+def _screenshot_doc(repo_type: str) -> str:
+    """docs/screenshot-review.md for a type in SCREENSHOT_TYPES, before its stamp."""
+    return _compose(
+        _load("docs-screenshot-review-common.md"),
+        "PLATFORM_GUIDANCE",
+        _load(f"docs-screenshot-review-{repo_type}.md"),
+    )
 
 
 def generate_files(cfg: dict) -> dict:
@@ -1274,6 +1325,7 @@ def generate_files(cfg: dict) -> dict:
     postgres = cfg["postgres"]
     destination = cfg.get("destination") or "iphone"
     xcodegen = bool(cfg.get("xcodegen"))
+    screenshots = screenshot_review(cfg)
 
     files = {}
 
@@ -1307,14 +1359,12 @@ def generate_files(cfg: dict) -> dict:
         files[NEXTJS_ENFORCED_AUDIT_SCRIPT] = _load("audit-production.mjs")
         for path in NEXTJS_BASELINE_SCRIPTS:
             files[path] = _load(path.removeprefix("scripts/"))
-        screenshot_guidance = _load("docs-screenshot-review-nextjs.md")
     elif repo_type == "python":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
         files[".github/workflows/ci.yml"] = _load("ci.yml")
         files[".github/workflows/test.yml"] = _load("test-python.yml")
         files[".github/dependabot.yml"] = _load("dependabot-python.yml")
         files[".python-version"] = _load(".python-version")
-        screenshot_guidance = ""
 
     elif repo_type == "swift":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
@@ -1329,7 +1379,6 @@ def generate_files(cfg: dict) -> dict:
         # Dependabot entry at this point creates a permanently failing updater.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
         files[".swift-format"] = _load(".swift-format")
-        screenshot_guidance = _load("docs-screenshot-review-swift.md")
 
     elif repo_type == "rust":
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
@@ -1339,23 +1388,20 @@ def generate_files(cfg: dict) -> dict:
         # Dependabot entry would be a permanently failing updater until one
         # exists. The generated AGENTS.md says when to add it.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
-        screenshot_guidance = ""
 
     else:  # simple
         files[".github/workflows/release-please.yml"] = _load("release-please-simple.yml")
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
-        screenshot_guidance = ""
 
-    if repo_type in ("nextjs", "swift"):
-        files[SCREENSHOT_REVIEW] = _compose(
-            _load("docs-screenshot-review-common.md"),
-            "PLATFORM_GUIDANCE",
-            screenshot_guidance,
-        )
+    if screenshots:
+        files[SCREENSHOT_REVIEW] = _screenshot_doc(repo_type)
 
     # Every generated repo is born with the runbook for the protection applied
     # below — all types get release-please, pr-title-check and required checks.
     files["docs/branch-protection-runbook.md"] = _load("docs-branch-protection-runbook.md")
+    # Repository-owned: dated status the hub sends agents to, so it stays out
+    # of AGENTS.md. --adopt writes it only when missing.
+    files[CURRENT_WORK] = _load("docs-current-work.md")
 
     preamble = ""
     tooling = ""
@@ -1392,18 +1438,18 @@ def generate_files(cfg: dict) -> dict:
     agents = _load("AGENTS.md")
     agents = _compose(agents, "TYPE_PREAMBLE", preamble)
     agents = _compose(agents, "TYPE_TOOLING", tooling)
-    agents = _compose(agents, "SKILL_ROWS_TYPE", "".join(_TYPE_SKILL_ROWS.get(repo_type, ())))
-    if repo_type in ("nextjs", "swift"):
-        # The screenshot privacy and pre-commit review gates stay in the hub;
-        # the fragment points at the screenshot-review skill for the process.
-        agents = _compose(
-            agents, "SCREENSHOT_REVIEW_REF", _load("AGENTS-screenshot-review-ref-skill.md")
-        )
-    else:
-        # No screenshot-review skill for this type: keep the generic rule inline.
-        agents = _compose(
-            agents, "SCREENSHOT_REVIEW_REF", _load("AGENTS-screenshot-review-ref-generic.md")
-        )
+    skill_rows = "".join(_TYPE_SKILL_ROWS.get(repo_type, ()))
+    if screenshots:
+        skill_rows += _SCREENSHOT_SKILL_ROW
+    agents = _compose(agents, "SKILL_ROWS_TYPE", skill_rows)
+    # The screenshot privacy and pre-commit review gates stay in the hub for
+    # every configuration. With the screenshot-review skill, the fragment points
+    # at it for the process; without it, the fragment must not.
+    agents = _compose(
+        agents, "SCREENSHOT_REVIEW_REF",
+        _load("AGENTS-screenshot-review-ref-skill.md" if screenshots
+              else "AGENTS-screenshot-review-ref-generic.md"),
+    )
     files["AGENTS.md"] = agents
     files[".gitignore"] = _load(".gitignore")
     if repo_type == "swift" and xcodegen:
@@ -1413,7 +1459,7 @@ def generate_files(cfg: dict) -> dict:
     files["release-please-config.json"] = _release_please_config(name, repo_type)
     files[".release-please-manifest.json"] = json.dumps({".": "0.1.0"}, indent=2) + "\n"
 
-    for skill in TEMPLATE_SKILLS[repo_type]:
+    for skill in template_skills(cfg):
         content = _load(f"skills/{skill}/SKILL.md")
         if skill == "local-validation-swift":
             content = _compose(content, "XCODEGEN_DEPENDENCY_NOTE", _extract_section(delta, "DEPENDENCY_NOTE"))
@@ -1446,6 +1492,8 @@ NEXTJS_RULES_END = "<!-- END:nextjs-agent-rules -->"
 _NEXTJS_RULES_PLACEHOLDER = "<!-- nextjs-agent-rules: managed by next dev -->"
 _SECTION_HEADING_RE = re.compile(r"^ {0,3}#{1,2}(?!#)[ \t]+\S")
 _SUBHEADING_RE = re.compile(r"^ {0,3}#{3,6}(?!#)[ \t]+\S")
+# Any ATX heading, an empty one included.
+_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?=[ \t]|$)")
 # A heading of any level behind blockquote or list markers (`> ## Ours`,
 # `- ## Ours`) is a subsection too, not text inside a generated paragraph.
 # Blockquote markers, and list markers only when followed by whitespace — a
@@ -1481,6 +1529,8 @@ RETIRED_SECTIONS: frozenset[str] = frozenset({
     "## Screenshot review",
     "## Local browser-validation constraints",
     "## Formatting",
+    "## Fresh-eyes review",
+    "## Recall is not evidence",
 })
 _TYPE_RETIRED_SECTIONS = {
     "nextjs": frozenset({"## Baseline process", "## Local browser-validation constraints"}),
@@ -1605,6 +1655,98 @@ def _subheadings(section: str) -> list:
     ]
 
 
+# The guidance paragraphs that templates through v0.11 put at the top of
+# `## Project specifics` (v0.5.0 to v0.5.5 the first, v0.6.0 on the second and
+# third). The guidance now sits in a generated section above the heading, so
+# --adopt --replace-generated-sections removes an unedited copy from the
+# section's own text, before any subheading; an edited one, or one the
+# repository filed under a subheading, is the repository's text and stays.
+_RETIRED_SPECIFICS_GUIDANCE = frozenset(" ".join(paragraph.split()) for paragraph in (
+    """Rules that apply only to this repository live in this section, below every
+generated section: product sources of truth, prime directives, points at which
+to stop and ask the operator, and boundaries specific to this codebase. Keep
+them here rather than editing the generated sections above, so template
+updates can be applied without overwriting them. Where a rule here narrows or
+conflicts with a generated section, it governs this repository — say so
+explicitly, so the difference stays visible.""",
+    """Rules that apply only to this repository live in this section, below every
+generated section: product sources of truth, prime directives, points at which
+to stop and ask the operator, and boundaries specific to this codebase. Keep
+them here rather than editing the generated sections above, so template
+updates can be applied without overwriting them. Where a rule here narrows or
+conflicts with a generated section, it governs this repository — say so
+explicitly, so the difference stays visible. Put stop-and-ask lists and prime
+directives first in this section, so they survive any truncation.""",
+    """Keep this section short. Long reference material (architecture, conventions,
+API notes) belongs in a repository-owned skill under `.agents/skills/` with a
+name that does not start with a template skill name; narrow a template skill
+here, never by editing it.""",
+))
+RETIRED_SPECIFICS_GUIDANCE = "(template guidance inside ## Project specifics)"
+
+
+def _strip_retired_guidance(owned: str) -> str:
+    """The `## Project specifics` part without unedited older-template guidance.
+
+    A paragraph is a run of non-blank lines outside code fences. One that
+    starts at column 0 on every line, as the templates wrote it, and whose
+    whitespace-normalized text is a retired guidance paragraph is removed with
+    the blank lines after it (or, at the end of the section, before it); an
+    indented copy (under a list item, or indented code) or one with a hard line
+    break is kept. Only the section's own text is searched, up to its first
+    heading of any level, so a copy under a subheading is kept, and nothing is
+    removed from a section with structure `_markdown_ambiguities` reports, such
+    as an HTML block. Everything else, whitespace included, is kept byte for
+    byte.
+    """
+    if _markdown_ambiguities(owned):
+        # An HTML block (a comment, say) or other structure the line scan does
+        # not model could hide or enclose a copy: leave the section alone.
+        return owned
+    lines = _markdown_lines(owned)
+    keep = [True] * len(lines)
+
+    def text_line(index: int) -> bool:
+        return not lines[index][2] and bool(lines[index][1].strip())
+
+    # Only the section's own text: stop at the first heading of any level, as
+    # the templates put the guidance at the top and a subheading is the
+    # repository's own structure.
+    limit = next(
+        (i for i in range(1, len(lines)) if not lines[i][2] and _ATX_HEADING_RE.match(lines[i][1])),
+        len(lines),
+    )
+    index = 1  # line 0 is the heading itself
+    while index < limit:
+        if not text_line(index):
+            index += 1
+            continue
+        end = index
+        while end < limit and text_line(end):
+            end += 1
+        run = [line for _, line, _ in lines[index:end]]
+        paragraph = " ".join(" ".join(run).split())
+        # Leading spaces (a list item or code) and a trailing hard break are
+        # edits the whitespace-normalized comparison would not see.
+        edited = any(line[:1].isspace() or line.endswith("  ") for line in run)
+        if paragraph in _RETIRED_SPECIFICS_GUIDANCE and not edited:
+            while end < limit and not lines[end][2] and not lines[end][1].strip():
+                end += 1
+            start = index
+            if end == len(lines):
+                # Removed up to the end: also drop the blank lines before it.
+                while start > 1 and (
+                    not keep[start - 1] or (not lines[start - 1][2] and not lines[start - 1][1].strip())
+                ):
+                    start -= 1
+            keep[start:end] = [False] * (end - start)
+        index = end
+    if all(keep):
+        return owned
+    offsets = [offset for offset, _, _ in lines] + [len(owned)]
+    return "".join(owned[offsets[i] : offsets[i + 1]] for i in range(len(lines)) if keep[i])
+
+
 # A heading indented four or more spaces is an indented code block, not a heading.
 _PROJECT_SPECIFICS_RE = re.compile(r" {0,3}" + re.escape("## Project specifics") + r"[ \t]*")
 NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
@@ -1630,7 +1772,8 @@ def compare_agents(expected: str, actual: str) -> list:
     --adopt would otherwise overwrite: a section, or a level-3+ subsection
     inside a generated section, outside `## Project specifics`, or structure
     the parser does not model. The `next dev` block and everything from
-    `## Project specifics` on are repository-owned and never compared.
+    `## Project specifics` on are repository-owned and never compared, except
+    that unedited guidance an older template put there is reported `retired`.
     """
     exp_generated, _ = _split_project_specifics(_mask_nextjs_rules(expected))
     act_generated, act_owned = _split_project_specifics(_mask_nextjs_rules(actual))
@@ -1695,6 +1838,8 @@ def compare_agents(expected: str, actual: str) -> list:
             rows.append(("local", heading))
     if act_owned is None:
         rows.append(("missing", PROJECT_SPECIFICS))
+    elif _strip_retired_guidance(act_owned) != act_owned:
+        rows.append(("retired", RETIRED_SPECIFICS_GUIDANCE))
     if _nextjs_rules_block(expected) and not _nextjs_rules_block(actual):
         rows.append(("missing", NEXTJS_RULES_BEGIN))
     return rows
@@ -1704,8 +1849,9 @@ def rebuild_agents(expected: str, actual: str, replace_generated: bool = False) 
     """The rendered AGENTS.md with the repository's own parts carried over.
 
     Keeps the repository's `## Project specifics` section (and everything after
-    it) and its `next dev`-managed block. Callers must first confirm that
-    compare_agents() reports no `local` rows, or repository text is lost.
+    it), less any unedited guidance from an older template, and its `next
+    dev`-managed block. Callers must first confirm that compare_agents()
+    reports no `local` rows, or repository text is lost.
     """
     rows = compare_agents(expected, actual)
     retired = [heading for status, heading in rows if status == "retired"]
@@ -1714,6 +1860,8 @@ def rebuild_agents(expected: str, actual: str, replace_generated: bool = False) 
         raise ValueError("cannot drop retired sections: " + "; ".join(local or retired))
     generated, template_owned = _split_project_specifics(expected)
     _, owned = _split_project_specifics(actual)
+    if owned is not None:
+        owned = _strip_retired_guidance(owned)
     repo_block, template_block = _nextjs_rules_block(actual), _nextjs_rules_block(expected)
     if repo_block and template_block:
         generated = generated.replace(template_block, repo_block, 1)
@@ -2256,11 +2404,12 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
         Path(path).parent.name: path for path in files
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
     }
-    # Another type's template skills would be deleted as orphans under a wrong
-    # --type; they are reported instead, and compare_repository turns any of
-    # them into a (--type) refusal.
-    every = {name for names in TEMPLATE_SKILLS.values() for name in names}
-    shared = set.intersection(*(set(names) for names in TEMPLATE_SKILLS.values()))
+    # Template skills that this configuration does not render, such as another
+    # type's, would be deleted as orphans under a wrong --type or a missing
+    # --screenshots; they are reported instead, and compare_repository turns
+    # any of them into a (--type) refusal.
+    sets = _skill_sets()
+    every, shared = set.union(*sets), set.intersection(*sets)
     other_type = every - shared - set(skill_paths) if skill_paths else set()
     extras.update(_symlinked_skill_collisions(repo_dir, files, skill_paths))
     for base in (".agents/skills", ".claude/agents", ".opencode/agents"):
@@ -2304,7 +2453,12 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
                         extras[skill_paths[skill_name]] = ("shadowed", f"shadowed by {rel}")
                         continue
                     if stamped and skill_name in other_type:
-                        extras[rel] = ("other-type", f"template skill `{skill_name}` of another repository type")
+                        extras[rel] = ("other-type", (
+                            f"template skill `{skill_name}`, which only --type "
+                            f"{' or '.join(SCREENSHOT_TYPES)} with --screenshots generates"
+                            if skill_name == SCREENSHOT_REVIEW_SKILL
+                            else f"template skill `{skill_name}` of another repository type"
+                        ))
                         continue
                 if stamped:
                     extras[rel] = (
@@ -2389,10 +2543,10 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     if mismatch:
         report[TYPE_MISMATCH] = (
             "differs",
-            "this repository holds template skills of another repository type ("
+            "this repository holds template skills that this configuration does not generate ("
             + ", ".join(mismatch)
-            + "), which this --type does not generate; re-run with the type the repository "
-            "was generated with",
+            + "); re-run with the --type, and --screenshots where it applies, that the "
+            "repository was generated with",
         )
     for rel, target in links.items():
         path = repo_dir / rel
@@ -2435,6 +2589,9 @@ def _retired_section_text(repo_dir: Path, rows: list) -> dict[str, list[str]]:
 def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     """Print a --check report; return True when the repository is aligned."""
     print(f"\n{repo_dir} — compared with the '{cfg['repo_type']}' template")
+    notice = screenshot_review_notice(cfg)
+    if notice:
+        print(f"  {notice}")
     aligned = True
     for rel, (status, detail) in sorted(report.items()):
         if status != "same":
@@ -2693,7 +2850,8 @@ def adopt_repository(
     mirrors = _links_for_files(files) if links is None else links
     report = compare_repository(repo_dir, files) if links is None else compare_repository(repo_dir, files, links)
     if TYPE_MISMATCH in report:
-        # A wrong --type would delete the real type's skills as orphans.
+        # A wrong --type or a missing --screenshots would delete the template
+        # skills this configuration does not render as orphans.
         return [("refused", TYPE_MISMATCH, report[TYPE_MISMATCH][1] + "; nothing was changed")]
     for rel, (status, detail) in sorted(report.items()):
         try:
@@ -2788,6 +2946,15 @@ def _adopt_file(
                 "refused", rel,
                 "edited locally; move the repository's own jobs or steps into a separate "
                 "workflow, then delete the file to regenerate (see README, Template-owned files)",
+            )
+        if rel in SCREENSHOT_FILES:
+            # Detection only sees the template's copies, so once this file is
+            # deleted a re-run without the flag may turn screenshot review off.
+            return (
+                "refused", rel,
+                "edited locally; move the change to ## Project specifics or a repo-owned skill, "
+                "then delete the file and re-run with --screenshots to regenerate it (without "
+                "the flag, a repository with neither screenshot file drops screenshot review)",
             )
         return (
             "refused", rel,
@@ -2965,6 +3132,17 @@ def existing_repository_config(args) -> dict:
     repo_dir = Path(raw).expanduser().resolve()
     if not repo_dir.is_dir():
         _die(f"not a directory: {repo_dir}")
+    screenshots, found = bool(args.screenshots), []
+    if args.repo_type not in SCREENSHOT_TYPES:
+        if screenshots:
+            print(SCREENSHOTS_IGNORED)
+        screenshots = False
+    elif not screenshots:
+        # A repository generated before --screenshots existed has the skill and
+        # doc; without this, --adopt would delete the stamped skill as orphaned.
+        found = [rel for rel in SCREENSHOT_FILES
+                 if _template_screenshot_file(repo_dir, rel, args.repo_type)]
+        screenshots = bool(found)
     return {
         "name": existing_repository_name(repo_dir),
         "repo_dir": str(repo_dir),
@@ -2973,7 +3151,47 @@ def existing_repository_config(args) -> dict:
         "scheme": args.scheme or "",
         "destination": args.destination or "iphone",
         "xcodegen": bool(args.xcodegen),
+        "screenshots": screenshots,
+        "screenshots_found": found,
     }
+
+
+def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
+    """Whether the repository has the template's copy of a screenshot file.
+
+    That is a file with a stamp line, valid or edited, or an unstamped
+    docs/screenshot-review.md whose body is the current one or one a release
+    shipped before stamps. A repository's own file at that path, such as its
+    own screenshot-review process, does not count; nor does one behind a
+    symlink or one that cannot be read, which --adopt refuses rather than
+    deletes either way.
+    """
+    path = repo_dir / rel
+    if _symlink_in_path(repo_dir, rel) or not path.is_file():
+        return False
+    try:
+        text = path.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    if any(line.startswith(STAMP_PREFIX) for line in text.splitlines()):
+        return True
+    if rel != SCREENSHOT_REVIEW:
+        return False
+    expected = stamp(_screenshot_doc(repo_type))
+    return _template_file_state(rel, expected, text) in ("same", "stale")
+
+
+def screenshot_review_notice(cfg: dict) -> str | None:
+    """Why --check or --adopt kept screenshot review on without --screenshots."""
+    found = cfg.get("screenshots_found")
+    if not found:
+        return None
+    return (
+        f"notice: screenshot review is on without --screenshots, because the repository "
+        f"has the template's {' and '.join(found)}; pass --screenshots to silence this. "
+        f"To regenerate a screenshot file you deleted, re-run with --screenshots; to drop "
+        f"screenshot review, see the README's \"Upgrading to 0.12.0\""
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2995,6 +3213,8 @@ def print_dry_run(cfg: dict, files: dict):
             f"Destination: {cfg.get('destination', 'iphone')}  |  "
             f"XcodeGen: {cfg.get('xcodegen', False)}"
         )
+    if cfg["repo_type"] in SCREENSHOT_TYPES:
+        print(f"  Screenshot review: {screenshot_review(cfg)}")
     print(f"{'=' * 60}\n")
 
     for path in sorted(files):
@@ -3395,10 +3615,13 @@ def main():
             aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
             sys.exit(0 if aligned else 1)
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
+        notice = screenshot_review_notice(cfg)
+        if notice:
+            print(f"  {notice}")
         def confirm(sections):
             print("\nAGENTS.md: these generated sections differ from the template and will be")
-            print("replaced with its text, or are missing and will be added (the file is")
-            print("tracked, so git diff shows the change):")
+            print("replaced with its text, are retired and will be removed, or are missing and")
+            print("will be added (the file is tracked, so git diff shows the change):")
             for heading in sections:
                 print(f"  {heading}")
             return args.non_interactive or prompt_yn("Replace them?", default=False)
@@ -3457,12 +3680,13 @@ def main():
     vis = "private" if cfg["private"] else "public"
     print(f"\nAbout to create: {cfg['owner']}/{cfg['name']} ({cfg['repo_type']}, {vis})")
     print(f"  Local path: {cfg['repo_dir']}/")
-    if cfg["repo_type"] == "nextjs":
-        extras = []
-        if cfg["postgres"]:
-            extras.append("Postgres tests")
-        if extras:
-            print(f"  Extras: {', '.join(extras)}")
+    extras = []
+    if cfg["repo_type"] == "nextjs" and cfg["postgres"]:
+        extras.append("Postgres tests")
+    if screenshot_review(cfg):
+        extras.append("screenshot review")
+    if extras:
+        print(f"  Extras: {', '.join(extras)}")
     print(f"  Files:  {len(files)}")
 
     if not args.non_interactive:

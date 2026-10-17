@@ -6,6 +6,7 @@ import base64
 import json
 import zlib
 import io
+import itertools
 import re
 import subprocess
 import sys
@@ -18,6 +19,87 @@ from pathlib import Path
 
 import bootstrap
 import validate_templates
+
+# The `## Project specifics` guidance of the v0.5.x and v0.6.0 to v0.11.x
+# templates, which --adopt --replace-generated-sections removes when unedited.
+_GUIDANCE_0_5 = (
+    "Rules that apply only to this repository live in this section, below every\n"
+    "generated section: product sources of truth, prime directives, points at which\n"
+    "to stop and ask the operator, and boundaries specific to this codebase. Keep\n"
+    "them here rather than editing the generated sections above, so template\n"
+    "updates can be applied without overwriting them. Where a rule here narrows or\n"
+    "conflicts with a generated section, it governs this repository \u2014 say so\n"
+    "explicitly, so the difference stays visible.\n"
+)
+_GUIDANCE_0_6 = (
+    _GUIDANCE_0_5.removesuffix("visible.\n")
+    + "visible. Put stop-and-ask lists and prime\n"
+    "directives first in this section, so they survive any truncation.\n"
+    "\n"
+    "Keep this section short. Long reference material (architecture, conventions,\n"
+    "API notes) belongs in a repository-owned skill under `.agents/skills/` with a\n"
+    "name that does not start with a template skill name; narrow a template skill\n"
+    "here, never by editing it.\n"
+)
+
+# The exact v0.11.1 nextjs render of AGENTS.md (name "sample", no Postgres),
+# from `git archive v0.11.1`, so the upgrade test needs no tags.
+_AGENTS_0_11_1_NEXTJS = zlib.decompress(base64.b85decode(
+    (
+        'c-oCxZI0YXa{bR!q%nY3lB=q{!ooJXg~4hx+F4;GO`|o7{b3kp7MWF*(<GCVNmi*A`mu-b8GNukiQkJzve?}t+k&9(Dkd}I<3+@a'
+        'NWJ=p_1b**_J?;LuRHg7_&KfZ-gUz|j*UxZz5cc+zA--?d@}g^@yDOcaB$`$R&IVy<{U<I--T0A$cm$j$%oDyY%<&E?7i>yraIVe'
+        'kFEaxxBoJ)Z{MYrsX}+e5m<>2wyVv~H_oIXj@2+mXIgtUwrNc5cRLr&E{2vTMKeU}JMLNA!EVf*v$cp5UE_|n8_a(6wKKjmWfyAq'
+        'pKYkA#T6C1s(r#gp-NY!c@|v?&C%7m`9R?*#BUM~jjkF(Jl}AiHgqAnJ|sD(<VL0GZFLVLiJV;+%+{HsPksv}@^%!d4<?2%Jjdf5'
+        '_AsaD2g+`{Gb~WMjrpU40JZCJprtjqnXg>hWOHttP~Fq)e06Z0*ebfUt!uovJ*zy};aG}wVSc}Z>4vYWpIpSEtHy7y;A9u=;Ig}^'
+        'eS%9%nzao_O6mvI$BHLR=$bQ+ui)9isYS-F3T;d2>g?znlfTJ3ocwT5@0~)tH}}r<`sxs!Ggaek2Yp`=g>OH8|9@eykKt#y$BZcp'
+        '@Vf8KT^I)!i$Z=T)A*xe!1g_S9ik~ytghtKN*u-)Z!JNoubO9N&yQE-^9{~{Y^P8}d6bNW?-Yp;3BHfE_WL%eVwVSm<a+0Z>Hx)8'
+        'rm@g@5O^1@8!R6S{KZps=zcSp)_<lb?Z&*@DFy{<p6CM-Q)PF%(9{=YMdl*Q?7K7|09Jgdv6a&u608F#O%Tc-4K_^%?<K~^4CRN0'
+        'E&=FxPnGdPKSqe+u8Rf6q9YI?ivx(x0~H0hhm!*|smIEsKzQqui!STbyUOo;RkULo)IX5L9AG&!1e3;i#CIEd`7Z#8Ag8-n1mAyS'
+        'zQ>_W=v&&FNZK__J8upSA(93=j46jl&I#q++t=TJcngm+<|XOu{9g0Tn|B5wDa&ADm<Z^Fn{B~|jL#MUyGHcc#+0vrc>D3EPn)(b'
+        'ks@LmHs(*j@SN6mp@M(v8#DIsG4ye1Ncm9Nul4(=;f*6>Xd0>x6yjY`5}D7oF7F2${KeCL`k)FuL>z}hi2kn{^AdH4V*sQYqd+gZ'
+        'Uq+lNIwI^whUMTJE-msiybH{<zJo@zmeU+f&q43%faj3T8lYkHozv6<kRdlQRi^?$-8W94Wxfv*MQI4VY2ibpg)LGTq=NCF6i;%s'
+        '=P51I$`HECc||^NV_siGg5b3m8`S}Jk)#@ft(o((_F}?oW|V13fryUbD2I+6#IRHo0`1+3X|)MwqGiRTaRlyTw(*Lp0@N<@=yn`z'
+        'ju=5%?>Zb?d8c@q*NIv?#91ne+vr%B=nD54d6j^LRjd1r`A(BPQnciH%Ap&cADqhFGAvfGZI?to25Anw6@rnAI@?uFBta;T2*0zz'
+        'W0pze7!(UURZK_vymf_dQJw(OKPwy;=eM@=JEBw8)4`JTp$1aj{vhgHN?V5?@usNN*DzeYhEE5mG`+b&KBCVVO28?!!7o}q>B(I7'
+        'Y*+Y56h*C&k_hLR5a-mRzVU1Bk%Z+WNQ-6u%DCPX6BwPEC^|-8AN`TqC)AxvcSMv90pL&pkaaFcpeRmdH-u(oe(=K|$L-2|cyqf#'
+        'u0UKNW@|Nbz~Kw=D%;zwZ-8B=m16nDs?adOdjf_fk|}{e&uKiuVM#P=wa%U%Wr5=Vn*|idszP=Pi5Bw8fzh-`%h}!}7>ms%1p<ZO'
+        'UwKC^;CWy|t!;|hF@fXt-VO)YhHOBwzKsAYzUs$x(CVLU1_<&qH_7SJ+}_b#Qe>HL(%APQ=0E~N*q9HD<7|tA7MQPSESamDvO&Gn'
+        '5QVXWvyjD7!bY>2qA{pl8&EbRW86T53Lr?ku_-E66|8BPxN-!{??Nruc#89GX}g?zq}0S#<U=@+8R>q}Elv^BbV2xYS4;^vI>vos'
+        'c0>%0fY?;*5LyW)uMS44=$3V3$J{IUs0pZ}ZG0{Mo&$G&$qGxh=_|QWV&oyXv9%`0ZePqo5SJ`qFe=iIpY1Z7H|Pq03!t;NDLqzx'
+        'mC;e)z(F&F9JzE>z>a5yOeb5x#FbkUPFyPWrAEO(#wDtcuE=M7O{l*vGW&OOJhQiosVp_;E2s+dl{7sF@CSSEl;cbx61o}Q#j|qf'
+        'KVSX*Z~qNyQSJc#>GujpI{EN?hCN=py;Dv}EV<8>>m~ddbj1U@2fYR_wUC0XfO-$Nv21peXcSVV5Mq9_AYz5x2`NMm6c#ysl3H!>'
+        'Mz)3t{y-XXGXMT&?!<6#e)=EJ4#Uu=>#M8N>9na9D^#+y332}%#BezG?wNq^`89C8B{7Hfe!|!3T1_J+@}Fnx@E0;8{zMJ6Y_!T%'
+        'Q6f$4_#Md;e{M(L)bf_srO=ame-c6zdX?v9Iu#}9<YGl|v;H|n2f4nqj1AKYzV)Go9bUY6{SHQ6D@Ky}N9Lj(IyF?N7cYdKXWuJA'
+        'T4d+wB^<Q#5vqjV3XIm(g|q?K5jgZr^{CbopT4V_5yi?D<(sg6Er+>!{oVQ6ykeR8);xQKO<c3?K>xmdZe9)eb}j8@b7qgnr1fp7'
+        '8Zbal<jX~=Z<kY6=377yH__(CQq=_eNM0npH=VEUbphLva(V8&k9=p~kx^6yotSg>gh&m_gN^l?4J?fL_Om4|M8~i*vtYzNnM_u}'
+        'Jfl?Z^8sXmZUJ<PwR!R44Yv544PIuof6th)9;j<eS@asv164SZ_q=)kZd(5G<?sIGcfbADm;d%pd&h*Zt{T6NVH<|uvqq#%-fy#q'
+        'cgF2yzaOzb5B{}tr75>QFZ^)(WKG*|(qVf1<I~4s!!}8kYb>3=IEvYeR;dB|u|bRe2o<xVfh6O!rQS@*YE*78FWIpa6Jrkxb?s6W'
+        'y+lX4k<`Ni1#rS=9b8dNtvj=+@IxHc)w!3|DTo9DTvV1N+rgT}X}w+-FF<<H`~v-Xv0FkO{{K}}Z(eXCNj|p=Ny(w_azXrMwCS*x'
+        '(pi%i2Xm)|%G~M?&B0CBBdaip=A7J<f%~CB%%fsO3r&V7G;9E3o3ZW8Kd&Z>U3x7!&TK=Cg7qFPhAC;n^(0sco1+__t5<F<a|PFl'
+        '3=O-2rI<qt$!AxZW!IPDhL*b9hH%fm@g_&k$)T`xGkv{OM^MlKfm}37zUEdCRuk67RzE69p1a(JA%W^{_t80FchOx2S&V9QRu!lc'
+        'yu6xUIAJS+;}+#|*H{hkz3r!Q0z6qHY|ybL)+Bm+q=Ak3VMN%|mg+U377MhYG2?*9DUV5)PEvZqfu%|KnI%8OHWCaMB+cyu{yj)%'
+        '1wwbqqX3IiCMjjZ!X?2F*Qgzf;UW@SlfpCrQv;*xiJGgYT$Wpn8|~4H2lNi#*lpthjiXPbT_I}AXSFv0Y-m8KA3rgQK)Yc0E*<c4'
+        'o~3aey_0uPLdst_hvDF8ps8{A1~~zm6w?erhY*r(ao#;)H*YS%imrk!AGda=G+{3{_zMmJERN)L4|V{y`5M(H^;9}dN{of%nG52('
+        'cxj>2O#WJDyQG{P9zv-BV`mY^o<yJ8m$MMhra`)&N4A(qVpb^6g5un;u{l!)nEj%)2U<?^%9?2hP2Oe3aS5jBFuX1sR-9Lg?xazq'
+        'ip;4R^-t_m&NHDMGgY>hM&T{36^|De1N$10NB5w~$_p2B0isn$pM38!r+CtbrFpP|sICxgtAd-M?xL%SGI?7q&m|w>^z_2qPYf$r'
+        '5zZF@cy=*%4PC!zqNbWLab}tAiX9W(M`5-0cZn;J<R$X46XFW3G`N(>bC5-Mf3d~fwV^@5Hz~*EVAH*EzX-`FPOfRDxyw%YFQ;TX'
+        'jz^Kw?#Axnbe}z2YllTcMIkK;ht9V++Mo~Bp6HX^0n8zc5v)+y7|pRm4kPl|y(Z;U@HL~nB0Q(DNe-kuqyUE{TvMLsetn{MQJN*1'
+        ')8c^&i6ygC9MVM@(a50P6?{l1aUhNpB#HTaBLKeZ^RbL*>Ev))KMogbW>!iZNH)NcCq`#(B{Ol<Jx+%+&y__glo%2j(oD0@OA}d0'
+        'kXK=B>gk>%j{zCuQ-C(sx5V|>O}kBjM#ugERy(ZS*`*wcMe%wuHCKKreIOqKOhTS>)PmlVUr1XdA(UrIl3oNQs<W-d-ubl~lW%ua'
+        '6)oE0dM|^R9MgBM;w6*Uaie1w43JMF<sMN=7p^$8mk?V_(&i!0S=G-DnnvG+y14c^r{|zEl3pH6`SISKJ|b(MrW(jxAYSJ@ySgb5'
+        'n@axl3r#=7sPFP!lCpDh5{elrP0k1#vLT|h%VdHKjq*uoQTd71s9E#eM#*0~6kXp6GVsn|=0D$<x1ZkQoB6Sl(Q9QgMv~<)co*jd'
+        'Y!vfTd7mBPC!r3qgn?@w{P_lW^260)NSaIbv?Iv1AFdapL%fm)plCZ#2AEb+vO>JMWVOx>nun#_&3h?nxZZ+lLQ$;4Uex$%-e`Kn'
+        'aE8z4H>FEm2tD13F65FW7ehdaYxmMkFWffvjKsb_0Dmu?GUak<^=mfIlK0m54YH}}QRqTrGtDm_`eC`em|T&c>786kqYOJ=Hz#}6'
+        '*nf~_GbrTxL+INQ92*js`SL?qKtp=Bjp4K)W`BN{M>Y>=6at0Em5&Wl&Zj-&b=~8~*YdQSva6CWz(=MiM<jGmH#c9jPUFU@$<g8D'
+        '?VZNJr+eQtsMKGkQ9bXlzi2Cv_{@C4Gju#A|BFxDab-CEmJpL(Mcb<{kJ|@XuNfIDrnD}h?^>i?Mz)UK@#>uQ*Br0s{GPX9cs|L0'
+        'IpvwhDUX}&=1e;i8g3-lGs0RfQ|l?YJx*(q%CVJ(#Clr4)+DF<?XVH+o!r}PC4Y-9==t1UFqzLKgyjb9Qc$=~zFS|uTkA!nzBGgp'
+        '1y1q}hZl@;a|ukmJ$+bbdX|l)9pV2<n)&vxaK0~k;YN+r`*{+*(woF`qZ(ex!*umZ+S;p6e|q=+JzKkp9_p?1bkCWXVVgNV`d(b1'
+        'L&irHV7{$h-rlYNW%6yALlqb1n;&0K877wm8NYxQavaa<;ig-dBdJ3lJY8f5ohTM`9B=NVVu3y^`!B6yTlQO4dg)1{S#l0Z=mfn5'
+        'E#$&NIMkwZlSr8=-xKK}$~JI1hlY(YK{{Ma(}>FQ;z&&9^QeKYnHX^1wA~o(cdg;gwF=PL$P`3IzyUl+?T`l>_Nfpnos?qRE<JGx'
+        '`{QI;fr|?}R(TJX{|ivb%?%Q0{=Xlf!=qk`N;K27=qK}So4BR8xJ9p$pZZ<TI8RsNQsCj)u9_y<a`!wuxY|DeuAF7ao%<x(G_^F('
+        'Y^)BRQwg~<T>jsi0@Ox%>vI7dsF9G0<<)&Sb#6+GLj9kFM463TFf<hL^Cd0}6o<(Ple6<~Tz-?i_T*`yl(ow@3NxZO1o$6QRW?@'
+    )
+)).decode("utf-8")
 
 # Exact v0.5.5 nextjs/Swift renders (sample, My App, iphone, XcodeGen) and
 # historical docs from all release tags through v0.6.0. Captured from git show;
@@ -254,9 +336,10 @@ _LEGACY_FIXTURES["sources"]["v0.6.0"] = _LEGACY_FIXTURES["sources"].pop(
 )
 
 
-def _render(repo_type="python", name="sample"):
+def _render(repo_type="python", name="sample", screenshots=False):
     return bootstrap.generate_files(
-        {"name": name, "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        {"name": name, "repo_type": repo_type, "postgres": False, "scheme": "App",
+         "screenshots": screenshots}
     )
 
 
@@ -333,15 +416,18 @@ class ExistingRepositoryTests(unittest.TestCase):
     def test_adopt_keeps_existing_non_agents_files(self):
         files = _render()
         self._write("README.md", "# Mine\n")
+        self._write(bootstrap.CURRENT_WORK, "# Current work\n\nOurs.\n")
         actions = bootstrap.adopt_repository(self.repo, files)
-        self.assertIn(("kept", "README.md", "differs from the template; not overwritten"), actions)
+        for rel in ("README.md", bootstrap.CURRENT_WORK):
+            self.assertIn(("kept", rel, "differs from the template; not overwritten"), actions)
         self.assertEqual((self.repo / "README.md").read_text(), "# Mine\n")
+        self.assertEqual((self.repo / bootstrap.CURRENT_WORK).read_text(), "# Current work\n\nOurs.\n")
 
     def test_adopt_rebuilds_agents_keeping_project_specifics(self):
         files = _render()
         agents = files["AGENTS.md"]
         mine = "## Project specifics\n\n- Never touch the billing module.\n\n## Local notes\n\nKeep.\n"
-        generated = agents.split(bootstrap.PROJECT_SPECIFICS)[0]
+        generated = bootstrap._split_project_specifics(agents)[0]
         # A generated section the repository lacks, plus a repository-owned
         # tail: rebuilding is lossless, so no opt-in is needed.
         start = generated.index("## Preservation and destructive operations")
@@ -354,7 +440,370 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertNotIn("refused", {a for a, _, _ in actions}, actions)
         result = (self.repo / "AGENTS.md").read_text()
         self.assertTrue(result.endswith(mine))
-        self.assertEqual(result.split(bootstrap.PROJECT_SPECIFICS)[0], agents.split(bootstrap.PROJECT_SPECIFICS)[0])
+        self.assertEqual(bootstrap._split_project_specifics(result)[0], generated)
+
+    def test_adopt_upgrades_a_0_11_hub(self):
+        # The 0.11 hub carried two sections that are now Definition of done
+        # bullets, and opened `## Project specifics` with template guidance
+        # that now sits above it. Rebuilding drops all three and keeps the
+        # repository's own rules.
+        files = _render()
+        generated = bootstrap._split_project_specifics(files["AGENTS.md"])[0]
+        skills = generated.index("## Skills")
+        old_sections = (
+            "## Fresh-eyes review\n\nA different agent or reviewer must review substantial work.\n\n"
+            "## Recall is not evidence\n\nCheck capability claims against a primary source.\n\n"
+        )
+        mine = "### Stop and ask\n\n- Ask before touching billing.\n"
+        original = (generated[:skills] + old_sections + generated[skills:]
+                    + "## Project specifics\n\n" + _GUIDANCE_0_6 + "\n" + mine)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        rows = bootstrap.compare_agents(files["AGENTS.md"], original)
+        for heading in ("## Fresh-eyes review", "## Recall is not evidence",
+                        bootstrap.RETIRED_SPECIFICS_GUIDANCE):
+            self.assertIn(("retired", heading), rows)
+        self.assertFalse([heading for status, heading in rows if status == "local"], rows)
+        actions = bootstrap.adopt_repository(self.repo, files)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "refused")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), original)
+        actions = bootstrap.adopt_repository(self.repo, files, True)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        result = (self.repo / "AGENTS.md").read_text()
+        self.assertEqual(result, generated + "## Project specifics\n\n" + mine)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)["AGENTS.md"][0], "same")
+
+    def test_adopt_upgrades_the_real_0_11_1_nextjs_hub(self):
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "nextjs", "postgres": False})
+        mine = "### Stop and ask\n\n- Ask before touching billing.\n"
+        original = _AGENTS_0_11_1_NEXTJS + "\n" + mine
+        self.assertIn("## Fresh-eyes review", original)
+        self._write("AGENTS.md", original)
+        self._commit_all()
+        rows = bootstrap.compare_agents(files["AGENTS.md"], original)
+        self.assertFalse([heading for status, heading in rows if status == "local"], rows)
+        self.assertEqual(
+            sorted(heading for status, heading in rows if status == "retired"),
+            sorted(["## Fresh-eyes review", "## Recall is not evidence",
+                    bootstrap.RETIRED_SPECIFICS_GUIDANCE]),
+        )
+        actions = bootstrap.adopt_repository(self.repo, files, True)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        result = (self.repo / "AGENTS.md").read_text()
+        self.assertEqual(result, files["AGENTS.md"] + "\n" + mine)
+
+    def _main(self, *args):
+        """Run bootstrap.main() with these arguments; return (exit code, stdout)."""
+        out = io.StringIO()
+        with unittest.mock.patch.object(sys, "argv", ["bootstrap.py", *args]), \
+                contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as stop:
+            bootstrap.main()
+        return stop.exception.code, out.getvalue()
+
+    def _write_repo(self, files: dict, links: dict = None) -> None:
+        """Write rendered files and their skill mirrors, then commit them."""
+        links = bootstrap._links_for_files(files) if links is None else links
+        for rel, text in files.items():
+            self._write(rel, text)
+        for rel, target in links.items():
+            (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / rel).symlink_to(target)
+        self._commit_all()
+
+    @staticmethod
+    def _older_skill(text: str) -> str:
+        """A validly stamped skill from an older template: stale, not edited."""
+        body = bootstrap.read_stamp(text)[1]
+        return bootstrap.stamp(body.replace("\n# Screenshot review\n", "\n# Screenshot review\n\nOlder text.\n", 1))
+
+    def _v0_11_1_nextjs(self, screenshot_files: bool) -> str:
+        """A committed v0.11.1-style Next.js repository; returns its own rules.
+
+        With screenshot_files, it has the stamped screenshot-review skill (from
+        an older template, so stale), its mirror and docs/screenshot-review.md,
+        as every v0.11.1 Next.js repository did; without, its owner deleted them.
+        """
+        files = _render("nextjs", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        if screenshot_files:
+            files[skill] = self._older_skill(files[skill])
+            self.assertTrue(bootstrap.stamp_is_valid(files[skill]))
+        else:
+            for rel in (skill, doc):
+                del files[rel]
+        mine = "### Stop and ask\n\n- Ask before touching billing.\n"
+        files["AGENTS.md"] = _AGENTS_0_11_1_NEXTJS + "\n" + mine
+        self._write_repo(files)
+        return mine
+
+    def test_a_0_11_1_nextjs_repository_keeps_and_updates_its_screenshot_files_without_the_flag(self):
+        mine = self._v0_11_1_nextjs(screenshot_files=True)
+        expected = _render("nextjs", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        self.assertEqual(bootstrap.compare_repository(self.repo, expected)[skill][0], "stale")
+        notice = (f"notice: screenshot review is on without --screenshots, because the repository "
+                  f"has the template's {skill} and {doc}; pass --screenshots to silence this.")
+        code, out = self._main("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive",
+                               "--replace-generated-sections")
+        self.assertEqual(code, 0, out)
+        self.assertIn(notice, out)
+        self.assertIn(f"updated  {skill}", out)
+        self.assertNotIn("  deleted  ", out)
+        for rel in (skill, doc):
+            self.assertEqual((self.repo / rel).read_text(), expected[rel])
+        self.assertTrue((self.repo / ".claude/skills/screenshot-review").is_symlink())
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), expected["AGENTS.md"] + "\n" + mine)
+        code, out = self._main("--check", str(self.repo), "--type", "nextjs")
+        self.assertEqual(code, 0, out)
+        self.assertIn(notice, out)
+
+    def test_a_swift_repository_keeps_and_updates_its_screenshot_files_without_the_flag(self):
+        expected = _render("swift", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        self._write_repo({**expected, skill: self._older_skill(expected[skill])})
+        code, out = self._main("--adopt", str(self.repo), "--type", "swift", "--scheme", "App",
+                               "--non-interactive")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"the template's {skill} and {doc}; pass --screenshots to silence this.", out)
+        self.assertIn(f"updated  {skill}", out)
+        self.assertNotIn("  deleted  ", out)
+        for rel in (skill, doc):
+            self.assertEqual((self.repo / rel).read_text(), expected[rel])
+        code, out = self._main("--check", str(self.repo), "--type", "swift", "--scheme", "App")
+        self.assertEqual(code, 0, out)
+
+    def test_deleting_edited_screenshot_files_needs_the_flag_to_regenerate_them(self):
+        files = _render("nextjs", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        mirror = ".claude/skills/screenshot-review"
+        self._write_repo({**files, skill: files[skill] + "\nOur rule.\n", doc: files[doc] + "\nOur rule.\n"})
+        adopt = ("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive")
+
+        # Edited stamped copies still turn screenshot review on, and the
+        # refusal says how to regenerate them.
+        code, out = self._main(*adopt)
+        self.assertEqual(code, 1, out)
+        self.assertIn("pass --screenshots to silence this", out)
+        lines = out.splitlines()
+        for rel in (skill, doc):
+            refusal = next(line for line in lines if line.startswith(f"  refused  {rel} "))
+            self.assertIn("then delete the file and re-run with --screenshots to regenerate it", refusal)
+
+        # Deleting them and re-running without the flag turns screenshot
+        # review off: nothing is regenerated, and the hub's screenshot
+        # sections now differ from that configuration, so adopt refuses and
+        # changes nothing.
+        for rel in (skill, doc):
+            (self.repo / rel).unlink()
+        _git(self.repo, "commit", "-qam", "drop edited screenshot files")
+        code, out = self._main(*adopt)
+        self.assertEqual(code, 1, out)
+        self.assertNotIn("notice:", out)
+        self.assertIn("refused  AGENTS.md", out)
+        self.assertIn("## Definition of done; ## Skills", out)
+        self.assertIn("Nothing was changed.", out)
+        for rel in (skill, doc):
+            self.assertFalse(os.path.lexists(self.repo / rel), rel)
+        self.assertTrue(os.path.islink(self.repo / mirror))
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), files["AGENTS.md"])
+
+        # With the flag, they are regenerated and the repository is aligned.
+        code, out = self._main(*adopt, "--screenshots")
+        self.assertEqual(code, 0, out)
+        for rel in (skill, doc):
+            self.assertIn(f"wrote    {rel}", out)
+            self.assertEqual((self.repo / rel).read_text(), files[rel])
+        self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/screenshot-review")
+        code, out = self._main("--check", str(self.repo), "--type", "nextjs")
+        self.assertEqual(code, 0, out)
+
+    def test_a_repositorys_own_screenshot_files_leave_screenshot_review_off(self):
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        files = _render("nextjs")
+        own = {
+            doc: "# Screenshot review\n\nOur own process: compare each view with the design file.\n",
+            skill: "---\nname: screenshot-review\ndescription: Our own screenshot process.\n---\n\n# Ours\n",
+        }
+        for rel, text in own.items():
+            with self.subTest(rel):
+                shutil.rmtree(self.repo)
+                self.repo.mkdir()
+                self._write_repo({**files, rel: text}, bootstrap._links_for_files(files))
+                code, out = self._main("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive")
+                self.assertEqual(code, 0, out)
+                self.assertNotIn("notice:", out)
+                self.assertIn("Nothing was changed.", out)
+                self.assertEqual((self.repo / rel).read_text(), text)
+                for other in (skill, doc, ".claude/skills/screenshot-review"):
+                    if other != rel:
+                        self.assertFalse(os.path.lexists(self.repo / other), other)
+                code, out = self._main("--check", str(self.repo), "--type", "nextjs")
+                self.assertEqual(code, 0, out)
+                self.assertIn("Aligned.", out)
+
+    def test_a_repository_without_screenshot_files_stays_without_them(self):
+        mine = self._v0_11_1_nextjs(screenshot_files=False)
+        code, out = self._main("--adopt", str(self.repo), "--type", "nextjs", "--non-interactive",
+                               "--replace-generated-sections")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("notice:", out)
+        self.assertNotIn("screenshot-review", out)
+        for rel in (*bootstrap.SCREENSHOT_FILES, ".claude/skills/screenshot-review"):
+            self.assertFalse(os.path.lexists(self.repo / rel), rel)
+        agents = (self.repo / "AGENTS.md").read_text()
+        self.assertEqual(agents, _render("nextjs")["AGENTS.md"] + "\n" + mine)
+        self.assertNotIn("`screenshot-review`", agents)
+        code, out = self._main("--check", str(self.repo), "--type", "nextjs")
+        self.assertEqual(code, 0, out)
+
+    def test_the_flag_writes_screenshot_files_into_a_repository_without_them(self):
+        mine = self._v0_11_1_nextjs(screenshot_files=False)
+        code, out = self._main("--adopt", str(self.repo), "--type", "nextjs", "--screenshots",
+                               "--non-interactive", "--replace-generated-sections")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("notice:", out)
+        expected = _render("nextjs", screenshots=True)
+        for rel in bootstrap.SCREENSHOT_FILES:
+            self.assertIn(f"wrote    {rel}", out)
+            self.assertEqual((self.repo / rel).read_text(), expected[rel])
+        self.assertEqual(os.readlink(self.repo / ".claude/skills/screenshot-review"),
+                         "../../.agents/skills/screenshot-review")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), expected["AGENTS.md"] + "\n" + mine)
+
+    def test_existing_repository_config_detects_screenshot_files(self):
+        def config(*args):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                cfg = bootstrap.existing_repository_config(
+                    bootstrap.build_parser().parse_args(["--check", str(self.repo), *args]))
+            return cfg, out.getvalue()
+
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        cfg, _ = config("--type", "nextjs")
+        self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (False, []))
+        cfg, _ = config("--type", "nextjs", "--screenshots")
+        self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (True, []))
+        self.assertIsNone(bootstrap.screenshot_review_notice(cfg))
+
+        # Only the template's copy of a file turns screenshot review on.
+        rendered = _render("swift", screenshots=True)
+        legacy = _LEGACY_FIXTURES["sources"]["v0.5.5"]
+        legacy_doc = bootstrap._compose(
+            legacy["docs-screenshot-review-common.md"], "PLATFORM_GUIDANCE", legacy["docs-screenshot-review-swift.md"])
+        own_skill = "---\nname: screenshot-review\ndescription: Ours.\n---\n\n# Ours\n"
+        cases = {
+            "the repository's own doc": (doc, "# Our screenshot process\n", False),
+            "stamped doc": (doc, rendered[doc], True),
+            "edited stamped doc": (doc, rendered[doc] + "\nOurs.\n", True),
+            "unstamped current doc": (doc, bootstrap.read_stamp(rendered[doc])[1], True),
+            "unstamped v0.5.5 doc": (doc, legacy_doc, True),
+            "edited unstamped v0.5.5 doc": (doc, legacy_doc + "\nOurs.\n", False),
+            "the repository's own skill": (skill, own_skill, False),
+            "edited stamped skill": (skill, rendered[skill] + "\nOurs.\n", True),
+        }
+        for label, (rel, text, found) in cases.items():
+            with self.subTest(label):
+                shutil.rmtree(self.repo / ".agents", ignore_errors=True)
+                shutil.rmtree(self.repo / "docs", ignore_errors=True)
+                self._write(rel, text)
+                cfg, _ = config("--type", "swift", "--scheme", "App")
+                self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (found, [rel] if found else []))
+                notice = bootstrap.screenshot_review_notice(cfg)
+                if found:
+                    self.assertIn(f"the template's {rel}; pass --screenshots to silence this.", notice)
+                    self.assertIn("re-run with --screenshots", notice)
+                else:
+                    self.assertIsNone(notice)
+        cfg, out = config("--type", "python", "--screenshots")
+        self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (False, []))
+        self.assertIn("--screenshots is only used with --type nextjs or swift; ignoring", out)
+
+    def test_stamped_screenshot_skill_is_never_deleted_without_the_flag(self):
+        skill = bootstrap.SCREENSHOT_FILES[0]
+        text = _render("nextjs", screenshots=True)[skill]
+        cases = {
+            # Another type never generates it: the usual (--type) refusal.
+            "python": (skill, _render("python")),
+            # A copy outside its own folder is not detected, so the render
+            # lacks the skill; it is refused rather than deleted as orphaned.
+            "nextjs, relocated": (".agents/skills/shots/SKILL.md", _render("nextjs")),
+        }
+        for label, (rel, files) in cases.items():
+            with self.subTest(label):
+                shutil.rmtree(self.repo / ".agents", ignore_errors=True)
+                shutil.rmtree(self.repo / ".git", ignore_errors=True)
+                self._write(rel, text)
+                self._commit_all()
+                report = bootstrap.compare_repository(self.repo, files)
+                self.assertEqual(report[rel][0], "other-type")
+                self.assertIn("with --screenshots", report[rel][1])
+                self.assertIn(rel, report[bootstrap.TYPE_MISMATCH][1])
+                actions = bootstrap.adopt_repository(self.repo, files)
+                self.assertEqual([(a, r) for a, r, _ in actions], [("refused", bootstrap.TYPE_MISMATCH)])
+                self.assertEqual((self.repo / rel).read_text(), text)
+
+    def test_retired_guidance_is_removed_only_when_unedited(self):
+        heading = "## Project specifics\n\n"
+        mine = "- Ask before touching billing.\n"
+        cases = {
+            "first": (heading + _GUIDANCE_0_6 + "\n" + mine, heading + mine),
+            "after the repository's rules": (
+                heading + mine + "\n" + _GUIDANCE_0_6, heading + mine,
+            ),
+            "only guidance": (heading + _GUIDANCE_0_6, "## Project specifics\n"),
+            "v0.5 paragraph": (
+                heading + _GUIDANCE_0_5 + "\n" + mine, heading + mine,
+            ),
+            "before a later heading": (
+                heading + mine + "\n" + _GUIDANCE_0_6 + "\n## Later\n\nOurs.\n",
+                heading + mine + "\n## Later\n\nOurs.\n",
+            ),
+            "before a subheading": (
+                heading + _GUIDANCE_0_6 + "\n### Tooling\n\nOurs.\n",
+                heading + "### Tooling\n\nOurs.\n",
+            ),
+        }
+        for name, (owned, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(bootstrap._strip_retired_guidance(owned), expected)
+        edited_0_5 = _GUIDANCE_0_5.replace("say so\nexplicitly", "say so")
+        kept = {
+            "edited": heading + edited_0_5 + "\n" + mine,
+            "fenced": heading + "```text\n" + _GUIDANCE_0_5 + "```\n\n" + mine,
+            "indented": heading + "".join("    " + line for line in _GUIDANCE_0_5.splitlines(True))
+            + "\n" + mine,
+            "under a list item": heading + "- Template note:\n\n"
+            + "".join("  " + line for line in _GUIDANCE_0_5.splitlines(True)) + "\n" + mine,
+            "hard line break": heading + _GUIDANCE_0_5.replace("\n", "  \n", 1) + "\n" + mine,
+            "under a later heading": heading + mine + "\n## Template history\n\n" + _GUIDANCE_0_5,
+            "under a subheading": heading + mine + "\n### Historical template notes\n\n" + _GUIDANCE_0_5,
+            "under an empty subheading": heading + "###\n\n" + _GUIDANCE_0_5,
+            "in an HTML comment": heading + "<!--\n\n" + _GUIDANCE_0_5 + "\n-->\n\n" + mine,
+            "beside an HTML block": heading + _GUIDANCE_0_5 + "\n<details>\n\nOurs.\n\n</details>\n",
+            "none": heading + mine,
+        }
+        for name, owned in kept.items():
+            with self.subTest(name):
+                self.assertEqual(bootstrap._strip_retired_guidance(owned), owned)
+        # Removing guidance leaves the repository's own text byte for byte,
+        # including a hard line break and blank lines at the end.
+        for name, tail in {"hard break": "- Last rule.  \n", "blank lines": "- Last rule.\n\n\n"}.items():
+            with self.subTest(name):
+                self.assertEqual(
+                    bootstrap._strip_retired_guidance(heading + _GUIDANCE_0_6 + "\n" + tail),
+                    heading + tail,
+                )
+                self.assertEqual(
+                    bootstrap._strip_retired_guidance(heading + tail.rstrip("\n") + "\n\n" + _GUIDANCE_0_6),
+                    heading + tail.rstrip("\n") + "\n",
+                )
+        # An edited first paragraph stays; the unedited second one goes.
+        edited_0_6 = _GUIDANCE_0_6.replace("say so\nexplicitly", "say so")
+        first = edited_0_6.split("\n\n")[0] + "\n"
+        self.assertEqual(
+            bootstrap._strip_retired_guidance(heading + edited_0_6 + "\n" + mine),
+            heading + first + "\n" + mine,
+        )
 
     def test_adopt_refuses_local_sections_outside_project_specifics(self):
         files = _render()
@@ -604,7 +1053,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         script = (
             "import bootstrap\n"
             "f = bootstrap.generate_files({'name': 's', 'repo_type': 'simple', 'postgres': False})\n"
-            "assert '\\u2014' in f['AGENTS.md'] and '\\u00e2\\u20ac' not in f['AGENTS.md']\n"
+            "assert '\\u2026' in f['AGENTS.md'] and '\\u00e2\\u20ac' not in f['AGENTS.md']\n"
         )
         render = subprocess.run([sys.executable, "-c", script], cwd=root, env=env, capture_output=True)
         self.assertEqual(render.returncode, 0, render.stderr.decode(errors="replace"))
@@ -926,9 +1375,10 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertIn("does not import AGENTS.md", detail)
 
     def test_owned_manifest_and_swift_substitutions(self):
-        for repo_type in bootstrap.TEMPLATE_SKILLS:
+        for repo_type, screenshots in itertools.product(bootstrap.TEMPLATE_SKILLS, (False, True)):
             cfg = {"name": "sample", "repo_type": repo_type, "postgres": False,
-                   "scheme": "My App", "destination": "macos", "xcodegen": True}
+                   "scheme": "My App", "destination": "macos", "xcodegen": True,
+                   "screenshots": screenshots}
             files = bootstrap.generate_files(cfg)
             owned = bootstrap.template_owned_paths(cfg)
             self.assertEqual({path for path, text in files.items() if bootstrap.read_stamp(text, bootstrap._is_yaml(path))[0]},
@@ -939,6 +1389,28 @@ class ExistingRepositoryTests(unittest.TestCase):
                 self.assertTrue(bootstrap.stamp_is_valid(files[path], bootstrap._is_yaml(path)), path)
                 self.assertNotRegex(files[path], r"__[A-Z_]+__|# <<[A-Z_]+>>")
             self.assertEqual(bootstrap.generate_links(cfg), bootstrap._links_for_files(files))
+
+    def test_screenshot_review_is_generated_only_with_the_flag(self):
+        skill, mirror = bootstrap.SCREENSHOT_FILES[0], ".claude/skills/screenshot-review"
+        for repo_type, screenshots in itertools.product(bootstrap.TEMPLATE_SKILLS, (False, True)):
+            with self.subTest(repo_type=repo_type, screenshots=screenshots):
+                cfg = {"name": "sample", "repo_type": repo_type, "postgres": False,
+                       "scheme": "App", "screenshots": screenshots}
+                files = bootstrap.generate_files(cfg)
+                agents = " ".join(files["AGENTS.md"].split())
+                on = screenshots and repo_type in ("nextjs", "swift")
+                self.assertEqual(bootstrap.screenshot_review(cfg), on)
+                for paths in (files, bootstrap.template_owned_paths(cfg)):
+                    self.assertEqual(skill in paths, on)
+                    self.assertEqual(bootstrap.SCREENSHOT_REVIEW in paths, on)
+                self.assertEqual(mirror in bootstrap.generate_links(cfg), on)
+                self.assertEqual("`screenshot-review`" in agents, on)
+                self.assertIn("Never capture live or private data", agents)
+                self.assertNotIn("capability-conditional", agents)
+                self.assertEqual(
+                    "follow the repository's documented screenshot-review process when present." in agents,
+                    not on,
+                )
 
     @staticmethod
     def _legacy_docs(table):
@@ -1403,7 +1875,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                 self.assertEqual((self.repo / rel).read_text(), files[rel])
 
     def test_unstamped_current_docs_are_upgraded(self):
-        files = _render("nextjs")
+        files = _render("nextjs", screenshots=True)
         rel = bootstrap.SCREENSHOT_REVIEW
         self._write(rel, bootstrap.read_stamp(files[rel])[1])
         self._commit_all()
@@ -1754,9 +2226,14 @@ class ExistingRepositoryTests(unittest.TestCase):
             original = preamble + "".join(body for heading, body in sections if heading != retired_title)
         self._write("AGENTS.md", original)
         self._commit_all()
-        owned = bootstrap._split_project_specifics(original)[1].encode("utf-8")
+        # v0.5.5 opened `## Project specifics` with template guidance, which the
+        # rebuild drops; the rest of the section is kept byte for byte.
+        owned_text = bootstrap._split_project_specifics(original)[1]
+        self.assertIn("Rules that apply only to this repository", owned_text)
+        owned = bootstrap._strip_retired_guidance(owned_text).encode("utf-8")
         rows = bootstrap.compare_agents(files["AGENTS.md"], original)
         self.assertFalse([heading for status, heading in rows if status == "local"], rows)
+        self.assertIn(("retired", bootstrap.RETIRED_SPECIFICS_GUIDANCE), rows)
         if omit_retired:
             self.assertNotIn(("retired", retired_title), rows)
         else:

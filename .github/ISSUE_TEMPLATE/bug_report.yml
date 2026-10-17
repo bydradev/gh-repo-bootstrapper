@@ -91,6 +91,7 @@ body:
         - label: "--scheme"
         - label: "--destination"
         - label: "--xcodegen"
+        - label: "--screenshots"
         - label: "--configure-only"
         - label: "--check"
         - label: "--adopt"

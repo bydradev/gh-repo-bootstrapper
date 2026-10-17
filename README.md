@@ -131,6 +131,7 @@ confirm before creating anything.
 | `--scheme TEXT` | Xcode scheme name for `xcodebuild test` (swift only) |
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
+| `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs and swift only) |
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
@@ -149,6 +150,9 @@ confirm before creating anything.
 
 # Next.js with PostgreSQL tests in an org
 ./bootstrap.py --name data-app --type nextjs --postgres --org my-org
+
+# Next.js app with a screenshot capture lane
+./bootstrap.py --name my-site --type nextjs --screenshots
 
 # Python library
 ./bootstrap.py --name my-tool --type python --public
@@ -187,13 +191,17 @@ keeps the repository's own branch protection.
 
 The generated `AGENTS.md` is a short hub. It holds the gates every agent must
 see (scope, GitHub operations, branches, commits, preservation, definition of
-done), the type's tooling commands, a skills table, and `## Project specifics`
-last. Detailed procedures live in skills that load when they're relevant:
+done), what an agent may do without asking and when it must stop and ask, the
+type's tooling commands, a skills table, and `## Project specifics` last.
+Unless a request says otherwise, the hub counts a code change as done when its
+PR is open, its checks pass and review findings are resolved; merging still
+needs explicit authorization. Detailed procedures live in skills that load
+when they're relevant:
 
 | Skill (`.agents/skills/<name>/SKILL.md`) | Types |
 |---|---|
 | `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `delegation` | all |
-| `screenshot-review` | `nextjs`, `swift` |
+| `screenshot-review` | `nextjs`, `swift`, with `--screenshots` |
 | `baseline-process`, `public-site-indexing` | `nextjs` |
 | `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
 
@@ -202,7 +210,12 @@ capture lane (image classes, complete-set review, acceptance criteria, promotion
 safety) without naming any capture tool. A repository with its own capture lane
 or visual-verification procedure keeps those facts in a repository-owned skill,
 or a section of one, and names it in `## Project specifics`;
-`screenshot-review` tells agents to load that skill first.
+`screenshot-review` tells agents to load that skill first. The skill and
+`docs/screenshot-review.md` are generated only with `--screenshots`. Every hub
+keeps the screenshot gates in *Definition of done*: generation is not visual
+approval, no live or private data, and no regenerated assets committed before
+review. Without the skill, that bullet sends agents to the repository's own
+screenshot-review process when it has one.
 
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
@@ -257,6 +270,16 @@ also have to parse shell commands, which the OpenCode case shows is hard to do
 completely. So the Claude Code reviewer is read-only by instruction: its file
 tells it to use Bash only for read-only commands.
 
+`## Project specifics` belongs to the repository. The guidance on what goes
+there is in a generated section of the hub, *When instructions and reality
+disagree*, so it stays current through `--adopt`: durable rules with
+stop-and-ask items first, never edits to the generated sections or
+template-owned files, reference material in a repository-owned skill, and dated status in
+`docs/current-work.md`, a repository-owned file every type gets. The Next.js
+App Router note sits outside the `next dev`-managed markers because `next dev`
+rewrites everything between them; a repository on the Pages Router says so
+under `## Project specifics` rather than editing the note.
+
 Why split it? Harnesses cut long instruction files off, and `## Project
 specifics` is last, so it's lost first:
 
@@ -288,14 +311,14 @@ changes:
 - the generated skills;
 - the two reviewer agents;
 - `docs/branch-protection-runbook.md`;
-- `docs/screenshot-review.md`;
+- `docs/screenshot-review.md` (`nextjs` and `swift`, with `--screenshots`);
 - `.github/workflows/pr-title-check.yml`;
 - `.github/workflows/release-please.yml`;
 - `.github/workflows/baseline-review.yml` (`nextjs`).
 
-`docs/lint-baseline.md` and `docs/advisory-baseline.md` aren't in this set.
-They're tables each repository edits, so they keep the plain `kept`
-behaviour, as do scripts, configs and the other workflows: `ci.yml` and
+`docs/lint-baseline.md`, `docs/advisory-baseline.md` and
+`docs/current-work.md` aren't in this set. Each repository edits them, so they
+keep the plain `kept` behaviour, as do scripts, configs and the other workflows: `ci.yml` and
 `test.yml` hold each repository's own test lanes.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
@@ -387,6 +410,12 @@ Repositories adopted before stamps existed may have edited a legacy
 `docs/branch-protection-runbook.md` or `docs/screenshot-review.md`. Migrate
 once: move the local changes into `## Project specifics` or a repository-owned
 skill, delete the old file, and run `--adopt` to write the stamped version.
+For `docs/screenshot-review.md`, run `--adopt --screenshots`: without the flag,
+a `nextjs` or `swift` repository left with no template copy of the
+screenshot-review skill or doc counts as not using screenshot review, so
+`--adopt` refuses its `AGENTS.md`, and with `--replace-generated-sections`
+takes the skill's row and pointer out of the hub. The same holds for an
+edited, stamped screenshot-review skill or doc that you delete to regenerate.
 `--check` shows the local changes as a diff against the nearest released body.
 The diff needs the bootstrapper's git release tags; from a copy without them,
 `--check` prints a notice and skips it.
@@ -407,7 +436,7 @@ Template-owned files get their own states:
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist — left behind by a retired template skill or a wrong `--type` | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
-| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped | dropped with `--replace-generated-sections`, unless it holds an unknown level-3 or deeper subheading; any text under it is dropped too, so `--check` prints its line count and first lines |
+| `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
 prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't
@@ -417,11 +446,21 @@ material into a repository-owned skill.
 Pass the same
 type options the repository was generated with — `--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
-they shape report as drift. Pass the same `--type` too: when the repository
-holds a template-owned skill of another type (for example
-`local-validation-nextjs` under `--type simple`), `--check` reports `(--type)`
-and `--adopt` refuses before changing anything, since it would otherwise
-delete that type's skills. For `AGENTS.md` it reports per section: a
+they shape report as drift. `--screenshots` is the exception: a `nextjs` or
+`swift` repository that already has the template's copy of
+`.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
+treated as using it, and the report says so, so `--adopt` keeps and updates
+those files without the flag. The template's copy is a file with a stamp line,
+edited or not, or an unstamped doc whose text a release shipped. A
+repository's own `docs/screenshot-review.md`, such as its own screenshot-review
+process, does not count. Without the template's skill it is left alone; next
+to the template's skill it is reported as `local-modified`, as before, so
+move it to another path first. Pass the same
+`--type` too: when the repository holds a template-owned skill of another type
+(for example `local-validation-nextjs` under `--type simple`), or a stamped
+`screenshot-review` skill this configuration does not generate, `--check`
+reports `(--type)` and `--adopt` refuses before changing anything, since it
+would otherwise delete those skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local` —
 repository text outside `## Project specifics`, including a subsection added
@@ -430,7 +469,8 @@ an unclosed code fence, a fence indented four or more columns, an HTML
 block such as a `<!-- -->` comment or `<details>`, or a
 generated heading that falls inside a code block). The `next dev`-managed block and everything from
 `## Project specifics` on are the repository's own and are not compared,
-but the block must stay at the top of the file: a moved block is `local`,
+except that an unedited guidance paragraph from an older template there is
+`retired`. The block must stay at the top of the file: a moved block is `local`,
 and a missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
@@ -444,7 +484,8 @@ as `.worktrees/app/align` renders as `app`.
 existing file only when it's a `stale` template-owned file (see the table
 above), with one more exception that preserves repository-owned content:
 `AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
-everything after it) and the `next dev`-managed block. The rebuild is refused
+everything after it, less any `retired` guidance paragraph) and the
+`next dev`-managed block. The rebuild is refused
 while anything `local` remains — move those rules under `## Project specifics`
 first. A generated section whose text differs may be an older template or a
 local edit, and the script cannot tell which, so it is replaced only with
@@ -474,6 +515,52 @@ every race with a concurrent process — for example one moving a directory out
 of `PATH` mid-run — so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.12.0
+
+The `AGENTS.md` hub changed: it gains an *Autonomy and escalation* section and
+a default for when a change is done, its attribution rules are shorter, and
+*Fresh-eyes review* and *Recall is not evidence* became *Definition of done*
+bullets. Run `--adopt --replace-generated-sections` to take it. The rebuild
+also removes the old guidance paragraphs from `## Project specifics` when
+they are unedited and above its first subheading, because the guidance is
+now in a generated section, and `--adopt` writes `docs/current-work.md` when
+it is missing.
+
+The `screenshot-review` skill and `docs/screenshot-review.md` are now
+generated only with `--screenshots`. Existing `nextjs` and `swift`
+repositories keep theirs: `--check` and `--adopt` treat a repository that has
+the template's copy of either file as using `--screenshots` (see
+[Checking and adopting](#checking-and-adopting)), and passing the flag
+silences their notice. To drop them, move any rule of your own into a
+repository-owned skill, delete `.agents/skills/screenshot-review/`, its mirror
+`.claude/skills/screenshot-review` and `docs/screenshot-review.md`, then run
+`--adopt --replace-generated-sections`, which also takes the skill's row and
+pointer out of the hub. To add them to a repository later, run
+`--adopt --screenshots --replace-generated-sections`. Without the skill, the
+screenshot bullet in *Definition of done* keeps the screenshot gates but drops
+"Screenshot guidance is capability-conditional".
+
+`--replace-generated-sections` replaces a generated section that differs
+without showing its text. Before running it, compare each section `--check`
+reports as `differs` with `templates/AGENTS.md` and move any rule of your own
+under `## Project specifics`; afterwards, review the result with `git diff`.
+For `nextjs`, that includes an edited *This project uses the App Router*
+note: the old template asked a Pages Router repository to replace it.
+
+Then tidy `## Project specifics` by hand:
+
+- put stop-and-ask rules first;
+- move dated status, such as when the repository was pushed or that Release
+  Please is not set up yet, into `docs/current-work.md`;
+- move long reference material and corrections of template skills, such as
+  CI tiers, ports or test-server notes, into a repository-owned skill, and
+  name it in `## Project specifics`;
+- delete a sentence that only says a generated section applies as written.
+
+For `nextjs`, the hub no longer lists `npm run lint:fix` and `npm run format`;
+the generated `README.md` does. An existing repository's `README.md` is its
+own, so `--adopt` leaves it alone: add the line yourself if you want it.
 
 ### Upgrading to 0.11.0
 
@@ -512,8 +599,9 @@ A Python repository that commits `uv.lock` should also switch its Dependabot
 ## Repository types
 
 Every type gets a type-specific `README.md` starter, `AGENTS.md` and
-`CLAUDE.md` (contribution guidance), `.gitignore`, `release-please-config.json`,
-and `.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
+`CLAUDE.md` (contribution guidance), `docs/current-work.md` (dated status),
+`.gitignore`, `release-please-config.json`, and
+`.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
 highlight the additional files and README guidance for that type.
 
 The generated `AGENTS.md` ends with a `## Project specifics` section. Put
@@ -543,6 +631,8 @@ Full CI pipeline for Next.js applications.
 Options:
 
 - `--postgres` — adds a PostgreSQL 16 service container to the build job
+- `--screenshots` — adds the `screenshot-review` skill and
+  `docs/screenshot-review.md`, for an app with a screenshot capture lane
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
 caller contract. `test.yml` is necessarily scaffold-general: it retains that
@@ -596,7 +686,9 @@ CI pipeline for Swift/Xcode projects.
 
 Requires `--scheme`. Destination defaults to `iphone` (an available iPhone
 simulator, picked dynamically in CI); pass `--destination ipad` for an iPad
-simulator or `--destination macos` for a macOS destination.
+simulator or `--destination macos` for a macOS destination. Pass
+`--screenshots` for an app with a screenshot capture lane: it adds the
+`screenshot-review` skill and `docs/screenshot-review.md`.
 
 Pass `--xcodegen` when `project.yml` will be the source of truth and generated
 `.xcodeproj` output should stay out of git. The generated `AGENTS.md` explains
@@ -747,7 +839,10 @@ it separate from `release-please.yml`.
 ## Non-interactive mode
 
 All prompts can be bypassed by combining `--non-interactive` with the relevant
-flags. Secrets and the Release Please key are read from environment variables:
+flags. The optional features `--postgres`, `--xcodegen` and `--screenshots`
+stay off unless their flag is passed; an interactive run asks about each, with
+No as the default. Secrets and the Release Please key are read from
+environment variables:
 
 | Environment variable | Used when |
 |---|---|

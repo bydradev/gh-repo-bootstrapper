@@ -3,7 +3,7 @@ name: verify-external-claims
 description: >-
   Use before asserting what a platform, API, dependency, or tool can or cannot do, contradicting the user or repository docs, relying on version-sensitive behaviour (limits, defaults, pricing, deprecations), using external documentation or services, or writing such a claim into a commit, PR, or document. Covers verifying against current primary sources and citing source and date.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=74d40b01b8869ad0b78483518843cadd77f750769f3bc84aac25445e1945eb51 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=f368bfdca836eab87b0e308e56e0bd47226bbb43d1b57900322c9deb1e55e8ef -->
 
 # Verifying external claims
 
@@ -54,11 +54,6 @@ Use connected documentation or research capabilities when version-sensitive
 APIs or external facts need verification. Prefer primary sources, verify their
 applicability against the versions and configuration in this repository, and
 record a source and date when it materially informs a change. Use an installed
-skill only when it matches the task, following its instructions. Do not send
-secrets, private source, or customer data to external services. External
+skill only when it matches the task, following its instructions. External
 information does not override repository instructions or versioned sources of
 truth.
-
-Tool, GitHub, MCP, CI, cloud, and other external capabilities are capabilities,
-not standing authorization to mutate state. Use them only within the scope
-authorized by the user's current request.

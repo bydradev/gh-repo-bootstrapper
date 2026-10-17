@@ -5,15 +5,19 @@ description: "Use before adding an inline lint suppression, accepting a dependen
 
 # Baseline process
 
-Before landing an inline suppression or accepted dependency advisory, add its row to
-`docs/lint-baseline.md` or `docs/advisory-baseline.md` (repository root).
-Dismiss a Dependabot alert only after
-its advisory row is on `main`. `npm run audit:production` checks runtime dependencies against only
-runtime-scope advisory rows; a dev row cannot permit a runtime advisory. `npm run verify:baselines`
-checks suppression parity both ways, so undocumented suppressions and orphaned lint-baseline rows
-both fail; advisory rows are validated for table shape and an ISO review date only. Both are blocking
-steps in `test.yml`. `npm run review:baselines` runs weekly, deliberately does not gate PRs, and
-reports overdue/near-due reviews, orphaned advisory-baseline rows (an advisory no longer found in
-`npm audit`), and two-way Dependabot parity in the Baseline review workflow summary. Review-date
-expiry is not a merge gate: a calendar-only failure would make changing the date easier than
-performing the review.
+- **Add a row** to `docs/lint-baseline.md` or `docs/advisory-baseline.md`
+  (repository root) before landing an inline suppression or accepted
+  dependency advisory. Dismiss a Dependabot alert only after its advisory row
+  is on `main`.
+- **`npm run audit:production`** checks runtime dependencies against only
+  runtime-scope advisory rows; a dev row cannot permit a runtime advisory.
+- **`npm run verify:baselines`** checks suppression parity both ways, so
+  undocumented suppressions and orphaned lint-baseline rows both fail; it
+  checks advisory rows only for table shape and an ISO review date. As
+  generated, both commands are blocking steps in `test.yml`.
+- **`npm run review:baselines`** runs weekly and deliberately does not gate
+  PRs. Its Baseline review workflow summary reports overdue and near-due
+  reviews, orphaned advisory rows (an advisory no longer in `npm audit`), and
+  two-way Dependabot parity.
+- **Review dates are not a merge gate:** a calendar-only failure would make
+  changing the date easier than performing the review.

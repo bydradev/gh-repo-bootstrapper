@@ -202,7 +202,7 @@ when they're relevant:
 |---|---|
 | `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `delegation` | all |
 | `screenshot-review` | `nextjs`, `swift`, with `--screenshots` |
-| `baseline-process` | `nextjs` |
+| `baseline-process`, `public-site-indexing` | `nextjs` |
 | `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
 
 `screenshot-review` carries the shared review process for a deterministic
@@ -220,13 +220,55 @@ screenshot-review process when it has one.
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
 doesn't scan `.agents/` but does follow symlinked skill folders. Codex,
-OpenCode and Antigravity read `.agents/skills` directly. The fresh-eyes review
-runs as a separate read-only reviewer agent,
+OpenCode and Antigravity read `.agents/skills` directly. The generated
+`.gitignore` ignores `.agents/*` and `.opencode/*` but re-includes
+`!.agents/skills/` and `!.opencode/agents/`, so these files are committed.
+
+Each `local-validation-<type>` skill describes CI tiers, test configuration
+and formatter scope as generated, and says which repository file to check for
+the current ones. It tells agents to load first a repository-owned validation
+skill named in `## Project specifics`, which governs where it is narrower, so
+a repository keeps its own tiers, ports and test-server notes there rather
+than in `AGENTS.md`. `public-site-indexing` has no row in the hub's skills
+table, which keeps the Next.js hub within its byte budget: harnesses with
+skill support load it by its description, and `local-validation-nextjs`
+points at it.
+
+The fresh-eyes review runs as a separate reviewer agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
-`fresh-eyes-review` skill. The generated `.gitignore` ignores `.agents/*` and
-`.opencode/*` but re-includes `!.agents/skills/` and `!.opencode/agents/`, so
-these files are committed.
+`fresh-eyes-review` skill. Neither gets a built-in edit tool.
+
+The OpenCode reviewer has no built-in edit, subagent or shell tool. MCP,
+plugin and custom tools follow the user's OpenCode configuration, whose
+default allows them, so a connected server's write tools stay available to it.
+It reviews the diff and validation results the implementer hands it and reads
+files with OpenCode's read tools, which ask before reading most paths outside
+the project, such as a diff saved to a scratch directory. It gets no shell
+because OpenCode's shell rules see each command in a line separately and keep
+a redirect only when it sits directly on one command, so an allowed `git log`
+still writes in `git diff && git log > notes` (`tool/shell.ts`,
+`session/tools.ts` and `agent/agent.ts` in
+[OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
+current npm release, checked 2026-10-16).
+OpenCode's free-tier models on its own provider currently refuse an agent
+whose shell is denied, with "OpenCode's free tier can only be used from within
+OpenCode" ([OpenCode issue 50627](https://github.com/anomalyco/opencode/issues/50627),
+open on 2026-10-16), so run this reviewer with another model. `bash: ask` or a
+narrow allow rule avoids that error, but a command that yields no pattern,
+such as a bare `> file`, skips the shell check, so either would let the
+reviewer write.
+
+Claude Code could block a subagent's Bash commands with a `PreToolUse` hook in
+its frontmatter, but it skips a project subagent's frontmatter hooks in a
+folder whose workspace trust dialog was never accepted, such as a clone where
+it has only run as `claude -p`, which never shows that dialog
+([Claude Code subagents](https://code.claude.com/docs/en/sub-agents) and
+[permissions](https://code.claude.com/docs/en/permissions), checked
+2026-10-16). Whether such a hook runs would depend on the folder, and it would
+also have to parse shell commands, which the OpenCode case shows is hard to do
+completely. So the Claude Code reviewer is read-only by instruction: its file
+tells it to use Bash only for read-only commands.
 
 `## Project specifics` belongs to the repository. The guidance on what goes
 there is in a generated section of the hub, *When instructions and reality

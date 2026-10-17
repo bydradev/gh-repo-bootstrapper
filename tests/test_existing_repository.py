@@ -1914,6 +1914,57 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual((self.repo / rel).read_text(), files[rel])
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "same")
 
+    def test_skill_added_to_a_type_is_written_into_an_existing_repository(self):
+        # A Next.js repository adopted before public-site-indexing existed: the
+        # new skill and its mirror are missing, and its stamped
+        # local-validation-nextjs is the older one, which does not point at the
+        # new skill. The repository has also customised the workflows it owns
+        # and its `## Project specifics`. Adopt writes the first two, updates
+        # the third, and leaves the repository-owned files byte for byte.
+        files = _render("nextjs")
+        bootstrap.adopt_repository(self.repo, files)
+        rel, mirror = ".agents/skills/public-site-indexing/SKILL.md", ".claude/skills/public-site-indexing"
+        parent = ".agents/skills/local-validation-nextjs/SKILL.md"
+        shutil.rmtree(self.repo / Path(rel).parent)
+        (self.repo / mirror).unlink()
+        pointer = (" For `robots.txt`, the sitemap, `noindex`, or\n"
+                   "canonical hostnames, load `public-site-indexing` instead.")
+        body = bootstrap.read_stamp(files[parent])[1]
+        self.assertIn(pointer, body)
+        self._write(parent, bootstrap.stamp(body.replace(pointer, "", 1)))
+        owned = {
+            ".github/workflows/ci.yml": files[".github/workflows/ci.yml"] + "# Local: also lint the docs.\n",
+            ".github/workflows/test.yml": files[".github/workflows/test.yml"] + "# Local: E2E runs on port 4100.\n",
+            "AGENTS.md": files["AGENTS.md"] + "\n- Load `local-validation-site` before validating.\n",
+        }
+        for path, text in owned.items():
+            self.assertNotEqual(text, files[path])
+            self._write(path, text)
+        self._commit_all()
+        report = bootstrap.compare_repository(self.repo, files)
+        workflows = {path: "differs" for path in owned if path.endswith(".yml")}
+        self.assertEqual({path: entry[0] for path, entry in report.items() if entry[0] != "same"},
+                         {rel: "missing", mirror: "missing", parent: "stale", **workflows})
+        check = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--check", str(self.repo), "--type", "nextjs"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(check.returncode, 1, check.stdout + check.stderr)
+        for path in (rel, mirror, parent):
+            self.assertIn(path, check.stdout)
+        adopt = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo), "--type", "nextjs"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(adopt.returncode, 0, adopt.stdout + adopt.stderr)
+        self.assertEqual((self.repo / rel).read_text(), files[rel])
+        self.assertEqual((self.repo / parent).read_text(), files[parent])
+        self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/public-site-indexing")
+        for path, text in owned.items():
+            self.assertEqual((self.repo / path).read_bytes(), text.encode(), path)
+        report = bootstrap.compare_repository(self.repo, files)
+        self.assertEqual({path: entry[0] for path, entry in report.items() if entry[0] != "same"}, workflows)
+
     def test_modified_skill_is_refused_even_with_replace_generated(self):
         files = _render()
         rel = ".agents/skills/pull-requests/SKILL.md"

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.13.0...v0.13.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* have the cross-family recipe follow the base branch's review-guidelines ([#113](https://github.com/bydradev/gh-repo-bootstrapper/issues/113)) ([b4c7364](https://github.com/bydradev/gh-repo-bootstrapper/commit/b4c7364e5ad45d5f3f7a47227815bc01047207a3))
+* make clear that the author's evidence is what withdraws a disputed finding ([b4c7364](https://github.com/bydradev/gh-repo-bootstrapper/commit/b4c7364e5ad45d5f3f7a47227815bc01047207a3))
+* name xcodegen generate only for repositories that use XcodeGen ([b4c7364](https://github.com/bydradev/gh-repo-bootstrapper/commit/b4c7364e5ad45d5f3f7a47227815bc01047207a3))
+
 ## [0.13.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.12.1...v0.13.0) (2026-10-18)
 
 

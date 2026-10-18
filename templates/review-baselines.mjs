@@ -8,6 +8,15 @@ const now = new Date();
 const reviewWindowDays = 30;
 const releaseStaleDays = 14;
 const apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com";
+// The release job of the generated release-please.yml starts with this check.
+// While the Release Please App credentials are missing, or not available to the
+// run, it warns and the token step and every release step after it are skipped,
+// so the run still concludes success without releasing anything. The
+// gh-repo-bootstrapper validator checks that its release-please.yml template
+// keeps this job id and these two step names in that one job.
+const releaseJobName = "release-please";
+const releaseCredentialsStep = "Check Release Please credentials";
+const releaseTokenStep = "Generate GitHub App token";
 
 // Math.ceil() of a small negative fraction returns -0 (per spec, for
 // -1 < x < 0), and -0 < 0 is false, so "less than a day past due" must be
@@ -94,6 +103,61 @@ async function releaseWorkflowRuns(repository, token, query) {
   return body.workflow_runs;
 }
 
+function releaseRunJobs(repository, token, run) {
+  if (!Number.isSafeInteger(run.id) || run.id <= 0)
+    throw new Error("Release Please API returned a completed run without a run id");
+  return pagedApi(
+    repository,
+    token,
+    `actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+    "jobs",
+    "Release Please jobs",
+  );
+}
+
+// What a successful run's jobs show about its release. Every job with both the
+// credentials check and the App token step counts: it released only if the
+// token step succeeded, and a skipped token step means the credentials were
+// missing. A `release-please` job listed as skipped never started. A workflow
+// with neither, such as a customised one, is judged as before, by its run's
+// conclusion and age.
+function releaseEvidence(jobs) {
+  const evidence = { released: 0, skipped: 0, notStarted: 0, other: {} };
+  for (const job of jobs) {
+    const steps = Array.isArray(job?.steps) ? job.steps : [];
+    if (job?.name === releaseJobName && job.conclusion === "skipped") {
+      evidence.notStarted += 1;
+      continue;
+    }
+    const token = steps.find((step) => step?.name === releaseTokenStep);
+    if (!token || !steps.some((step) => step?.name === releaseCredentialsStep)) continue;
+    if (token.conclusion === "success") evidence.released += 1;
+    else if (token.conclusion === "skipped") evidence.skipped += 1;
+    else {
+      const conclusion = token.conclusion ?? "unknown";
+      evidence.other[conclusion] = (evidence.other[conclusion] ?? 0) + 1;
+    }
+  }
+  evidence.jobs =
+    evidence.released +
+    evidence.skipped +
+    evidence.notStarted +
+    Object.values(evidence.other).reduce((sum, count) => sum + count, 0);
+  return evidence;
+}
+
+function unreleasedJobs({ skipped, notStarted, other }) {
+  const parts = [];
+  if (skipped)
+    parts.push(
+      `${skipped} skipped its App token step because the \`RELEASE_PLEASE_CLIENT_ID\` variable or \`RELEASE_PLEASE_APP_KEY\` secret is not set or not available to it`,
+    );
+  if (notStarted) parts.push(`${notStarted} did not start`);
+  for (const [conclusion, count] of Object.entries(other))
+    parts.push(`${count} ran an App token step that concluded ${conclusion}`);
+  return parts.join("; ");
+}
+
 function npmAuditReport() {
   const audit = spawnSync("npm", ["audit", "--json"], { encoding: "utf8" });
   if (audit.error) throw new Error(`unable to run npm audit: ${audit.error.message}`);
@@ -170,7 +234,7 @@ function ageInDays(run) {
   return Math.max(0, Math.floor((now.valueOf() - date.valueOf()) / 86_400_000));
 }
 
-function releaseHealth(latest, lastSuccess) {
+function releaseHealth(latest, lastSuccess, evidence) {
   if (!latest)
     return {
       actionable: true,
@@ -193,6 +257,16 @@ function releaseHealth(latest, lastSuccess) {
     return {
       actionable: true,
       line: `- Release pipeline: stale. The latest completed \`release-please.yml\` run concluded ${latestConclusion} at ${latestAt} (${latestAge} days ago); the ${success}. A successful run older than ${releaseStaleDays} days is reported as stale.`,
+    };
+  if (evidence.jobs && evidence.skipped === evidence.jobs)
+    return {
+      actionable: true,
+      line: `- Release pipeline: not configured. The latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago) skipped the release because the \`RELEASE_PLEASE_CLIENT_ID\` variable or \`RELEASE_PLEASE_APP_KEY\` secret is not set or not available to it; releases stay skipped until a run can read both.`,
+    };
+  if (evidence.released < evidence.jobs)
+    return {
+      actionable: true,
+      line: `- Release pipeline: ${evidence.released ? "partly released" : "not released"}. In the latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago), ${evidence.jobs - evidence.released} of ${evidence.jobs} release job${evidence.jobs === 1 ? "" : "s"} did not release: ${unreleasedJobs(evidence)}.`,
     };
   if (successAge > releaseStaleDays)
     return {
@@ -314,7 +388,10 @@ async function main() {
       releaseWorkflowRuns(repository, token, "status=completed&per_page=1"),
       releaseWorkflowRuns(repository, token, "status=success&per_page=1"),
     ]);
-    const result = releaseHealth(latestRuns[0], successfulRuns[0]);
+    const latest = latestRuns[0];
+    const jobs =
+      latest?.conclusion === "success" ? await releaseRunJobs(repository, token, latest) : [];
+    const result = releaseHealth(latest, successfulRuns[0], releaseEvidence(jobs));
     lines.push(result.line);
     actionable ||= result.actionable;
   } catch (error) {

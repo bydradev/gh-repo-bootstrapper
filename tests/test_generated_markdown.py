@@ -22,6 +22,34 @@ class MarkdownBlankLinesTest(unittest.TestCase):
         )
 
 
+class ReviewGuidelinesTest(unittest.TestCase):
+    def test_each_configuration_carries_only_its_own_stack_section(self):
+        headings = validate_templates.REVIEW_STACK_HEADINGS
+        for label, cfg in validate_templates.configurations():
+            skill = validate_templates.bootstrap.generate_files(cfg)[validate_templates.REVIEW_SKILL]
+            lines = set(skill.splitlines())
+            with self.subTest(label=label):
+                self.assertIn(headings[cfg["repo_type"]], lines)
+                self.assertEqual(
+                    [h for t, h in headings.items() if t != cfg["repo_type"] and h in lines], []
+                )
+                self.assertNotIn("<<REVIEW_STACK>>", skill)
+
+    def test_both_reviewer_agents_load_the_skill(self):
+        files = validate_templates.bootstrap.generate_files(next(
+            cfg for _, cfg in validate_templates.configurations() if cfg["repo_type"] == "simple"))
+        # A change that edits the skill is reviewed under the base branch's copy.
+        base_copy = {
+            validate_templates.CLAUDE_REVIEWER: "follow the base branch's copy instead",
+            validate_templates.OPENCODE_REVIEWER: "ask for the base branch's copy and follow that",
+        }
+        for path, phrase in base_copy.items():
+            with self.subTest(path=path):
+                self.assertIn("`.agents/skills/review-guidelines/SKILL.md`", files[path])
+                self.assertIn(phrase, files[path])
+                self.assertIn("or the head copy when the base branch has none", files[path])
+
+
 class RunbookTest(unittest.TestCase):
     path = validate_templates.BRANCH_PROTECTION_RUNBOOK
 

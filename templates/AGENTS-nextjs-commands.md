@@ -11,9 +11,5 @@ npm test              # unit/integration tests
 npm run audit:production  # runtime advisory floor; requires network access
 npm run verify:baselines  # lint/advisory baseline parity
 npm run build         # Next.js production build
-npm run test:e2e      # Playwright e2e
+npm run test:e2e      # Playwright e2e; required for UI or interaction changes
 ```
-
-For browser-facing UI or interaction changes, also run `npm run test:e2e` (or
-`npm run test:e2e:local` when that script is available) before opening or
-updating a PR.

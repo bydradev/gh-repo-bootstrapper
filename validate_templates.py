@@ -303,6 +303,13 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("a P0 or P1 is the operator's to accept or defer", _skill_path("fresh-eyes-review")),
     ("After three review rounds with blocking findings still open", _skill_path("fresh-eyes-review")),
     ("`review-guidelines`", _skill_path("fresh-eyes-review")),
+    # The cross-family recipe hands the reviewer the base branch's rules, so a
+    # change cannot rewrite the rules it is reviewed by.
+    (
+        "Save the base branch's `review-guidelines` there too, or the head copy when the base branch has none",
+        _skill_path("fresh-eyes-review"),
+    ),
+    ("telling the reviewer to follow that saved copy instead of the worktree's", _skill_path("fresh-eyes-review")),
     (REVIEW_ROUTING, REVIEW_SKILL),
     ("Verify each open finding on the new head yourself.", REVIEW_SKILL),
     ('A commit message or reply saying "fixed" is a claim.', REVIEW_SKILL),

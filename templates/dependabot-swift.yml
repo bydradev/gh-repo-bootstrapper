@@ -1,4 +1,4 @@
-# NOT RENDERED BY bootstrap.py — this is a reference snippet, not a template.
+# NOT RENDERED BY bootstrap.py. This is a reference snippet, not a template.
 #
 # A new Swift repository has no usable SPM manifest yet, and Dependabot cannot
 # read Swift package declarations out of an XcodeGen project.yml, so generating
@@ -22,7 +22,7 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-    # Group all SPM packages — they tend to be few and intentional, so a
+    # Group all SPM packages: they tend to be few and intentional, so a
     # single batched PR is easier to review than one per package.
     groups:
       swift-dependencies:

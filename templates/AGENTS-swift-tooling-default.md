@@ -4,6 +4,6 @@ Build and run tests:
 <!-- SECTION:GENERATE_STEP -->
 <!-- /SECTION:GENERATE_STEP -->
 <!-- SECTION:DEPENDENCY_NOTE -->
-Dependencies are managed with Swift Package Manager — add packages
+Dependencies are managed with Swift Package Manager. Add packages
 via Xcode or by editing `Package.swift`.
 <!-- /SECTION:DEPENDENCY_NOTE -->

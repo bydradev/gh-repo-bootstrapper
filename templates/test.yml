@@ -48,7 +48,7 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  # Browser e2e suite — kept as its own job so a browser flake never masks a
+  # Browser e2e suite, kept as its own job so a browser flake never masks a
   # lint/typecheck regression. Skipped for PRs (see `e2e` above); runs on main
   # pushes and on the Release Please PR merge.
   e2e:

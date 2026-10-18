@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Report a security vulnerability
-    url: https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md
-    about: Do not open a public issue for anything exploitable. Read SECURITY.md for the private reporting process.
   - name: Contributing guide
     url: https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md
     about: How to open a pull request, sign off your commits, and which licence a contribution falls under.

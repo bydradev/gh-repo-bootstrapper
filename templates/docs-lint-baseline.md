@@ -41,6 +41,6 @@ There are currently no accepted inline suppressions.
 
 ## Considered alternatives (not adopted)
 
-- **Disable the rule globally** — rejected because it removes the signal for all future code.
-- **Ignore the warning without an inline reason** — rejected because the next reader cannot tell an
+- **Disable the rule globally**: rejected because it removes the signal for all future code.
+- **Ignore the warning without an inline reason**: rejected because the next reader cannot tell an
   intentional exception from an oversight.

@@ -16,8 +16,8 @@ canonical hostnames, load `public-site-indexing` instead.
 ## Local browser-validation constraints
 
 When a local Playwright suite is present, treat a browser-launch failure before
-navigation — for example, macOS `MachPortRendezvousServer` /
-`bootstrap_check_in ... Permission denied` — as an environment or
+navigation (for example, macOS `MachPortRendezvousServer` /
+`bootstrap_check_in ... Permission denied`) as an environment or
 process-launch failure, not an application test failure. Preserve the exact
 output. Request the narrowest available permission elevation for the exact
 browser-test command; do not weaken agent-wide sandbox or host-execution policy.

@@ -143,7 +143,7 @@ Without skill support, read `.agents/skills/<name>/SKILL.md`.
 ### Maintainer workflow guidance
 
 > **Maintainer workflow guidance.** This file describes how work is carried out
-> *in* this repository — for the maintainer and for AI assistants working under
+> *in* this repository, for the maintainer and for AI assistants working under
 > their direction. Outside contributors follow its commit and pull request
 > conventions; [`CONTRIBUTING.md`](CONTRIBUTING.md) covers everything else
 > about contributing, including the DCO sign-off and the licence split.

@@ -70,7 +70,7 @@ function rulesFromEslintDirective(text, file) {
 // and its setting runs to the next rule. A rule set to plain "error" or 2 is
 // only switched on, and keeps its configured options (checked with ESLint
 // 9.39.4's Linter, 2026-09-30), so it cannot weaken anything; every other
-// setting — off, warn, or new options — needs a lint-baseline row. Any value
+// setting (off, warn, or new options) needs a lint-baseline row. Any value
 // ESLint accepts has at least one such key, so text with none sets no rule.
 function rulesFromEslintConfig(text) {
   let body = text.split(/\s-{2,}\s/u, 1)[0].trim();
@@ -276,10 +276,10 @@ const missingRows = [];
 const orphanedRows = [];
 for (const [entry, occurrences] of suppressionCounts)
   if ((documentedCounts.get(entry) ?? 0) < occurrences)
-    missingRows.push(entry.replace("\u0000", " — "));
+    missingRows.push(entry.replace("\u0000", ": "));
 for (const [entry, occurrences] of documentedCounts)
   if ((suppressionCounts.get(entry) ?? 0) < occurrences)
-    orphanedRows.push(entry.replace("\u0000", " — "));
+    orphanedRows.push(entry.replace("\u0000", ": "));
 
 if (missingRows.length || orphanedRows.length) {
   if (missingRows.length)

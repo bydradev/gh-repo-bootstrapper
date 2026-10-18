@@ -6,10 +6,10 @@ pre-configured Actions workflows, Release Please, and Dependabot.
 ## Requirements
 
 - Python 3.11+
-- [gh CLI](https://cli.github.com/) — authenticated (`gh auth login`)
+- [gh CLI](https://cli.github.com/): authenticated (`gh auth login`)
 - git
 
-No runtime pip dependencies — stdlib only. `bootstrap.py` itself never needs
+No runtime pip dependencies: stdlib only. `bootstrap.py` itself never needs
 anything installed beyond a base Python interpreter.
 
 ## Development
@@ -18,12 +18,12 @@ anything installed beyond a base Python interpreter.
 (all repo types × their type-specific options) and asserts:
 
 - YAML/JSON syntax, and no unreplaced `__MARKER__`/`# <<MARKER>>` placeholders
-- workflow/job consistency — branch-protection required status checks matching
+- workflow/job consistency: branch-protection required status checks matching
   job ids in the generated workflows, checked in both directions
-- reusable-workflow contracts — every `with:` key declared by the workflow it
+- reusable-workflow contracts: every `with:` key declared by the workflow it
   calls, every required input supplied, and every local `uses:` target actually
   declaring `on: workflow_call`
-- workflow token scopes — every generated workflow declaring `permissions:`
+- workflow token scopes: every generated workflow declaring `permissions:`
   explicitly, with `ci.yml` and `test.yml` pinned to exactly `contents: read`
   and no write scope outside `release-please.yml`
 - rendered Release Please config *values*, not just that the JSON parses
@@ -37,7 +37,7 @@ anything installed beyond a base Python interpreter.
 - the hub's size (an 8,000 B budget for its generated part, a 10,000 B
   ceiling), its pinned safety gates, skill pointers and frontmatter, reviewer
   agents, and the ownership stamps on template-owned files
-- executable workflow gates — every action pinned to a full commit SHA and
+- executable workflow gates: every action pinned to a full commit SHA and
   allowed by the Actions policy the script sets; a timeout on every job that
   declares `runs-on`; no job or step set to `continue-on-error` or given an
   `if:` that is a falsy literal (`false`, `0`, `null`, `''`); the Python and
@@ -62,7 +62,7 @@ anything installed beyond a base Python interpreter.
 
 It also runs self-tests that reproduce each past regression from real rendered
 output, so a check that stops firing turns the suite red rather than passing
-vacuously. Unlike `bootstrap.py`, it requires PyYAML — a dev-only dependency
+vacuously. Unlike `bootstrap.py`, it requires PyYAML, a dev-only dependency
 for this validator, not for the generated repos or for `bootstrap.py` itself.
 
 ### Preferred: uv
@@ -133,7 +133,7 @@ confirm before creating anything.
 
 | Flag | Description |
 |---|---|
-| `--name TEXT` | Repository name (lowercase letters, digits, hyphens), or a relative/absolute path ending in one — created in the current directory by default |
+| `--name TEXT` | Repository name (lowercase letters, digits, hyphens), or a relative/absolute path ending in one; created in the current directory by default |
 | `--type nextjs\|python\|swift\|rust\|simple` | Repository type |
 | `--org TEXT` | GitHub org or user (default: authenticated user) |
 | `--private` / `--public` | Visibility (default: private) |
@@ -146,7 +146,7 @@ confirm before creating anything.
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub |
 | `--non-interactive` | Fail instead of prompting for missing options |
 | `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` and the type options the repository was generated with |
-| `--adopt PATH` | Bring an existing local repository in line without contacting GitHub — see [Existing repositories](#existing-repositories) |
+| `--adopt PATH` | Bring an existing local repository in line without contacting GitHub (see [Existing repositories](#existing-repositories)) |
 | `--replace-generated-sections` | With `--adopt`: also replace `AGENTS.md` generated sections whose text differs from the template |
 
 ### Examples
@@ -155,7 +155,7 @@ confirm before creating anything.
 # Fully interactive
 ./bootstrap.py
 
-# Next.js app — preview files before creating
+# Next.js app: preview files before creating
 ./bootstrap.py --name my-dashboard --type nextjs --dry-run
 
 # Next.js with PostgreSQL tests in an org
@@ -444,7 +444,7 @@ Template-owned files get their own states:
 | `missing` | not present | written |
 | `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
-| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist — left behind by a retired template skill or a wrong `--type` | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
+| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist, left behind by a retired template skill or a wrong `--type` | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
@@ -454,8 +454,8 @@ change the exit code; shorten `## Project specifics` by moving reference
 material into a repository-owned skill.
 
 Pass the same
-type options the repository was generated with — `--postgres` for Next.js,
-`--scheme`, `--destination`, and `--xcodegen` for Swift — or the workflows
+type options the repository was generated with (`--postgres` for Next.js,
+`--scheme`, `--destination`, and `--xcodegen` for Swift), or the workflows
 they shape report as drift. `--screenshots` is the exception: a `nextjs` or
 `swift` repository that already has the template's copy of
 `.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
@@ -474,7 +474,7 @@ move it to another path first. Pass the same
 reports `(--type)` and `--adopt` refuses before changing anything, since it
 would otherwise delete those skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
-sections in a different order), and anything `local` —
+sections in a different order), and anything `local`:
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence, a fence indented four or more columns, an HTML
@@ -498,7 +498,7 @@ above), with one more exception that preserves repository-owned content:
 `AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
 everything after it, less any `retired` guidance paragraph) and the
 `next dev`-managed block. The rebuild is refused
-while anything `local` remains — move those rules under `## Project specifics`
+while anything `local` remains; move those rules under `## Project specifics`
 first. A generated section whose text differs may be an older template or a
 local edit, and the script cannot tell which, so it is replaced only with
 `--replace-generated-sections`, which lists those sections and asks before
@@ -507,8 +507,8 @@ writing (`--non-interactive` skips the prompt).
 For an existing `.gitignore`, missing entries are listed, not written; a
 missing `.gitignore` is created like any other file. Whether an added rule
 would override an existing `!` exception depends on git's full ignore rules
-across every ignore file — git cannot re-include a file once a parent
-directory is excluded — so that edit is left to a person.
+across every ignore file (git cannot re-include a file once a parent
+directory is excluded), so that edit is left to a person.
 
 The `AGENTS.md` rewrite needs the file tracked by git with no uncommitted
 changes, LF line endings, and UTF-8 text, so the result can be reviewed with
@@ -523,8 +523,8 @@ resolved, and `--adopt` prints the directory it is changing.
 
 `--adopt` assumes nothing else modifies the repository while it runs. It
 refuses a rewrite whose target changed since it was read, but it cannot close
-every race with a concurrent process — for example one moving a directory out
-of `PATH` mid-run — so do not run it while an editor, agent, or build is
+every race with a concurrent process (for example one moving a directory out
+of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
@@ -624,26 +624,26 @@ template updates can be applied without overwriting them.
 
 Full CI pipeline for Next.js applications.
 
-- `pr-title-check.yml` — Conventional Commits validation on PR titles
-- `release-please.yml` — test → release-please; deployment remains application-owned
-- `ci.yml` — runs the suite on every PR without the browser e2e lane; pushes
+- `pr-title-check.yml`: Conventional Commits validation on PR titles
+- `release-please.yml`: test → release-please; deployment remains application-owned
+- `ci.yml`: runs the suite on every PR without the browser e2e lane; pushes
   to `main` add Chromium, and the Release Please merge (or a manual dispatch of
   `release-please.yml`) runs every Playwright project
-- `test.yml` — reusable suite: enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e
-- `baseline-review.yml` — weekly, non-blocking summary of advisory review dates and Dependabot/document parity
-- `dependabot.yml` — weekly npm + GitHub Actions updates
+- `test.yml`: reusable suite: enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e
+- `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
+- `dependabot.yml`: weekly npm + GitHub Actions updates
 - `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore`
-- `docs/lint-baseline.md` — policy and an empty table for our own inline lint/type suppressions
-- `docs/advisory-baseline.md` — policy and an empty table for accepted dependency advisories
-- `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
-- `scripts/baseline-table.mjs`, `scripts/verify-baselines.mjs`, and `scripts/audit-production.mjs` — shared parser plus fail-closed baseline and production-audit checkers
-- `scripts/*-baselines.test.mjs` and `scripts/audit-production.test.mjs` — regression tests for the baseline verifier, scheduled review, and production audit
-- `README.md` and `AGENTS.md` — project starter, quality-baseline pointers, and contribution guidance
+- `docs/lint-baseline.md`: policy and an empty table for our own inline lint/type suppressions
+- `docs/advisory-baseline.md`: policy and an empty table for accepted dependency advisories
+- `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
+- `scripts/baseline-table.mjs`, `scripts/verify-baselines.mjs`, and `scripts/audit-production.mjs`: shared parser plus fail-closed baseline and production-audit checkers
+- `scripts/*-baselines.test.mjs` and `scripts/audit-production.test.mjs`: regression tests for the baseline verifier, scheduled review, and production audit
+- `README.md` and `AGENTS.md`: project starter, quality-baseline pointers, and contribution guidance
 
 Options:
 
-- `--postgres` — adds a PostgreSQL 16 service container to the build job
-- `--screenshots` — adds the `screenshot-review` skill and
+- `--postgres`: adds a PostgreSQL 16 service container to the build job
+- `--screenshots`: adds the `screenshot-review` skill and
   `docs/screenshot-review.md`, for an app with a screenshot capture lane
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
@@ -657,19 +657,19 @@ release-triggered deployment workflow.
 CI pipeline for Python projects.
 
 - `pr-title-check.yml`
-- `release-please.yml` — test gate → release-please (no deploy); refuses to
+- `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
-- `ci.yml` — runs the test suite on every PR
-- `test.yml` — ruff format check, ruff (lint), mypy (type check), pytest;
+- `ci.yml`: runs the test suite on every PR
+- `test.yml`: ruff format check, ruff (lint), mypy (type check), pytest;
   installs a uv project from `uv.lock` with `uv sync --locked`, and otherwise
   auto-detects `requirements-dev.txt`, `requirements.txt`, or `pyproject.toml`
   with its `dev` extra and `dev` dependency group
-- `dependabot.yml` — weekly pip + GitHub Actions updates; switch `pip` to `uv`
+- `dependabot.yml`: weekly pip + GitHub Actions updates; switch `pip` to `uv`
   once the project commits a `uv.lock`, so Dependabot updates the lockfile
 - `.python-version`
-- `README.md` — project starter with a preferred `uv venv` setup and a
+- `README.md`: project starter with a preferred `uv venv` setup and a
   standard-library `venv` alternative
-- `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
+- `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
 
 **Upgrading to 0.8.1:** `test.yml` now runs `ruff format --check .`, so CI
 fails on unformatted code. When you `--adopt` 0.8.1 into an existing Python
@@ -681,20 +681,20 @@ request.
 CI pipeline for Swift/Xcode projects.
 
 - `pr-title-check.yml`
-- `release-please.yml` — test gate → release-please (no deploy); refuses to
+- `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
-- `ci.yml` — runs the `swift-format` lint on every PR; `xcodebuild test` runs
+- `ci.yml`: runs the `swift-format` lint on every PR; `xcodebuild test` runs
   only on the Release Please merge and on a manual dispatch of
   `release-please.yml`, because macOS runners bill at a multiple of Linux ones
-- `test.yml` — `swift-format lint --recursive --strict` (formatting gate) then
+- `test.yml`: `swift-format lint --recursive --strict` (formatting gate) then
   `xcodebuild test` on `macos-26`; scheme set from `--scheme`, destination
   resolved dynamically at CI time from `--destination`; with `--xcodegen`, CI
   installs pinned XcodeGen 2.46.0 and generates the project first
-- `dependabot.yml` — weekly GitHub Actions updates
-- `.swift-format` — Apple swift-format ruleset (default rules; `AlwaysUseLowerCamelCase`
-  left on — disable it deliberately per-repo if wire-format DTOs need snake_case fields)
-- `README.md` — project starter with local-development and verification sections
-- `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
+- `dependabot.yml`: weekly GitHub Actions updates
+- `.swift-format`: Apple swift-format ruleset (default rules; `AlwaysUseLowerCamelCase`
+  left on; disable it deliberately per-repo if wire-format DTOs need snake_case fields)
+- `README.md`: project starter with local-development and verification sections
+- `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
 
 Requires `--scheme`. Destination defaults to `iphone` (an available iPhone
 simulator, picked dynamically in CI); pass `--destination ipad` for an iPad
@@ -708,7 +708,7 @@ the local Xcode workflow. Swift package declarations inside XcodeGen manifests
 are not supported by Dependabot, so a new Swift repo gets the Actions-only
 config; after adding a root `Package.swift` or another supported Swift manifest,
 opt in deliberately by copying [`templates/dependabot-swift.yml`](templates/dependabot-swift.yml)
-over `.github/dependabot.yml`. That file is a reference snippet — the
+over `.github/dependabot.yml`. That file is a reference snippet; the
 bootstrapper never renders it.
 
 Formatting is enforced from the first commit: `test.yml` fails CI on any
@@ -722,18 +722,18 @@ and to check before pushing.
 CI pipeline for Rust crates and workspaces.
 
 - `pr-title-check.yml`
-- `release-please.yml` — test gate → release-please (no deploy); refuses to
+- `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
-- `ci.yml` — runs the test suite on every PR
-- `test.yml` — `cargo fmt --check`, `cargo clippy -D warnings`, and
+- `ci.yml`: runs the test suite on every PR
+- `test.yml`: `cargo fmt --check`, `cargo clippy -D warnings`, and
   `cargo test` across the workspace; fails with a clear error until a root
   `Cargo.toml` exists
-- `dependabot.yml` — GitHub Actions updates only; the generated
+- `dependabot.yml`: GitHub Actions updates only; the generated
   `local-validation-rust` skill says to add a `cargo` entry once `Cargo.toml`
   is committed, since a new repository has no manifest for Dependabot to read
-- `.gitignore` — adds Cargo's `/target/` build output
-- `README.md` — project starter with rustup setup and the CI commands
-- `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
+- `.gitignore`: adds Cargo's `/target/` build output
+- `README.md`: project starter with rustup setup and the CI commands
+- `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
 
 Release Please uses the `simple` release type, as for Python and Swift: it
 maintains the changelog, tags, and releases but does not edit `Cargo.toml`
@@ -748,43 +748,43 @@ deleted with the last of them.
 
 ### `simple`
 
-Release Please only — suitable for scripts, docs, or any project without a
+Release Please only, suitable for scripts, docs, or any project without a
 test suite.
 
 - `pr-title-check.yml`
-- `release-please.yml` — single-job, no test gate
-- `dependabot.yml` — GitHub Actions updates only
-- `README.md` — concise project starter and navigation guide
-- `docs/branch-protection-runbook.md` — operational runbook for PRs blocked by required status checks
+- `release-please.yml`: single-job, no test gate
+- `dependabot.yml`: GitHub Actions updates only
+- `README.md`: concise project starter and navigation guide
+- `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
 
 ## What the script configures
 
 Beyond file generation, the script applies GitHub configuration to the repo:
 
-- **Merge strategy** — squash-merge only; merge commits and rebase disabled,
+- **Merge strategy**: squash-merge only; merge commits and rebase disabled,
   and the default squash commit title and message are set to the PR title and
   body (the Conventional Commits text Release Please parses)
-- **Delete branch on merge** — enabled automatically
-- **Always suggest updating pull request branches** — enabled
-- **Projects** — enabled
-- **Actions permissions** — restricted to GitHub-owned and Marketplace-verified
+- **Delete branch on merge**: enabled automatically
+- **Always suggest updating pull request branches**: enabled
+- **Projects**: enabled
+- **Actions permissions**: restricted to GitHub-owned and Marketplace-verified
   actions, plus an explicit allowlist for `amannn/action-semantic-pull-request`
   (used by `pr-title-check.yml`) and, for `--type rust`, `dtolnay/rust-toolchain`
   and `Swatinem/rust-cache` (used by `test.yml`; both are user-owned, so the
   verified-creator rule does not cover them). Every action must also be pinned
   to a full commit SHA (`sha_pinning_required`).
-- **Workflow permissions** — default `read`, with GitHub Actions unable to
+- **Workflow permissions**: default `read`, with GitHub Actions unable to
   approve pull requests. Release Please uses its dedicated GitHub App token.
-- **Fork PR workflows** — disabled for private repos (no separate control
+- **Fork PR workflows**: disabled for private repos (no separate control
   exists for public repos; their fork-PR approval policy is left as-is)
-- **Branch protection on `main`** — requires the relevant status checks to pass
+- **Branch protection on `main`**: requires the relevant status checks to pass
   before merging, and requires a pull request with **zero** required approving
   reviews. That combination is deliberate: direct pushes to `main` are blocked
   (enforcing the convention in the generated `AGENTS.md`) without demanding
   self-review on a solo repository. `enforce_admins: true`, so the gates bind
   the account doing the merging; `strict` is left false, because a
-  "branch must be up to date" requirement strands every open PR — release PRs
-  worst — on each advance of `main`. The runbook for PRs blocked by those
+  "branch must be up to date" requirement strands every open PR (release PRs
+  worst) on each advance of `main`. The runbook for PRs blocked by those
   checks, most often release PRs, is a short symptom, check and action
   procedure at
   [`docs/branch-protection-runbook.md`](docs/branch-protection-runbook.md)
@@ -810,13 +810,13 @@ the rest.
   repositories. The script detects that case and reports it as manual follow-up
   rather than failing.
 
-## GitHub App — Release Please
+## GitHub App for Release Please
 
 Release Please runs via a GitHub App rather than the default `GITHUB_TOKEN` so
 it can open PRs that trigger other workflows. You will need to supply:
 
-- `RELEASE_PLEASE_CLIENT_ID` — set as a GitHub variable
-- `RELEASE_PLEASE_APP_KEY` — set as a GitHub secret
+- `RELEASE_PLEASE_CLIENT_ID`: set as a GitHub variable
+- `RELEASE_PLEASE_APP_KEY`: set as a GitHub secret
 
 The script prompts for these interactively, or reads them from environment
 variables in `--non-interactive` mode. The App key is the complete multi-line

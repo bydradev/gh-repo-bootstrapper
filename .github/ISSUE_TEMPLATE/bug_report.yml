@@ -2,20 +2,15 @@ name: Bug Report
 description: Report incorrect or broken behaviour in bootstrap.py or a generated repository
 title: "[Bug]: "
 labels: ["bug"]
-type: Bug
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for reporting. A few things before you start:
 
-        - **Security issue?** Don't file it here — see [SECURITY.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md).
-        - **Have a fix?** Describe the problem here, then open a pull request
-          as described in
-          [CONTRIBUTING.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
-        - **Please don't paste full generated files, `.env` contents, tokens,
-          or repo configuration.** File *paths* and *behaviour* are what we
-          need — not the file contents.
+        - **Security issue?** Don't file it here. See [SECURITY.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md).
+        - **Have a fix?** Describe the problem here, then open a pull request as described in [CONTRIBUTING.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/CONTRIBUTING.md).
+        - **Please don't paste full generated files, `.env` contents, tokens, or repo configuration.** File *paths* and *behaviour* are what we need, not the file contents.
 
   - type: checkboxes
     id: prerequisites
@@ -24,7 +19,7 @@ body:
       options:
         - label: I searched existing issues and this isn't a duplicate
           required: true
-        - label: This is not a security report (see SECURITY.md)
+        - label: "This is not a security report (see [SECURITY.md](https://github.com/bydradev/gh-repo-bootstrapper/blob/main/SECURITY.md))"
           required: true
 
   - type: textarea
@@ -43,9 +38,7 @@ body:
     attributes:
       label: Where did it fail?
       description: |
-        A bad bootstrapper-generated API call or configuration payload can
-        legitimately surface as a `gh`/GitHub API error — so "it's just a
-        gh/API failure" isn't a reason to rule this out on its own.
+        A bad bootstrapper-generated API call or configuration payload can legitimately surface as a `gh`/GitHub API error, so "it's just a gh/API failure" isn't a reason to rule this out on its own.
       options:
         - Generated files/templates (wrong content after running)
         - Repository configuration or API call bootstrap.py made
@@ -59,9 +52,7 @@ body:
     attributes:
       label: Steps to reproduce
       description: |
-        Include the command you ran. **Redact anything sensitive** — org
-        names are usually fine, but drop tokens, real repo names you don't
-        want public, and never paste the Release Please App key or client ID.
+        Include the command you ran. **Redact anything sensitive.** Org names are usually fine, but drop tokens, real repo names you don't want public, and never paste the Release Please App key or client ID.
       placeholder: |
         1. ./bootstrap.py --name my-app --type swift --scheme MyApp --org acme --dry-run
         2. ...
@@ -113,7 +104,7 @@ body:
     id: affected-paths
     attributes:
       label: Affected generated file(s)
-      description: Paths only (e.g. `release-please-config.json`, `.github/workflows/test-swift.yml`) — not their contents
+      description: Paths only (e.g. `release-please-config.json`, `.github/workflows/test-swift.yml`), not their contents
       placeholder: release-please-config.json
 
   - type: input
@@ -144,4 +135,4 @@ body:
     id: context
     attributes:
       label: Additional context
-      description: Error messages, relevant log lines, anything else — with secrets and full file contents left out.
+      description: Error messages, relevant log lines or anything else. Leave out secrets and full file contents.

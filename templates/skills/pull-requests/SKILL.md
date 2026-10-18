@@ -8,24 +8,24 @@ description: >-
 
 ## Standard pull requests
 
-Standard PRs are squash-merged and parsed by Release Please — write them
+Standard PRs are squash-merged and parsed by Release Please, so write them
 merge-ready:
 
 - **Title:** one Conventional Commit subject naming one concrete change, not a
   label summarizing several bundled changes (e.g. not
-  `fix: address review follow-ups (path handling, branch protection, clone retry)`
-  — that's a summary, not a change). If a PR bundles multiple distinct fixes,
+  `fix: address review follow-ups (path handling, branch protection, clone retry)`,
+  which is a summary, not a change). If a PR bundles multiple distinct fixes,
   title it after the single most significant one and list the rest as extra
   changelog entries below, or split the PR. The title becomes the squash
   subject, the changelog entry, and the version-bump signal.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,
-  with any longer explanation on an *optional description line underneath* —
+  with any longer explanation on an *optional description line underneath*,
   not packed into the entry line itself. Release Please parses each entry line
   as its own commit subject and will truncate a long one mid-sentence in the
-  rendered changelog. A PR body alone never reaches the branch — Release Please
-  reads the squash commit — so these lines must also be carried into the merge
+  rendered changelog. A PR body alone never reaches the branch (Release Please
+  reads the squash commit), so these lines must also be carried into the merge
   message; see *Squash merges* below. No `-`/`*` bullets, and don't repeat the
   title as an entry.
 - **CLI-authored bodies:** create multi-paragraph Markdown in a file passed to

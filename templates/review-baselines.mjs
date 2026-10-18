@@ -10,7 +10,7 @@ const releaseStaleDays = 14;
 const apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com";
 
 // Math.ceil() of a small negative fraction returns -0 (per spec, for
-// -1 < x < 0), and -0 < 0 is false — so "less than a day past due" must be
+// -1 < x < 0), and -0 < 0 is false, so "less than a day past due" must be
 // classified with <= 0, not < 0, or it's silently treated as not-yet-due.
 function daysUntil(date) {
   return Math.ceil((date.valueOf() - now.valueOf()) / 86_400_000);
@@ -133,7 +133,7 @@ function auditedAdvisoryUrls(report) {
 function orphanedAdvisoryRows(rows, auditedUrls) {
   return rows
     .filter((row) => !auditedUrls.has(`https://github.com/advisories/${row.ghsa}`))
-    .map((row) => `${row.ghsa} (${row.packageName}) — ${row.reviewDate}`);
+    .map((row) => `${row.ghsa} (${row.packageName}): ${row.reviewDate}`);
 }
 
 function parity(rows, alerts) {
@@ -174,7 +174,7 @@ function releaseHealth(latest, lastSuccess) {
   if (!latest)
     return {
       actionable: true,
-      line: `- Release pipeline: stale — \`release-please.yml\` has never completed; no successful run exists. A successful run older than ${releaseStaleDays} days is reported as stale.`,
+      line: `- Release pipeline: stale. \`release-please.yml\` has never completed; no successful run exists. A successful run older than ${releaseStaleDays} days is reported as stale.`,
     };
 
   const latestAt = completionTimestamp(latest);
@@ -183,7 +183,7 @@ function releaseHealth(latest, lastSuccess) {
   if (!lastSuccess)
     return {
       actionable: true,
-      line: `- Release pipeline: stale — latest completed \`release-please.yml\` run concluded ${latestConclusion} at ${latestAt} (${latestAge} days ago); no successful run exists. A successful run older than ${releaseStaleDays} days is reported as stale.`,
+      line: `- Release pipeline: stale. The latest completed \`release-please.yml\` run concluded ${latestConclusion} at ${latestAt} (${latestAge} days ago); no successful run exists. A successful run older than ${releaseStaleDays} days is reported as stale.`,
     };
 
   const successAt = completionTimestamp(lastSuccess);
@@ -192,12 +192,12 @@ function releaseHealth(latest, lastSuccess) {
   if (latestConclusion !== "success")
     return {
       actionable: true,
-      line: `- Release pipeline: stale — latest completed \`release-please.yml\` run concluded ${latestConclusion} at ${latestAt} (${latestAge} days ago); ${success}. A successful run older than ${releaseStaleDays} days is reported as stale.`,
+      line: `- Release pipeline: stale. The latest completed \`release-please.yml\` run concluded ${latestConclusion} at ${latestAt} (${latestAge} days ago); the ${success}. A successful run older than ${releaseStaleDays} days is reported as stale.`,
     };
   if (successAge > releaseStaleDays)
     return {
       actionable: true,
-      line: `- Release pipeline: stale — ${success}; a successful run older than ${releaseStaleDays} days is reported as stale.`,
+      line: `- Release pipeline: stale. The ${success}; a successful run older than ${releaseStaleDays} days is reported as stale.`,
     };
   return {
     actionable: false,
@@ -212,7 +212,7 @@ async function main() {
   } catch (error) {
     writeSummary(
       [
-        `- Advisory baseline: could not be parsed — ${error.message}`,
+        `- Advisory baseline: could not be parsed (${error.message})`,
         "- Dependabot parity: could not be determined because the advisory baseline is unavailable.",
         "- Release pipeline: could not be determined because the advisory baseline is unavailable.",
       ],
@@ -223,7 +223,7 @@ async function main() {
 
   const { past, upcoming } = linesForReviewDates(
     rows,
-    (row) => `${row.ghsa} (${row.packageName}) — ${row.reviewDate}`,
+    (row) => `${row.ghsa} (${row.packageName}): ${row.reviewDate}`,
   );
   const lines = [];
   let actionable = false;
@@ -245,11 +245,11 @@ async function main() {
       actionable = true;
     } else {
       lines.push(
-        "- Orphaned advisory-baseline rows: none — every row's advisory appears in `npm audit`.",
+        "- Orphaned advisory-baseline rows: none; every row's advisory appears in `npm audit`.",
       );
     }
   } catch (error) {
-    lines.push(`- Orphaned advisory-baseline rows: could not be determined — ${error.message}`);
+    lines.push(`- Orphaned advisory-baseline rows: could not be determined (${error.message})`);
     actionable = true;
   }
 
@@ -259,13 +259,13 @@ async function main() {
     lintRows = parseLintRows(readFileSync(lintBaselinePath, "utf8"));
   } catch (error) {
     lintParsed = false;
-    lines.push(`- Lint baseline: could not be parsed — ${error.message}`);
+    lines.push(`- Lint baseline: could not be parsed (${error.message})`);
     actionable = true;
   }
   if (lintParsed) {
     const { past: lintPast, upcoming: lintUpcoming } = linesForReviewDates(
       lintRows,
-      (row) => `${row.rule} in ${row.file} — ${row.reviewDate}`,
+      (row) => `${row.rule} in ${row.file}: ${row.reviewDate}`,
     );
     if (lintPast.length) lines.push(`- Overdue lint reviews:\n  - ${lintPast.join("\n  - ")}`);
     if (lintPast.length) actionable = true;
@@ -306,7 +306,7 @@ async function main() {
         "- Dependabot parity: every dismissed alert has a row and every row has a dismissed alert.",
       );
   } catch (error) {
-    lines.push(`- Dependabot parity: could not be determined — ${error.message}`);
+    lines.push(`- Dependabot parity: could not be determined (${error.message})`);
     actionable = true;
   }
   try {
@@ -318,7 +318,7 @@ async function main() {
     lines.push(result.line);
     actionable ||= result.actionable;
   } catch (error) {
-    lines.push(`- Release pipeline: could not be determined — ${error.message}`);
+    lines.push(`- Release pipeline: could not be determined (${error.message})`);
     actionable = true;
   }
   writeSummary(lines, actionable);

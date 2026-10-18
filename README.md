@@ -558,7 +558,11 @@ unchanged from 0.12.0. Copy both from `templates/` at the `v0.12.1` tag, or
 merge the change into an edited copy by hand. Take them together: the 0.12.0
 test file answers the new jobs request with a 404, so its healthy-release
 tests fail. `baseline-review.yml` already grants `actions: read`, which the
-jobs request needs.
+jobs request needs: GitHub lists that endpoint as needing read access to the
+Actions repository permission
+([List jobs for a workflow run](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run),
+[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps),
+both checked 2026-10-18).
 
 ### Upgrading to 0.12.0
 

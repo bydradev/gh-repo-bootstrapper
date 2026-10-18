@@ -47,6 +47,13 @@ anything installed beyond a base Python interpreter.
   warning, only while the Release Please App credentials are missing; the
   release App token limited to contents and pull requests; and pinned fallback
   versions of the Python CI tools
+- the word `secrets` in every generated workflow and in this repository's own
+  only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
+  because some generated repositories run workflow validators that refuse it
+  anywhere else, comments and URLs included
+- in `nextjs`, the release job keeping the `release-please` id and its
+  credentials and App token steps the names the weekly baseline review reads
+  to tell a skipped release from one that ran
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
@@ -528,6 +535,39 @@ of `PATH` mid-run — so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.12.1
+
+`release-please.yml` changes only in its comments. One no longer uses the
+word `secrets` except in `secrets.NAME`: some repositories' workflow
+validators refuse the word anywhere else, comments and URLs included. In
+`nextjs`, another says which step names the baseline review reads. `--check`
+reports the file as `stale`, and `--adopt` updates it. A repository that kept its
+0.11.0 `release-please.yml` for that reason can take it now, which also brings
+in 0.12.0's credentials check, which the section on the Release Please GitHub
+App below describes.
+
+For `nextjs`, the weekly baseline review no longer counts a release that was
+skipped for missing credentials as healthy. When the latest completed
+`release-please.yml` run succeeded, it reads that run's jobs. If every job
+that checked the Release Please credentials skipped its App token step, it
+reports `Release pipeline: not configured` and fails, as the review did before
+0.12.0, when such runs failed. If the `release-please` job did not start, or
+only some release jobs ran their token step, it reports `not released` or
+`partly released` and fails. A run with no job that has both steps and no
+skipped `release-please` job, as from a customised workflow, is judged as
+before. `scripts/review-baselines.mjs` and
+`scripts/review-baselines.test.mjs` belong to the repository, so `--adopt`
+keeps them and `--check` reports them as `differs`, even when they are
+unchanged from 0.12.0. Copy both from `templates/` at the `v0.12.1` tag, or
+merge the change into an edited copy by hand. Take them together: the 0.12.0
+test file answers the new jobs request with a 404, so its healthy-release
+tests fail. `baseline-review.yml` already grants `actions: read`, which the
+jobs request needs: GitHub lists that endpoint as needing read access to the
+Actions repository permission
+([List jobs for a workflow run](https://docs.github.com/en/rest/actions/workflow-jobs#list-jobs-for-a-workflow-run),
+[Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps),
+both checked 2026-10-18).
+
 ### Upgrading to 0.12.0
 
 The `AGENTS.md` hub changed: it gains an *Autonomy and escalation* section and
@@ -850,7 +890,10 @@ because GitHub does not allow secrets in `if:` conditions
 ([Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
 checked 2026-10-16). `release-please.yml` is template-owned, so `--adopt`
 brings the check to existing repositories; a repository whose release
-workflow is `local-modified` keeps its own behaviour.
+workflow is `local-modified` keeps its own behaviour. In a `nextjs`
+repository, the weekly baseline review reports a successful run that skipped
+the release this way as `Release pipeline: not configured`, and fails, until
+a run can read both.
 
 Once both are set, the next push to `main` runs the release; check that it
 creates or updates a release PR before treating release automation as

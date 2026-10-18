@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=696469f99b0cf98bfe043ef41548b18a3f37e5abe126c5cd5573342ccc3be0e5 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=87112b9807d3f9801b6c23843bd6e488c8f97d462b68e5f329ede15b650868a9 -->
 
 # Review guidelines
 
@@ -54,6 +54,10 @@ to handle findings) is in `fresh-eyes-review`.
 5. **Earlier reviews.** Look for your own earlier reports on this change, on
    the pull request or in the handoff: those whose *Reviewer* line names your
    tool. None means an initial review; otherwise run a follow-up review.
+   Either way, check each *Open* or *Partly fixed* P0 or P1 in another
+   reviewer's report on the head you review, weigh any reply to it as
+   *Follow-up review* says, and list it under *Earlier findings* by that
+   reviewer's name, such as "Codex R1-03".
 
 ## Initial review
 

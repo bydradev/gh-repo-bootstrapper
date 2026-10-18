@@ -2777,7 +2777,7 @@ def run_self_tests() -> list:
     # Case 6: an explicitly optional local workaround must not become a
     # generated-scaffold script contract.
     result = check_npm_script_assumptions(
-        {"AGENTS-nextjs-commands.md": "npm run test:e2e:local` when that script is available"},
+        {"skills/local-validation-nextjs/SKILL.md": "npm run test:e2e:local` when that script is available"},
         set(),
     )
     if result:
@@ -2785,7 +2785,7 @@ def run_self_tests() -> list:
 
     # Case 7: optional wording must not exempt another undeclared script.
     result = check_npm_script_assumptions(
-        {"AGENTS-nextjs-commands.md": "npm run invented` when that script is available"},
+        {"skills/local-validation-nextjs/SKILL.md": "npm run invented` when that script is available"},
         set(),
     )
     if not any("not declared" in e for e in result):

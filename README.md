@@ -567,7 +567,8 @@ The hub's skills table now has a row for every skill: every type gains one
 for `review-guidelines`, and `nextjs` one for `public-site-indexing`, which
 had none. To make room, the `nextjs` *Tooling* section drops its paragraph on
 running `npm run test:e2e` for UI changes, which is now that command's
-comment (`local-validation-nextjs` still covers `npm run test:e2e:local`).
+comment (`local-validation-nextjs` still offers `npm run test:e2e:local` when
+a local run hits `EMFILE`).
 `--check` reports *Skills*, and for `nextjs` *Tooling*, as `differs`; take
 them with `--adopt --replace-generated-sections`, after the comparison the
 0.12.0 notes below describe.

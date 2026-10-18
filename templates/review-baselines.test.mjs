@@ -225,7 +225,7 @@ test("accepts a captured GitHub workflow-run payload and exits zero when healthy
   assert.equal(code, 0);
   assert.match(
     output,
-    /Orphaned advisory-baseline rows: none — every row's advisory appears in `npm audit`/,
+    /Orphaned advisory-baseline rows: none; every row's advisory appears in `npm audit`/,
   );
   assert.match(
     output,
@@ -287,7 +287,7 @@ test("reports an advisory-baseline row whose advisory no longer appears in npm a
   });
   assert.equal(code, 1);
   assert.match(output, /Orphaned advisory-baseline rows \(advisory not found in `npm audit`\)/);
-  assert.match(output, /GHSA-aaaa-bbbb-cccc \(fixture\) — 2099-01-01/);
+  assert.match(output, /GHSA-aaaa-bbbb-cccc \(fixture\): 2099-01-01/);
 });
 
 test("reports orphan detection as unavailable when npm audit fails", async () => {
@@ -299,7 +299,7 @@ test("reports orphan detection as unavailable when npm audit fails", async () =>
   assert.equal(code, 1);
   assert.match(
     output,
-    /Orphaned advisory-baseline rows: could not be determined — npm audit did not return valid JSON/,
+    /Orphaned advisory-baseline rows: could not be determined \(npm audit did not return valid JSON/,
   );
 });
 
@@ -332,7 +332,7 @@ test("reports rejected Dependabot API access without claiming healthy parity", a
     dependabotStatus: 403,
   });
   assert.equal(code, 1);
-  assert.match(output, /Dependabot parity: could not be determined — Dependabot API returned 403/);
+  assert.match(output, /Dependabot parity: could not be determined \(Dependabot API returned 403/);
   assert.doesNotMatch(
     output,
     /every dismissed alert has a row and every row has a dismissed alert/,
@@ -357,7 +357,7 @@ test("reports overdue lint review dates as actionable", async () => {
   });
   assert.equal(code, 1);
   assert.match(output, /Overdue lint reviews/);
-  assert.match(output, /no-console in e2e\/fixture\.mjs — 2020-01-01/);
+  assert.match(output, /no-console in e2e\/fixture\.mjs: 2020-01-01/);
   assert.match(output, /Baseline review completed/);
 });
 
@@ -394,7 +394,7 @@ test("reports unavailable release-health access without claiming it healthy", as
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: could not be determined — Release Please API returned 403/,
+    /Release pipeline: could not be determined \(Release Please API returned 403/,
   );
   assert.doesNotMatch(output, /Release pipeline: last successful/);
 });
@@ -407,7 +407,7 @@ test("reports a release workflow that has never completed", async () => {
     successfulReleaseRuns: [],
   });
   assert.equal(code, 1);
-  assert.match(output, /Release pipeline: stale — `release-please\.yml` has never completed/);
+  assert.match(output, /Release pipeline: stale\. `release-please\.yml` has never completed/);
   assert.match(output, /older than 14 days is reported as stale/);
 });
 
@@ -420,7 +420,7 @@ test("reports a successful release run older than the declared stale threshold",
     successfulReleaseRuns: [successfulRelease(oldRelease)],
   });
   assert.equal(code, 1);
-  assert.match(output, /Release pipeline: stale — last successful `release-please\.yml` run/);
+  assert.match(output, /Release pipeline: stale\. The last successful `release-please\.yml` run/);
   assert.match(output, /older than 14 days is reported as stale/);
 });
 
@@ -434,7 +434,7 @@ test("reports a failed latest release run as stale and exits non-zero", async ()
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: stale — latest completed `release-please\.yml` run concluded failure/,
+    /Release pipeline: stale\. The latest completed `release-please\.yml` run concluded failure/,
   );
   assert.match(output, /older than 14 days is reported as stale/);
   // Only a successful run's jobs are read.
@@ -630,7 +630,7 @@ test("reports orphan detection as unavailable when npm audit returns an error re
   assert.equal(code, 1);
   assert.match(
     output,
-    /Orphaned advisory-baseline rows: could not be determined — npm audit returned an incomplete or error response/,
+    /Orphaned advisory-baseline rows: could not be determined \(npm audit returned an incomplete or error response/,
   );
   assert.doesNotMatch(output, /Orphaned advisory-baseline rows \(advisory not found/);
 });
@@ -654,6 +654,6 @@ test("accepts a clean npm audit with no vulnerabilities", async () => {
   });
   assert.match(
     output,
-    /Orphaned advisory-baseline rows: none — every row's advisory appears in `npm audit`/,
+    /Orphaned advisory-baseline rows: none; every row's advisory appears in `npm audit`/,
   );
 });

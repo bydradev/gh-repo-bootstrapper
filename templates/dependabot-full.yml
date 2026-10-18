@@ -11,7 +11,7 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-    # Hold these at their current major — a major bump is a breaking change
+    # Hold these at their current major: a major bump is a breaking change
     # that needs deliberate adoption, not an auto-merge.
     ignore:
       - dependency-name: eslint
@@ -21,7 +21,7 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     groups:
-      # react + react-dom + @types are version-locked peers — must bump together.
+      # react + react-dom + @types are version-locked peers and must bump together.
       # Listed before dev-dependencies: Dependabot assigns a dependency to the
       # first group it matches, and the @types packages match both.
       react:

@@ -11,15 +11,15 @@ description: >-
 Training knowledge has a cutoff; the platforms and dependencies this
 repository touches do not. A belief formed before the cutoff feels exactly as
 certain as one formed from evidence, so confidence is not a signal that
-verification can be skipped — prefer running the cheap check to publishing the
+verification can be skipped. Prefer running the cheap check to publishing the
 hedge, and where a claim must still rest on recall, say so rather than
 asserting it flatly.
 
 Verify against a current primary source, rather than relying on recall, for:
 
 - **Any claim about what a platform, API, or dependency can or cannot do.**
-  This runs in both directions. A universal negative — "there is no setting
-  for that", "the API does not support it" — cannot be established from memory
+  This runs in both directions. A universal negative ("there is no setting
+  for that", "the API does not support it") cannot be established from memory
   or from partial observation. Equally, a capability, flag, default, or
   pricing tier recalled as existing may since have been renamed, deprecated,
   or never shipped at all. Absence of recall is not evidence of absence, and
@@ -34,7 +34,7 @@ Verify against a current primary source, rather than relying on recall, for:
 
 When inspecting a system to determine whether it supports something, retrieve
 the full response and read it, rather than querying only the fields a prior
-belief predicts. Filtering is for output volume, not for discovery — a
+belief predicts. Filtering is for output volume, not for discovery: a
 hypothesis allowed to select its own evidence will confirm itself. Where a
 platform publishes a changelog or release notes, check the period since the
 cutoff before concluding that a capability is absent.
@@ -44,7 +44,7 @@ a pull request body, committed documentation, or any user-facing artifact
 outlives the conversation that produced it and will be read by people who
 cannot see the reasoning behind it. When a durable artefact depends on a claim
 about external platform behaviour, cite the source and date in the artefact
-itself, so a reader — and the fresh-eyes reviewer — can see what was checked
+itself, so a reader, and the fresh-eyes reviewer, can see what was checked
 and when.
 
 ## External knowledge and capabilities

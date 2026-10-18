@@ -76,5 +76,5 @@ the contribution process.
 
 ## Project guide
 
-- `AGENTS.md` — branch, commit, pull-request, and validation workflow.
-- `docs/branch-protection-runbook.md` — how to unblock required GitHub checks.
+- `AGENTS.md`: branch, commit, pull-request, and validation workflow.
+- `docs/branch-protection-runbook.md`: how to unblock required GitHub checks.

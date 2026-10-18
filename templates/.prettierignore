@@ -7,8 +7,8 @@ public/
 *.md
 playwright-report/
 test-results/
-# OMC operational state — runtime artifacts, not source.
+# OMC operational state: runtime artifacts, not source.
 .omc/
 
-# Serena MCP local project state — not source.
+# Serena MCP local project state, not source.
 .serena/

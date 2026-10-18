@@ -16,7 +16,7 @@ sign-off on every commit.
 
 `bootstrap.py` runs locally, on the operator's own machine, under their own
 authenticated `gh` CLI session. It has no server component and stores no
-credentials — it reads GitHub App secrets from prompts
+credentials. It reads GitHub App secrets from prompts
 or environment variables and passes them to `gh` over stdin (never as
 command-line arguments, so they stay out of the process list).
 

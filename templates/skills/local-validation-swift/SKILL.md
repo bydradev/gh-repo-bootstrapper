@@ -42,8 +42,8 @@ current tiers:
 
 In a worktree, pass one fixed `-derivedDataPath` for that worktree, reuse it
 across runs, and delete it when the worktree is removed. Never choose a new
-derived-data path per run or per commit. Keep it outside the source tree — for
-example next to the worktree — because `swift-format --recursive .` and search
+derived-data path per run or per commit. Keep it outside the source tree (for
+example next to the worktree), because `swift-format --recursive .` and search
 tools would otherwise scan it. Write `-resultBundlePath` bundles to the
 session's scratch directory and delete them once read.
 

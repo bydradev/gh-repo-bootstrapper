@@ -17,7 +17,7 @@ on:
 
 # The suite only needs to read the repository. Without this block the called
 # workflow inherits the caller's permissions, and a called workflow can only
-# ever narrow what it inherits, never widen it — so an explicit block here is
+# ever narrow what it inherits, never widen it, so an explicit block here is
 # the only way to guarantee xcodegen, xcodebuild, and any build-phase script
 # never run with more than read, regardless of what a caller grants itself
 # now or in the future.

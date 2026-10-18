@@ -75,7 +75,7 @@ test("reads TypeScript directives from the last line of a block comment", () => 
     `${open} @ts-ignore: reason ${close}\nconst answer: number = "wrong";\n`,
     `${open}* @ts-expect-error(reason) ${close}\nconst answer: number = "wrong";\n`,
   ])
-    assert.match(runFixture(source), /sample\.ts — @ts-(ignore|expect-error)\n/);
+    assert.match(runFixture(source), /sample\.ts: @ts-(ignore|expect-error)\n/);
   // TypeScript reads only the last line, so a directive above it suppresses nothing.
   assert.match(
     runFixture(`${open}\n * @ts-ignore\n ${close}\nexport const ok = 1;\n`),
@@ -87,7 +87,7 @@ test("counts a line TypeScript directive with nothing after its name", () => {
   for (const directive of ["@ts-ignore(reason)", "@ts-expect-error."])
     assert.match(
       runFixture("/" + `/ ${directive}\nconst answer: number = "wrong";\n`),
-      /sample\.ts — @ts-(ignore|expect-error)\n/,
+      /sample\.ts: @ts-(ignore|expect-error)\n/,
     );
 });
 
@@ -120,7 +120,7 @@ test("records every rule in a block eslint-disable list that wraps onto another 
     "/" + "* eslint-disable-next-line no-console,\n   no-alert *" + "/\nconsole.log(alert(1));\n",
   );
   for (const rule of ["no-console", "no-alert"])
-    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+    assert.match(output, new RegExp(`sample\\.ts: ${rule}\\n`));
 });
 
 test("does not count a JSDoc-style eslint-disable comment, which ESLint ignores", () => {
@@ -166,8 +166,8 @@ test("counts every rule an inline ESLint configuration comment weakens", () => {
   );
   assert.match(output, /Undocumented suppressions/);
   for (const rule of ["no-console", "example/rule-one", "max-len"])
-    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
-  assert.doesNotMatch(output, /— (code|ignoreUrls)/);
+    assert.match(output, new RegExp(`sample\\.ts: ${rule}\\n`));
+  assert.doesNotMatch(output, /: (code|ignoreUrls)$/m);
 });
 
 test("does not count a rule that is only switched on", () => {
@@ -182,8 +182,8 @@ test("reads the rules before an ESLint description, not dashes inside a setting"
     "/" +
       '* eslint no-restricted-syntax: ["error", "a--b"], no-console: "off" -- local logging */\n',
   );
-  assert.match(output, /sample\.ts — no-restricted-syntax\n/);
-  assert.match(output, /sample\.ts — no-console\n/);
+  assert.match(output, /sample\.ts: no-restricted-syntax\n/);
+  assert.match(output, /sample\.ts: no-console\n/);
   assert.doesNotMatch(output, /local logging/);
 });
 
@@ -223,8 +223,8 @@ test("fails closed on too many eslint-disable openers before one closing delimit
 test("scans its own source to the end", () => {
   const source = readFileSync(join(scriptsDirectory, "verify-baselines.mjs"), "utf8");
   const output = runFixture(source + "\n/" + '* eslint no-console: "off" */\n');
-  assert.match(output, /sample\.ts — no-console\n/);
-  assert.equal(output.match(/ — /g)?.length, 1, output);
+  assert.match(output, /sample\.ts: no-console\n/);
+  assert.equal(output.match(/^- /gm)?.length, 1, output);
 });
 
 test("finds a configuration comment wherever comment-shaped code precedes it", () => {
@@ -237,13 +237,13 @@ test("finds a configuration comment wherever comment-shaped code precedes it", (
     ].join("\n"),
   );
   for (const rule of ["no-console", "eqeqeq", "no-alert"])
-    assert.match(output, new RegExp(`sample\\.ts — ${rule}\\n`));
+    assert.match(output, new RegExp(`sample\\.ts: ${rule}\\n`));
 });
 
 test("counts configuration-shaped text in a string, erring towards a row", () => {
   assert.match(
     runFixture('const text = "/' + "* eslint eqeqeq: 'off' */\";\n"),
-    /sample\.ts — eqeqeq\n/,
+    /sample\.ts: eqeqeq\n/,
   );
 });
 
@@ -251,7 +251,7 @@ test("reads a real configuration comment after configuration-shaped text", () =>
   for (const prefix of ["/" + "/ /" + "* eslint", 'const text = "/' + '* eslint";'])
     assert.match(
       runFixture(`${prefix}\n/` + '* eslint no-console: "off" */\n'),
-      /sample\.ts — no-console\n/,
+      /sample\.ts: no-console\n/,
     );
 });
 
@@ -265,8 +265,8 @@ test("parses a whole configuration comment even when a setting quotes opener tex
       '* eslint no-warning-comments: ["warn", { terms: ["/' +
       '* eslint marker"] }], no-console: "off" */\n',
   );
-  assert.match(output, /sample\.ts — no-warning-comments\n/);
-  assert.match(output, /sample\.ts — no-console\n/);
+  assert.match(output, /sample\.ts: no-warning-comments\n/);
+  assert.match(output, /sample\.ts: no-console\n/);
 });
 
 test("reads a real configuration comment in full after opener-shaped text", () => {
@@ -276,20 +276,20 @@ test("reads a real configuration comment in full after opener-shaped text", () =
       '* eslint no-warning-comments: ["warn", { terms: ["/' +
       '* eslint marker"] }], no-console: "off" */\n',
   );
-  assert.match(output, /sample\.ts — no-warning-comments\n/);
-  assert.match(output, /sample\.ts — no-console\n/);
+  assert.match(output, /sample\.ts: no-warning-comments\n/);
+  assert.match(output, /sample\.ts: no-console\n/);
 });
 
 test("reads a braced configuration comment", () => {
   const output = runFixture(
     "/" + '* eslint {"no-console":"off", "eqeqeq": 2} *' + "/\nconsole.log(1);\n",
   );
-  assert.match(output, /sample\.ts — no-console\n/);
+  assert.match(output, /sample\.ts: no-console\n/);
   assert.doesNotMatch(output, /eqeqeq/);
 });
 
 test("reads configuration entries separated only by whitespace", () => {
   const output = runFixture("/" + "* eslint no-alert: 2 no-console: 0 *" + "/\nconsole.log(1);\n");
-  assert.match(output, /sample\.ts — no-console\n/);
+  assert.match(output, /sample\.ts: no-console\n/);
   assert.doesNotMatch(output, /no-alert/);
 });

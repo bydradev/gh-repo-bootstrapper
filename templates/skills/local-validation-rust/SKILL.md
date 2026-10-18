@@ -14,8 +14,8 @@ The commands to run before pushing are in the `## Tooling` section of `AGENTS.md
 
 As generated, CI runs Clippy with `-D warnings`, so every warning fails it;
 check `.github/workflows/test.yml`, which this repository owns.
-If a lint is wrong for this codebase, allow it deliberately — in the `[lints]`
-table of `Cargo.toml`, or on the narrowest item with a stated reason — and say
+If a lint is wrong for this codebase, allow it deliberately (in the `[lints]`
+table of `Cargo.toml`, or on the narrowest item with a stated reason) and say
 why in the commit or PR; never silence it just to pass CI.
 
 ## Dependabot
@@ -39,7 +39,7 @@ verification copy.
 That shared directory belongs to the repository's worktrees as a group, not to
 any one task. Leave it while any of those worktrees exists; the task that
 removes the last one deletes it too. It holds only rebuildable output, so when
-disk space is short, deleting it costs a rebuild and nothing else — never
+disk space is short, deleting it costs a rebuild and nothing else; never
 create a per-worktree `target/` instead.
 
 ## Versioning

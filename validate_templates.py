@@ -4206,7 +4206,7 @@ def _structure_self_tests() -> list:
            user_visible(lambda t: t.replace(title_step, "      - name: Check the title\n", 1)),
            "must come after 'Validate PR title'")
     expect("PR body pasted into the script",
-           user_visible(lambda t: t.replace('<<< "$BODY"', "<<< '${{ github.event.pull_request.body }}'", 1)),
+           user_visible(lambda t: t.replace('os.environ.get("BODY", "")', '"""${{ github.event.pull_request.body }}"""', 1)),
            "without ${{ }} expressions")
     expect("PR body read from another field",
            user_visible(lambda t: t.replace("pull_request.body }}", "pull_request.head.ref }}", 1)),

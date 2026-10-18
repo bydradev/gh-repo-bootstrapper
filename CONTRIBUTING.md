@@ -23,9 +23,10 @@ Security issues go through private reporting instead; see
    `fix: keep the full key when prompting`. A check enforces this.
 3. Answer the pull request template's `User-visible:` line with `yes` if a
    release brings the change to users (a `feat`, `fix`, `perf` or `revert`
-   title) or `no` if it does not (`docs`, `chore`, `refactor`, `test`, `build`
-   or `ci`). The same check fails when the line is missing or disagrees with
-   the title.
+   title, or a breaking change) or `no` if it does not (`docs`, `chore`,
+   `refactor`, `test`, `build` or `ci`). The same check fails when the line is
+   missing or disagrees with what Release Please will do with the title and
+   body.
 4. Run the checks listed under "Tooling" in [AGENTS.md](AGENTS.md) before you
    push, and add or update tests for the behaviour you change.
 5. Sign off every commit, as described below.

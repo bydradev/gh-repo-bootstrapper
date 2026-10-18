@@ -56,62 +56,138 @@ jobs:
             didn't match the configured pattern. Please ensure that the subject
             doesn't start with an uppercase character or end with a full stop or a space.
 
-      # Release Please releases a squash-merged change whose title type is
-      # feat, fix, perf or revert, that is marked breaking, or whose body
-      # adds an entry of those types. A yes/no question catches a mistyped
-      # title: the body says on a line of its own whether the change reaches
-      # users through a release, and the answer must agree with the type.
-      # Body edits re-run this check. No body text is echoed into the log.
+      # Asking a yes/no question catches a mistyped title: the body says on
+      # a line of its own whether the change reaches users through a
+      # release, and the answer must agree with whether Release Please will
+      # release the squash commit. Body edits re-run this check. The script
+      # reads the pull request only from its env and prints none of its text
+      # but released types, so no line of it can act as a workflow command.
       - name: Check the user-visible line
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
         run: |
-          fail() { echo "::error title=User-visible line::$1"; exit 1; }
-          types='feat, fix, perf or revert'
-          header='^([[:alpha:]]+)([(][^)]*[)])?(!?): '
-          answer='^user-visible:[[:space:]]*(.*[^[:space:]])?[[:space:]]*$'
-          entry='^(feat|feature|fix|perf|revert)([(][^)]*[)])?!?: '
-          bang='^[[:alpha:]]+([(][^)]*[)])?!: '
-          footer='^BREAKING[ -]CHANGE: '
-          title_type=""
-          releases=""
-          if [[ $TITLE =~ $header ]]; then
-            title_type=${BASH_REMATCH[1],,}
-            if [[ -n ${BASH_REMATCH[3]} ]]; then
-              releases="the title marks a breaking change"
-            elif [[ $title_type =~ ^(feat|fix|perf|revert)$ ]]; then
-              releases="the title type is $title_type"
-            fi
-          fi
-          yes="" no="" other=""
-          while IFS= read -r line; do
-            line=${line%$'\r'}
-            lower=${line,,}
-            if [[ $lower =~ $answer ]]; then
-              case ${BASH_REMATCH[1]} in
-                yes) yes=1 ;;
-                no) no=1 ;;
-                *) other=1 ;;
-              esac
-            elif [[ -z $releases && $lower =~ $entry ]]; then
-              releases="the body has a ${BASH_REMATCH[1]} entry line"
-            elif [[ -z $releases && $lower =~ $bang ]]; then
-              releases="the body has an entry line marked breaking"
-            elif [[ -z $releases && $line =~ $footer ]]; then
-              releases="the body has a breaking-change footer"
-            fi
-          done <<< "$BODY"
-          how="Add a line to the pull request body that reads exactly User-visible: yes when the change reaches users through a release ($types), or User-visible: no when it does not (docs, chore, refactor, test, build or ci)."
-          if [[ -n $other ]]; then
-            fail "A User-visible line must answer yes or no. $how"
-          elif [[ -n $yes && -n $no ]]; then
-            fail "The body answers both User-visible: yes and User-visible: no. Keep one."
-          elif [[ -n $yes && -z $releases ]]; then
-            fail "The body says User-visible: yes, but Release Please will not release this change: the title type is ${title_type:-unknown} and the body adds no $types entry or breaking change. If the change reaches users through a release, retitle it $types; otherwise answer no."
-          elif [[ -n $no && -n $releases ]]; then
-            fail "The body says User-visible: no, but Release Please will release this change because $releases. If the change does not reach users through a release, correct that; otherwise answer yes."
-          elif [[ -z $yes && -z $no ]]; then
-            fail "The body has no User-visible line. $how"
-          fi
-          echo "User-visible: ${yes:+yes}${no:+no} agrees with the title and body."
+          python3 -I - <<'PY'
+          import os
+          import re
+          import sys
+
+          # Release Please releases when its changelog would have an entry:
+          # a commit whose type, in any case, is feat, feature, fix, perf or
+          # revert, a breaking change, or a Release-As footer. It reads the
+          # squash commit (the title, a blank line, the body) unless the body
+          # has a BEGIN_COMMIT_OVERRIDE block, which replaces it. Nested
+          # commit blocks, paragraphs that open with a lowercase standard
+          # type, and each part's trailing footers become commits of their
+          # own. Mirrors release-please 17.6.0 (commit.js) and the
+          # conventionalcommits preset 6.1.0, checked 2026-10-18.
+          RELEASED = {"feat", "feature", "fix", "perf", "revert"}
+          TYPES = "feat, fix, perf or revert"
+          SPLIT = re.compile(r"\n\n(?=(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:[(].*?[)])?: )")
+          HEADER = re.compile(r"([^()\s!:]+)(?:[(][^()]*[)])?(!?):.*")
+          FOOTER = re.compile(r"(?:BREAKING[ -]CHANGE|([^()\s!:]+)(?:[(][^()]*[)])?(!?))(:| #)\s*(.*)")
+          BREAKING = re.compile(r"BREAKING-CHANGE:\s*\S|^BREAKING CHANGE:\s*\S", re.MULTILINE)
+          RELEASE_AS = re.compile(r"\w*@?[0-9]+[.][0-9]+[.][0-9a-z]", re.IGNORECASE)
+          ANSWER = re.compile(r"user-visible:\s*(.*?)\s*", re.IGNORECASE)
+
+
+          def messages(text):
+              parts = text.split("BEGIN_NESTED_COMMIT")
+              first, nested = parts[0], []
+              for part in parts[1:]:
+                  inner, *rest = part.split("END_NESTED_COMMIT")
+                  nested.append(inner)
+                  first += "END_NESTED_COMMIT".join(rest)
+              return [m for m in SPLIT.split(first) if m] + nested
+
+
+          def footers(lines):
+              # The lines from the last that are all footers, their indented
+              # continuations, or blank, to the end; line 0 is the header.
+              start = len(lines)
+              for index in range(len(lines) - 1, 0, -1):
+                  line = lines[index]
+                  if not line.strip() or line[0].isspace():
+                      continue
+                  if not FOOTER.fullmatch(line):
+                      break
+                  start = index
+              return lines[start:]
+
+
+          def entry(kind, bang, where):
+              if bang:
+                  return f"{where} has a commit marked breaking"
+              if kind.lower() in RELEASED:
+                  return f"{where} has a {kind.lower()} entry"
+              return None
+
+
+          def releases(title, body):
+              override = body.split("BEGIN_COMMIT_OVERRIDE")[1:2]
+              override = override[0].split("END_COMMIT_OVERRIDE")[0].strip() if override else ""
+              origin = "the commit override" if override else "the body"
+              for index, text in enumerate(messages(override or f"{title}\n\n{body}")):
+                  lines = text.strip().split("\n")
+                  header = HEADER.fullmatch(lines[0])
+                  if not header:
+                      continue  # Release Please skips a message it cannot parse
+                  if index == 0 and not override:
+                      if header[2]:
+                          return "the title marks a breaking change"
+                      if header[1].lower() in RELEASED:
+                          return f"the title type is {header[1].lower()}"
+                  elif reason := entry(header[1], header[2], origin):
+                      return reason
+                  if BREAKING.search("\n".join(lines[1:])):
+                      return f"{origin} has a breaking-change note"
+                  for line in footers(lines):
+                      footer = FOOTER.fullmatch(line)
+                      if not footer:
+                          continue
+                      if not footer[1] and footer[4]:
+                          return f"{origin} has a breaking-change note"
+                      if not footer[1] or footer[3] != ":":
+                          continue
+                      if footer[1].lower() == "release-as" and RELEASE_AS.match(footer[4]):
+                          return f"{origin} has a Release-As footer"
+                      if reason := entry(footer[1], footer[2], origin):
+                          return reason
+              return None
+
+
+          def fail(message):
+              print(f"::error title=User-visible line::{message}")
+              sys.exit(1)
+
+
+          title = os.environ.get("TITLE", "")
+          body = os.environ.get("BODY", "").replace("\r\n", "\n").replace("\r", "\n")
+          answers = {m[1].lower() for m in map(ANSWER.fullmatch, body.split("\n")) if m}
+          how = (
+              "Add a line to the pull request body that reads exactly User-visible: yes when the "
+              f"change reaches users through a release ({TYPES}), or User-visible: no when it "
+              "does not (docs, chore, refactor, test, build or ci)."
+          )
+          reason = releases(title.strip(), body)
+          if answers - {"yes", "no"}:
+              fail(f"A User-visible line must answer yes or no. {how}")
+          if answers == {"yes", "no"}:
+              fail("The body answers both User-visible: yes and User-visible: no. Keep one.")
+          if not answers:
+              fail(f"The body has no User-visible line. {how}")
+          if answers == {"yes"} and not reason:
+              fail(
+                  "The body says User-visible: yes, but Release Please will not release this change: "
+                  f"neither the title nor the body has a {TYPES} type, a breaking change or a "
+                  "Release-As footer. If the change reaches users through a release, retitle it "
+                  f"{TYPES}; otherwise answer no."
+              )
+          if answers == {"no"} and reason:
+              fail(
+                  f"The body says User-visible: no, but Release Please will release this change "
+                  f"because {reason}. If the change does not reach users through a release, correct "
+                  "that; otherwise answer yes."
+              )
+          print(f"User-visible: {answers.pop()} agrees with the title and body.")
+          PY

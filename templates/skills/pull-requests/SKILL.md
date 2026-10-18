@@ -29,10 +29,14 @@ merge-ready:
   footer). Answer `no` when it does not: documentation readers get from the
   repository or a site as soon as it merges, CI, tests, refactors, and
   tooling, typed `docs`, `chore`, `refactor`, `test`, `build`, or `ci`. Text
-  a release ships, such as help output, is `yes`. An extra entry line of a
-  released type makes the answer `yes` too. Editing the body re-runs the
-  check. Release Please and Dependabot PRs have no such line and are not
-  checked.
+  a release ships, such as help output, is `yes`. The check reads the body as
+  Release Please does, so an extra entry of a released type, a `Release-As:`
+  footer, or a `BREAKING-CHANGE:` token anywhere in the body, even quoted,
+  also makes the answer `yes`. Keep that token, lines that open a paragraph
+  with a type, and the `BEGIN_COMMIT_OVERRIDE` marker (Release Please
+  replaces the commit with what follows it) out of prose. Editing the body
+  re-runs the check. Release Please and Dependabot PRs have no such line and
+  are not checked.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,
@@ -95,9 +99,10 @@ follow `docs/branch-protection-runbook.md` (repository root) and the
 
 - Which changelog entries render: release-please v17.6.0 and
   conventional-changelog-conventionalcommits 6.1.0, checked 2026-09-17.
-- Which changes Release Please releases (a release needs a rendered entry,
-  and a breaking change renders whatever its type): release-please v17.6.0,
-  the version release-please-action v5.0.0 locks, and v17.11.2, with
+- Which changes Release Please releases (a release needs a rendered entry; a
+  breaking change or a `Release-As:` footer renders whatever its type) and
+  how it reads a squash body: release-please v17.6.0, the version
+  release-please-action v5.0.0 locks, and v17.11.2, with
   conventional-changelog-conventionalcommits 6.1.0, checked 2026-10-18.
 - `merge_pull_request` parameters: the `github/github-mcp-server` README,
   checked 2026-10-16.

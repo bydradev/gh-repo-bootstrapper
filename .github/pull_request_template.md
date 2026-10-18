@@ -4,7 +4,7 @@
 
 ## User-visible
 
-<!-- Keep one answer. yes: a release brings the change to users of bootstrap.py or a generated repository (feat, fix, perf or revert). no: it does not (docs, chore, refactor, test, build or ci). The title check fails when the answer and the title type disagree. -->
+<!-- Keep one answer. yes: a release brings the change to users of bootstrap.py or a generated repository (feat, fix, perf or revert, or a breaking change). no: it does not (docs, chore, refactor, test, build or ci). The title check fails when the answer disagrees with what Release Please will do with the title and body. -->
 
 User-visible: yes or no
 

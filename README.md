@@ -562,23 +562,27 @@ visible. A second step in its required `validate-title` job fails unless the
 body has a line of its own, at column 0, reading `User-visible: yes` or
 `User-visible: no`, and the answer agrees with whether Release Please will
 release the change. `yes` needs a `feat`, `fix`, `perf` or `revert` title, a
-breaking change (`!` or a `BREAKING CHANGE:` footer), or an extra entry of
-one of those types in the body; `no` needs none of them. A yes/no question
-is harder to get wrong than a type, so the check catches a mistyped title,
-such as a `docs:` change that ships in a release or a `fix:` that ships
-nothing. Release Please and Dependabot pull requests skip the job, as before.
-The step reads the pull request only through its `env:` and echoes none of
-its text.
+breaking change, a `Release-As:` footer, or an extra entry of a released
+type in the body; `no` needs none of them. The step reads the title and body
+as Release Please 17.6.0 reads a squash commit, a `BEGIN_COMMIT_OVERRIDE`
+block included. A yes/no question is harder to get wrong than a type, so the
+check catches a mistyped title, such as a `docs:` change that ships in a
+release or a `fix:` that ships nothing. Release Please and Dependabot pull
+requests skip the job, as before. The step reads the pull request only
+through its `env:`, and its script prints none of the body.
 
 The `pull-requests` skill says how to answer, and `review-guidelines` asks
 the reviewer whether the type and the answer are true to the diff. `--check`
 reports `pr-title-check.yml` and both skills as `stale`, and `--adopt`
 updates them; the new step uses no action, so the repository's action pins
-still apply. After adopting, add the line to each open pull request's body:
-editing the body re-runs the check. The step follows Release Please's
-default changelog sections, which every generated `release-please-config.json`
-uses; a repository that sets `changelog-sections` to show other types would
-see the check disagree with its releases.
+still apply. The adoption pull request runs the new check itself, so its body
+needs the line too: `User-visible: no` for the usual `chore:` adoption
+title. After it merges, add the line to each open pull request's body:
+editing the body re-runs the check.
+The step follows Release Please's default changelog sections, which every
+generated `release-please-config.json` uses; a repository that sets
+`changelog-sections` to show other types would see the check disagree with
+its releases.
 
 ### Upgrading to 0.13.0
 

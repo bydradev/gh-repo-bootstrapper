@@ -213,11 +213,13 @@ type's tooling commands, a skills table, and `## Project specifics` last.
 Unless a request says otherwise, the hub counts a code change as done when its
 PR is open, its checks pass and review findings are resolved; merging still
 needs explicit authorization. Detailed procedures live in skills that load
-when they're relevant:
+when they're relevant. Harnesses with skill support load them by their
+descriptions; the hub's skills table gives each one a row saying when to load
+it, for every session and for harnesses without skill support:
 
 | Skill (`.agents/skills/<name>/SKILL.md`) | Types |
 |---|---|
-| `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `delegation` | all |
+| `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `review-guidelines`, `delegation` | all |
 | `screenshot-review` | `nextjs`, `swift`, with `--screenshots` |
 | `baseline-process`, `public-site-indexing` | `nextjs` |
 | `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
@@ -246,21 +248,35 @@ and formatter scope as generated, and says which repository file to check for
 the current ones. It tells agents to load first a repository-owned validation
 skill named in `## Project specifics`, which governs where it is narrower, so
 a repository keeps its own tiers, ports and test-server notes there rather
-than in `AGENTS.md`. `public-site-indexing` has no row in the hub's skills
-table, which keeps the Next.js hub within its byte budget: harnesses with
-skill support load it by its description, and `local-validation-nextjs`
-points at it.
+than in `AGENTS.md`.
 
-The fresh-eyes review runs as a separate reviewer agent,
+Reviews are split by role. `fresh-eyes-review` is the implementer's side: when
+substantial work needs a review, what to hand the reviewer, and how to handle
+the findings of any review (reproduce each one before changing code, fix or
+dispute it by ID with evidence, and leave a P0 or P1 that is not fixed to the
+operator). `review-guidelines` is the reviewer's side, whoever started the
+review: what to read first, initial and follow-up reviews, focus areas, what
+counts as a finding, severities P0 to P3, finding IDs and statuses, the
+verdict, a report template, and checks for the repository's stack. It is one
+skill name for every type; only its stack section differs. A repository adds
+its own review rules as a `### Code review rules` subsection of
+`## Project specifics`, which the skill reads first.
+
+The reviewer runs as a separate agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
-`fresh-eyes-review` skill. Neither gets a built-in edit tool.
+`review-guidelines` skill, or its base branch copy when the change under
+review edits it (the head copy on a first adoption, when there is none).
+Neither gets a built-in edit tool. The implementer
+starts it for a fresh-eyes review, or a person starts it on a branch or pull
+request.
 
 The OpenCode reviewer has no built-in edit, subagent or shell tool. MCP,
 plugin and custom tools follow the user's OpenCode configuration, whose
 default allows them, so a connected server's write tools stay available to it.
-It reviews the diff and validation results the implementer hands it and reads
-files with OpenCode's read tools, which ask before reading most paths outside
+It reviews the diff and validation results the implementer or person hands
+it, asks for the diff when it has none, and reads files with OpenCode's read
+tools, which ask before reading most paths outside
 the project, such as a diff saved to a scratch directory. It gets no shell
 because OpenCode's shell rules see each command in a line separately and keep
 a redirect only when it sits directly on one command, so an allowed `git log`
@@ -534,6 +550,30 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.13.0
+
+Every type gains the `review-guidelines` skill, for the agent doing a review.
+`fresh-eyes-review` now holds only the implementer's side, with new rules for
+handling findings, and both reviewer agents load `review-guidelines` instead
+of `fresh-eyes-review`. `--check` reports the new skill and its
+`.claude/skills` mirror as `missing`, and the changed skill and agents as
+`stale`; `--adopt` writes them. A repository that already has a skill of its
+own named `review-guidelines` renames it first: `--adopt` refuses to replace
+it but still points the reviewer agents at that name. To keep a
+repository's own review rules, add them under `## Project specifics` as a
+`### Code review rules` subsection: a few bullets naming what a change must
+preserve.
+
+The hub's skills table now has a row for every skill: every type gains one
+for `review-guidelines`, and `nextjs` one for `public-site-indexing`, which
+had none. To make room, the `nextjs` *Tooling* section drops its paragraph on
+running `npm run test:e2e` for UI changes, which is now that command's
+comment (`local-validation-nextjs` still offers `npm run test:e2e:local` when
+a local run hits `EMFILE`).
+`--check` reports *Skills*, and for `nextjs` *Tooling*, as `differs`; take
+them with `--adopt --replace-generated-sections`, after the comparison the
+0.12.0 notes below describe.
 
 ### Upgrading to 0.12.1
 

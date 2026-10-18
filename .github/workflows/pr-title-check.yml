@@ -14,15 +14,16 @@ concurrency:
 
 jobs:
   validate-title:
-    # Skip three classes of PR that cannot benefit from title validation:
-    # already-merged PRs (editing the body, e.g. ticking a task-list box,
-    # re-fires `edited`, but the squash subject is already in history and
-    # cannot change), Release Please PRs (machine-generated titles, and rapid
-    # events trip cancel-in-progress into spurious failures; only a bot's PR
-    # from this repository counts, so a human branch named release-please--*
-    # is still checked), and Dependabot
+    # Skip three classes of PR that cannot benefit from title or body
+    # validation: already-merged PRs (editing the body, e.g. ticking a
+    # task-list box, re-fires `edited`, but the squash subject is already in
+    # history and cannot change), Release Please PRs (machine-generated
+    # titles and bodies, and rapid events trip cancel-in-progress into
+    # spurious failures; only a bot's PR from this repository counts, so a
+    # human branch named release-please--* is still checked), and Dependabot
     # PRs (its grouped-update subject is capitalised, so the lowercase-subject
-    # rule is deliberately limited to human-authored titles).
+    # rule is deliberately limited to human-authored titles, and its body has
+    # no User-visible line).
     if: >-
       github.event.pull_request.merged == false &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
@@ -54,3 +55,63 @@ jobs:
             The subject "{subject}" found in the pull request title "{title}"
             didn't match the configured pattern. Please ensure that the subject
             doesn't start with an uppercase character or end with a full stop or a space.
+
+      # Release Please releases a squash-merged change whose title type is
+      # feat, fix, perf or revert, that is marked breaking, or whose body
+      # adds an entry of those types. A yes/no question catches a mistyped
+      # title: the body says on a line of its own whether the change reaches
+      # users through a release, and the answer must agree with the type.
+      # Body edits re-run this check. No body text is echoed into the log.
+      - name: Check the user-visible line
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          fail() { echo "::error title=User-visible line::$1"; exit 1; }
+          types='feat, fix, perf or revert'
+          header='^([[:alpha:]]+)([(][^)]*[)])?(!?): '
+          answer='^user-visible:[[:space:]]*(.*[^[:space:]])?[[:space:]]*$'
+          entry='^(feat|feature|fix|perf|revert)([(][^)]*[)])?!?: '
+          bang='^[[:alpha:]]+([(][^)]*[)])?!: '
+          footer='^BREAKING[ -]CHANGE: '
+          title_type=""
+          releases=""
+          if [[ $TITLE =~ $header ]]; then
+            title_type=${BASH_REMATCH[1],,}
+            if [[ -n ${BASH_REMATCH[3]} ]]; then
+              releases="the title marks a breaking change"
+            elif [[ $title_type =~ ^(feat|fix|perf|revert)$ ]]; then
+              releases="the title type is $title_type"
+            fi
+          fi
+          yes="" no="" other=""
+          while IFS= read -r line; do
+            line=${line%$'\r'}
+            lower=${line,,}
+            if [[ $lower =~ $answer ]]; then
+              case ${BASH_REMATCH[1]} in
+                yes) yes=1 ;;
+                no) no=1 ;;
+                *) other=1 ;;
+              esac
+            elif [[ -z $releases && $lower =~ $entry ]]; then
+              releases="the body has a ${BASH_REMATCH[1]} entry line"
+            elif [[ -z $releases && $lower =~ $bang ]]; then
+              releases="the body has an entry line marked breaking"
+            elif [[ -z $releases && $line =~ $footer ]]; then
+              releases="the body has a breaking-change footer"
+            fi
+          done <<< "$BODY"
+          how="Add a line to the pull request body that reads exactly User-visible: yes when the change reaches users through a release ($types), or User-visible: no when it does not (docs, chore, refactor, test, build or ci)."
+          if [[ -n $other ]]; then
+            fail "A User-visible line must answer yes or no. $how"
+          elif [[ -n $yes && -n $no ]]; then
+            fail "The body answers both User-visible: yes and User-visible: no. Keep one."
+          elif [[ -n $yes && -z $releases ]]; then
+            fail "The body says User-visible: yes, but Release Please will not release this change: the title type is ${title_type:-unknown} and the body adds no $types entry or breaking change. If the change reaches users through a release, retitle it $types; otherwise answer no."
+          elif [[ -n $no && -n $releases ]]; then
+            fail "The body says User-visible: no, but Release Please will release this change because $releases. If the change does not reach users through a release, correct that; otherwise answer yes."
+          elif [[ -z $yes && -z $no ]]; then
+            fail "The body has no User-visible line. $how"
+          fi
+          echo "User-visible: ${yes:+yes}${no:+no} agrees with the title and body."

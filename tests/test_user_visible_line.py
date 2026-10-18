@@ -79,6 +79,17 @@ class UserVisibleLineTests(unittest.TestCase):
         self.assertReleases("docs: x", "The `BREAKING-CHANGE:` token is accepted.", note)
         self.assertReleases("docs: x", "Prose.\n\n    BREAKING-CHANGE: indented\n\nMore.", note)
         self.assertDoesNotRelease("docs: x", "Prose about a BREAKING CHANGE: inline.")
+        # A footer note is its value or its last continuation line, and the
+        # last marker's note replaces the earlier ones.
+        self.assertReleases("docs: x", "Prose.\n\nBREAKING CHANGE:\n  the flag is gone", note)
+        for body in (
+            "Prose.\n\nBREAKING CHANGE:",
+            "Prose.\n\nBREAKING CHANGE:\nRefs: #1",
+            "Prose.\nBREAKING CHANGE: the flag is gone\n\nRefs: #1\nBREAKING CHANGE:",
+            "Prose.\n\nRefs: the BREAKING-CHANGE: token",
+        ):
+            with self.subTest(body=body):
+                self.assertDoesNotRelease("docs: x", body)
         self.assertReleases("docs: x", "Prose.\n\nci!: drop a job", "the body has a commit marked breaking")
 
     def test_extra_entries_count_where_release_please_reads_them(self):
@@ -102,8 +113,11 @@ class UserVisibleLineTests(unittest.TestCase):
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
-        # An empty scope makes the parser drop that part.
+        # An empty scope makes the parser drop that part, and a footer with
+        # one is prose; a "!" footer keeps the footers together.
         self.assertDoesNotRelease("docs: x", "Prose.\n\nfix(): y")
+        self.assertDoesNotRelease("docs: x", "Prose.\n\nOther: x\nfix(): y")
+        self.assertReleases("docs: x", "Prose.\n\nFeat: y\n!: x", "the body has a feat entry")
         code, out = self._run("chore: x", "Prose.\n\nfeat(cli)!: y\n\nMore prose.\n\nUser-visible: yes")
         self.assertIn("will not release this change", out)
 
@@ -112,12 +126,24 @@ class UserVisibleLineTests(unittest.TestCase):
         self.assertReleases("chore: release 1.0.0", "Prose.\n\nRelease-As: v1.0.0\nCo-Authored-By: A <a@b.c>",
                             "the body has a Release-As footer")
         self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: 1.0.0\n\nThen prose.")
+        # The version is the footer's value or its last continuation line.
+        for body in ("Release-As #1.0.0", "Release-As:\n  1.0.0", "Release-As: pkg@1.0.0"):
+            with self.subTest(body=body):
+                self.assertReleases("chore: release 1.0.0", body, "the body has a Release-As footer")
+        for body in ("Release-As: 1.0.0\n  then words", "Release-As: @scope/pkg@1.0.0"):
+            with self.subTest(body=body):
+                self.assertDoesNotRelease("chore: release 1.0.0", body)
 
     def test_override_and_nested_commits_count(self):
         self.assertDoesNotRelease("feat: x", "BEGIN_COMMIT_OVERRIDE\ndocs: y\nEND_COMMIT_OVERRIDE")
         self.assertReleases("docs: x", "BEGIN_COMMIT_OVERRIDE\nfix: y\nEND_COMMIT_OVERRIDE",
                             "the commit override has a fix entry")
         self.assertReleases("docs: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfix: y\nEND_NESTED_COMMIT",
+                            "the body has a fix entry")
+        # A commit's header may use " #" in place of ":".
+        self.assertReleases("docs: x", "BEGIN_COMMIT_OVERRIDE\nfix #123 y\nEND_COMMIT_OVERRIDE",
+                            "the commit override has a fix entry")
+        self.assertReleases("docs: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfix #12 y\nEND_NESTED_COMMIT",
                             "the body has a fix entry")
 
     def test_a_line_release_please_cannot_parse_fails_when_it_drops_a_change(self):
@@ -134,11 +160,25 @@ class UserVisibleLineTests(unittest.TestCase):
                 self.assertFails("fix: x", f"Prose.\n\n```\n{code}\n```\n\nUser-visible: yes", "cannot parse line 4")
         # A dropped entry part loses only that entry, which still fails.
         self.assertFails("feat: x", "Prose.\n\nfix: y\nf(a(b))\n\nUser-visible: yes", "cannot parse line 4")
+        # The line named is the one that drops the change, not one like it.
+        self.assertFails("fix: x", "Prose.\n\n```\ndef f():\n    print(len(x))\nprint(len(x))\n```\n\n"
+                         "User-visible: yes", "cannot parse line 6")
+        self.assertFails("docs: x", "Prose.\n\n```\nf(g(x))\n```\n\nfix: y\nf(g(x))\n\nUser-visible: yes",
+                         "cannot parse line 8")
+        self.assertFails("docs: x", "Intro.\n\nBEGIN_COMMIT_OVERRIDE\nfix: y\nf(g(x))\nEND_COMMIT_OVERRIDE\n\n"
+                         "User-visible: yes", "cannot parse line 5")
         # Nothing that would release is lost, or the line parses.
         self.assertPasses("docs: x", "Prose.\n\n```\nf(a(b))\n```\n\nUser-visible: no")
-        for line in ("  z.array(z.boolean())", "- f(g(x))", "f (g(x))", "f(x)(y)", "f()", "Prose ending f(g(x"):
+        for line in ("  z.array(z.boolean())", "- f(g(x))", "f (g(x))", "f(x)(y)", "f()", "Prose ending f(g(x",
+                     "BREAKING-CHANGE(x("):
             with self.subTest(line=line):
                 self.assertPasses("feat: x", f"Prose.\n\n{line}\n\nUser-visible: yes")
+
+    def test_a_title_release_please_cannot_parse_releases_nothing(self):
+        for title in ("feat(): x", "feat(a(b)): x"):
+            with self.subTest(title=title):
+                self.assertFails(title, "Prose.\n\nUser-visible: yes", "cannot parse the title")
+                self.assertPasses(title, "Prose.\n\nUser-visible: no")
 
     def test_the_line_is_required(self):
         for body in ("", "Prose with no answer.\n", "**User-visible:** yes", "- User-visible: yes",

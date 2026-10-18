@@ -56,12 +56,12 @@ merge-ready:
 - **Squash merges:** the squash commit message is all Release Please reads.
   Whatever performs the merge must be given that message, which replaces the
   one GitHub would have generated: the PR's prose, then each extra entry line
-  at column 0 and blank-line separated, then the applicable `Co-Authored-By:`
-  trailers, one per line. The title check judged the PR body, so carry its
-  extra entries and any breaking-change note over unchanged: a message that
-  drops or edits them changes what Release Please releases. Do not pass an
-  empty message, and do not assume the PR description is included. With
-  `gh`, for example:
+  at column 0 and blank-line separated, then any `Release-As:` footer and the
+  applicable `Co-Authored-By:` trailers, one per line. The title check judged
+  the PR body, so carry its extra entries, `Release-As:` footer and any
+  breaking-change note over unchanged: a message that drops or edits them
+  changes what Release Please releases. Do not pass an empty message, and do
+  not assume the PR description is included. With `gh`, for example:
 
   ```sh
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
@@ -69,10 +69,10 @@ merge-ready:
 
   With the GitHub MCP server's `merge_pull_request`, pass
   `merge_method: squash` and the message as `commit_message`. A one-line
-  message is correct only when the PR body has no extra entry lines or
-  breaking-change notes. Verify the resulting commit message after merging
-  (`git log -1 --format=%B`): a dropped entry line is otherwise invisible
-  until the release PR is regenerated.
+  message is correct only when the PR body has no extra entry lines,
+  `Release-As:` footer or breaking-change notes. Verify the resulting commit
+  message after merging (`git log -1 --format=%B`): a dropped entry line is
+  otherwise invisible until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
   wrote or changed, and names the tool and model as `AGENTS.md` specifies.
   Carry the squashed commits' trailers into the merge message. Merging a change

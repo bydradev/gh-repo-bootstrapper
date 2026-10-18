@@ -436,13 +436,31 @@ test("reports a release skipped for missing credentials as not configured", asyn
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: not configured — the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\) skipped the release because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it; releases stay skipped until both are set\./,
+    /Release pipeline: not configured — the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\) skipped the release because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it; releases stay skipped until a run can read both\./,
   );
   assert.doesNotMatch(output, /Release pipeline: last successful/);
   assert.deepEqual(
     requests.filter((request) => request.includes("/jobs")),
     ["/repos/bydradev/fixture/actions/runs/30230627141/jobs?filter=latest&per_page=100"],
   );
+});
+
+test("reports a skipped release older than the stale threshold as not configured", async () => {
+  // Missing credentials are the cause to fix, so they are reported ahead of the age.
+  const oldRelease = new Date(Date.now() - 15 * 86_400_000).toISOString();
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    latestReleaseRuns: [successfulRelease(oldRelease)],
+    successfulReleaseRuns: [successfulRelease(oldRelease)],
+    releaseJobs: [testJob, releaseJob("skipped")],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: not configured — the latest `release-please\.yml` run \(2\d{3}-[^,]+, 15 days ago\)/,
+  );
+  assert.doesNotMatch(output, /Release pipeline: stale/);
 });
 
 test("reports a release whose App token step ran as healthy", async () => {

@@ -36,6 +36,7 @@ CHECKS = (
     "check_sha_pinned_actions",
     "check_workflow_gates",
     "check_secrets_word",
+    "check_release_step_names",
     "check_reusable_workflow_inputs",
     "check_release_full_suite_contract",
     "check_rust_suite",
@@ -327,6 +328,58 @@ class SecretsWordTests(unittest.TestCase):
                 text = (Path(validate_templates.__file__).parent / "templates" / template).read_text()
                 self.assertEqual(self._check(text), [])
 
+
+
+class ReleaseStepNameTests(unittest.TestCase):
+    SCRIPT = (
+        'const releaseCredentialsStep = "Check Release Please credentials";\n'
+        'const releaseTokenStep = "Generate GitHub App token";\n'
+    )
+    WORKFLOW = (
+        "jobs:\n"
+        "  release-please:\n"
+        "    steps:\n"
+        "      - name: Check Release Please credentials\n"
+        "        id: credentials\n"
+        "      - name: Generate GitHub App token\n"
+        "        id: app-token\n"
+    )
+
+    def _check(self, script=SCRIPT, workflow=WORKFLOW):
+        files = {".github/workflows/release-please.yml": workflow}
+        if script is not None:
+            files["scripts/review-baselines.mjs"] = script
+        return validate_templates.check_release_step_names("t", files)
+
+    def test_matching_names_pass_and_repos_without_the_review_are_skipped(self):
+        self.assertEqual(self._check(), [])
+        self.assertEqual(self._check(script=None, workflow="jobs: {}\n"), [])
+
+    def test_a_name_changed_on_one_side_fails(self):
+        for script, workflow, needle in (
+            (self.SCRIPT, self.WORKFLOW.replace("Check Release Please credentials", "Check credentials"),
+             "step id 'credentials' is named ['Check credentials']"),
+            (self.SCRIPT.replace("Generate GitHub App token", "Mint token"), self.WORKFLOW,
+             "reads it as 'Mint token'"),
+            (self.SCRIPT, self.WORKFLOW.replace("id: app-token", "id: token"), "'app-token' is named nowhere"),
+            (self.SCRIPT, self.WORKFLOW + "      - name: Generate GitHub App token\n        id: app-token\n",
+             "is named ['Generate GitHub App token', 'Generate GitHub App token']"),
+            (self.SCRIPT.replace("const releaseTokenStep", "let releaseTokenStep"), self.WORKFLOW,
+             "no longer defines releaseTokenStep"),
+            (self.SCRIPT, "jobs: [\n", "'credentials' is named nowhere"),
+        ):
+            with self.subTest(needle):
+                errors = self._check(script, workflow)
+                self.assertTrue(any(needle in error for error in errors), errors)
+
+    def test_the_shipped_templates_agree(self):
+        root = Path(validate_templates.__file__).parent / "templates"
+        self.assertEqual(
+            self._check(
+                (root / "review-baselines.mjs").read_text(), (root / "release-please-nextjs.yml").read_text()
+            ),
+            [],
+        )
 
 class DependabotCooldownTests(unittest.TestCase):
     def test_every_update_entry_needs_a_cooldown(self):

@@ -11,7 +11,9 @@ const apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com";
 // The release job of the generated release-please.yml starts with this check.
 // While the Release Please App credentials are missing, or not available to the
 // run, it warns and the token step and every release step after it are skipped,
-// so the run still concludes success without releasing anything.
+// so the run still concludes success without releasing anything. The
+// gh-repo-bootstrapper validator checks that its release-please.yml template
+// keeps these two step names.
 const releaseCredentialsStep = "Check Release Please credentials";
 const releaseTokenStep = "Generate GitHub App token";
 
@@ -228,7 +230,7 @@ function releaseHealth(latest, lastSuccess, releaseSkipped) {
   if (releaseSkipped)
     return {
       actionable: true,
-      line: `- Release pipeline: not configured — the latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago) skipped the release because the \`RELEASE_PLEASE_CLIENT_ID\` variable or \`RELEASE_PLEASE_APP_KEY\` secret is not set or not available to it; releases stay skipped until both are set.`,
+      line: `- Release pipeline: not configured — the latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago) skipped the release because the \`RELEASE_PLEASE_CLIENT_ID\` variable or \`RELEASE_PLEASE_APP_KEY\` secret is not set or not available to it; releases stay skipped until a run can read both.`,
     };
   if (successAge > releaseStaleDays)
     return {

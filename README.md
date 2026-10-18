@@ -51,6 +51,9 @@ anything installed beyond a base Python interpreter.
   only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
   because some generated repositories run workflow validators that refuse it
   anywhere else, comments and URLs included
+- in `nextjs`, the release job's credentials and App token steps keeping the
+  names the weekly baseline review reads to tell a skipped release from one
+  that ran
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
@@ -534,10 +537,11 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.12.1
 
-`release-please.yml` changes only in a comment, which no longer uses the word
-`secrets` except in `secrets.NAME`: some repositories' workflow validators
-refuse the word anywhere else, comments and URLs included. `--check` reports
-the file as `stale`, and `--adopt` updates it. A repository that kept its
+`release-please.yml` changes only in its comments. One no longer uses the
+word `secrets` except in `secrets.NAME`: some repositories' workflow
+validators refuse the word anywhere else, comments and URLs included. In
+`nextjs`, another says which step names the baseline review reads. `--check`
+reports the file as `stale`, and `--adopt` updates it. A repository that kept its
 0.11.0 `release-please.yml` for that reason can take it now, which also brings
 in 0.12.0's credentials check (see
 [GitHub App — Release Please](#github-app--release-please)).
@@ -881,7 +885,7 @@ brings the check to existing repositories; a repository whose release
 workflow is `local-modified` keeps its own behaviour. In a `nextjs`
 repository, the weekly baseline review reports a successful run that skipped
 the release this way as `Release pipeline: not configured`, and fails, until
-both are set.
+a run can read both.
 
 Once both are set, the next push to `main` runs the release; check that it
 creates or updates a release PR before treating release automation as

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.13.1...v0.13.2) (2026-10-18)
+
+
+### Bug Fixes
+
+* have reviewers re-check another reviewer's open blocking findings ([#115](https://github.com/bydradev/gh-repo-bootstrapper/issues/115)) ([69a1542](https://github.com/bydradev/gh-repo-bootstrapper/commit/69a15426ac593e0f60473d8117a847fec7898d9e))
+
 ## [0.13.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.13.0...v0.13.1) (2026-10-18)
 
 

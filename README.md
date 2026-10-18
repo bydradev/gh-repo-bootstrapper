@@ -274,8 +274,9 @@ request.
 The OpenCode reviewer has no built-in edit, subagent or shell tool. MCP,
 plugin and custom tools follow the user's OpenCode configuration, whose
 default allows them, so a connected server's write tools stay available to it.
-It reviews the diff and validation results the implementer hands it and reads
-files with OpenCode's read tools, which ask before reading most paths outside
+It reviews the diff and validation results the implementer or person hands
+it, asks for the diff when it has none, and reads files with OpenCode's read
+tools, which ask before reading most paths outside
 the project, such as a diff saved to a scratch directory. It gets no shell
 because OpenCode's shell rules see each command in a line separately and keep
 a redirect only when it sits directly on one command, so an allowed `git log`
@@ -557,8 +558,10 @@ Every type gains the `review-guidelines` skill, for the agent doing a review.
 handling findings, and both reviewer agents load `review-guidelines` instead
 of `fresh-eyes-review`. `--check` reports the new skill and its
 `.claude/skills` mirror as `missing`, and the changed skill and agents as
-`stale`; `--adopt` writes them. The hub does not change. To keep a
-repository's own review rules, add them under `## Project specifics` as a
+`stale`; `--adopt` writes them. The hub does not change. A repository that
+already has a skill of its own named `review-guidelines` renames it first:
+`--adopt` refuses to replace it but still points the reviewer agents at that
+name. To keep a repository's own review rules, add them under `## Project specifics` as a
 `### Code review rules` subsection: a few bullets naming what a change must
 preserve.
 

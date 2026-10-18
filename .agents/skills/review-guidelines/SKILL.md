@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=a2b20770edcf358a16374fc41acb0fc111dd2ed494337d1b9dd3056c5ff97dd9 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=b04a140dc9313afc9d3071e8349982d6b92964d67733fd228e3327089943c3db -->
 
 # Review guidelines
 
@@ -47,8 +47,8 @@ to handle findings) is in `fresh-eyes-review`.
    ran. A skipped suite is not a pass. Results the implementer hands over are
    claims: list under *Limits* any you relied on.
 5. **Earlier reviews.** Look for your own earlier reports on this change, on
-   the pull request or in the handoff. None means an initial review; otherwise
-   run a follow-up review.
+   the pull request or in the handoff: those whose *Reviewer* line names your
+   tool. None means an initial review; otherwise run a follow-up review.
 
 ## Initial review
 
@@ -72,9 +72,11 @@ change again.
 2. **Isolate the delta.** Diff the last reviewed head against the new head. If
    history was rewritten, use
    `git range-diff <old-base>..<old-head> <new-base>..<new-head>` to separate
-   the author's changes from the base's. `range-diff` skips merge commits, so
-   read a base-branch merge with `git show --remerge-diff <merge>` to see its
-   conflict resolution. If the delta cannot be isolated, run a full review.
+   the author's changes from the base's. `range-diff` ignores merge commits by
+   default, so read a base-branch merge with `git show --remerge-diff <merge>`
+   to see its conflict resolution. If you cannot run git, ask whoever started
+   the review for the delta. If the delta cannot be isolated, run a full
+   review.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the
@@ -267,8 +269,8 @@ Only the operator can accept or defer a blocking finding.
   Questions are `R<round>-Q<n>` and never block.
 - IDs never change and are never reused. A follow-up keeps the earlier IDs and
   numbers its new findings in its own round (`R2-01`).
-- IDs belong to one reviewer. To cite another reviewer's finding, name the
-  reviewer, such as "Codex R1-03".
+- IDs belong to one reviewer, named on the report's *Reviewer* line. To cite
+  another reviewer's finding, name that reviewer, such as "Codex R1-03".
 - Never write `#3`: GitHub turns it into an issue link.
 - Start each inline comment with the ID, severity and area, such as
   `R1-03 P1 Access control: membership check fails open`, so a thread matches
@@ -298,13 +300,14 @@ A verdict is not an approval: merging stays with the operator.
 
 ## Report template
 
-Post one summary per round, on the pull request when you were asked to post,
-otherwise back to whoever started the review. Leave out empty sections, except
-*Coverage* and *Limits*, which every report has.
+Return one summary per round to whoever started the review, and post it on
+the pull request only when you were asked to and can. Leave out empty
+sections, except *Coverage* and *Limits*, which every report has.
 
 ````markdown
 ## Review R2: Changes required
 
+- **Reviewer:** <tool> (<model>)
 - **Reviewed:** `<head-sha>` against `<base-branch>` at `<base-sha>`
 - **Mode:** follow-up to R1 (`<previous-head-sha>`); delta `<previous-head-sha>..<head-sha>`
 - **Checks on head:** <which suites ran, and which did not>

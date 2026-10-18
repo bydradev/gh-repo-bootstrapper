@@ -356,8 +356,6 @@ AGENTS_TYPE_REQUIREMENTS = {
     ),
     "simple": (),
 }
-for _repo_type, _heading in REVIEW_STACK_HEADINGS.items():
-    AGENTS_TYPE_REQUIREMENTS[_repo_type] += ((_heading, REVIEW_SKILL),)
 
 # The hub's generated part (everything above `## Project specifics`, with the
 # `next dev` block masked) must stay within HUB_BUDGET_BYTES so every harness
@@ -1068,9 +1066,14 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     agents = files.get("AGENTS.md", "")
     prose = _unfenced(agents)
     errors = _missing_phrases(
-        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} local-validation guidance"
+        label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} guidance"
     )
     review_lines = set(_unfenced(files.get(REVIEW_SKILL, "")).splitlines())
+    if REVIEW_STACK_HEADINGS[repo_type] not in review_lines:
+        errors.append(
+            f"[{label}] {REVIEW_SKILL} lacks the {repo_type} stack section "
+            f"(a {REVIEW_STACK_HEADINGS[repo_type]!r} line)"
+        )
     errors += [
         f"[{label}] {REVIEW_SKILL} carries the {other} stack section ({heading!r}), "
         f"but this configuration is {repo_type}"
@@ -3536,7 +3539,22 @@ def run_self_tests() -> list:
             result = check_workspace_guidance(f"self-test:{repo_type} routing", repo_type, unrouted)
             if not any(repr(LOCAL_VALIDATION_ROUTING) in e for e in result):
                 errors.append(f"self-test '{repo_type} skill routing' did not fail as expected: {result}")
-        # The review skill carries its own type's stack section and no other.
+        # The review skill carries its own type's stack section and no other,
+        # and each stack fragment opens with the heading the check looks for,
+        # so renaming one without the other fails here rather than passing.
+        fragment = (bootstrap.TEMPLATES_DIR / f"review-stack-{repo_type}.md").read_text(encoding="utf-8")
+        if fragment.splitlines()[:1] != [REVIEW_STACK_HEADINGS[repo_type]]:
+            errors.append(
+                f"self-test '{repo_type} review stack heading': templates/review-stack-{repo_type}.md "
+                f"does not open with {REVIEW_STACK_HEADINGS[repo_type]!r}"
+            )
+        unstacked = dict(files)
+        unstacked[REVIEW_SKILL] = files[REVIEW_SKILL].replace(
+            REVIEW_STACK_HEADINGS[repo_type] + "\n", REVIEW_STACK_HEADINGS[repo_type] + " notes\n", 1
+        )
+        result = check_workspace_guidance(f"self-test:{repo_type} review stack missing", repo_type, unstacked)
+        if not any(f"lacks the {repo_type} stack section" in e for e in result):
+            errors.append(f"self-test '{repo_type} review stack missing' did not fail as expected: {result}")
         other = next(t for t in REVIEW_STACK_HEADINGS if t != repo_type)
         crossed = dict(files)
         crossed[REVIEW_SKILL] = files[REVIEW_SKILL] + "\n" + REVIEW_STACK_HEADINGS[other] + "\n"

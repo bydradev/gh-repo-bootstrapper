@@ -3,7 +3,7 @@ name: fresh-eyes-review
 description: >-
   Use before declaring substantial work complete or a branch or pull request ready for review, after review fixes cause material changes, or when handling the findings of any review. Covers who reviews, what to hand the reviewer, how to verify, fix or dispute findings, when to review and re-review, and a cross-family recipe using a read-only reviewer from another model family. The reviewer follows `review-guidelines`.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=d765311d555f29c7bf1106e01f824eaa326b613e43a8f7ac10c524fc6ca460bd -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=70a8b5efada6a382efe3f883e93c13640e9fd584cffb180590f08242d33868ea -->
 
 # Independent fresh-eyes review
 
@@ -16,9 +16,9 @@ reasoning model and, where practical, a different model family from the
 implementation agent.
 
 Provide the reviewer with the user's requested outcome, relevant repository
-requirements and specifications, the resulting diff or changed files, and
-available validation results; for a follow-up review, also the last report and
-the commits since. The reviewer should independently assess the change rather
+requirements and specifications, the resulting diff or changed files with
+their base and head commits, and available validation results; for a follow-up
+review, also the last report and the commits since. The reviewer should independently assess the change rather
 than rely on the implementing agent's conclusions.
 
 The reviewer follows the `review-guidelines` skill
@@ -39,9 +39,9 @@ requested outcome: a finding is a claim, whatever its source or severity.
 
 - Reproduce or trace each finding on the current code before changing
   anything.
-- If it holds, fix the root cause, check similar code elsewhere, and add a
-  test that fails without the fix. Reply with the finding's ID, the commit, and
-  how you checked it.
+- If it holds, fix the root cause, check similar code elsewhere, and, where
+  practical, add a test that fails without the fix. Reply with the finding's
+  ID, the commit, and how you checked it.
 - If it does not hold, reply with the ID and the evidence, such as the guard,
   the test or the documented trade-off. Never change code just to satisfy a
   reviewer.
@@ -50,7 +50,8 @@ requested outcome: a finding is a claim, whatever its source or severity.
 - Severity is the reviewer's estimate: dispute it with evidence, never quietly
   downgrade it.
 
-Resolve valid blocking findings (P0 and P1) before declaring the work complete.
+Resolve valid blocking findings (`review-guidelines` says which P0 and P1
+findings block) before declaring the work complete.
 
 If resolving review findings results in material changes, perform another
 independent fresh-eyes review of those changes before completion.

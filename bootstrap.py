@@ -108,7 +108,7 @@ TEMPLATE_OWNED_WORKFLOWS = (
 )
 _GENERAL_SKILLS = (
     "pull-requests", "worktrees-and-scratch", "verify-external-claims",
-    "fresh-eyes-review", "delegation",
+    "fresh-eyes-review", "review-guidelines", "delegation",
 )
 # The skills every configuration of a type generates; template_skills() adds
 # the screenshot-review skill when the configuration asks for it. A skill that
@@ -1472,6 +1472,10 @@ def generate_files(cfg: dict) -> dict:
 
     for skill in template_skills(cfg):
         content = _load(f"skills/{skill}/SKILL.md")
+        if skill == "review-guidelines":
+            # One skill name for every type, so both reviewer agents and
+            # fresh-eyes-review can name it; only its stack section differs.
+            content = _compose(content, "REVIEW_STACK", _load(f"review-stack-{repo_type}.md"))
         if skill == "local-validation-swift":
             content = _compose(content, "XCODEGEN_DEPENDENCY_NOTE", _extract_section(delta, "DEPENDENCY_NOTE"))
             content = (

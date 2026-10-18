@@ -1,7 +1,7 @@
 ---
 name: fresh-eyes-reviewer
-description: Use for independent review of a substantial change before it is declared complete or ready.
+description: Use for an independent review of a change, before it is declared complete or ready, or when a person asks for one.
 tools: Read, Grep, Glob, Bash
 ---
 
-Load the `fresh-eyes-review` skill (`.agents/skills/fresh-eyes-review/SKILL.md`) and apply its rubric. Do not modify files: use Bash only for read-only commands, such as `git diff`, `git log`, and `git show`. Report findings with file:line evidence.
+Load the `review-guidelines` skill (`.agents/skills/review-guidelines/SKILL.md`) and follow it. Do not modify files: use Bash only for read-only commands, such as `git diff`, `git log`, `git show`, and `git range-diff`. Report in the skill's format, with file:line evidence.

@@ -1,5 +1,5 @@
 ---
-description: Use for independent review of a substantial change before it is declared complete or ready.
+description: Use for an independent review of a change, before it is declared complete or ready, or when a person asks for one.
 mode: subagent
 permission:
   edit: deny
@@ -7,4 +7,4 @@ permission:
   bash: deny
 ---
 
-Load the `fresh-eyes-review` skill (`.agents/skills/fresh-eyes-review/SKILL.md`) and apply its rubric. You have no shell: review the diff and validation results the implementer gives you or saved for you, and read files with the read tools, which ask the user before reading most paths outside the project, such as a scratch directory. Do not modify files. Report findings with file:line evidence.
+Load the `review-guidelines` skill (`.agents/skills/review-guidelines/SKILL.md`) and follow it. You have no shell: review the diff and validation results the implementer gives you or saved for you, and for a follow-up review the last report and the commits since, and read files with the read tools, which ask the user before reading most paths outside the project, such as a scratch directory. Do not modify files. Report in the skill's format, with file:line evidence.

@@ -25,7 +25,8 @@ Checks performed on each generated file:
   - AGENTS.md hub structure: the generated part fits its byte budget, has no
     bare `@path` imports, and points only at skills the render contains,
     and every rendered skill has a row or is named by the listed skill
-    SKILLS_WITHOUT_HUB_ROW gives for it;
+    SKILLS_WITHOUT_HUB_ROW gives for it; each type's review-guidelines skill
+    carries that type's stack section and no other;
     every SKILL.md has valid agentskills.io frontmatter with a unique name;
     relative Markdown links in the hub and in every SKILL.md resolve from
     their own directory;
@@ -192,6 +193,22 @@ SCREENSHOT_ROUTING = (
     "names a repository-owned skill, or a section of one, for screenshot or "
     "visual-review work, load it first."
 )
+# The reviewer's skill. Its sentence that routes reviewers to the repository's
+# own review rules first, and the stack heading each type's copy carries: one
+# skill name for every type, so the reviewer agents can name it, with only its
+# stack section rendered per type.
+REVIEW_SKILL = _skill_path("review-guidelines")
+REVIEW_ROUTING = (
+    "If `## Project specifics` in `AGENTS.md` names a repository-owned review skill "
+    "or has a `### Code review rules` subsection, read it first; where it is narrower, it governs."
+)
+REVIEW_STACK_HEADINGS = {
+    "nextjs": "### Next.js",
+    "python": "### Python",
+    "rust": "### Rust",
+    "swift": "### Swift",
+    "simple": "### Docs, configuration and release-only repositories",
+}
 
 # (phrase, owning file) pairs. The hub keeps the gates; the detail moved into
 # template-owned skills, so each phrase is required in the file that owns it.
@@ -281,6 +298,17 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("Remove the worktrees, verification copies, and scratch output the task created", HUB),
     ("## Project specifics", HUB),
     ("dated status in `docs/current-work.md`", HUB),
+    # The implementer verifies findings, the reviewer verifies fixes, and both
+    # stop at the same round, so neither agent loops on the other.
+    ("Reproduce or trace each finding on the current code before changing anything.", _skill_path("fresh-eyes-review")),
+    ("a P0 or P1 is the operator's to accept or defer", _skill_path("fresh-eyes-review")),
+    ("After three review rounds with blocking findings still open", _skill_path("fresh-eyes-review")),
+    ("`review-guidelines`", _skill_path("fresh-eyes-review")),
+    (REVIEW_ROUTING, REVIEW_SKILL),
+    ("Verify each open finding on the new head yourself.", REVIEW_SKILL),
+    ('A commit message or reply saying "fixed" is a claim.', REVIEW_SKILL),
+    ("Only the operator can accept or defer a blocking finding.", REVIEW_SKILL),
+    ("After three rounds with a blocking finding still open", REVIEW_SKILL),
 )
 
 # Sentence each local-validation skill opens with, which routes agents to a
@@ -328,6 +356,8 @@ AGENTS_TYPE_REQUIREMENTS = {
     ),
     "simple": (),
 }
+for _repo_type, _heading in REVIEW_STACK_HEADINGS.items():
+    AGENTS_TYPE_REQUIREMENTS[_repo_type] += ((_heading, REVIEW_SKILL),)
 
 # The hub's generated part (everything above `## Project specifics`, with the
 # `next dev` block masked) must stay within HUB_BUDGET_BYTES so every harness
@@ -343,7 +373,10 @@ SKILLS_HEADING = "## Skills"
 # Skills reached through another skill instead of a row in the hub's skills
 # table, to keep the hub within HUB_BUDGET_BYTES: {skill: listed skill that
 # must name it}. Harnesses with skill support also load them by description.
-SKILLS_WITHOUT_HUB_ROW = {"public-site-indexing": "local-validation-nextjs"}
+SKILLS_WITHOUT_HUB_ROW = {
+    "public-site-indexing": "local-validation-nextjs",
+    "review-guidelines": "fresh-eyes-review",
+}
 SKILL_ROW_RE = re.compile(r"^\|.*\|\s*`([^`]+)`\s*\|\s*$")
 SKILL_PATH_RE = re.compile(r"^\.agents/skills/([^/]+)/SKILL\.md$")
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -1037,6 +1070,13 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
     errors = _missing_phrases(
         label, files, AGENTS_TYPE_REQUIREMENTS[repo_type], f"{repo_type} local-validation guidance"
     )
+    review_lines = set(_unfenced(files.get(REVIEW_SKILL, "")).splitlines())
+    errors += [
+        f"[{label}] {REVIEW_SKILL} carries the {other} stack section ({heading!r}), "
+        f"but this configuration is {repo_type}"
+        for other, heading in REVIEW_STACK_HEADINGS.items()
+        if other != repo_type and heading in review_lines
+    ]
     headings = [line for line in prose.splitlines() if line.startswith("## ")]
     if not headings or headings[-1] != PROJECT_SPECIFICS_HEADING:
         errors.append(
@@ -3496,6 +3536,13 @@ def run_self_tests() -> list:
             result = check_workspace_guidance(f"self-test:{repo_type} routing", repo_type, unrouted)
             if not any(repr(LOCAL_VALIDATION_ROUTING) in e for e in result):
                 errors.append(f"self-test '{repo_type} skill routing' did not fail as expected: {result}")
+        # The review skill carries its own type's stack section and no other.
+        other = next(t for t in REVIEW_STACK_HEADINGS if t != repo_type)
+        crossed = dict(files)
+        crossed[REVIEW_SKILL] = files[REVIEW_SKILL] + "\n" + REVIEW_STACK_HEADINGS[other] + "\n"
+        result = check_workspace_guidance(f"self-test:{repo_type} review stack", repo_type, crossed)
+        if not any(f"carries the {other} stack section" in e for e in result):
+            errors.append(f"self-test '{repo_type} review stack' did not fail as expected: {result}")
         trailing = dict(files)
         trailing["AGENTS.md"] = files["AGENTS.md"] + "\n## Local notes\n\nText.\n"
         result = check_workspace_guidance(f"self-test:{repo_type} trailing", repo_type, trailing)
@@ -3771,11 +3818,11 @@ def _structure_self_tests() -> list:
          "frontmatter must be"),
         ("opencode tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!str Use",
          "frontmatter must be"),
-        ("opencode non-ascii description", OPENCODE_REVIEWER, "or ready.\n", "or ready.\u00e9\n",
+        ("opencode non-ascii description", OPENCODE_REVIEWER, "asks for one.\nmode:", "asks for one.\u00e9\nmode:",
          "frontmatter must be"),
         ("opencode numeric description", OPENCODE_REVIEWER, "description: Use", "description: 1e3 Use",
          "frontmatter must be"),
-        ("opencode description comment", OPENCODE_REVIEWER, "or ready.\n", "or ready. #x\n",
+        ("opencode description comment", OPENCODE_REVIEWER, "asks for one.\nmode:", "asks for one. #x\nmode:",
          "frontmatter must be"),
         ("opencode bool-tagged description", OPENCODE_REVIEWER, "description: Use", "description: !!bool Use",
          "has invalid YAML frontmatter"),

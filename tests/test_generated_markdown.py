@@ -22,6 +22,27 @@ class MarkdownBlankLinesTest(unittest.TestCase):
         )
 
 
+class ReviewGuidelinesTest(unittest.TestCase):
+    def test_each_configuration_carries_only_its_own_stack_section(self):
+        headings = validate_templates.REVIEW_STACK_HEADINGS
+        for label, cfg in validate_templates.configurations():
+            skill = validate_templates.bootstrap.generate_files(cfg)[validate_templates.REVIEW_SKILL]
+            lines = set(skill.splitlines())
+            with self.subTest(label=label):
+                self.assertIn(headings[cfg["repo_type"]], lines)
+                self.assertEqual(
+                    [h for t, h in headings.items() if t != cfg["repo_type"] and h in lines], []
+                )
+                self.assertNotIn("<<REVIEW_STACK>>", skill)
+
+    def test_both_reviewer_agents_load_the_skill(self):
+        files = validate_templates.bootstrap.generate_files(next(
+            cfg for _, cfg in validate_templates.configurations() if cfg["repo_type"] == "simple"))
+        for path in (validate_templates.CLAUDE_REVIEWER, validate_templates.OPENCODE_REVIEWER):
+            with self.subTest(path=path):
+                self.assertIn("`.agents/skills/review-guidelines/SKILL.md`", files[path])
+
+
 class RunbookTest(unittest.TestCase):
     path = validate_templates.BRANCH_PROTECTION_RUNBOOK
 

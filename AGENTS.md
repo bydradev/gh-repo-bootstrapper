@@ -177,3 +177,16 @@ so a pin bumped here reaches repositories through their Dependabot, not adopt.
 A template change that needs a newer action version must keep working on the
 older one, or its PR must say that repositories merge the Dependabot bump
 before adopting, so the release notes carry it.
+
+### Code review rules
+
+- A template change is checked across every affected repository type and
+  option, including reusable-workflow inputs and retained action pins.
+- Adoption keeps its ownership and safety rules: local edits,
+  `## Project specifics`, stamps, symlinks and partly refused updates.
+- `--check` and `--dry-run` stay read-only and `--adopt` never contacts
+  GitHub; generated output and `validate_templates.py` agree without live
+  GitHub calls.
+- `bootstrap.py`, `validate_templates.py` and `tests/` are Python, which this
+  repository's `simple` copy of `review-guidelines` has no section for: apply
+  Python review practice, and keep `bootstrap.py` on the standard library.

@@ -910,7 +910,8 @@ export RELEASE_PLEASE_CLIENT_ID="..."
 
 ## Contributing
 
-Issues and pull requests are welcome. Every commit in a pull request needs a
+Issues and pull requests are welcome, under the
+[code of conduct](CODE_OF_CONDUCT.md). Every commit in a pull request needs a
 Developer Certificate of Origin sign-off (`git commit -s`). See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the steps, and
 [`AGENTS.md`](AGENTS.md) for the branch, commit and release conventions.
@@ -919,6 +920,8 @@ Developer Certificate of Origin sign-off (`git commit -s`). See
 
 `bootstrap.py`, the validator, the tests and the docs are licensed under the
 [Apache License 2.0](LICENSE).
+[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) is adapted from the Contributor
+Covenant 3.0 and keeps its CC BY-SA 4.0 licence.
 
 The files under [`templates/`](templates/) are licensed under
 [MIT-0](templates/LICENSE) (`SPDX-License-Identifier: MIT-0`). The files

@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=06fef4c004bb904bacb4ad6f19879c0bceb160536235cbe616bd511c276f9207 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=3c0fc18c446c645008fa3ef334a1df2c6df3c0b5bb119248fa0b9a2fcea6b001 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -35,7 +35,9 @@ merge-ready:
   footer, or a `BREAKING-CHANGE:` token anywhere in the body, even quoted,
   also makes the answer `yes`. Keep that token, lines that open a paragraph
   with a type, and the `BEGIN_COMMIT_OVERRIDE` marker (Release Please
-  replaces the commit with what follows it) out of prose. Editing the body
+  replaces the commit with what follows it) out of prose, and indent a line
+  that starts with a call such as `f(g(x))`: Release Please cannot parse it
+  and drops the commit, which the check also reports. Editing the body
   re-runs the check. Release Please and Dependabot PRs have no such line and
   are not checked.
 - **Body:** optional prose describing the title's change, then any *extra*
@@ -56,8 +58,11 @@ merge-ready:
   Whatever performs the merge must be given that message, which replaces the
   one GitHub would have generated: the PR's prose, then each extra entry line
   at column 0 and blank-line separated, then the applicable `Co-Authored-By:`
-  trailers, one per line. Do not pass an empty message, and do not assume the
-  PR description is included. With `gh`, for example:
+  trailers, one per line. The title check judged the PR body, so carry its
+  extra entries and any breaking-change note over unchanged: a message that
+  drops or edits them changes what Release Please releases. Do not pass an
+  empty message, and do not assume the PR description is included. With
+  `gh`, for example:
 
   ```sh
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
@@ -65,9 +70,10 @@ merge-ready:
 
   With the GitHub MCP server's `merge_pull_request`, pass
   `merge_method: squash` and the message as `commit_message`. A one-line
-  message is correct only when the PR has no extra entry lines. Verify the
-  resulting commit message after merging (`git log -1 --format=%B`): a dropped
-  entry line is otherwise invisible until the release PR is regenerated.
+  message is correct only when the PR body has no extra entry lines or
+  breaking-change notes. Verify the resulting commit message after merging
+  (`git log -1 --format=%B`): a dropped entry line is otherwise invisible
+  until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
   wrote or changed, and names the tool and model as `AGENTS.md` specifies.
   Carry the squashed commits' trailers into the merge message. Merging a change

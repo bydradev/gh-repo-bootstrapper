@@ -79,16 +79,22 @@ jobs:
           # has a BEGIN_COMMIT_OVERRIDE block, which replaces it. Nested
           # commit blocks, paragraphs that open with a lowercase standard
           # type, and each part's trailing footers become commits of their
-          # own. Mirrors release-please 17.6.0 (commit.js) and the
-          # conventionalcommits preset 6.1.0, checked 2026-10-18.
+          # own. A part with a line the parser throws on is dropped whole.
+          # Mirrors release-please 17.6.0 (commit.js), its
+          # @conventional-commits/parser 0.4.1 and the conventionalcommits
+          # preset 6.1.0, checked 2026-10-18.
           RELEASED = {"feat", "feature", "fix", "perf", "revert"}
           TYPES = "feat, fix, perf or revert"
           SPLIT = re.compile(r"\n\n(?=(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:[(].*?[)])?: )")
-          HEADER = re.compile(r"([^()\s!:]+)(?:[(][^()]*[)])?(!?):.*")
+          HEADER = re.compile(r"([^()\s!:]+)(?:[(][^()]+[)])?(!?):.*")
           FOOTER = re.compile(r"(?:BREAKING[ -]CHANGE|([^()\s!:]+)(?:[(][^()]*[)])?(!?))(:| #)\s*(.*)")
           BREAKING = re.compile(r"BREAKING-CHANGE:\s*\S|^BREAKING CHANGE:\s*\S", re.MULTILINE)
           RELEASE_AS = re.compile(r"\w*@?[0-9]+[.][0-9]+[.][0-9a-z]", re.IGNORECASE)
           ANSWER = re.compile(r"user-visible:\s*(.*?)\s*", re.IGNORECASE)
+          # The parser reads a line that starts with a word and "(" as a
+          # footer token with a scope, and throws when another parenthesis
+          # or the line's end comes before ")".
+          UNPARSABLE = re.compile(r"(?!BREAKING[ -]CHANGE)[^()\s!:]+[(][^()\n]*(?:[(]|$)")
 
 
           def messages(text):
@@ -123,37 +129,50 @@ jobs:
               return None
 
 
+          def commit_releases(header, lines, title, origin):
+              if title:
+                  if header[2]:
+                      return "the title marks a breaking change"
+                  if header[1].lower() in RELEASED:
+                      return f"the title type is {header[1].lower()}"
+              elif reason := entry(header[1], header[2], origin):
+                  return reason
+              if BREAKING.search("\n".join(lines[1:])):
+                  return f"{origin} has a breaking-change note"
+              for line in footers(lines):
+                  footer = FOOTER.fullmatch(line)
+                  if not footer:
+                      continue
+                  if not footer[1] and footer[4]:
+                      return f"{origin} has a breaking-change note"
+                  if not footer[1] or footer[3] != ":":
+                      continue
+                  if footer[1].lower() == "release-as" and RELEASE_AS.match(footer[4]):
+                      return f"{origin} has a Release-As footer"
+                  if reason := entry(footer[1], footer[2], origin):
+                      return reason
+              return None
+
+
           def releases(title, body):
+              # Why Release Please releases the change, or None, and the first
+              # line that makes it drop a commit that would have released.
               override = body.split("BEGIN_COMMIT_OVERRIDE")[1:2]
               override = override[0].split("END_COMMIT_OVERRIDE")[0].strip() if override else ""
               origin = "the commit override" if override else "the body"
+              found, lost = None, None
               for index, text in enumerate(messages(override or f"{title}\n\n{body}")):
                   lines = text.strip().split("\n")
                   header = HEADER.fullmatch(lines[0])
                   if not header:
                       continue  # Release Please skips a message it cannot parse
-                  if index == 0 and not override:
-                      if header[2]:
-                          return "the title marks a breaking change"
-                      if header[1].lower() in RELEASED:
-                          return f"the title type is {header[1].lower()}"
-                  elif reason := entry(header[1], header[2], origin):
-                      return reason
-                  if BREAKING.search("\n".join(lines[1:])):
-                      return f"{origin} has a breaking-change note"
-                  for line in footers(lines):
-                      footer = FOOTER.fullmatch(line)
-                      if not footer:
-                          continue
-                      if not footer[1] and footer[4]:
-                          return f"{origin} has a breaking-change note"
-                      if not footer[1] or footer[3] != ":":
-                          continue
-                      if footer[1].lower() == "release-as" and RELEASE_AS.match(footer[4]):
-                          return f"{origin} has a Release-As footer"
-                      if reason := entry(footer[1], footer[2], origin):
-                          return reason
-              return None
+                  reason = commit_releases(header, lines, index == 0 and not override, origin)
+                  broken = next((line for line in lines[1:] if UNPARSABLE.match(line)), None)
+                  if broken is None:
+                      found = found or reason
+                  elif reason and lost is None:
+                      lost = broken
+              return found, lost
 
 
           def fail(message):
@@ -169,13 +188,22 @@ jobs:
               f"change reaches users through a release ({TYPES}), or User-visible: no when it "
               "does not (docs, chore, refactor, test, build or ci)."
           )
-          reason = releases(title.strip(), body)
+          reason, lost = releases(title.strip(), body)
           if answers - {"yes", "no"}:
               fail(f"A User-visible line must answer yes or no. {how}")
           if answers == {"yes", "no"}:
               fail("The body answers both User-visible: yes and User-visible: no. Keep one.")
           if not answers:
               fail(f"The body has no User-visible line. {how}")
+          if lost is not None:
+              where = next((f"line {number} of the body" for number, line in enumerate(body.split("\n"), 1)
+                            if line.strip() == lost.strip()), "a line of the body")
+              fail(
+                  f"Release Please cannot parse {where}, so it would drop a change from the changelog: "
+                  "a line that starts with a word and an opening parenthesis, such as f(g(x)) or f(x, "
+                  "must close it before any other parenthesis. Indent that line or put a space before "
+                  "its first parenthesis."
+              )
           if answers == {"yes"} and not reason:
               fail(
                   "The body says User-visible: yes, but Release Please will not release this change: "

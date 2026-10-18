@@ -102,6 +102,8 @@ class UserVisibleLineTests(unittest.TestCase):
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
+        # An empty scope makes the parser drop that part.
+        self.assertDoesNotRelease("docs: x", "Prose.\n\nfix(): y")
         code, out = self._run("chore: x", "Prose.\n\nfeat(cli)!: y\n\nMore prose.\n\nUser-visible: yes")
         self.assertIn("will not release this change", out)
 
@@ -117,6 +119,26 @@ class UserVisibleLineTests(unittest.TestCase):
                             "the commit override has a fix entry")
         self.assertReleases("docs: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfix: y\nEND_NESTED_COMMIT",
                             "the body has a fix entry")
+
+    def test_a_line_release_please_cannot_parse_fails_when_it_drops_a_change(self):
+        # Release Please drops the whole commit, so the title's entry is lost.
+        for body in ("Prose.\n\nz.array(z.boolean())", "Prose.\n\n`f(g(x))`   ", "Prose.\n\nf(x\n\nMore."):
+            with self.subTest(body=body):
+                for answer in ("yes", "no"):
+                    self.assertFails("feat: x", f"{body}\n\nUser-visible: {answer}",
+                                     "Release Please cannot parse line 3 of the body")
+        # Code in a pull request body is the usual source.
+        for code in ("useEffect(() => {\n  load();\n}, []);", 'describe("x", () => {', "print(len(x))",
+                     "subprocess.run(\n    [\"x\"],\n)"):
+            with self.subTest(code=code):
+                self.assertFails("fix: x", f"Prose.\n\n```\n{code}\n```\n\nUser-visible: yes", "cannot parse line 4")
+        # A dropped entry part loses only that entry, which still fails.
+        self.assertFails("feat: x", "Prose.\n\nfix: y\nf(a(b))\n\nUser-visible: yes", "cannot parse line 4")
+        # Nothing that would release is lost, or the line parses.
+        self.assertPasses("docs: x", "Prose.\n\n```\nf(a(b))\n```\n\nUser-visible: no")
+        for line in ("  z.array(z.boolean())", "- f(g(x))", "f (g(x))", "f(x)(y)", "f()", "Prose ending f(g(x"):
+            with self.subTest(line=line):
+                self.assertPasses("feat: x", f"Prose.\n\n{line}\n\nUser-visible: yes")
 
     def test_the_line_is_required(self):
         for body in ("", "Prose with no answer.\n", "**User-visible:** yes", "- User-visible: yes",

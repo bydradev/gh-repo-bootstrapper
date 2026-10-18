@@ -444,7 +444,7 @@ Template-owned files get their own states:
 | `missing` | not present | written |
 | `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
-| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist, left behind by a retired template skill or a wrong `--type` | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
+| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
@@ -629,7 +629,7 @@ Full CI pipeline for Next.js applications.
 - `ci.yml`: runs the suite on every PR without the browser e2e lane; pushes
   to `main` add Chromium, and the Release Please merge (or a manual dispatch of
   `release-please.yml`) runs every Playwright project
-- `test.yml`: reusable suite: enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e
+- `test.yml`: reusable suite (enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e)
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
 - `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore`
@@ -761,23 +761,23 @@ test suite.
 
 Beyond file generation, the script applies GitHub configuration to the repo:
 
-- **Merge strategy**: squash-merge only; merge commits and rebase disabled,
+- **Merge strategy:** squash-merge only; merge commits and rebase disabled,
   and the default squash commit title and message are set to the PR title and
   body (the Conventional Commits text Release Please parses)
-- **Delete branch on merge**: enabled automatically
-- **Always suggest updating pull request branches**: enabled
-- **Projects**: enabled
-- **Actions permissions**: restricted to GitHub-owned and Marketplace-verified
+- **Delete branch on merge:** enabled automatically
+- **Always suggest updating pull request branches:** enabled
+- **Projects:** enabled
+- **Actions permissions:** restricted to GitHub-owned and Marketplace-verified
   actions, plus an explicit allowlist for `amannn/action-semantic-pull-request`
   (used by `pr-title-check.yml`) and, for `--type rust`, `dtolnay/rust-toolchain`
   and `Swatinem/rust-cache` (used by `test.yml`; both are user-owned, so the
   verified-creator rule does not cover them). Every action must also be pinned
   to a full commit SHA (`sha_pinning_required`).
-- **Workflow permissions**: default `read`, with GitHub Actions unable to
+- **Workflow permissions:** default `read`, with GitHub Actions unable to
   approve pull requests. Release Please uses its dedicated GitHub App token.
-- **Fork PR workflows**: disabled for private repos (no separate control
+- **Fork PR workflows:** disabled for private repos (no separate control
   exists for public repos; their fork-PR approval policy is left as-is)
-- **Branch protection on `main`**: requires the relevant status checks to pass
+- **Branch protection on `main`:** requires the relevant status checks to pass
   before merging, and requires a pull request with **zero** required approving
   reviews. That combination is deliberate: direct pushes to `main` are blocked
   (enforcing the convention in the generated `AGENTS.md`) without demanding

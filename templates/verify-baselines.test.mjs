@@ -167,7 +167,7 @@ test("counts every rule an inline ESLint configuration comment weakens", () => {
   assert.match(output, /Undocumented suppressions/);
   for (const rule of ["no-console", "example/rule-one", "max-len"])
     assert.match(output, new RegExp(`sample\\.ts: ${rule}\\n`));
-  assert.doesNotMatch(output, /sample\.ts: (code|ignoreUrls)/);
+  assert.doesNotMatch(output, /: (code|ignoreUrls)$/m);
 });
 
 test("does not count a rule that is only switched on", () => {

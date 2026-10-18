@@ -543,8 +543,8 @@ validators refuse the word anywhere else, comments and URLs included. In
 `nextjs`, another says which step names the baseline review reads. `--check`
 reports the file as `stale`, and `--adopt` updates it. A repository that kept its
 0.11.0 `release-please.yml` for that reason can take it now, which also brings
-in 0.12.0's credentials check (see
-[GitHub App — Release Please](#github-app--release-please)).
+in 0.12.0's credentials check, which the section on the Release Please GitHub
+App below describes.
 
 For `nextjs`, the weekly baseline review no longer counts a release that was
 skipped for missing credentials as healthy. When the latest completed

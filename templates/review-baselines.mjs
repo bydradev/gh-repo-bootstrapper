@@ -261,12 +261,12 @@ function releaseHealth(latest, lastSuccess, evidence) {
   if (evidence.jobs && evidence.skipped === evidence.jobs)
     return {
       actionable: true,
-      line: `- Release pipeline: not configured — the latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago) skipped the release because the \`RELEASE_PLEASE_CLIENT_ID\` variable or \`RELEASE_PLEASE_APP_KEY\` secret is not set or not available to it; releases stay skipped until a run can read both.`,
+      line: `- Release pipeline: not configured. The latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago) skipped the release because the \`RELEASE_PLEASE_CLIENT_ID\` variable or \`RELEASE_PLEASE_APP_KEY\` secret is not set or not available to it; releases stay skipped until a run can read both.`,
     };
   if (evidence.released < evidence.jobs)
     return {
       actionable: true,
-      line: `- Release pipeline: ${evidence.released ? "partly released" : "not released"} — in the latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago), ${evidence.jobs - evidence.released} of ${evidence.jobs} release job${evidence.jobs === 1 ? "" : "s"} did not release: ${unreleasedJobs(evidence)}.`,
+      line: `- Release pipeline: ${evidence.released ? "partly released" : "not released"}. In the latest \`release-please.yml\` run (${latestAt}, ${latestAge} days ago), ${evidence.jobs - evidence.released} of ${evidence.jobs} release job${evidence.jobs === 1 ? "" : "s"} did not release: ${unreleasedJobs(evidence)}.`,
     };
   if (successAge > releaseStaleDays)
     return {

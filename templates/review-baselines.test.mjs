@@ -453,7 +453,7 @@ test("reports a release skipped for missing credentials as not configured", asyn
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: not configured — the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\) skipped the release because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it; releases stay skipped until a run can read both\./,
+    /Release pipeline: not configured\. The latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\) skipped the release because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it; releases stay skipped until a run can read both\./,
   );
   assert.doesNotMatch(output, /Release pipeline: last successful/);
   assert.deepEqual(
@@ -475,7 +475,7 @@ test("reports a skipped release older than the stale threshold as not configured
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: not configured — the latest `release-please\.yml` run \(2\d{3}-[^,]+, 15 days ago\)/,
+    /Release pipeline: not configured\. The latest `release-please\.yml` run \(2\d{3}-[^,]+, 15 days ago\)/,
   );
   assert.doesNotMatch(output, /Release pipeline: stale/);
 });
@@ -525,7 +525,7 @@ test("reports a release job that did not start as not released", async () => {
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: not released — in the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\), 1 of 1 release job did not release: 1 did not start\./,
+    /Release pipeline: not released\. In the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\), 1 of 1 release job did not release: 1 did not start\./,
   );
   assert.doesNotMatch(output, /Release pipeline: last successful/);
 });
@@ -540,7 +540,7 @@ test("reports a run where only some release jobs released as partly released", a
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: partly released — in the latest `release-please\.yml` run \([^)]+\), 1 of 2 release jobs did not release: 1 skipped its App token step because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it\./,
+    /Release pipeline: partly released\. In the latest `release-please\.yml` run \([^)]+\), 1 of 2 release jobs did not release: 1 skipped its App token step because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it\./,
   );
   assert.doesNotMatch(output, /not configured/);
 });
@@ -566,7 +566,7 @@ test("reports an App token step that neither ran nor was skipped as not released
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: not released — .*1 of 1 release job did not release: 1 ran an App token step that concluded failure\./,
+    /Release pipeline: not released\. .*1 of 1 release job did not release: 1 ran an App token step that concluded failure\./,
   );
 });
 
@@ -603,7 +603,7 @@ test("reports unavailable release jobs without claiming the release healthy", as
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: could not be determined — Release Please jobs API returned 403/,
+    /Release pipeline: could not be determined\W+Release Please jobs API returned 403/,
   );
   assert.doesNotMatch(output, /Release pipeline: last successful/);
 });
@@ -617,7 +617,7 @@ test("reports a successful release run without a run id as undetermined", async 
   assert.equal(code, 1);
   assert.match(
     output,
-    /Release pipeline: could not be determined — Release Please API returned a completed run without a run id/,
+    /Release pipeline: could not be determined\W+Release Please API returned a completed run without a run id/,
   );
 });
 

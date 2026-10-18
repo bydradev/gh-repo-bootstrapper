@@ -117,9 +117,8 @@ _GENERAL_SKILLS = (
 # generate as `(--type)`, and --adopt refuses. Before removing a skill from one
 # type while keeping it in another, plan how existing repositories of the
 # first type drop their stamped copy, or adopt will refuse.
-# Every skill has a row in the hub's skills table (_TYPE_SKILL_ROWS) except
-# those in validate_templates.SKILLS_WITHOUT_HUB_ROW, which another listed
-# skill names instead, to keep the hub within its byte budget.
+# Every skill has a row in the hub's skills table: the general skills in
+# templates/AGENTS.md, the rest in _TYPE_SKILL_ROWS and _SCREENSHOT_SKILL_ROW.
 TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "simple": _GENERAL_SKILLS,
     "python": _GENERAL_SKILLS + ("local-validation-python",),
@@ -1313,6 +1312,7 @@ _TYPE_SKILL_ROWS = {
     "nextjs": (
         "| run local validation | `local-validation-nextjs` |\n",
         "| touch lint or audit baselines | `baseline-process` |\n",
+        "| change robots, sitemaps or indexing | `public-site-indexing` |\n",
     ),
     "swift": ("| run local validation | `local-validation-swift` |\n",),
     "rust": ("| run local validation | `local-validation-rust` |\n",),

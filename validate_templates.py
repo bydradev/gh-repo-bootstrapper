@@ -24,8 +24,7 @@ Checks performed on each generated file:
     each phrase in the hub or in the template-owned skill that now owns it
   - AGENTS.md hub structure: the generated part fits its byte budget, has no
     bare `@path` imports, and points only at skills the render contains,
-    and every rendered skill has a row or is named by the listed skill
-    SKILLS_WITHOUT_HUB_ROW gives for it; each type's review-guidelines skill
+    and every rendered skill has a row; each type's review-guidelines skill
     carries that type's stack section and no other;
     every SKILL.md has valid agentskills.io frontmatter with a unique name;
     relative Markdown links in the hub and in every SKILL.md resolve from
@@ -368,13 +367,6 @@ HUB_CEILING_BYTES = 10_000
 AT_IMPORT_RE = re.compile(r"(^|\s)@[\w./-]+")
 INLINE_CODE_RE = re.compile(r"(`+)(?!`).+?(?<!`)\1(?!`)", re.DOTALL)
 SKILLS_HEADING = "## Skills"
-# Skills reached through another skill instead of a row in the hub's skills
-# table, to keep the hub within HUB_BUDGET_BYTES: {skill: listed skill that
-# must name it}. Harnesses with skill support also load them by description.
-SKILLS_WITHOUT_HUB_ROW = {
-    "public-site-indexing": "local-validation-nextjs",
-    "review-guidelines": "fresh-eyes-review",
-}
 SKILL_ROW_RE = re.compile(r"^\|.*\|\s*`([^`]+)`\s*\|\s*$")
 SKILL_PATH_RE = re.compile(r"^\.agents/skills/([^/]+)/SKILL\.md$")
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -775,9 +767,8 @@ def _hub_skill_names(agents: str) -> list:
 def check_skill_pointers(label: str, files: dict) -> list:
     """The hub's `## Skills` table and the rendered skills match both ways.
 
-    A skill without a row is never loaded, because the table is how a harness
-    without native skill support finds it. The one exception is a skill in
-    SKILLS_WITHOUT_HUB_ROW, which the listed skill it names must point at.
+    A skill without a row is never loaded by a harness without native skill
+    support, because the table is how it finds skills.
     """
     names = _hub_skill_names(files.get(HUB, ""))
     if not names:
@@ -787,25 +778,14 @@ def check_skill_pointers(label: str, files: dict) -> list:
         if path.startswith(".agents/skills/") and path.endswith("/SKILL.md")
     )
 
-    def unreached(name: str) -> Optional[str]:
-        """None when a listed skill names `name`, else why it is not reached."""
-        parent = SKILLS_WITHOUT_HUB_ROW.get(name)
-        if parent is None:
-            return ""
-        if parent not in names:
-            return f", nor does {parent!r}, the skill that must name it"
-        if f"`{name}`" not in _unfenced(files.get(_skill_path(parent), "")):
-            return f" and listed skill {parent!r} does not name it"
-        return None
-
     return [
         f"[{label}] AGENTS.md points at skill {name!r}, but {_skill_path(name)} is not generated"
         for name in names
         if _skill_path(name) not in files
     ] + [
-        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table{unreached(name)}"
+        f"[{label}] {_skill_path(name)} is generated but has no row in the AGENTS.md skills table"
         for name in rendered
-        if name not in names and unreached(name) is not None
+        if name not in names
     ]
 
 
@@ -3725,24 +3705,6 @@ def _structure_self_tests() -> list:
     unlisted = dict(files)
     unlisted[HUB] = files[HUB].replace("| fan out to subagents | `delegation` |\n", "", 1)
     expect("generated skill without a row", check_skill_pointers("self-test:ptr", unlisted), "has no row")
-    # A skill without a row passes only while its listed parent skill names it.
-    for name, parent in SKILLS_WITHOUT_HUB_ROW.items():
-        unnamed = dict(files)
-        if f"`{name}`" not in files.get(_skill_path(parent), ""):
-            errors.append(f"self-test 'skill reached through {parent}' fixture: {parent} does not name {name}")
-        unnamed[_skill_path(parent)] = files[_skill_path(parent)].replace(f"`{name}`", "another skill")
-        expect(f"{name} not named by {parent}", check_skill_pointers("self-test:ptr", unnamed), "does not name it")
-        # Naming it is not enough when the parent itself has no row.
-        orphaned = dict(files)
-        row = next((line for line in files[HUB].splitlines(keepends=True) if f"| `{parent}` |" in line), "")
-        if not row:
-            errors.append(f"self-test '{name} under unlisted {parent}' fixture: the hub has no {parent} row")
-        orphaned[HUB] = files[HUB].replace(row, "", 1) if row else files[HUB]
-        expect(
-            f"{name} under unlisted {parent}",
-            check_skill_pointers("self-test:ptr", orphaned),
-            f"{_skill_path(name)} is generated but has no row in the AGENTS.md skills table, nor does {parent!r}",
-        )
 
     # (d) frontmatter: unterminated, over-long description, name/dir mismatch,
     # bad name characters, empty description.

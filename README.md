@@ -213,7 +213,9 @@ type's tooling commands, a skills table, and `## Project specifics` last.
 Unless a request says otherwise, the hub counts a code change as done when its
 PR is open, its checks pass and review findings are resolved; merging still
 needs explicit authorization. Detailed procedures live in skills that load
-when they're relevant:
+when they're relevant. Harnesses with skill support load them by their
+descriptions; the hub's skills table gives each one a row saying when to load
+it, for every session and for harnesses without skill support:
 
 | Skill (`.agents/skills/<name>/SKILL.md`) | Types |
 |---|---|
@@ -246,11 +248,7 @@ and formatter scope as generated, and says which repository file to check for
 the current ones. It tells agents to load first a repository-owned validation
 skill named in `## Project specifics`, which governs where it is narrower, so
 a repository keeps its own tiers, ports and test-server notes there rather
-than in `AGENTS.md`. `public-site-indexing` has no row in the hub's skills
-table, which keeps the Next.js hub within its byte budget: harnesses with
-skill support load it by its description, and `local-validation-nextjs`
-points at it. For the same reason `review-guidelines` has no row:
-`fresh-eyes-review` and both reviewer agents name it.
+than in `AGENTS.md`.
 
 Reviews are split by role. `fresh-eyes-review` is the implementer's side: when
 substantial work needs a review, what to hand the reviewer, and how to handle
@@ -558,12 +556,21 @@ Every type gains the `review-guidelines` skill, for the agent doing a review.
 handling findings, and both reviewer agents load `review-guidelines` instead
 of `fresh-eyes-review`. `--check` reports the new skill and its
 `.claude/skills` mirror as `missing`, and the changed skill and agents as
-`stale`; `--adopt` writes them. The hub does not change. A repository that
-already has a skill of its own named `review-guidelines` renames it first:
-`--adopt` refuses to replace it but still points the reviewer agents at that
-name. To keep a repository's own review rules, add them under `## Project specifics` as a
+`stale`; `--adopt` writes them. A repository that already has a skill of its
+own named `review-guidelines` renames it first: `--adopt` refuses to replace
+it but still points the reviewer agents at that name. To keep a
+repository's own review rules, add them under `## Project specifics` as a
 `### Code review rules` subsection: a few bullets naming what a change must
 preserve.
+
+The hub's skills table now has a row for every skill: every type gains one
+for `review-guidelines`, and `nextjs` one for `public-site-indexing`, which
+had none. To make room, the `nextjs` *Tooling* section drops its paragraph on
+running `npm run test:e2e` for UI changes, which is now that command's
+comment (`local-validation-nextjs` still covers `npm run test:e2e:local`).
+`--check` reports *Skills*, and for `nextjs` *Tooling*, as `differs`; take
+them with `--adopt --replace-generated-sections`, after the comparison the
+0.12.0 notes below describe.
 
 ### Upgrading to 0.12.1
 

@@ -332,6 +332,7 @@ class SecretsWordTests(unittest.TestCase):
 
 class ReleaseStepNameTests(unittest.TestCase):
     SCRIPT = (
+        'const releaseJobName = "release-please";\n'
         'const releaseCredentialsStep = "Check Release Please credentials";\n'
         'const releaseTokenStep = "Generate GitHub App token";\n'
     )
@@ -366,7 +367,16 @@ class ReleaseStepNameTests(unittest.TestCase):
              "is named ['Generate GitHub App token', 'Generate GitHub App token']"),
             (self.SCRIPT.replace("const releaseTokenStep", "let releaseTokenStep"), self.WORKFLOW,
              "no longer defines releaseTokenStep"),
-            (self.SCRIPT, "jobs: [\n", "'credentials' is named nowhere"),
+            (self.SCRIPT, "jobs: [\n", "has no job 'release-please'"),
+            (self.SCRIPT.replace('"release-please"', '"release"'), self.WORKFLOW, "has no job 'release'"),
+            (self.SCRIPT.replace("const releaseJobName", "let releaseJobName"), self.WORKFLOW,
+             "no longer defines releaseJobName"),
+            (self.SCRIPT, self.WORKFLOW.replace("  release-please:\n", "  release-please:\n    name: Release\n"),
+             "is named 'Release'"),
+            (self.SCRIPT,
+             self.WORKFLOW.replace("      - name: Generate GitHub App token\n        id: app-token\n", "")
+             + "  other:\n    steps:\n      - name: Generate GitHub App token\n        id: app-token\n",
+             "job 'release-please' step id 'app-token' is named nowhere"),
         ):
             with self.subTest(needle):
                 errors = self._check(script, workflow)

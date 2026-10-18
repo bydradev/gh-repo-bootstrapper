@@ -44,9 +44,10 @@ jobs:
       # variable or secret reads as an empty string. Source: docs.github.com
       # "Contexts reference" (context availability, and "Available contexts" on
       # a property that does not exist) and "Evaluate expressions", checked
-      # 2026-10-17. scripts/review-baselines.mjs reads this step's name and the
-      # token step's to tell a skipped release from one that ran, so rename
-      # them only together with it.
+      # 2026-10-17. scripts/review-baselines.mjs reads this job's id and the
+      # names of this step and the token step, all in this job, to tell a
+      # skipped release from one that ran, so rename or move them only together
+      # with it.
       - name: Check Release Please credentials
         id: credentials
         env:

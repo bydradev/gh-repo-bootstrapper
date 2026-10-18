@@ -105,6 +105,7 @@ async function runFixture({
   unfilteredReleaseRuns = latestReleaseRuns,
   successfulReleaseRuns = latestReleaseRuns,
   releaseJobs = [testJob, releaseJob("success")],
+  releaseJobPages,
   token = true,
   dependabotStatus = 200,
   releaseStatus = 200,
@@ -151,7 +152,23 @@ async function runFixture({
     }
     if (/^\/repos\/bydradev\/fixture\/actions\/runs\/\d+\/jobs$/.test(url.pathname)) {
       response.statusCode = jobsStatus;
-      response.end(JSON.stringify({ total_count: releaseJobs.length, jobs: releaseJobs }));
+      if (!releaseJobPages) {
+        response.end(JSON.stringify({ total_count: releaseJobs.length, jobs: releaseJobs }));
+        return;
+      }
+      const page = Number(url.searchParams.get("page") ?? "1");
+      if (page < releaseJobPages.length) {
+        const next = new URL(url.pathname, `http://127.0.0.1:${server.address().port}`);
+        next.search = url.search;
+        next.searchParams.set("page", String(page + 1));
+        response.setHeader("link", `<${next}>; rel="next", <${next}>; rel="last"`);
+      }
+      response.end(
+        JSON.stringify({
+          total_count: releaseJobPages.flat().length,
+          jobs: releaseJobPages[page - 1],
+        }),
+      );
       return;
     }
     response.statusCode = 404;
@@ -476,6 +493,81 @@ test("reports a release whose App token step ran as healthy", async () => {
   );
   assert.doesNotMatch(output, /not configured/);
   assert.equal(requests.filter((request) => request.includes("/jobs")).length, 1);
+});
+
+test("reads every page of jobs before judging the release", async () => {
+  // The release job is on the second page, after 100 others.
+  const filler = Array.from({ length: 100 }, (_, index) => ({
+    ...testJob,
+    name: `test / ${index}`,
+  }));
+  const { code, output, requests } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobPages: [filler, [releaseJob("skipped")]],
+  });
+  assert.equal(code, 1);
+  assert.match(output, /Release pipeline: not configured/);
+  assert.equal(requests.filter((request) => request.includes("/jobs")).length, 2);
+});
+
+test("reports a release job that did not start as not released", async () => {
+  // A customised release job whose own condition was false: GitHub lists it
+  // as skipped, with no steps.
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [
+      testJob,
+      { name: "release-please", status: "completed", conclusion: "skipped", steps: [] },
+    ],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: not released — in the latest `release-please\.yml` run \(2\d{3}-[^,]+, 0 days ago\), 1 of 1 release job did not release: 1 did not start\./,
+  );
+  assert.doesNotMatch(output, /Release pipeline: last successful/);
+});
+
+test("reports a run where only some release jobs released as partly released", async () => {
+  const second = { ...releaseJob("success"), name: "release-please-docs" };
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [testJob, releaseJob("skipped"), second],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: partly released — in the latest `release-please\.yml` run \([^)]+\), 1 of 2 release jobs did not release: 1 skipped its App token step because the `RELEASE_PLEASE_CLIENT_ID` variable or `RELEASE_PLEASE_APP_KEY` secret is not set or not available to it\./,
+  );
+  assert.doesNotMatch(output, /not configured/);
+});
+
+test("reports every release job skipped for missing credentials as not configured", async () => {
+  const second = { ...releaseJob("skipped"), name: "release-please-docs" };
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [testJob, releaseJob("skipped"), second],
+  });
+  assert.equal(code, 1);
+  assert.match(output, /Release pipeline: not configured/);
+});
+
+test("reports an App token step that neither ran nor was skipped as not released", async () => {
+  // A customised workflow that lets the token step fail without failing the run.
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    releaseJobs: [testJob, releaseJob("failure")],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: not released — .*1 of 1 release job did not release: 1 ran an App token step that concluded failure\./,
+  );
 });
 
 test("judges a release workflow without the credentials check by its conclusion", async () => {

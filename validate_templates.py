@@ -45,9 +45,10 @@ Checks performed on each generated file:
   - the word `secrets`: every generated workflow, and the bootstrapper's own,
     uses it only as a static secrets.NAME or a `secrets:` mapping key, as
     some generated repositories' raw-text workflow validators require
-  - release step names: in a Next.js render, the release job's credentials
-    and App token steps keep the names scripts/review-baselines.mjs reads to
-    tell a skipped release from one that ran
+  - release step names: in a Next.js render, the release job keeps the id,
+    and its credentials and App token steps the names, that
+    scripts/review-baselines.mjs reads to tell a skipped release from one that
+    ran
   - runbook presence: every generated repo carries
     docs/branch-protection-runbook.md with the load-bearing operational facts,
     and without the incident run IDs, SHAs and timestamps kept in docs/archive/
@@ -2234,38 +2235,50 @@ def check_secrets_word(label: str, files: dict) -> list:
 
 
 # The weekly baseline review tells a release skipped for missing credentials
-# from a real one by the release job's step names, so a renamed step would make
-# every skipped release read as healthy again.
-REVIEW_STEP_NAME_RE = re.compile(r'^const (releaseCredentialsStep|releaseTokenStep) = "([^"]*)";$', re.MULTILINE)
+# from a real one by the release job's id and the names of two of its steps,
+# so a renamed job or step, or a step moved to another job, would make a
+# skipped release read as healthy again.
+REVIEW_NAME_RE = re.compile(
+    r'^const (releaseJobName|releaseCredentialsStep|releaseTokenStep) = "([^"]*)";$', re.MULTILINE
+)
 REVIEW_STEP_IDS = {"releaseCredentialsStep": "credentials", "releaseTokenStep": "app-token"}
 
 
 def check_release_step_names(label: str, files: dict) -> list:
-    """The release steps the baseline review reads keep the names it looks for."""
+    """The release job the baseline review reads keeps its id and both step names."""
     script = files.get("scripts/review-baselines.mjs")
     if script is None:
         return []
-    errors = []
-    names = dict(REVIEW_STEP_NAME_RE.findall(script))
+    names = dict(REVIEW_NAME_RE.findall(script))
+    missing = [name for name in ("releaseJobName", *REVIEW_STEP_IDS) if name not in names]
+    if missing:
+        return [f"[{label}] scripts/review-baselines.mjs no longer defines {name}" for name in missing]
+    job_name = names["releaseJobName"]
     try:
         workflow = yaml.safe_load(files.get(".github/workflows/release-please.yml", "")) or {}
-        steps = [
-            step
-            for job in (workflow.get("jobs") or {}).values()
-            for step in (job or {}).get("steps") or []
-            if isinstance(step, dict)
-        ]
+        job = (workflow.get("jobs") or {}).get(job_name)
     except (AttributeError, yaml.YAMLError):
-        steps = []
+        job = None
+    if not isinstance(job, dict):
+        return [
+            f"[{label}] release-please.yml has no job {job_name!r}, which "
+            f"scripts/review-baselines.mjs reads as the release job; rename them together"
+        ]
+    errors = []
+    # GitHub reports a job without a name: by its id, which is what the script compares.
+    if job.get("name", job_name) != job_name:
+        errors.append(
+            f"[{label}] release-please.yml job {job_name!r} is named {job['name']!r}, but "
+            f"scripts/review-baselines.mjs looks for {job_name!r}; drop the name or rename them together"
+        )
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
     for constant, step_id in REVIEW_STEP_IDS.items():
-        if constant not in names:
-            errors.append(f"[{label}] scripts/review-baselines.mjs no longer defines {constant}")
-            continue
         found = [step.get("name") for step in steps if step.get("id") == step_id]
         if found != [names[constant]]:
             errors.append(
-                f"[{label}] release-please.yml step id {step_id!r} is named {found or 'nowhere'}, but "
-                f"scripts/review-baselines.mjs reads it as {names[constant]!r}; rename them together"
+                f"[{label}] release-please.yml job {job_name!r} step id {step_id!r} is named "
+                f"{found or 'nowhere'}, but scripts/review-baselines.mjs reads it as "
+                f"{names[constant]!r} in that job; rename or move them together"
             )
     return errors
 
@@ -4081,6 +4094,18 @@ def _structure_self_tests() -> list:
     expect("step name constant removed from the script",
            step_names(script=lambda t: t.replace("const releaseTokenStep =", "const tokenStep =", 1)),
            "no longer defines releaseTokenStep")
+    expect("token step moved to another job",
+           step_names(workflow=lambda t: t.replace("        id: app-token\n", "        id: app-token-moved\n", 1)
+                      + "  other:\n    runs-on: ubuntu-latest\n    steps:\n"
+                      "      - name: Generate GitHub App token\n        id: app-token\n        run: true\n"),
+           "job 'release-please' step id 'app-token' is named nowhere")
+    expect("release job given another name",
+           step_names(workflow=lambda t: t.replace(
+               "  release-please:\n    needs: test\n", "  release-please:\n    name: Release\n    needs: test\n", 1)),
+           "is named 'Release'")
+    expect("release job id changed",
+           step_names(workflow=lambda t: t.replace("  release-please:\n    needs: test\n", "  release:\n    needs: test\n", 1)),
+           "has no job 'release-please'")
 
     # This repository's own agent files: a copy of the render passes, Project
     # specifics are its own, and an edited, stale, missing, unstamped or extra

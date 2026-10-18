@@ -51,9 +51,9 @@ anything installed beyond a base Python interpreter.
   only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
   because some generated repositories run workflow validators that refuse it
   anywhere else, comments and URLs included
-- in `nextjs`, the release job's credentials and App token steps keeping the
-  names the weekly baseline review reads to tell a skipped release from one
-  that ran
+- in `nextjs`, the release job keeping the `release-please` id and its
+  credentials and App token steps the names the weekly baseline review reads
+  to tell a skipped release from one that ran
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
@@ -548,10 +548,14 @@ in 0.12.0's credentials check (see
 
 For `nextjs`, the weekly baseline review no longer counts a release that was
 skipped for missing credentials as healthy. When the latest completed
-`release-please.yml` run succeeded, it reads that run's jobs, and if the run
-checked the Release Please credentials and skipped its App token step, it
+`release-please.yml` run succeeded, it reads that run's jobs. If every job
+that checked the Release Please credentials skipped its App token step, it
 reports `Release pipeline: not configured` and fails, as the review did before
-0.12.0, when such runs failed. `scripts/review-baselines.mjs` and
+0.12.0, when such runs failed. If the `release-please` job did not start, or
+only some release jobs ran their token step, it reports `not released` or
+`partly released` and fails. A run with no job that has both steps and no
+skipped `release-please` job, as from a customised workflow, is judged as
+before. `scripts/review-baselines.mjs` and
 `scripts/review-baselines.test.mjs` belong to the repository, so `--adopt`
 keeps them and `--check` reports them as `differs`, even when they are
 unchanged from 0.12.0. Copy both from `templates/` at the `v0.12.1` tag, or

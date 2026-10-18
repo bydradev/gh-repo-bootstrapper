@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.12.1...v0.13.0) (2026-10-18)
+
+
+### Features
+
+* add a review-guidelines skill for the reviewer agents ([#111](https://github.com/bydradev/gh-repo-bootstrapper/issues/111)) ([b73ef3f](https://github.com/bydradev/gh-repo-bootstrapper/commit/b73ef3f077930e69a9aa8bc47e95cc446b265891))
+* give every skill a row in the AGENTS.md skills table ([b73ef3f](https://github.com/bydradev/gh-repo-bootstrapper/commit/b73ef3f077930e69a9aa8bc47e95cc446b265891))
+
 ## [0.12.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.12.0...v0.12.1) (2026-10-18)
 
 

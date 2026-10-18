@@ -20,7 +20,7 @@ npm audit --omit=dev
 
 Note the absence of `--audit-level`. CI runs `npm run audit:production`, which reads
 `npm audit --omit=dev --json` and requires a row in the table below for **every** reported
-advisory — a `low` finding blocks the build exactly as a `critical` one does. `--audit-level`
+advisory: a `low` finding blocks the build exactly as a `critical` one does. `--audit-level`
 sets only npm's own exit code and does not filter the JSON report, and the checker gates on that
 report rather than on npm's exit code, so a threshold in this command would describe a gate that
 does not exist.
@@ -29,7 +29,7 @@ The checker derives its runtime allowlist from this table and fails closed if th
 missing or malformed. A row in this document is therefore the only way an accepted runtime
 advisory can pass the production audit.
 
-Severity still governs *urgency* — how fast a finding must be fixed rather than accepted — but it
+Severity still governs *urgency* (how fast a finding must be fixed rather than accepted), but it
 does not govern whether the finding needs a row. Everything does.
 
 A row in this document must never be used to accept a production finding before the fix and upgrade
@@ -60,9 +60,9 @@ undocumented dismissal.
 
 ## Considered alternatives (not adopted)
 
-- **Dismiss the Dependabot alert without a documented row** — rejected because its rationale and
+- **Dismiss the Dependabot alert without a documented row**: rejected because its rationale and
   expiry condition disappear from review.
-- **Accept a production finding rather than fixing or upgrading it** — rejected because the
+- **Accept a production finding rather than fixing or upgrading it**: rejected because the
   production audit floor admits no undocumented finding at any severity.
-- **Record every development advisory indefinitely** — rejected; record only decisions that cannot
+- **Record every development advisory indefinitely**: rejected; record only decisions that cannot
   currently be fixed, with a trigger that forces the decision to be revisited.

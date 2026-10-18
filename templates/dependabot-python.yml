@@ -13,7 +13,7 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-    # Hold core tooling at their current major — a major bump needs deliberate
+    # Hold core tooling at their current major: a major bump needs deliberate
     # adoption, not an auto-merge.
     ignore:
       - dependency-name: ruff

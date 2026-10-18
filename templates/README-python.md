@@ -25,7 +25,7 @@ uv venv
 source .venv/bin/activate
 ```
 
-After adding project dependencies, use the matching `uv` command — for example,
+After adding project dependencies, use the matching `uv` command, for example
 `uv sync` for a uv-managed `pyproject.toml`, or
 `uv pip install -r requirements-dev.txt` for a requirements-based project.
 
@@ -59,5 +59,5 @@ python -m pytest
 
 ## Project guide
 
-- `AGENTS.md` — branch, commit, pull-request, and validation workflow.
-- `docs/branch-protection-runbook.md` — how to unblock required GitHub checks.
+- `AGENTS.md`: branch, commit, pull-request, and validation workflow.
+- `docs/branch-protection-runbook.md`: how to unblock required GitHub checks.

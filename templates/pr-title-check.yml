@@ -15,7 +15,7 @@ concurrency:
 jobs:
   validate-title:
     # Skip three classes of PR that cannot benefit from title validation:
-    # already-merged PRs (editing the body — e.g. ticking a task-list box —
+    # already-merged PRs (editing the body, e.g. ticking a task-list box,
     # re-fires `edited`, but the squash subject is already in history and
     # cannot change), Release Please PRs (machine-generated titles, and rapid
     # events trip cancel-in-progress into spurious failures; only a bot's PR

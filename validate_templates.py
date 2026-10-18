@@ -317,7 +317,10 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("After three rounds with a blocking finding still open", REVIEW_SKILL),
     # A reviewer that takes over from another still rules on that reviewer's
     # open blockers, so a disputed P0 or P1 cannot lapse with the handover.
-    ("check each *Open* or *Partly fixed* P0 or P1 in another reviewer's report", REVIEW_SKILL),
+    (
+        "each P0 or P1 that another reviewer's latest report on this change left *Open* or *Partly fixed*",
+        REVIEW_SKILL,
+    ),
     # A change that edits the reviewer's own rules is reviewed under the old ones.
     ("When it edits this skill, follow the base branch's copy", REVIEW_SKILL),
     ("If the base branch has none, as on a first adoption, follow the head copy.", REVIEW_SKILL),

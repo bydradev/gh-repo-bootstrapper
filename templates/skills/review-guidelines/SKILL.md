@@ -53,10 +53,10 @@ to handle findings) is in `fresh-eyes-review`.
 5. **Earlier reviews.** Look for your own earlier reports on this change, on
    the pull request or in the handoff: those whose *Reviewer* line names your
    tool. None means an initial review; otherwise run a follow-up review.
-   Either way, check each *Open* or *Partly fixed* P0 or P1 in another
-   reviewer's report on the head you review, weigh any reply to it as
-   *Follow-up review* says, and list it under *Earlier findings* by that
-   reviewer's name, such as "Codex R1-03".
+   Either way, verify on the head you review each P0 or P1 that another
+   reviewer's latest report on this change left *Open* or *Partly fixed*,
+   weigh any reply to it as *Follow-up review* says, and list it under
+   *Earlier findings* by that reviewer's name, such as "Codex R1-03".
 
 ## Initial review
 

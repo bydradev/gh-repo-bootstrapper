@@ -38,9 +38,15 @@ class ReviewGuidelinesTest(unittest.TestCase):
     def test_both_reviewer_agents_load_the_skill(self):
         files = validate_templates.bootstrap.generate_files(next(
             cfg for _, cfg in validate_templates.configurations() if cfg["repo_type"] == "simple"))
-        for path in (validate_templates.CLAUDE_REVIEWER, validate_templates.OPENCODE_REVIEWER):
+        # A change that edits the skill is reviewed under the base branch's copy.
+        base_copy = {
+            validate_templates.CLAUDE_REVIEWER: "follow the base branch's copy instead",
+            validate_templates.OPENCODE_REVIEWER: "ask for the base branch's copy and follow that",
+        }
+        for path, phrase in base_copy.items():
             with self.subTest(path=path):
                 self.assertIn("`.agents/skills/review-guidelines/SKILL.md`", files[path])
+                self.assertIn(phrase, files[path])
 
 
 class RunbookTest(unittest.TestCase):

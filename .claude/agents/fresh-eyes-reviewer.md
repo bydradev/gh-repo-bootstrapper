@@ -3,6 +3,6 @@ name: fresh-eyes-reviewer
 description: Use for an independent review of a change, before it is declared complete or ready, or when a person asks for one.
 tools: Read, Grep, Glob, Bash
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=182f233973ffaf841333a607c04a53c26b0eb9428a342c1007cb8abeb3077cdf -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=c9c2be034984f6d250badbbfdfb45af03f2046723e854dbc7f00e86dbff6c12b -->
 
-Load the `review-guidelines` skill (`.agents/skills/review-guidelines/SKILL.md`) and follow it. Do not modify files: use Bash only for read-only commands, such as `git diff`, `git log`, `git show`, and `git range-diff`. Report in the skill's format, with file:line evidence.
+Load the `review-guidelines` skill (`.agents/skills/review-guidelines/SKILL.md`) and follow it; if the change under review edits that file, follow the base branch's copy instead (`git show <base>:.agents/skills/review-guidelines/SKILL.md`). Do not modify files: use Bash only for read-only commands, such as `git diff`, `git log`, `git show`, and `git range-diff`. Report in the skill's format, with file:line evidence.

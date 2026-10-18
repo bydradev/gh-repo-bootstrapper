@@ -265,7 +265,8 @@ its own review rules as a `### Code review rules` subsection of
 The reviewer runs as a separate agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
-`review-guidelines` skill. Neither gets a built-in edit tool. The implementer
+`review-guidelines` skill, or its base branch copy when the change under
+review edits it. Neither gets a built-in edit tool. The implementer
 starts it for a fresh-eyes review, or a person starts it on a branch or pull
 request.
 

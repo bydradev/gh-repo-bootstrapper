@@ -25,8 +25,8 @@ jobs:
       # variable or RELEASE_PLEASE_APP_KEY secret is unset, or not available to
       # this run, warn and skip the steps below instead of failing at the token
       # step. The step gets only whether each one is set, because a secret
-      # cannot be read in an `if:` (docs.github.com "Using secrets in GitHub
-      # Actions", checked 2026-10-16).
+      # cannot be read in an `if:` (docs.github.com "Contexts reference",
+      # context availability, checked 2026-10-17).
       - name: Check Release Please credentials
         id: credentials
         env:

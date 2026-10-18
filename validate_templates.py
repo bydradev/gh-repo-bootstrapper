@@ -42,6 +42,13 @@ Checks performed on each generated file:
   - release-gated full-suite contract: rendered Python, Swift, and Rust
     release-please.yml callers must select the full suite for manual dispatch
     and for the Release Please release commit
+  - the word `secrets`: every generated workflow, and the bootstrapper's own,
+    uses it only as a static secrets.NAME or a `secrets:` mapping key, as
+    some generated repositories' raw-text workflow validators require
+  - release step names: in a Next.js render, the release job keeps the id,
+    and its credentials and App token steps the names, that
+    scripts/review-baselines.mjs reads to tell a skipped release from one that
+    ran
   - runbook presence: every generated repo carries
     docs/branch-protection-runbook.md with the load-bearing operational facts,
     and without the incident run IDs, SHAs and timestamps kept in docs/archive/
@@ -2192,6 +2199,90 @@ def _workflow_hardening(label: str, files: dict) -> list:
     return errors
 
 
+# Some generated repositories run workflow validators that scan each workflow's
+# raw bytes, comments included: without a YAML parser a scan cannot tell a
+# comment from script text, and a scan for static secrets.NAME references
+# cannot see the names a dynamic read such as toJSON(...) or an index computes.
+# They refuse every word `secrets`, in any letter case, that is neither
+# followed by `.NAME` nor a `secrets:` key that ends its line and opens a
+# deeper `name:` mapping, so a URL slug such as `use-secrets` fails too. Those
+# repositories cannot edit a template-owned workflow, so the templates keep to
+# the same rule: these are those validators' regexes, applied the same way to
+# the UTF-8 bytes.
+SECRETS_WORD_RE = re.compile(rb"\bsecrets\b", re.IGNORECASE)
+STATIC_SECRET_RE = re.compile(rb"\.[A-Za-z_][A-Za-z0-9_]*")
+SECRETS_MAPPING_RE = re.compile(
+    rb"^( *)secrets:[ ]*\r?\n(?:[ ]*\r?\n)*\1 +[A-Za-z_][A-Za-z0-9_-]*:(?: |\r?\n)", re.MULTILINE
+)
+
+
+def check_secrets_word(label: str, files: dict) -> list:
+    """No workflow uses the word `secrets` except as `secrets.NAME` or a `secrets:` mapping key."""
+    errors = []
+    for path in _workflow_paths(files):
+        data = files[path].encode("utf-8")
+        mapping_keys = {match.end(1) for match in SECRETS_MAPPING_RE.finditer(data)}
+        for match in SECRETS_WORD_RE.finditer(data):
+            if STATIC_SECRET_RE.match(data, match.end()) or match.start() in mapping_keys:
+                continue
+            line = data.count(b"\n", 0, match.start()) + 1
+            errors.append(
+                f"[{label}] {path}:{line} uses the word {match.group().decode()!r} other than as a "
+                f"static secrets.NAME or a `secrets:` mapping key, which the workflow validators of "
+                f"some generated repositories refuse anywhere, comments and URLs included; reword it"
+            )
+    return errors
+
+
+# The weekly baseline review tells a release skipped for missing credentials
+# from a real one by the release job's id and the names of two of its steps,
+# so a renamed job or step, or a step moved to another job, would make a
+# skipped release read as healthy again.
+REVIEW_NAME_RE = re.compile(
+    r'^const (releaseJobName|releaseCredentialsStep|releaseTokenStep) = "([^"]*)";$', re.MULTILINE
+)
+REVIEW_STEP_IDS = {"releaseCredentialsStep": "credentials", "releaseTokenStep": "app-token"}
+
+
+def check_release_step_names(label: str, files: dict) -> list:
+    """The release job the baseline review reads keeps its id and both step names."""
+    script = files.get("scripts/review-baselines.mjs")
+    if script is None:
+        return []
+    names = dict(REVIEW_NAME_RE.findall(script))
+    missing = [name for name in ("releaseJobName", *REVIEW_STEP_IDS) if name not in names]
+    if missing:
+        return [f"[{label}] scripts/review-baselines.mjs no longer defines {name}" for name in missing]
+    job_name = names["releaseJobName"]
+    try:
+        workflow = yaml.safe_load(files.get(".github/workflows/release-please.yml", "")) or {}
+        job = (workflow.get("jobs") or {}).get(job_name)
+    except (AttributeError, yaml.YAMLError):
+        job = None
+    if not isinstance(job, dict):
+        return [
+            f"[{label}] release-please.yml has no job {job_name!r}, which "
+            f"scripts/review-baselines.mjs reads as the release job; rename them together"
+        ]
+    errors = []
+    # GitHub reports a job without a name: by its id, which is what the script compares.
+    if job.get("name", job_name) != job_name:
+        errors.append(
+            f"[{label}] release-please.yml job {job_name!r} is named {job['name']!r}, but "
+            f"scripts/review-baselines.mjs looks for {job_name!r}; drop the name or rename them together"
+        )
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    for constant, step_id in REVIEW_STEP_IDS.items():
+        found = [step.get("name") for step in steps if step.get("id") == step_id]
+        if found != [names[constant]]:
+            errors.append(
+                f"[{label}] release-please.yml job {job_name!r} step id {step_id!r} is named "
+                f"{found or 'nowhere'}, but scripts/review-baselines.mjs reads it as "
+                f"{names[constant]!r} in that job; rename or move them together"
+            )
+    return errors
+
+
 def _own_workflow_files() -> dict:
     return {
         f".github/workflows/{path.name}": path.read_text()
@@ -3942,6 +4033,80 @@ def _structure_self_tests() -> list:
            gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
 
+    # 0.12.0's release workflows cited the "Using secrets in GitHub Actions"
+    # page in a comment, and generated repositories whose workflow validators
+    # refuse that word kept their older release-please.yml.
+    def secrets_word(repo_type, text):
+        render = bootstrap.generate_files(dict(next(c for _, c in configurations() if c["repo_type"] == repo_type)))
+        render[release] = text(render[release])
+        return check_secrets_word("self-test:secrets", render)
+
+    def before_credentials(addition):
+        anchor = "      - name: Check Release Please credentials\n"
+        return lambda t: t.replace(anchor, addition + anchor, 1)
+
+    for repo_type in ("nextjs", "python", "simple"):
+        expect(f"secrets word in a clean {repo_type} render", secrets_word(repo_type, lambda t: t), None)
+    for name, addition in (
+        ("the 0.12.0 citation", '      # "Using secrets in GitHub Actions", checked 2026-10-16.\n'),
+        ("a docs URL slug", "      # docs.github.com/en/actions/how-tos/write-workflows/use-secrets\n"),
+        ("a capitalised word", "      # Secrets are set in the repository settings.\n"),
+        ("a dynamic read", "      # env: ALL: ${{ toJSON(secrets) }}\n"),
+        ("an index", "      # env: KEY: ${{ secrets['RELEASE_PLEASE_APP_KEY'] }}\n"),
+    ):
+        expect(f"secrets word as {name}", secrets_word("nextjs", before_credentials(addition)),
+               "uses the word")
+    caller = "    uses: ./.github/workflows/test.yml\n"
+    expect("secrets: mapping on a reusable call",
+           secrets_word("python", lambda t: t.replace(
+               caller, caller + "    secrets:\n\n      APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY }}\n", 1)), None)
+    expect("secrets: inherit on a reusable call",
+           secrets_word("python", lambda t: t.replace(caller, caller + "    secrets: inherit\n", 1)),
+           "uses the word 'secrets'")
+    expect("secrets: mapping whose key is not deeper",
+           secrets_word("python", lambda t: t.replace(
+               caller, caller + "    secrets:\n    APP_KEY: ${{ secrets.RELEASE_PLEASE_APP_KEY }}\n", 1)),
+           "uses the word 'secrets'")
+
+    # The baseline review finds a skipped release by the release job's step
+    # names, so renaming a step on one side only must fail.
+    def step_names(script=lambda t: t, workflow=lambda t: t):
+        render = bootstrap.generate_files(dict(cfg))
+        render["scripts/review-baselines.mjs"] = script(render["scripts/review-baselines.mjs"])
+        render[release] = workflow(render[release])
+        return check_release_step_names("self-test:steps", render)
+
+    expect("release step names in a clean nextjs render", step_names(), None)
+    expect("release step names without a baseline review",
+           check_release_step_names("self-test:steps", bootstrap.generate_files(
+               dict(next(c for _, c in configurations() if c["repo_type"] == "python")))), None)
+    expect("credentials step renamed in the workflow",
+           step_names(workflow=lambda t: t.replace(
+               "- name: Check Release Please credentials", "- name: Check credentials", 1)),
+           "step id 'credentials' is named ['Check credentials']")
+    expect("token step renamed in the script",
+           step_names(script=lambda t: t.replace(
+               '"Generate GitHub App token"', '"Mint GitHub App token"', 1)),
+           "reads it as 'Mint GitHub App token'")
+    expect("token step id changed in the workflow",
+           step_names(workflow=lambda t: t.replace("id: app-token", "id: token", 1)),
+           "step id 'app-token' is named nowhere")
+    expect("step name constant removed from the script",
+           step_names(script=lambda t: t.replace("const releaseTokenStep =", "const tokenStep =", 1)),
+           "no longer defines releaseTokenStep")
+    expect("token step moved to another job",
+           step_names(workflow=lambda t: t.replace("        id: app-token\n", "        id: app-token-moved\n", 1)
+                      + "  other:\n    runs-on: ubuntu-latest\n    steps:\n"
+                      "      - name: Generate GitHub App token\n        id: app-token\n        run: true\n"),
+           "job 'release-please' step id 'app-token' is named nowhere")
+    expect("release job given another name",
+           step_names(workflow=lambda t: t.replace(
+               "  release-please:\n    needs: test\n", "  release-please:\n    name: Release\n    needs: test\n", 1)),
+           "is named 'Release'")
+    expect("release job id changed",
+           step_names(workflow=lambda t: t.replace("  release-please:\n    needs: test\n", "  release:\n    needs: test\n", 1)),
+           "has no job 'release-please'")
+
     # This repository's own agent files: a copy of the render passes, Project
     # specifics are its own, and an edited, stale, missing, unstamped or extra
     # copy, a moved link, or an edited generated hub section fails.
@@ -4043,6 +4208,8 @@ def main() -> int:
         all_errors += check_workflow_permissions(label, files)
         all_errors += check_sha_pinned_actions(label, files)
         all_errors += check_workflow_gates(label, cfg["repo_type"], files)
+        all_errors += check_secrets_word(label, files)
+        all_errors += check_release_step_names(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
@@ -4067,6 +4234,7 @@ def main() -> int:
     all_errors += check_bug_form("bootstrapper self", None if form is None else form.decode())
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_workflow_gates("bootstrapper own workflows", "simple", _own_workflow_files())
+    all_errors += check_secrets_word("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_legacy_digests()
     if STRUCTURE_FIXTURES_RUN[0] == 0:
         all_errors.append("no hub/skill/stamp self-test fixture ran; run_self_tests() is not wired in")

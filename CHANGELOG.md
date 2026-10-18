@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.12.0...v0.12.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* keep the word secrets out of release please workflow comments ([700d228](https://github.com/bydradev/gh-repo-bootstrapper/commit/700d2289cf28d3c07bc3f3660ccdf4c5a34d543b))
+* remove em dashes from the generated files ([#109](https://github.com/bydradev/gh-repo-bootstrapper/issues/109)) ([826b9a2](https://github.com/bydradev/gh-repo-bootstrapper/commit/826b9a2d036decb3be7a0efedc67edff5136dec5))
+* report a release skipped for missing credentials in the baseline review ([#106](https://github.com/bydradev/gh-repo-bootstrapper/issues/106)) ([700d228](https://github.com/bydradev/gh-repo-bootstrapper/commit/700d2289cf28d3c07bc3f3660ccdf4c5a34d543b))
+
 ## [0.12.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.11.1...v0.12.0) (2026-10-17)
 
 

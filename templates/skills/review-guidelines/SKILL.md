@@ -89,9 +89,10 @@ change again.
    regressions, check the callers of anything they change, and look for the
    same defect at sibling sites when the finding named a pattern.
 5. **Weigh replies.** When the author disputes a finding with evidence, assess
-   it. If it holds, mark the finding *Withdrawn* with a one-line reason; if
-   not, keep it open and add your counter-evidence. Never raise a withdrawn
-   finding again without new evidence.
+   the evidence. If the evidence holds, mark the finding *Withdrawn* with a
+   one-line reason; if it does not, keep the finding open and add your
+   counter-evidence. Never raise a withdrawn finding again without new
+   evidence.
 6. **Leave unchanged code mostly alone.** In code the delta does not touch,
    report only P0 or P1 problems you missed before, marked `missed in R<n>`.
    Put lower-severity observations there under *Notes*, so the change

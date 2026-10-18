@@ -15,8 +15,8 @@
 - **Purchases**, where the app has them. Entitlements come from verified
   transactions, restore works, and paid features fail closed.
 - **CI.** `local-validation-swift` says which suites run where; as generated,
-  pull requests run only `swift-format` lint, not `xcodegen generate` or
-  tests, so behaviour changes need local `xcodebuild test` evidence. Formatter
-  rules change in `.swift-format`, never through ignore comments. With
-  XcodeGen, `project.yml` is the source and the generated project is not
-  committed.
+  pull requests run only `swift-format` lint, not tests (nor, with XcodeGen,
+  `xcodegen generate`), so behaviour changes need local `xcodebuild test`
+  evidence. Formatter rules change in `.swift-format`, never through ignore
+  comments. With XcodeGen, `project.yml` is the source and the generated
+  project is not committed.

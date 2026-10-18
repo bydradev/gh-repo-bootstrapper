@@ -49,6 +49,21 @@ class ReviewGuidelinesTest(unittest.TestCase):
                 self.assertIn(phrase, files[path])
                 self.assertIn("or the head copy when the base branch has none", files[path])
 
+    def test_cross_family_recipe_saves_the_base_copy(self):
+        files = validate_templates.bootstrap.generate_files(next(
+            cfg for _, cfg in validate_templates.configurations() if cfg["repo_type"] == "simple"))
+        # The phrase checks skip code fences, so pin the recipe's commands here:
+        # the base copy when the base branch has the skill, else the head copy.
+        recipe = files[validate_templates._skill_path("fresh-eyes-review")]
+        self.assertIn(
+            "if git cat-file -e <base>:.agents/skills/review-guidelines/SKILL.md 2>/dev/null; then\n"
+            "  git show <base>:.agents/skills/review-guidelines/SKILL.md\n"
+            "else\n"
+            "  cat .agents/skills/review-guidelines/SKILL.md\n"
+            "fi > <scratch>/review-guidelines.md\n",
+            recipe,
+        )
+
 
 class RunbookTest(unittest.TestCase):
     path = validate_templates.BRANCH_PROTECTION_RUNBOOK

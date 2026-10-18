@@ -266,7 +266,8 @@ The reviewer runs as a separate agent,
 `.claude/agents/fresh-eyes-reviewer.md` and
 `.opencode/agents/fresh-eyes-reviewer.md`, and both load the
 `review-guidelines` skill, or its base branch copy when the change under
-review edits it. Neither gets a built-in edit tool. The implementer
+review edits it (the head copy on a first adoption, when there is none).
+Neither gets a built-in edit tool. The implementer
 starts it for a fresh-eyes review, or a person starts it on a branch or pull
 request.
 

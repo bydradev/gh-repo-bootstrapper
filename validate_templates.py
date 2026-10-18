@@ -310,6 +310,7 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("After three rounds with a blocking finding still open", REVIEW_SKILL),
     # A change that edits the reviewer's own rules is reviewed under the old ones.
     ("When it edits this skill, follow the base branch's copy", REVIEW_SKILL),
+    ("If the base branch has none, as on a first adoption, follow the head copy.", REVIEW_SKILL),
 )
 
 # Sentence each local-validation skill opens with, which routes agents to a

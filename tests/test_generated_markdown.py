@@ -47,6 +47,7 @@ class ReviewGuidelinesTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn("`.agents/skills/review-guidelines/SKILL.md`", files[path])
                 self.assertIn(phrase, files[path])
+                self.assertIn("or the head copy when the base branch has none", files[path])
 
 
 class RunbookTest(unittest.TestCase):

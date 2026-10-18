@@ -70,12 +70,15 @@ permissions.
 This recipe works in any harness. Save the diff, the requested outcome, the
 relevant requirements, and the validation results to the session's scratch
 directory (see the
-`worktrees-and-scratch` skill), write the reviewer prompt to a file there,
-telling the reviewer to follow `.agents/skills/review-guidelines/SKILL.md`,
-then run the reviewer read-only from inside a git worktree:
+`worktrees-and-scratch` skill). Save the base branch's `review-guidelines`
+there too, since a change can edit the skill that reviews it, and the head
+copy only when the base branch has none. Write the reviewer prompt to a file
+there, telling the reviewer to follow that saved copy, then run the reviewer
+read-only from inside a git worktree:
 
 ```sh
 git diff <base>...HEAD > <scratch>/review.diff
+git show <base>:.agents/skills/review-guidelines/SKILL.md > <scratch>/review-guidelines.md
 codex exec --sandbox read-only --ephemeral -o <out> - < <prompt>
 ```
 

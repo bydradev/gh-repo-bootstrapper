@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=1938b2a8df479ee4a8255d1f17dc0e49c2941d8030d043e0b039e2f223f0f33f -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=696469f99b0cf98bfe043ef41548b18a3f37e5abe126c5cd5573342ccc3be0e5 -->
 
 # Review guidelines
 
@@ -90,9 +90,10 @@ change again.
    regressions, check the callers of anything they change, and look for the
    same defect at sibling sites when the finding named a pattern.
 5. **Weigh replies.** When the author disputes a finding with evidence, assess
-   it. If it holds, mark the finding *Withdrawn* with a one-line reason; if
-   not, keep it open and add your counter-evidence. Never raise a withdrawn
-   finding again without new evidence.
+   the evidence. If the evidence holds, mark the finding *Withdrawn* with a
+   one-line reason; if it does not, keep the finding open and add your
+   counter-evidence. Never raise a withdrawn finding again without new
+   evidence.
 6. **Leave unchanged code mostly alone.** In code the delta does not touch,
    report only P0 or P1 problems you missed before, marked `missed in R<n>`.
    Put lower-severity observations there under *Notes*, so the change

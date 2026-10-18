@@ -3,7 +3,7 @@ name: fresh-eyes-review
 description: >-
   Use before declaring substantial work complete or a branch or pull request ready for review, after review fixes cause material changes, or when handling the findings of any review. Covers who reviews, what to hand the reviewer, how to verify, fix or dispute findings, when to review and re-review, and a cross-family recipe using a read-only reviewer from another model family. The reviewer follows `review-guidelines`.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=70a8b5efada6a382efe3f883e93c13640e9fd584cffb180590f08242d33868ea -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=ff6705b8eecffaae768d8c436282a38868f51fda75c7779767666b8861399c57 -->
 
 # Independent fresh-eyes review
 
@@ -71,12 +71,15 @@ permissions.
 This recipe works in any harness. Save the diff, the requested outcome, the
 relevant requirements, and the validation results to the session's scratch
 directory (see the
-`worktrees-and-scratch` skill), write the reviewer prompt to a file there,
-telling the reviewer to follow `.agents/skills/review-guidelines/SKILL.md`,
-then run the reviewer read-only from inside a git worktree:
+`worktrees-and-scratch` skill). Save the base branch's `review-guidelines`
+there too, since a change can edit the skill that reviews it, and the head
+copy only when the base branch has none. Write the reviewer prompt to a file
+there, telling the reviewer to follow that saved copy, then run the reviewer
+read-only from inside a git worktree:
 
 ```sh
 git diff <base>...HEAD > <scratch>/review.diff
+git show <base>:.agents/skills/review-guidelines/SKILL.md > <scratch>/review-guidelines.md
 codex exec --sandbox read-only --ephemeral -o <out> - < <prompt>
 ```
 

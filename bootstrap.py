@@ -88,6 +88,16 @@ NEXTJS_BASELINE_SCRIPTS = (
 NEXTJS_BASELINE_REVIEW_WORKFLOW = ".github/workflows/baseline-review.yml"
 SCREENSHOT_REVIEW = "docs/screenshot-review.md"
 CURRENT_WORK = "docs/current-work.md"
+# GitHub fills a new pull request from pull_request_template.md in .github/,
+# the root or docs/, in that order; the name is not case sensitive and can
+# have an extension such as .md or .txt. Templates in a PULL_REQUEST_TEMPLATE/
+# folder there are used only when a link names one with the template query
+# parameter ("About issue and pull request templates", "Creating a pull
+# request template for your repository", "Creating a default community health
+# file" and "Using query parameters to create a pull request", GitHub Docs,
+# checked 2026-10-19).
+PR_TEMPLATE = ".github/pull_request_template.md"
+PR_TEMPLATE_FOLDERS = (".github", "", "docs")
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
@@ -1413,6 +1423,10 @@ def generate_files(cfg: dict) -> dict:
     # Repository-owned: dated status the hub sends agents to, so it stays out
     # of AGENTS.md. --adopt writes it only when missing.
     files[CURRENT_WORK] = _load("docs-current-work.md")
+    # Repository-owned: asks for the user-visible line pr-title-check.yml
+    # requires. --adopt writes it only when the repository has no pull
+    # request template of its own.
+    files[PR_TEMPLATE] = _load("pull-request-template.md")
 
     preamble = ""
     tooling = ""
@@ -2412,6 +2426,60 @@ def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
     return found
 
 
+def _own_pr_template(repo_dir: Path) -> str | None:
+    """A pull request template of the repository's own, where GitHub reads one.
+
+    Names are compared without case and with any extension, so --adopt never
+    adds a second template beside the repository's own. Only a file counts:
+    a PULL_REQUEST_TEMPLATE folder fills no pull request unless a link names
+    one of its templates, so the generated one goes beside it. Called only
+    when PR_TEMPLATE itself is not compared (see _pr_template_state), so an
+    entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such as
+    .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. A file git
+    ignores never reaches the default branch, so it does not count.
+    """
+    for folder in PR_TEMPLATE_FOLDERS:
+        base = repo_dir / folder
+        if (folder and _symlink_in_path(repo_dir, folder)) or not base.is_dir():
+            continue
+        for entry in sorted(os.listdir(base)):
+            name = Path(entry.lower())
+            rel = f"{folder}/{entry}" if folder else entry
+            if (name.stem == "pull_request_template" and (base / entry).is_file()
+                    and not _git_ignored(repo_dir, rel)):
+                return rel
+    return None
+
+
+def _pr_template_state(repo_dir: Path) -> tuple | None:
+    """The report entry for PR_TEMPLATE, or None to compare it like any other file.
+
+    It is compared only as a regular file under its exact spelling that git
+    does not ignore; on a case-insensitive filesystem another spelling, such
+    as .github/PULL_REQUEST_TEMPLATE.md, opens as it. Otherwise the
+    repository's own template, a symlink here to a file included, is kept; a
+    symlink to anything else, or an ignored path, is refused, since no
+    template reaches the default branch through it; and an absent one is
+    written.
+    """
+    path = repo_dir / PR_TEMPLATE
+    if _symlink_in_path(repo_dir, str(Path(PR_TEMPLATE).parent)):
+        return ("symlink", "a symlink in this path; not compared or written")
+    ignored = _git_ignored(repo_dir, PR_TEMPLATE)
+    if not ignored and path.is_symlink():
+        if not path.is_file():
+            return ("symlink", "a symlink to no file here; not compared or written")
+        return ("own", "the repository's own pull request template is a symlink here; not compared or written")
+    if not ignored and path.is_file() and _exact_path_exists(repo_dir, PR_TEMPLATE):
+        return None
+    own = _own_pr_template(repo_dir)
+    if own:
+        return ("own", f"the repository's own pull request template is {own}; not added")
+    if ignored:
+        return ("ignored", "ignored by git; update the ignore rules before adopting")
+    return ("missing", None)
+
+
 def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
     """Find orphaned stamped files and name collisions, without following links."""
     extras = {}
@@ -2493,6 +2561,14 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     legacy_bodies = None
     for rel, expected in files.items():
         path = repo_dir / rel
+        if rel == PR_TEMPLATE:
+            try:
+                state = _pr_template_state(repo_dir)
+            except OSError as exc:
+                state = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+            if state is not None:
+                report[rel] = state
+                continue
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
@@ -2953,6 +3029,8 @@ def _adopt_file(
         return None
     if status in ("symlink", "unreadable", "ignored", "shadowed"):
         return ("refused", rel, detail)
+    if status == "own":
+        return ("kept", rel, detail)
     if status == "local-modified":
         if _is_yaml(rel):
             if isinstance(detail, str) and detail.endswith("check --type"):

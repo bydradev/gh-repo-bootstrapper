@@ -423,6 +423,101 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual((self.repo / "README.md").read_text(), "# Mine\n")
         self.assertEqual((self.repo / bootstrap.CURRENT_WORK).read_text(), "# Current work\n\nOurs.\n")
 
+    def test_adopt_adds_no_pull_request_template_beside_the_repository_own(self):
+        files = _render()
+        for own in ("pull_request_template.md", "docs/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",
+                    "docs/PULL_REQUEST_TEMPLATE.txt", "pull_request_template.markdown",
+                    "docs/pull_request_template"):
+            with self.subTest(own=own):
+                shutil.rmtree(self.repo)
+                self.repo.mkdir()
+                self._write(own, "## Ours\n")
+                detail = f"the repository's own pull request template is {own}; not added"
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
+                self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
+                # By listing, since on a case-insensitive filesystem another spelling opens as it.
+                self.assertFalse(bootstrap._exact_path_exists(self.repo, bootstrap.PR_TEMPLATE))
+                self.assertEqual((self.repo / own).read_text(), "## Ours\n")
+        # On a case-insensitive filesystem .github/PULL_REQUEST_TEMPLATE.md
+        # opens as the generated path, but only its own spelling is listed.
+        # A case-sensitive one is made to behave so.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._write(".github/PULL_REQUEST_TEMPLATE.md", "## Ours\n")
+        listdir = os.listdir
+
+        def case_insensitive_listing(path):
+            hidden = Path(path) == self.repo / ".github"
+            return [entry for entry in listdir(path) if not (hidden and entry == "pull_request_template.md")]
+
+        emulated = contextlib.nullcontext()
+        if not (self.repo / bootstrap.PR_TEMPLATE).exists():
+            os.link(self.repo / ".github/PULL_REQUEST_TEMPLATE.md", self.repo / bootstrap.PR_TEMPLATE)
+            emulated = unittest.mock.patch("os.listdir", case_insensitive_listing)
+        detail = "the repository's own pull request template is .github/PULL_REQUEST_TEMPLATE.md; not added"
+        with emulated:
+            self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
+        # A symlink at the generated path is the repository's own template too.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._write("docs/pr.md", "## Ours\n")
+        (self.repo / ".github").mkdir()
+        (self.repo / bootstrap.PR_TEMPLATE).symlink_to("../docs/pr.md")
+        detail = "the repository's own pull request template is a symlink here; not compared or written"
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
+        self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
+        self.assertEqual(os.readlink(self.repo / bootstrap.PR_TEMPLATE), "../docs/pr.md")
+        # One to no file is refused, since no template reaches the default branch through it.
+        refused = ("symlink", "a symlink to no file here; not compared or written")
+        for target in ("../docs/missing.md", "../docs"):
+            with self.subTest(target=target):
+                (self.repo / bootstrap.PR_TEMPLATE).unlink()
+                (self.repo / bootstrap.PR_TEMPLATE).symlink_to(target)
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], refused)
+                self.assertIn(("refused", bootstrap.PR_TEMPLATE, refused[1]), bootstrap.adopt_repository(self.repo, files))
+                self.assertEqual(os.readlink(self.repo / bootstrap.PR_TEMPLATE), target)
+        # Ignored by git, a written template would never reach the default branch.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._git_init()
+        self._write(".gitignore", ".github/pull_request_template.md\n")
+        ignored = ("ignored", "ignored by git; update the ignore rules before adopting")
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
+        self.assertIn(("refused", bootstrap.PR_TEMPLATE, ignored[1]), bootstrap.adopt_repository(self.repo, files))
+        self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+        # So would an untracked file already there; a tracked one does reach it.
+        self._write(bootstrap.PR_TEMPLATE, files[bootstrap.PR_TEMPLATE])
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
+        _git(self.repo, "add", "-f", bootstrap.PR_TEMPLATE)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("same", None))
+        # Nor does a template of the repository's own that git ignores count.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._git_init()
+        self._write(".gitignore", "docs/pull_request_template.md\n")
+        self._write("docs/pull_request_template.md", "## Local\n")
+        self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
+        # A template in any other folder, a file only named like one, or a
+        # folder or dangling symlink named like a file, is not GitHub's. A
+        # PULL_REQUEST_TEMPLATE folder fills a pull request only when a link
+        # names one of its templates, so the default goes beside it.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._write("templates/pull_request_template.md", "## Not read by GitHub\n")
+        self._write("docs/pull_request_template_notes.md", "Notes.\n")
+        self._write("docs/pull_request_template.md/notes.md", "Notes.\n")
+        (self.repo / "pull_request_template.txt").symlink_to("missing.txt")
+        (self.repo / "docs/pull_request_template").symlink_to("missing")
+        self._write(".github/PULL_REQUEST_TEMPLATE/bug.md", "## Bug\n")
+        self._write("PULL_REQUEST_TEMPLATE/feature.md", "## Feature\n")
+        self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
+        self.assertEqual((self.repo / bootstrap.PR_TEMPLATE).read_text(), files[bootstrap.PR_TEMPLATE])
+        self.assertEqual((self.repo / ".github/PULL_REQUEST_TEMPLATE/bug.md").read_text(), "## Bug\n")
+        # The template itself is the repository's once written.
+        self._write(bootstrap.PR_TEMPLATE, "## Ours\n")
+        self.assertIn(("kept", bootstrap.PR_TEMPLATE, "differs from the template; not overwritten"),
+                      bootstrap.adopt_repository(self.repo, files))
+
     def test_adopt_rebuilds_agents_keeping_project_specifics(self):
         files = _render()
         agents = files["AGENTS.md"]

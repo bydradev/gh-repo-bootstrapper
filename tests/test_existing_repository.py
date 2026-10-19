@@ -436,22 +436,27 @@ class ExistingRepositoryTests(unittest.TestCase):
                 detail = f"the repository's own pull request template is {found}; not added"
                 self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
                 self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
-                self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+                # By listing, since on a case-insensitive filesystem another spelling opens as it.
+                self.assertFalse(bootstrap._exact_path_exists(self.repo, bootstrap.PR_TEMPLATE))
                 self.assertEqual((self.repo / own).read_text(), "## Ours\n")
         # On a case-insensitive filesystem .github/PULL_REQUEST_TEMPLATE.md
         # opens as the generated path, but only its own spelling is listed.
+        # A case-sensitive one is made to behave so.
         shutil.rmtree(self.repo)
         self.repo.mkdir()
         self._write(".github/PULL_REQUEST_TEMPLATE.md", "## Ours\n")
-        os.link(self.repo / ".github/PULL_REQUEST_TEMPLATE.md", self.repo / bootstrap.PR_TEMPLATE)
         listdir = os.listdir
 
         def case_insensitive_listing(path):
             hidden = Path(path) == self.repo / ".github"
             return [entry for entry in listdir(path) if not (hidden and entry == "pull_request_template.md")]
 
+        emulated = contextlib.nullcontext()
+        if not (self.repo / bootstrap.PR_TEMPLATE).exists():
+            os.link(self.repo / ".github/PULL_REQUEST_TEMPLATE.md", self.repo / bootstrap.PR_TEMPLATE)
+            emulated = unittest.mock.patch("os.listdir", case_insensitive_listing)
         detail = "the repository's own pull request template is .github/PULL_REQUEST_TEMPLATE.md; not added"
-        with unittest.mock.patch("os.listdir", case_insensitive_listing):
+        with emulated:
             self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
         # A symlink at the generated path is the repository's own template too.
         shutil.rmtree(self.repo)

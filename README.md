@@ -353,10 +353,12 @@ changes:
 - `.github/workflows/release-please.yml`;
 - `.github/workflows/baseline-review.yml` (`nextjs`).
 
-`docs/lint-baseline.md`, `docs/advisory-baseline.md`, `docs/current-work.md`
-and `.github/pull_request_template.md` aren't in this set. Each repository edits them, so they
+`docs/lint-baseline.md`, `docs/advisory-baseline.md` and
+`docs/current-work.md` aren't in this set. Each repository edits them, so they
 keep the plain `kept` behaviour, as do scripts, configs and the other workflows: `ci.yml` and
-`test.yml` hold each repository's own test lanes.
+`test.yml` hold each repository's own test lanes. `.github/pull_request_template.md`
+isn't in the set either: it is the repository's to edit once written, and
+[Repository types](#repository-types) says when `--adopt` writes it.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
 no longer cancels the pending run of a release merge (unless 100 runs are
@@ -463,7 +465,8 @@ The diff needs the bootstrapper's git release tags; from a copy without them,
 reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`.
 It reports `.github/pull_request_template.md` as `own` when the repository
 already has a pull request template of its own, which `--adopt` keeps, and as
-`ignored` when git ignores that path (see [Repository types](#repository-types)). Template-owned files get their own
+`ignored` when it is missing and git ignores that path (see
+[Repository types](#repository-types)). Template-owned files get their own
 states:
 
 | State | Meaning | `--adopt` |

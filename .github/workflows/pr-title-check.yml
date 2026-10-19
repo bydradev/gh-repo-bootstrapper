@@ -88,7 +88,8 @@ jobs:
           RELEASED = {"feat", "feature", "fix", "perf", "revert"}
           TYPES = "feat, fix, perf or revert"
           SPLIT = re.compile(r"\n\n(?=(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:[(].*?[)])?: )")
-          HEADER = re.compile(r"([^()\s!:]+)(?:[(][^()]+[)])?(!?)(?::| #).*")
+          HEADER = re.compile(r"([^()\s!:]+)(?:[(][^()]+[)])?(!?)(?::| #)(.*)")
+          WORD = re.compile(r"\w*", re.ASCII)
           # A footer is a token (a breaking-change marker, "!", or a type with
           # an optional scope and "!"), then ":" or " #", then its value.
           FOOTER = re.compile(r"(?:BREAKING[ -]CHANGE|!|(?!BREAKING[ -]CHANGE)([^()\s!:]+)(?:[(][^()]+[)])?(!?))(:| #)\s*(.*)")
@@ -177,7 +178,9 @@ jobs:
                       return "the title marks a breaking change"
                   if header[1].lower() in RELEASED:
                       return f"the title type is {header[1].lower()}"
-              elif header[2]:
+              elif header[2] and (header[3].strip() or WORD.fullmatch(header[1])):
+                  # "!" makes a note of the subject, and the preset adds one
+                  # for a type of word characters even when it is empty.
                   return f"{origin} has a commit marked breaking"
               elif header[1].lower() in RELEASED:
                   return f"{origin} has a {header[1].lower()} entry"

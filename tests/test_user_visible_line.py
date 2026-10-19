@@ -251,6 +251,13 @@ class UserVisibleLineTests(unittest.TestCase):
         for body in ("User-visible:", "User-visible: yes or no", "User-visible: maybe", "User-visible: y"):
             self.assertFails("feat: x", body, "must answer yes or no")
 
+    def test_the_generated_pull_request_template_waits_for_an_answer(self):
+        template = (ROOT / "templates" / "pull-request-template.md").read_text()
+        for body in (template, template.replace("\n", "\r\n")):
+            self.assertFails("feat: x", body, "must answer yes or no")
+            self.assertPasses("feat: x", body.replace("User-visible: yes or no", "User-visible: yes"))
+            self.assertPasses("docs: x", body.replace("User-visible: yes or no", "User-visible: no"))
+
     def test_conflicting_answers_fail_and_repeated_ones_pass(self):
         self.assertFails("docs: x", "User-visible: yes\nUser-visible: no", "Keep one")
         self.assertPasses("docs: x", "User-visible: no\n\nUser-visible: no")

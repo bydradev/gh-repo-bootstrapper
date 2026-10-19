@@ -427,13 +427,12 @@ class ExistingRepositoryTests(unittest.TestCase):
         files = _render()
         for own in ("pull_request_template.md", "docs/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",
                     "docs/PULL_REQUEST_TEMPLATE.txt", "pull_request_template.markdown",
-                    "docs/pull_request_template", ".github/PULL_REQUEST_TEMPLATE/bug.md"):
+                    "docs/pull_request_template"):
             with self.subTest(own=own):
                 shutil.rmtree(self.repo)
                 self.repo.mkdir()
                 self._write(own, "## Ours\n")
-                found = own.split("/bug.md")[0]
-                detail = f"the repository's own pull request template is {found}; not added"
+                detail = f"the repository's own pull request template is {own}; not added"
                 self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
                 self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
                 # By listing, since on a case-insensitive filesystem another spelling opens as it.
@@ -491,19 +490,17 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
         _git(self.repo, "add", "-f", bootstrap.PR_TEMPLATE)
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("same", None))
-        # Nor does a template of the repository's own that git ignores count,
-        # or a template folder holding only such files.
+        # Nor does a template of the repository's own that git ignores count.
         shutil.rmtree(self.repo)
         self.repo.mkdir()
         self._git_init()
-        self._write(".gitignore", "docs/pull_request_template.md\n.github/PULL_REQUEST_TEMPLATE/local.md\n")
+        self._write(".gitignore", "docs/pull_request_template.md\n")
         self._write("docs/pull_request_template.md", "## Local\n")
-        self._write(".github/PULL_REQUEST_TEMPLATE/local.md", "## Local\n")
         self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
-        # A template in any other folder, a file only named like one, a
-        # folder or dangling symlink named like a file, or a template folder
-        # that is empty, which git cannot commit, or holds only a hidden file,
-        # a dangling symlink and a folder, is not GitHub's.
+        # A template in any other folder, a file only named like one, or a
+        # folder or dangling symlink named like a file, is not GitHub's. A
+        # PULL_REQUEST_TEMPLATE folder fills a pull request only when a link
+        # names one of its templates, so the default goes beside it.
         shutil.rmtree(self.repo)
         self.repo.mkdir()
         self._write("templates/pull_request_template.md", "## Not read by GitHub\n")
@@ -511,12 +508,11 @@ class ExistingRepositoryTests(unittest.TestCase):
         self._write("docs/pull_request_template.md/notes.md", "Notes.\n")
         (self.repo / "pull_request_template.txt").symlink_to("missing.txt")
         (self.repo / "docs/pull_request_template").symlink_to("missing")
-        (self.repo / ".github/PULL_REQUEST_TEMPLATE").mkdir(parents=True)
-        self._write("PULL_REQUEST_TEMPLATE/.gitkeep", "")
-        (self.repo / "PULL_REQUEST_TEMPLATE/old.md").symlink_to("missing.md")
-        self._write("PULL_REQUEST_TEMPLATE/archive/older.md", "## Older\n")
+        self._write(".github/PULL_REQUEST_TEMPLATE/bug.md", "## Bug\n")
+        self._write("PULL_REQUEST_TEMPLATE/feature.md", "## Feature\n")
         self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
         self.assertEqual((self.repo / bootstrap.PR_TEMPLATE).read_text(), files[bootstrap.PR_TEMPLATE])
+        self.assertEqual((self.repo / ".github/PULL_REQUEST_TEMPLATE/bug.md").read_text(), "## Bug\n")
         # The template itself is the repository's once written.
         self._write(bootstrap.PR_TEMPLATE, "## Ours\n")
         self.assertIn(("kept", bootstrap.PR_TEMPLATE, "differs from the template; not overwritten"),

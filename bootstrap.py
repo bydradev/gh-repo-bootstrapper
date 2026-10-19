@@ -88,12 +88,14 @@ NEXTJS_BASELINE_SCRIPTS = (
 NEXTJS_BASELINE_REVIEW_WORKFLOW = ".github/workflows/baseline-review.yml"
 SCREENSHOT_REVIEW = "docs/screenshot-review.md"
 CURRENT_WORK = "docs/current-work.md"
-# GitHub reads a pull request template from .github/, the root or docs/, in
-# that order, as pull_request_template.md or a PULL_REQUEST_TEMPLATE/ folder
-# of several; the name is not case sensitive and can have an extension such
-# as .md or .txt ("About issue and pull request templates", "Creating a pull
-# request template for your repository" and "Creating a default community
-# health file", GitHub Docs, checked 2026-10-19).
+# GitHub fills a new pull request from pull_request_template.md in .github/,
+# the root or docs/, in that order; the name is not case sensitive and can
+# have an extension such as .md or .txt. Templates in a PULL_REQUEST_TEMPLATE/
+# folder there are used only when a link names one with the template query
+# parameter ("About issue and pull request templates", "Creating a pull
+# request template for your repository", "Creating a default community health
+# file" and "Using query parameters to create a pull request", GitHub Docs,
+# checked 2026-10-19).
 PR_TEMPLATE = ".github/pull_request_template.md"
 PR_TEMPLATE_FOLDERS = (".github", "", "docs")
 README = "README.md"
@@ -2427,13 +2429,12 @@ def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
 def _own_pr_template(repo_dir: Path) -> str | None:
     """A pull request template of the repository's own, where GitHub reads one.
 
-    Names are compared without case, with any extension, and a template
-    folder counts, so --adopt never adds a second template beside the
-    repository's own. A name with an extension counts only as a file, and a
-    folder only while it holds a file that is not hidden, since git keeps no
-    empty folder and a .gitkeep is no template. Called only when PR_TEMPLATE
-    itself is not compared (see _pr_template_state), so an entry that opens
-    as PR_TEMPLATE on a case-insensitive filesystem, such as
+    Names are compared without case and with any extension, so --adopt never
+    adds a second template beside the repository's own. Only a file counts:
+    a PULL_REQUEST_TEMPLATE folder fills no pull request unless a link names
+    one of its templates, so the generated one goes beside it. Called only
+    when PR_TEMPLATE itself is not compared (see _pr_template_state), so an
+    entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such as
     .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. A file git
     ignores never reaches the default branch, so it does not count.
     """
@@ -2444,13 +2445,8 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         for entry in sorted(os.listdir(base)):
             name = Path(entry.lower())
             rel = f"{folder}/{entry}" if folder else entry
-            if name.stem != "pull_request_template" or _git_ignored(repo_dir, rel):
-                continue
-            path = base / entry
-            if path.is_file() or (not name.suffix and path.is_dir() and any(
-                    not inner.startswith(".") and (path / inner).is_file()
-                    and not _git_ignored(repo_dir, f"{rel}/{inner}")
-                    for inner in sorted(os.listdir(path)))):
+            if (name.stem == "pull_request_template" and (base / entry).is_file()
+                    and not _git_ignored(repo_dir, rel)):
                 return rel
     return None
 

@@ -746,18 +746,21 @@ The pull request template belongs to the repository. `--adopt` writes it only
 when the repository has no template of its own where GitHub reads one, in
 `.github/`, the root or `docs/`: a `pull_request_template` file in any case
 and with any extension or none, since GitHub's names are not case sensitive
-and can end in `.md` or `.txt`, or a `PULL_REQUEST_TEMPLATE` folder holding
-at least one template file. A symlink at `.github/pull_request_template.md`
+and can end in `.md` or `.txt`. A symlink at `.github/pull_request_template.md`
 counts as the repository's own template too when it points to a file, and
-`--adopt` refuses one that does not. A template that git ignores does not count, and when git ignores
-`.github/pull_request_template.md`, `--adopt` refuses it, whether it is missing
-or an untracked file is already there, since neither would reach the default
-branch. GitHub uses an account or
+`--adopt` refuses one that does not. A `PULL_REQUEST_TEMPLATE` folder does
+not count: GitHub fills a pull request from its templates only when a link
+names one with the `template` query parameter, so `--adopt` adds the generated
+template beside it as the default. A template that git ignores does not
+count, and when git ignores `.github/pull_request_template.md`, `--adopt`
+refuses it, whether it is missing or an untracked file is already there,
+since neither would reach the default branch. GitHub uses an account or
 organization default from a `.github` repository only when a repository has
 no template, so the generated one replaces such a default. To go on using the
 default, copy it into the repository as its own template
 ([About issue and pull request templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates),
-[Creating a pull request template for your repository](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository)
+[Creating a pull request template for your repository](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository),
+[Using query parameters to create a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/using-query-parameters-to-create-a-pull-request)
 and [Creating a default community health file](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file),
 all checked 2026-10-19).
 

@@ -21,8 +21,9 @@ def _script(text):
 
 
 # Each releasable case here was checked against release-please 17.6.0's own
-# parseConventionalCommits and DefaultChangelogNotes, and each Release-As
-# version against its Version.parse, on 2026-10-18 or 2026-10-19.
+# parseConventionalCommits and DefaultChangelogNotes, each Release-As version
+# against its Version.parse, and each <details> case against its
+# PullRequestBody, on 2026-10-18 or 2026-10-19.
 @unittest.skipUnless(shutil.which("bash") and shutil.which("python3"), "needs bash and python3")
 class UserVisibleLineTests(unittest.TestCase):
     SCRIPT = _script(TEMPLATE.read_text())
@@ -153,9 +154,9 @@ class UserVisibleLineTests(unittest.TestCase):
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
-        # An empty scope makes the parser drop that part, and a footer with
-        # one is prose; a "!" footer keeps the footers together.
-        self.assertDoesNotRelease("docs: x", "Prose.\n\nfix(): y")
+        # A footer with an empty scope is prose (a paragraph that opens with
+        # one is a dropped entry, tested below); a "!" footer keeps the
+        # footers together.
         self.assertDoesNotRelease("docs: x", "Prose.\n\nOther: x\nfix(): y")
         self.assertReleases("docs: x", "Prose.\n\nFeat: y\n!: x", "the body has a feat entry")
         code, out = self._run("chore: x", "Prose.\n\nfeat(cli)!: y\n\nMore prose.\n\nUser-visible: yes")
@@ -235,6 +236,59 @@ class UserVisibleLineTests(unittest.TestCase):
                      "BREAKING-CHANGE(x("):
             with self.subTest(line=line):
                 self.assertPasses("feat: x", f"Prose.\n\n{line}\n\nUser-visible: yes")
+
+    def test_an_entry_scope_release_please_cannot_parse_fails_when_it_drops_a_change(self):
+        # Release Please drops the entry whole, with the change it carries.
+        for body, line in (("Prose.\n\nfix(a(b)): y", 3), ("Prose.\n\nfix(): y", 3),
+                           ("Prose.\n\nBEGIN_NESTED_COMMIT\nfix(a(b)): y\nEND_NESTED_COMMIT", 4),
+                           ("Prose.\n\nBEGIN_NESTED_COMMIT\nFIX(a) (b): y\nEND_NESTED_COMMIT", 4),
+                           ("Prose.\n\nBEGIN_NESTED_COMMIT\nfix(a(b)) #12 y\nEND_NESTED_COMMIT", 4),
+                           ("Prose.\n\nBEGIN_NESTED_COMMIT\ndocs(a(b))!: y\nEND_NESTED_COMMIT", 4),
+                           ("Prose.\n\nBEGIN_NESTED_COMMIT\ndocs(a(b)): y\n\nBREAKING CHANGE: z\nEND_NESTED_COMMIT", 4),
+                           ("BEGIN_COMMIT_OVERRIDE\nfix(a(b)): y\n\nfeat: z\nEND_COMMIT_OVERRIDE", 2)):
+            for title in ("fix: x", "docs: x"):
+                for answer in ("yes", "no"):
+                    with self.subTest(title=title, body=body, answer=answer):
+                        self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
+                                         f"cannot parse line {line} of the body, so it would drop a change")
+        # Nothing that would release is lost.
+        self.assertReleases("fix: x", "Prose.\n\ndocs(a(b)): y", "the title type is fix")
+        self.assertReleases("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nsee f(g(x)): y\nEND_NESTED_COMMIT",
+                            "the title type is fix")
+        self.assertDoesNotRelease("docs: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nchore(): y\nEND_NESTED_COMMIT")
+
+    def test_a_details_tag_the_changelog_keeps_as_html_fails(self):
+        # node-html-parser reads it as a <details> element when Release Please
+        # parses its release pull request's body, which then throws, or reads
+        # it as the notes of another release.
+        for title, body in (("fix: keep `<details>` open", "Prose."), ("fix: keep ``<DETAILS open>`` open", "Prose."),
+                            ("fix: keep `<details/>` open", "Prose."),
+                            ("fix: keep `<details><summary>x 1.2.3</summary>` open", "Prose."),
+                            ("fix(<details>): x", "Prose."), ("docs!: drop <details> support", "Prose."),
+                            ("fix: x", "BREAKING CHANGE: drop <details> support"),
+                            ("fix: x", "BREAKING CHANGE: drop\n  <details> support"),
+                            ("feat: x", "Prose about BREAKING-CHANGE: the <details> tag"),
+                            ("feat: x", "Prose.\n\nBREAKING CHANGE: the <details> tag goes.\n\nMore."),
+                            ("fix: x", "Prose.\n\nfix: keep `<details>` open"),
+                            ("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfix: keep `<details>` open\nEND_NESTED_COMMIT"),
+                            ("fix: x", "Prose.\n\nRefs: #1\nfix(<details>): y"),
+                            ("docs: x", "BEGIN_COMMIT_OVERRIDE\nfix: keep `<details>` open\nEND_COMMIT_OVERRIDE"),
+                            ("chore: keep `<details>` open", "Release-As: 1.2.3")):
+            for answer in ("yes", "no"):
+                with self.subTest(title=title, body=body, answer=answer):
+                    self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
+                                     "could not read back its release pull request")
+        # Text the changelog escapes, leaves out, or that is not the tag.
+        for title, body in (("fix: keep <details> open", "Prose."),
+                            ("fix: keep `</details>` and `<detailsx>` open", "Prose."),
+                            ("fix: keep `<details` open", "Prose."), ("fix(details): x", "Prose."),
+                            ("fix: x", "Prose with `<details>` and <details> in the body."),
+                            ("fix: x", "Prose.\n\ndocs: keep `<details>` open")):
+            with self.subTest(title=title, body=body):
+                self.assertReleases(title, body, "the title type is fix")
+        self.assertReleases("fix: keep `<details>` open", "BEGIN_COMMIT_OVERRIDE\nfix: y\nEND_COMMIT_OVERRIDE",
+                            "the commit override has a fix entry")
+        self.assertDoesNotRelease("docs: keep `<details>` open", "Prose.")
 
     def test_a_title_release_please_cannot_parse_releases_nothing(self):
         for title in ("feat(): x", "feat(a(b)): x"):

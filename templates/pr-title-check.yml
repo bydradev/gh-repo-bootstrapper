@@ -81,9 +81,13 @@ jobs:
           # type, and each trailing footer of a type, with its continuation
           # lines, become commits of their own. A part with a line the parser
           # throws on is dropped whole, and a Release-As version it cannot
-          # read stops it with an error.
-          # Mirrors release-please 17.6.0 (commit.js, and base.js for the
-          # Release-As version), its @conventional-commits/parser 0.4.1 and
+          # read stops it with an error. A <details> tag that the changelog
+          # keeps as HTML makes it throw when it reads back the release pull
+          # request.
+          # Mirrors release-please 17.6.0 (commit.js, base.js for the
+          # Release-As version, and changelog-notes/default.js and
+          # util/pull-request-body.js with node-html-parser 6.1.13 for the
+          # release pull request), its @conventional-commits/parser 0.4.1 and
           # the conventionalcommits preset 6.1.0, checked 2026-10-19.
           RELEASED = {"feat", "feature", "fix", "perf", "revert"}
           TYPES = "feat, fix, perf or revert"
@@ -102,6 +106,14 @@ jobs:
           # footer token with a scope, and throws when another parenthesis
           # or the line's end comes before ")".
           UNPARSABLE = re.compile(r"(?!BREAKING[ -]CHANGE)[^()\s!:]+[(][^()\n]*(?:[(]|$)")
+          # A header whose scope is empty or holds a parenthesis.
+          SCOPED = re.compile(r"([^()\s!:]+)[(].*[)](!?)(:| #)(.*)")
+          # The changelog keeps code spans in a subject, as its HTML escape
+          # skips them, and scopes and breaking-change notes as written.
+          SPAN = re.compile(r"``[^`].*[^`]``|`[^`]*`")
+          # A tag node-html-parser reads as an element when Release Please
+          # parses its release pull request's body.
+          DETAILS = re.compile(r"<details(?:[\s/>]|$)", re.IGNORECASE)
 
 
           def messages(text):
@@ -199,12 +211,32 @@ jobs:
               return None
 
 
+          def details(header, body, found):
+              # Whether the text the changelog keeps as written (the scope,
+              # the subject's code spans and any breaking-change note) holds
+              # a <details> tag. Release Please then throws reading back the
+              # release pull request that lists the commit.
+              text = [header.string[header.end(1):header.start(2)]]
+              text += [span[0] for span in SPAN.finditer(header[3])]
+              if header[2]:
+                  text.append(header[3])
+              marked = [index for index, line in enumerate(body) if line.startswith(MARKERS)
+                        and line[len(MARKERS[0]):].startswith(":")]
+              text += body[marked[0]:] if marked else []
+              text += [hyphen[1] for hyphen in BREAKING.finditer("\n".join(body))]
+              for footer, _, more in found:
+                  if footer[0].startswith(MARKERS):
+                      text += [footer[4], *more]
+              return any(map(DETAILS.search, text))
+
+
           def commits(header, lines, title, origin):
               # The commits Release Please makes of a message, in its order:
               # each trailing footer with a type is read again as a commit of
               # its own, from the footer and its continuation lines, then the
-              # message itself. Each is why it releases, or None, and the
-              # text of its first Release-As footer, or None.
+              # message itself. Each is why it releases, or None, the text of
+              # its first Release-As footer, or None, and whether its entry in
+              # the changelog holds a <details> tag.
               body, found = parse(lines)
               made = []
               for footer, _, more in found:
@@ -213,7 +245,15 @@ jobs:
                       if (inner := HEADER.fullmatch(again[0])) and not any(map(UNPARSABLE.match, again[1:])):
                           made += commits(inner, again, False, origin)
               version = next((text for footer, text, _ in found if (footer[1] or "").lower() == "release-as"), None)
-              return made + [(commit_releases(header, body, found, title, origin), version)]
+              return made + [(commit_releases(header, body, found, title, origin), version, details(header, body, found))]
+
+
+          def line_of(source, shift, text, offset, number):
+              # Which body line holds line `number` of a message.
+              if offset < 0:
+                  return "a line of the body"  # a nested commit block split this message
+              first = source.count("\n", 0, offset + len(text) - len(text.lstrip()))
+              return f"line {first + number + shift + 1} of the body"
 
 
           def releases(title, body):
@@ -232,9 +272,20 @@ jobs:
                   header = HEADER.fullmatch(lines[0])
                   if not header:
                       title_lost = title_lost or (index == 0 and not override)
-                      continue  # Release Please skips a message it cannot parse
+                      # Release Please skips a message it cannot parse, so
+                      # an entry whose scope it rejects loses its change.
+                      scoped = SCOPED.fullmatch(lines[0])
+                      if scoped and (index or override) and problem is None:
+                          again = f"{scoped[1]}(scope){scoped[2]}{scoped[3]}{scoped[4]}"
+                          if any(why for why, _, _ in commits(HEADER.fullmatch(again), [again, *lines[1:]], False, origin)):
+                              problem = (
+                                  f"Release Please cannot parse {line_of(source, shift, text, offset, 0)}, so it "
+                                  "would drop a change from the changelog: an entry's scope needs text between "
+                                  "its parentheses and no other parenthesis inside them."
+                              )
+                      continue
                   made = commits(header, lines, index == 0 and not override, origin)
-                  reason = next((why for why, _ in made if why), None)
+                  reason = next((why for why, _, _ in made if why), None)
                   broken = next((number for number, line in enumerate(lines[1:], 1) if UNPARSABLE.match(line)), None)
                   if broken is None:
                       found = found or reason
@@ -242,23 +293,26 @@ jobs:
                       # Release-As footer before it writes the changelog, and
                       # stops with an error when it cannot.
                       if version is None:
-                          version = next((text for _, text in made if text is not None), None)
+                          version = next((text for _, text, _ in made if text is not None), None)
                           if version is not None and not VERSION.search(version) and problem is None:
                               problem = (
                                   "Release Please cannot read the version in the Release-As footer, so it would "
                                   "stop with an error and open no release pull request. Write the version as "
                                   "numbers on the footer's own line, such as Release-As: 1.2.0."
                               )
+                      if any(why and html for why, _, html in made) and problem is None:
+                          problem = (
+                              "Release Please could not read back its release pull request once this change is "
+                              "in it, so it would stop with an error or misread the release: the changelog keeps "
+                              "a <details> tag in an entry's scope, in a code span of its subject or in a "
+                              "breaking-change note as HTML. Write the tag without its angle brackets."
+                          )
                   elif reason and problem is None:
-                      where = "a line of the body"  # a nested commit block split this part
-                      if offset >= 0:
-                          first = source.count("\n", 0, offset + len(text) - len(text.lstrip()))
-                          where = f"line {first + broken + shift + 1} of the body"
                       problem = (
-                          f"Release Please cannot parse {where}, so it would drop a change from the changelog: "
-                          "a line that starts with a word and an opening parenthesis, such as f(g(x)) or f(x, "
-                          "must close it before any other parenthesis. Indent that line or put a space before "
-                          "its first parenthesis."
+                          f"Release Please cannot parse {line_of(source, shift, text, offset, broken)}, so it would "
+                          "drop a change from the changelog: a line that starts with a word and an opening "
+                          "parenthesis, such as f(g(x)) or f(x, must close it before any other parenthesis. Indent "
+                          "that line or put a space before its first parenthesis."
                       )
               return found, problem, title_lost
 

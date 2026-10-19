@@ -561,6 +561,20 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.14.1
+
+The user-visible step in `pr-title-check.yml` catches two more ways Release
+Please 17.6.0 would mishandle a change. It fails when an extra entry's scope
+is empty or holds a parenthesis, such as `fix(a(b)): y` in the body, because
+Release Please cannot parse that entry and drops it with its change. It also
+fails when a `<details>` tag sits in the scope or a code span of a released
+title or entry, or in a breaking-change note: the changelog keeps that text as
+HTML, and Release Please then cannot read back its release pull request, so
+it stops with an error on every later run (or, with a `<summary>` naming a
+version, reads the wrong release). The `pull-requests` skill says how to
+avoid both. `--check` reports `pr-title-check.yml` and the skill as `stale`,
+and `--adopt` updates them; no action pin changes.
+
 ### Upgrading to 0.14.0
 
 `pr-title-check.yml` asks every pull request whether the change is user

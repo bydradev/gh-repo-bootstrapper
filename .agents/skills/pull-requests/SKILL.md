@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=7702d4c4ae0408eac3b722cadfbab7ab6522c9f1e6ef1bbae9b84e1a77058658 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=807c410187bb1f0834d927058194ed019c63d9a5242a8a4f539d318fefaf2ee0 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -37,11 +37,15 @@ merge-ready:
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please
-  cannot parse it and drops the commit, which the check also reports. Write a
-  `Release-As:` version as numbers on the footer's own line, such as
-  `Release-As: 1.2.0`: Release Please stops with an error on one it cannot
-  read. Editing the body re-runs the check. Release Please and Dependabot PRs
-  have no such line and are not checked.
+  cannot parse it and drops the commit, which the check also reports. Give an
+  extra entry's scope text and no parenthesis inside it, for the same reason.
+  Keep a `<details>` tag out of the scope and code spans of a released title
+  or entry and out of breaking-change notes: the changelog keeps it as HTML,
+  and Release Please then cannot read back its release pull request, which
+  the check reports too. Write a `Release-As:` version as numbers on the
+  footer's own line, such as `Release-As: 1.2.0`: Release Please stops with
+  an error on one it cannot read. Editing the body re-runs the check. Release
+  Please and Dependabot PRs have no such line and are not checked.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,
@@ -113,5 +117,7 @@ follow `docs/branch-protection-runbook.md` (repository root) and the
   how it reads a squash body: release-please v17.6.0, the version
   release-please-action v5.0.0 locks, and v17.11.2, with
   conventional-changelog-conventionalcommits 6.1.0, checked 2026-10-18.
+- How it reads back a release pull request's body: release-please v17.6.0
+  with node-html-parser 6.1.13, checked 2026-10-19.
 - `merge_pull_request` parameters: the `github/github-mcp-server` README,
   checked 2026-10-16.

@@ -356,7 +356,9 @@ changes:
 `docs/lint-baseline.md`, `docs/advisory-baseline.md` and
 `docs/current-work.md` aren't in this set. Each repository edits them, so they
 keep the plain `kept` behaviour, as do scripts, configs and the other workflows: `ci.yml` and
-`test.yml` hold each repository's own test lanes.
+`test.yml` hold each repository's own test lanes. `.github/pull_request_template.md`
+isn't in the set either: it is the repository's to edit once written, and
+[Repository types](#repository-types) says when `--adopt` writes it.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
 no longer cancels the pending run of a release merge (unless 100 runs are
@@ -461,7 +463,11 @@ The diff needs the bootstrapper's git release tags; from a copy without them,
 
 `--check PATH --type TYPE` renders the current templates for that type and
 reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`.
-Template-owned files get their own states:
+It reports `.github/pull_request_template.md` as `own` when the repository
+already has a pull request template of its own, which `--adopt` keeps, and as
+`ignored` when git ignores that path and the repository has no other template
+(see [Repository types](#repository-types)). Template-owned files get their own
+states:
 
 | State | Meaning | `--adopt` |
 |---|---|---|
@@ -581,7 +587,10 @@ updates them; the new step uses no action, so the repository's action pins
 still apply. The adoption pull request runs the new check itself, so its body
 needs the line too: `User-visible: no` for the usual `chore:` adoption
 title. After it merges, add the line to each open pull request's body:
-editing the body re-runs the check.
+editing the body re-runs the check. `--adopt` also writes
+`.github/pull_request_template.md`, which asks for the line, unless the
+repository has a pull request template of its own (see
+[Repository types](#repository-types)).
 The step follows Release Please's default changelog sections, which every
 generated `release-please-config.json` uses; a repository that sets
 `changelog-sections` to show other types would see the check disagree with
@@ -728,9 +737,32 @@ A Python repository that commits `uv.lock` should also switch its Dependabot
 
 Every type gets a type-specific `README.md` starter, `AGENTS.md` and
 `CLAUDE.md` (contribution guidance), `docs/current-work.md` (dated status),
+`.github/pull_request_template.md` (asks for the `User-visible:` line),
 `.gitignore`, `release-please-config.json`, and
 `.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
 highlight the additional files and README guidance for that type.
+
+The pull request template belongs to the repository. `--adopt` writes it only
+when the repository has no template of its own where GitHub reads one, in
+`.github/`, the root or `docs/`: a `pull_request_template` file in any case
+and with any extension or none, since GitHub's names are not case sensitive
+and can end in `.md` or `.txt`. A symlink at `.github/pull_request_template.md`
+counts as the repository's own template too when it points to a file, and
+`--adopt` refuses one that does not. A `PULL_REQUEST_TEMPLATE` folder does
+not count: GitHub fills a pull request from its templates only when a link
+names one with the `template` query parameter, so `--adopt` adds the generated
+template beside it as the default. A template that git ignores does not
+count, and when git ignores `.github/pull_request_template.md`, `--adopt`
+refuses it, whether it is missing or an untracked file is already there,
+since neither would reach the default branch. GitHub uses an account or
+organization default from a `.github` repository only when a repository has
+no template, so the generated one replaces such a default. To go on using the
+default, copy it into the repository as its own template
+([About issue and pull request templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates),
+[Creating a pull request template for your repository](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository),
+[Using query parameters to create a pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/using-query-parameters-to-create-a-pull-request)
+and [Creating a default community health file](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file),
+all checked 2026-10-19).
 
 The generated `AGENTS.md` ends with a `## Project specifics` section. Put
 repository-specific rules there, below every generated section, so later

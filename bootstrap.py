@@ -2430,9 +2430,9 @@ def _own_pr_template(repo_dir: Path) -> str | None:
     Names are compared without case, with any extension, and a template
     folder counts, so --adopt never adds a second template beside the
     repository's own. A name with an extension counts only as a file. Called
-    only when PR_TEMPLATE is not a file under that exact spelling, so an
-    entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such as
-    .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. One git
+    only when PR_TEMPLATE itself is not compared (see _pr_template_state), so
+    an entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such
+    as .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. One git
     ignores never reaches the default branch, so it does not count.
     """
     for folder in PR_TEMPLATE_FOLDERS:
@@ -2446,6 +2446,32 @@ def _own_pr_template(repo_dir: Path) -> str | None:
                     and not _git_ignored(repo_dir, rel)):
                 return rel
     return None
+
+
+def _pr_template_state(repo_dir: Path) -> tuple | None:
+    """The report entry for PR_TEMPLATE, or None to compare it like any other file.
+
+    It is compared only as a regular file under its exact spelling that git
+    does not ignore; on a case-insensitive filesystem another spelling, such
+    as .github/PULL_REQUEST_TEMPLATE.md, opens as it. Otherwise the
+    repository's own template, a symlink here included, is kept; an ignored
+    path is refused, since nothing in it reaches the default branch; and an
+    absent one is written.
+    """
+    path = repo_dir / PR_TEMPLATE
+    if _symlink_in_path(repo_dir, str(Path(PR_TEMPLATE).parent)):
+        return ("symlink", "a symlink in this path; not compared or written")
+    ignored = _git_ignored(repo_dir, PR_TEMPLATE)
+    if not ignored and path.is_symlink():
+        return ("own", "the repository's own pull request template is a symlink here; not compared or written")
+    if not ignored and path.is_file() and _exact_path_exists(repo_dir, PR_TEMPLATE):
+        return None
+    own = _own_pr_template(repo_dir)
+    if own:
+        return ("own", f"the repository's own pull request template is {own}; not added")
+    if ignored:
+        return ("ignored", "ignored by git; update the ignore rules before adopting")
+    return ("missing", None)
 
 
 def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
@@ -2529,9 +2555,14 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     legacy_bodies = None
     for rel, expected in files.items():
         path = repo_dir / rel
-        if rel == PR_TEMPLATE and path.is_symlink() and not _symlink_in_path(repo_dir, str(Path(rel).parent)):
-            report[rel] = ("own", "the repository's own pull request template is a symlink here; not compared or written")
-            continue
+        if rel == PR_TEMPLATE:
+            try:
+                state = _pr_template_state(repo_dir)
+            except OSError as exc:
+                state = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+            if state is not None:
+                report[rel] = state
+                continue
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
@@ -2540,17 +2571,8 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
             continue
         try:
-            # On a case-insensitive filesystem another spelling, such as
-            # .github/PULL_REQUEST_TEMPLATE.md, opens as PR_TEMPLATE.
-            if not path.is_file() or (rel == PR_TEMPLATE and not _exact_path_exists(repo_dir, rel)):
-                own = _own_pr_template(repo_dir) if rel == PR_TEMPLATE else None
-                if own:
-                    report[rel] = ("own", f"the repository's own pull request template is {own}; not added")
-                elif rel == PR_TEMPLATE and _git_ignored(repo_dir, rel):
-                    # Written but ignored, it would never reach the default branch.
-                    report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
-                else:
-                    report[rel] = ("missing", None)
+            if not path.is_file():
+                report[rel] = ("missing", None)
                 continue
             actual = path.read_bytes().decode("utf-8", errors="replace")
         except OSError as exc:

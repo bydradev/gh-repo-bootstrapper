@@ -465,8 +465,8 @@ The diff needs the bootstrapper's git release tags; from a copy without them,
 reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`.
 It reports `.github/pull_request_template.md` as `own` when the repository
 already has a pull request template of its own, which `--adopt` keeps, and as
-`ignored` when it is missing and git ignores that path (see
-[Repository types](#repository-types)). Template-owned files get their own
+`ignored` when git ignores that path and the repository has no other template
+(see [Repository types](#repository-types)). Template-owned files get their own
 states:
 
 | State | Meaning | `--adopt` |
@@ -748,9 +748,10 @@ when the repository has no template of its own where GitHub reads one, in
 and with any extension or none, since GitHub's names are not case sensitive
 and can end in `.md` or `.txt`, or a `PULL_REQUEST_TEMPLATE` folder. A symlink
 at `.github/pull_request_template.md` counts as the repository's own template
-too. A template that git ignores does not count, and `--adopt` refuses to
-write the generated one when git ignores its path, since neither would reach
-the default branch. GitHub uses an account or
+too. A template that git ignores does not count, and when git ignores
+`.github/pull_request_template.md`, `--adopt` refuses it, whether it is missing
+or an untracked file is already there, since neither would reach the default
+branch. GitHub uses an account or
 organization default from a `.github` repository only when a repository has
 no template, so the generated one replaces such a default. To go on using the
 default, copy it into the repository as its own template

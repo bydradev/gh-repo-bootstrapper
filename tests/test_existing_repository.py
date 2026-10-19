@@ -477,6 +477,11 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
         self.assertIn(("refused", bootstrap.PR_TEMPLATE, ignored[1]), bootstrap.adopt_repository(self.repo, files))
         self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+        # So would an untracked file already there; a tracked one does reach it.
+        self._write(bootstrap.PR_TEMPLATE, files[bootstrap.PR_TEMPLATE])
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
+        _git(self.repo, "add", "-f", bootstrap.PR_TEMPLATE)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("same", None))
         # Nor does a template of the repository's own that git ignores count.
         shutil.rmtree(self.repo)
         self.repo.mkdir()

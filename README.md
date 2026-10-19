@@ -748,8 +748,9 @@ when the repository has no template of its own where GitHub reads one, in
 and with any extension or none, since GitHub's names are not case sensitive
 and can end in `.md` or `.txt`, or a `PULL_REQUEST_TEMPLATE` folder. A symlink
 at `.github/pull_request_template.md` counts as the repository's own template
-too. `--adopt` refuses to write the template when git ignores its path, since
-the file would never reach the default branch. GitHub uses an account or
+too. A template that git ignores does not count, and `--adopt` refuses to
+write the generated one when git ignores its path, since neither would reach
+the default branch. GitHub uses an account or
 organization default from a `.github` repository only when a repository has
 no template, so the generated one replaces such a default. To go on using the
 default, copy it into the repository as its own template

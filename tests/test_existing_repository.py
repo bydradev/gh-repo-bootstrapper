@@ -477,6 +477,13 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
         self.assertIn(("refused", bootstrap.PR_TEMPLATE, ignored[1]), bootstrap.adopt_repository(self.repo, files))
         self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+        # Nor does a template of the repository's own that git ignores count.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._git_init()
+        self._write(".gitignore", "docs/pull_request_template.md\n")
+        self._write("docs/pull_request_template.md", "## Local\n")
+        self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
         # A template in any other folder, a file only named like one, or a
         # folder or dangling symlink named like a file, is not GitHub's.
         shutil.rmtree(self.repo)

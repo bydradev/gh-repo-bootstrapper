@@ -2432,7 +2432,8 @@ def _own_pr_template(repo_dir: Path) -> str | None:
     repository's own. A name with an extension counts only as a file. Called
     only when PR_TEMPLATE is not a file under that exact spelling, so an
     entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such as
-    .github/PULL_REQUEST_TEMPLATE.md, is the repository's own.
+    .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. One git
+    ignores never reaches the default branch, so it does not count.
     """
     for folder in PR_TEMPLATE_FOLDERS:
         base = repo_dir / folder
@@ -2440,8 +2441,10 @@ def _own_pr_template(repo_dir: Path) -> str | None:
             continue
         for entry in sorted(os.listdir(base)):
             name = Path(entry.lower())
-            if name.stem == "pull_request_template" and (not name.suffix or (base / entry).is_file()):
-                return f"{folder}/{entry}" if folder else entry
+            rel = f"{folder}/{entry}" if folder else entry
+            if (name.stem == "pull_request_template" and (not name.suffix or (base / entry).is_file())
+                    and not _git_ignored(repo_dir, rel)):
+                return rel
     return None
 
 

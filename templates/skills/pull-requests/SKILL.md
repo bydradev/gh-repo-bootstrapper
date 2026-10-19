@@ -39,12 +39,13 @@ merge-ready:
   cannot parse it and drops the commit, which the check also reports. Give an
   extra entry's scope text and no parenthesis inside it, for the same reason.
   Keep a `<details>` tag out of the scope and code spans of a released title
-  or entry and out of breaking-change notes: the changelog keeps it as HTML,
-  and Release Please then cannot read back its release pull request, which
-  the check reports too. Write a `Release-As:` version as numbers on the
-  footer's own line, such as `Release-As: 1.2.0`: Release Please stops with
-  an error on one it cannot read. Editing the body re-runs the check. Release
-  Please and Dependabot PRs have no such line and are not checked.
+  or entry and out of breaking-change notes, including the subject of a
+  change marked `!` that has no note of its own: the changelog keeps it as
+  HTML, and Release Please then cannot read back its release pull request,
+  which the check reports too. Write a `Release-As:` version as numbers on
+  the footer's own line, such as `Release-As: 1.2.0`: Release Please stops
+  with an error on one it cannot read. Editing the body re-runs the check.
+  Release Please and Dependabot PRs have no such line and are not checked.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,

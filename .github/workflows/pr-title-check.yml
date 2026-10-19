@@ -172,22 +172,30 @@ jobs:
               # A body line that opens with a breaking-change marker and a
               # colon starts a note running to the body's end, and
               # BREAKING-CHANGE: anywhere in the body's text adds one.
-              text, note = [], False
+              # Whether there is a note, the lines the changelog keeps of it
+              # (up to its first empty line), or None when the body has no
+              # marker, and the BREAKING-CHANGE: text.
+              text, note, start = [], False, None
               for index, line in enumerate(body):
                   if line.startswith(MARKERS):
                       line = line[len(MARKERS[0]):]
                       if line.startswith(":"):
                           line = line[1:].lstrip()
                           note = note or bool(line) or index < len(body) - 1
+                          start = index if start is None else start
                   text.append(line)
+              kept = None
+              if start is not None:
+                  kept = text[start:]
+                  kept = kept[:kept.index("")] if "" in kept else kept
               hyphen = BREAKING.search("\n".join(text))
-              return note, bool(hyphen and hyphen[1])
+              return note, kept, hyphen[1] if hyphen else ""
 
 
           def commit_releases(header, body, found, title, origin):
               # "!" makes the subject a breaking-change note, and each footer
               # marker's text replaces the note.
-              note, hyphen = body_notes(body)
+              note, _, hyphen = body_notes(body)
               note = note or bool(header[2] and header[3].strip())
               for footer, text, _ in found:
                   if footer[0].startswith(MARKERS):
@@ -215,18 +223,22 @@ jobs:
               # Whether the text the changelog keeps as written (the scope,
               # the subject's code spans and any breaking-change note) holds
               # a <details> tag. Release Please then throws reading back the
-              # release pull request that lists the commit.
-              text = [header.string[header.end(1):header.start(2)]]
-              text += [span[0] for span in SPAN.finditer(header[3])]
-              if header[2]:
-                  text.append(header[3])
-              marked = [index for index, line in enumerate(body) if line.startswith(MARKERS)
-                        and line[len(MARKERS[0]):].startswith(":")]
-              text += body[marked[0]:] if marked else []
-              text += [hyphen[1] for hyphen in BREAKING.finditer("\n".join(body))]
-              for footer, _, more in found:
+              # release pull request that lists the commit. The note is the
+              # subject for "!", replaced by the body's note and then by each
+              # footer marker's text, with the BREAKING-CHANGE: text added;
+              # with no note at all, the preset makes the subject one for
+              # "!".
+              note, kept, hyphen = body_notes(body)
+              subject = header[3] if header[2] else ""
+              if kept is None:
+                  note, kept = bool(subject.strip()), [subject]
+              for footer, value, _ in found:
                   if footer[0].startswith(MARKERS):
-                      text += [footer[4], *more]
+                      note, kept = bool(value), [value]
+              if not note and not hyphen and header[2] and WORD.fullmatch(header[1]):
+                  kept = [subject]
+              text = [header.string[header.end(1):header.start(2)], *kept, hyphen]
+              text += [span[0] for span in SPAN.finditer(header[3])]
               return any(map(DETAILS.search, text))
 
 
@@ -304,8 +316,9 @@ jobs:
                           problem = (
                               "Release Please could not read back its release pull request once this change is "
                               "in it, so it would stop with an error or misread the release: the changelog keeps "
-                              "a <details> tag in an entry's scope, in a code span of its subject or in a "
-                              "breaking-change note as HTML. Write the tag without its angle brackets."
+                              "a <details> tag as HTML in an entry's scope, in a code span of its subject, or in "
+                              "a breaking-change note, which is the subject itself when a ! marks the change and "
+                              "no note replaces it. Write the tag without its angle brackets."
                           )
                   elif reason and problem is None:
                       problem = (

@@ -269,6 +269,12 @@ class UserVisibleLineTests(unittest.TestCase):
                             ("fix: x", "BREAKING CHANGE: drop\n  <details> support"),
                             ("feat: x", "Prose about BREAKING-CHANGE: the <details> tag"),
                             ("feat: x", "Prose.\n\nBREAKING CHANGE: the <details> tag goes.\n\nMore."),
+                            ("fix: x", "Prose.\n\nBREAKING CHANGE: a\nb <details> c\n\nMore."),
+                            ("fix: x", "Prose.\n\nBREAKING CHANGE: a\n#### Removed\n- <details>\n\nMore."),
+                            ("fix: x", "Prose.\n\nBREAKING CHANGE: a\nBREAKING-CHANGE: <details>\n\nMore."),
+                            ("fix: x", "Prose BREAKING-CHANGE: <details> x\n\nRefs: #1\nBREAKING CHANGE: b"),
+                            ("fix: x", "Prose.\n\nRefs: #1\nfeat: y\n  BREAKING CHANGE: <details>"),
+                            ("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfeat!: drop <details>\nEND_NESTED_COMMIT"),
                             ("fix: x", "Prose.\n\nfix: keep `<details>` open"),
                             ("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfix: keep `<details>` open\nEND_NESTED_COMMIT"),
                             ("fix: x", "Prose.\n\nRefs: #1\nfix(<details>): y"),
@@ -278,14 +284,29 @@ class UserVisibleLineTests(unittest.TestCase):
                 with self.subTest(title=title, body=body, answer=answer):
                     self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
                                      "could not read back its release pull request")
-        # Text the changelog escapes, leaves out, or that is not the tag.
+        # Text the changelog escapes, leaves out, or that is not the tag. A
+        # breaking-change note ends at its first empty line, and a footer
+        # marker's note, which keeps a footer's last line, replaces the
+        # body's and the subject's.
         for title, body in (("fix: keep <details> open", "Prose."),
                             ("fix: keep `</details>` and `<detailsx>` open", "Prose."),
                             ("fix: keep `<details` open", "Prose."), ("fix(details): x", "Prose."),
                             ("fix: x", "Prose with `<details>` and <details> in the body."),
-                            ("fix: x", "Prose.\n\ndocs: keep `<details>` open")):
+                            ("fix: x", "Prose.\n\ndocs: keep `<details>` open"),
+                            ("fix: x", "Prose.\n\nBREAKING CHANGE: a.\n\nThe page uses a `<details>` element."),
+                            ("fix: x", "BREAKING CHANGE: a\n\n<details><summary>Log</summary>\n\nok\n\n</details>"),
+                            ("fix: x", "BREAKING CHANGE:\n<details> is gone"),
+                            ("fix: x", "BREAKING CHANGE: drop <details> support\n  and more"),
+                            ("fix: x", "Prose.\n\nBREAKING CHANGE: first <details>\nBREAKING CHANGE: second"),
+                            ("fix: x", "Prose.\n\nBREAKING CHANGE: a <details>\n\nRefs: #1\nBREAKING CHANGE: b"),
+                            ("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfeat!: drop <details>\n\n"
+                             "BREAKING CHANGE: b\nEND_NESTED_COMMIT")):
             with self.subTest(title=title, body=body):
                 self.assertReleases(title, body, "the title type is fix")
+        for body in ("BREAKING CHANGE: the accordion props are gone.", "Prose.\n\nBREAKING CHANGE:\nfoo\n\nMore."):
+            with self.subTest(body=body):
+                self.assertReleases("feat!: replace the accordion with <details>", body,
+                                    "the title marks a breaking change")
         self.assertReleases("fix: keep `<details>` open", "BEGIN_COMMIT_OVERRIDE\nfix: y\nEND_COMMIT_OVERRIDE",
                             "the commit override has a fix entry")
         self.assertDoesNotRelease("docs: keep `<details>` open", "Prose.")

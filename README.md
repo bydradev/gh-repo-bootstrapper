@@ -568,7 +568,8 @@ Please 17.6.0 would mishandle a change. It fails when an extra entry's scope
 is empty or holds a parenthesis, such as `fix(a(b)): y` in the body, because
 Release Please cannot parse that entry and drops it with its change. It also
 fails when a `<details>` tag sits in the scope or a code span of a released
-title or entry, or in a breaking-change note: the changelog keeps that text as
+title or entry, or in a breaking-change note, which is the subject itself for
+a change marked `!` with no note of its own: the changelog keeps that text as
 HTML, and Release Please then cannot read back its release pull request, so
 it stops with an error on every later run (or, with a `<summary>` naming a
 version, reads the wrong release). The `pull-requests` skill says how to

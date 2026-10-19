@@ -128,6 +128,8 @@ class UserVisibleLineTests(unittest.TestCase):
             "Prose.\n\nRefs #12\n  feat: y",
             "Prose.\n\nFix: y\n  f(g(x))",
             "Prose.\n\nOutput:\n  fix: y\n\n  More output.",
+            "Prose.\n\nFix: y\n  ok\n  f(g(x))",
+            "Prose.\n\nBREAKING-CHANGE: x\n  feat: y\n   ",
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
@@ -158,7 +160,7 @@ class UserVisibleLineTests(unittest.TestCase):
         # it writes the changelog, and stops with an error when it cannot.
         for body in ("Release-As: 1.2.x", "Release-As: next", "Release-As:", "Release-As: 1.0.0\n  then words",
                      "Release-As: next\nRelease-As: 1.0.0", "Prose.\n\nExample:\n  Release-As: next",
-                     "Release-As: 1.0.0\nRefs: x\n  Release-As: next"):
+                     "Release-As: 1.0.0\nRefs: x\n  Release-As: next", "release-as: next"):
             for title, answer in (("chore: release 1.0.0", "yes"), ("docs: x", "no"), ("feat: x", "yes")):
                 with self.subTest(body=body, title=title):
                     self.assertFails(title, f"{body}\n\nUser-visible: {answer}",

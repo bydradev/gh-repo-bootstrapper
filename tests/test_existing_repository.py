@@ -437,11 +437,23 @@ class ExistingRepositoryTests(unittest.TestCase):
                 self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
                 self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
                 self.assertEqual((self.repo / own).read_text(), "## Ours\n")
-        # A template in any other folder, or a file only named like one, is not GitHub's.
+        # Ignored by git, a written template would never reach the default branch.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._git_init()
+        self._write(".gitignore", ".github/pull_request_template.md\n")
+        ignored = ("ignored", "ignored by git; update the ignore rules before adopting")
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
+        self.assertIn(("refused", bootstrap.PR_TEMPLATE, ignored[1]), bootstrap.adopt_repository(self.repo, files))
+        self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+        # A template in any other folder, a file only named like one, or a
+        # folder or dangling symlink named like a file, is not GitHub's.
         shutil.rmtree(self.repo)
         self.repo.mkdir()
         self._write("templates/pull_request_template.md", "## Not read by GitHub\n")
         self._write("docs/pull_request_template_notes.md", "Notes.\n")
+        (self.repo / "docs/pull_request_template.md").mkdir()
+        (self.repo / "pull_request_template.txt").symlink_to("missing.txt")
         self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
         self.assertEqual((self.repo / bootstrap.PR_TEMPLATE).read_text(), files[bootstrap.PR_TEMPLATE])
         # The template itself is the repository's once written.

@@ -2427,7 +2427,8 @@ def _own_pr_template(repo_dir: Path) -> str | None:
     """A pull request template GitHub would read from the repository, other than PR_TEMPLATE.
 
     Names are compared without case, and a template folder counts, so
-    --adopt never adds a second template beside the repository's own.
+    --adopt never adds a second template beside the repository's own. A
+    name with an extension counts only as a file.
     """
     for folder in PR_TEMPLATE_FOLDERS:
         base = repo_dir / folder
@@ -2436,7 +2437,9 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         for entry in sorted(os.listdir(base)):
             rel = f"{folder}/{entry}" if folder else entry
             name = Path(entry.lower())
-            if rel != PR_TEMPLATE and name.stem == "pull_request_template" and name.suffix in ("", ".md", ".txt"):
+            if rel == PR_TEMPLATE or name.stem != "pull_request_template" or name.suffix not in ("", ".md", ".txt"):
+                continue
+            if not name.suffix or (base / entry).is_file():
                 return rel
     return None
 
@@ -2534,6 +2537,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                 own = _own_pr_template(repo_dir) if rel == PR_TEMPLATE else None
                 if own:
                     report[rel] = ("own", f"the repository's own pull request template is {own}; not added")
+                elif rel == PR_TEMPLATE and _git_ignored(repo_dir, rel):
+                    # Written but ignored, it would never reach the default branch.
+                    report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
                 else:
                     report[rel] = ("missing", None)
                 continue

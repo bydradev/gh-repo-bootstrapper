@@ -423,6 +423,32 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual((self.repo / "README.md").read_text(), "# Mine\n")
         self.assertEqual((self.repo / bootstrap.CURRENT_WORK).read_text(), "# Current work\n\nOurs.\n")
 
+    def test_adopt_adds_no_pull_request_template_beside_the_repository_own(self):
+        files = _render()
+        for own in ("pull_request_template.md", "docs/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",
+                    "docs/PULL_REQUEST_TEMPLATE.txt", ".github/PULL_REQUEST_TEMPLATE/bug.md"):
+            with self.subTest(own=own):
+                shutil.rmtree(self.repo)
+                self.repo.mkdir()
+                self._write(own, "## Ours\n")
+                found = own.split("/bug.md")[0]
+                detail = f"the repository's own pull request template is {found}; not added"
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
+                self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
+                self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+                self.assertEqual((self.repo / own).read_text(), "## Ours\n")
+        # A template in any other folder, or a file only named like one, is not GitHub's.
+        shutil.rmtree(self.repo)
+        self.repo.mkdir()
+        self._write("templates/pull_request_template.md", "## Not read by GitHub\n")
+        self._write("docs/pull_request_template_notes.md", "Notes.\n")
+        self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
+        self.assertEqual((self.repo / bootstrap.PR_TEMPLATE).read_text(), files[bootstrap.PR_TEMPLATE])
+        # The template itself is the repository's once written.
+        self._write(bootstrap.PR_TEMPLATE, "## Ours\n")
+        self.assertIn(("kept", bootstrap.PR_TEMPLATE, "differs from the template; not overwritten"),
+                      bootstrap.adopt_repository(self.repo, files))
+
     def test_adopt_rebuilds_agents_keeping_project_specifics(self):
         files = _render()
         agents = files["AGENTS.md"]

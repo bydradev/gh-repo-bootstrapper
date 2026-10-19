@@ -2362,6 +2362,19 @@ def check_user_visible_step(label: str, files: dict) -> list:
     return errors
 
 
+def check_pr_template(label: str, files: dict) -> list:
+    """The generated pull request template asks for the user-visible line and leaves the answer open."""
+    text = files.get(bootstrap.PR_TEMPLATE)
+    if text is None:
+        return [f"[{label}] missing {bootstrap.PR_TEMPLATE}, which asks for the user-visible line"]
+    lines = [line for line in text.splitlines() if line.lower().startswith("user-visible:")]
+    if len(lines) != 1:
+        return [f"[{label}] {bootstrap.PR_TEMPLATE} must have exactly one 'User-visible:' line at column 0"]
+    if lines[0].split(":", 1)[1].strip().lower() in ("yes", "no"):
+        return [f"[{label}] {bootstrap.PR_TEMPLATE} must leave the user-visible answer to the author"]
+    return []
+
+
 def _own_workflow_files() -> dict:
     return {
         f".github/workflows/{path.name}": path.read_text()
@@ -4214,6 +4227,22 @@ def _structure_self_tests() -> list:
     expect("user-visible step made conditional",
            user_visible(lambda t: t.replace(uv_step, uv_step + "        if: false\n", 1)), "must not set if")
 
+    # The generated pull request template asks for the line without answering it.
+    pr_template = bootstrap.generate_files(
+        dict(next(c for _, c in configurations() if c["repo_type"] == "simple"))
+    )[bootstrap.PR_TEMPLATE]
+
+    def template_errors(text):
+        return check_pr_template("self-test:pr template", {} if text is None else {bootstrap.PR_TEMPLATE: text})
+
+    expect("pull request template in a clean simple render", template_errors(pr_template), None)
+    expect("pull request template missing", template_errors(None), "missing")
+    expect("user-visible line removed from the template",
+           template_errors(pr_template.replace("User-visible: yes or no\n", "", 1)), "exactly one")
+    expect("template answers for the author",
+           template_errors(pr_template.replace("User-visible: yes or no", "User-visible: yes", 1)),
+           "leave the user-visible answer")
+
     # This repository's own agent files: a copy of the render passes, Project
     # specifics are its own, and an edited, stale, missing, unstamped or extra
     # copy, a moved link, or an edited generated hub section fails.
@@ -4318,6 +4347,7 @@ def main() -> int:
         all_errors += check_secrets_word(label, files)
         all_errors += check_release_step_names(label, files)
         all_errors += check_user_visible_step(label, files)
+        all_errors += check_pr_template(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
         all_errors += check_rust_suite(label, cfg["repo_type"], files)

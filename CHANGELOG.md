@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.14.0...v0.14.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* report a details tag that Release Please cannot read back ([#121](https://github.com/bydradev/gh-repo-bootstrapper/issues/121)) ([4aa4c0c](https://github.com/bydradev/gh-repo-bootstrapper/commit/4aa4c0ce657e83a4bb163463bbec01a373bfdbd5))
+* report an entry scope that Release Please cannot parse ([4aa4c0c](https://github.com/bydradev/gh-repo-bootstrapper/commit/4aa4c0ce657e83a4bb163463bbec01a373bfdbd5))
+
 ## [0.14.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.13.2...v0.14.0) (2026-10-19)
 
 

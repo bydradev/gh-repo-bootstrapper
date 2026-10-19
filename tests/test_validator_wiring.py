@@ -37,6 +37,7 @@ CHECKS = (
     "check_workflow_gates",
     "check_secrets_word",
     "check_release_step_names",
+    "check_user_visible_step",
     "check_reusable_workflow_inputs",
     "check_release_full_suite_contract",
     "check_rust_suite",
@@ -57,7 +58,9 @@ RUN_ONCE = {
     "check_bug_form",
 }
 OWN_WORKFLOWS = "bootstrapper own workflows"
-ALSO_ON_OWN_WORKFLOWS = {"check_sha_pinned_actions", "check_workflow_gates", "check_secrets_word"}
+ALSO_ON_OWN_WORKFLOWS = {
+    "check_sha_pinned_actions", "check_workflow_gates", "check_secrets_word", "check_user_visible_step",
+}
 LABELS = [label for label, _ in validate_templates.configurations()]
 
 

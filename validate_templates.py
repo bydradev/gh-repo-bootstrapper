@@ -2322,6 +2322,46 @@ def check_release_step_names(label: str, files: dict) -> list:
     return errors
 
 
+# The title check's job also asks the PR body whether the change is user
+# visible. That step runs after the title step, so it parses a valid title
+# and shares the job's skips, and it reads the title and body only from its
+# env: a ${{ }} expression in the script would paste PR text into bash.
+USER_VISIBLE_STEP = "Check the user-visible line"
+USER_VISIBLE_ENV = {
+    "TITLE": "${{ github.event.pull_request.title }}",
+    "BODY": "${{ github.event.pull_request.body }}",
+}
+
+
+def check_user_visible_step(label: str, files: dict) -> list:
+    """The title check's job runs the user-visible step after the title step, reading the PR only through env."""
+    text = files.get(".github/workflows/pr-title-check.yml")
+    if text is None:
+        return []
+    where = f"[{label}] pr-title-check.yml job 'validate-title'"
+    job = ((yaml.safe_load(text) or {}).get("jobs") or {}).get("validate-title")
+    steps = [step for step in (job if isinstance(job, dict) else {}).get("steps") or [] if isinstance(step, dict)]
+    names = [step.get("name") for step in steps]
+    if names.count(USER_VISIBLE_STEP) != 1:
+        return [f"{where} must run the step {USER_VISIBLE_STEP!r} exactly once"]
+    index = names.index(USER_VISIBLE_STEP)
+    step = steps[index]
+    errors = []
+    if "Validate PR title" not in names[:index]:
+        errors.append(f"{where} step {USER_VISIBLE_STEP!r} must come after 'Validate PR title'")
+    if step.get("env") != USER_VISIBLE_ENV:
+        errors.append(f"{where} step {USER_VISIBLE_STEP!r} must set exactly env {USER_VISIBLE_ENV}")
+    if not isinstance(step.get("run"), str) or "${{" in step["run"]:
+        errors.append(
+            f"{where} step {USER_VISIBLE_STEP!r} must be a run script without ${{{{ }}}} expressions; "
+            f"read the PR through its env"
+        )
+    for key in ("if", "shell", "uses"):
+        if key in step:
+            errors.append(f"{where} step {USER_VISIBLE_STEP!r} must not set {key}")
+    return errors
+
+
 def _own_workflow_files() -> dict:
     return {
         f".github/workflows/{path.name}": path.read_text()
@@ -4150,6 +4190,30 @@ def _structure_self_tests() -> list:
            step_names(workflow=lambda t: t.replace("  release-please:\n    needs: test\n", "  release:\n    needs: test\n", 1)),
            "has no job 'release-please'")
 
+    # The user-visible step must keep reading the PR through its env, after
+    # the title step, in the same job.
+    def user_visible(edit=lambda t: t):
+        render = bootstrap.generate_files(dict(next(c for _, c in configurations() if c["repo_type"] == "simple")))
+        title = ".github/workflows/pr-title-check.yml"
+        return check_user_visible_step("self-test:user-visible", {title: edit(render[title])})
+
+    uv_step = f"      - name: {USER_VISIBLE_STEP}\n"
+    title_step = "      - name: Validate PR title\n"
+    expect("user-visible step in a clean simple render", user_visible(), None)
+    expect("user-visible step removed",
+           user_visible(lambda t: t.replace(uv_step, "      - name: Check something else\n", 1)), "exactly once")
+    expect("user-visible step before the title step",
+           user_visible(lambda t: t.replace(title_step, "      - name: Check the title\n", 1)),
+           "must come after 'Validate PR title'")
+    expect("PR body pasted into the script",
+           user_visible(lambda t: t.replace('os.environ.get("BODY", "")', '"""${{ github.event.pull_request.body }}"""', 1)),
+           "without ${{ }} expressions")
+    expect("PR body read from another field",
+           user_visible(lambda t: t.replace("pull_request.body }}", "pull_request.head.ref }}", 1)),
+           "must set exactly env")
+    expect("user-visible step made conditional",
+           user_visible(lambda t: t.replace(uv_step, uv_step + "        if: false\n", 1)), "must not set if")
+
     # This repository's own agent files: a copy of the render passes, Project
     # specifics are its own, and an edited, stale, missing, unstamped or extra
     # copy, a moved link, or an edited generated hub section fails.
@@ -4253,6 +4317,7 @@ def main() -> int:
         all_errors += check_workflow_gates(label, cfg["repo_type"], files)
         all_errors += check_secrets_word(label, files)
         all_errors += check_release_step_names(label, files)
+        all_errors += check_user_visible_step(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
@@ -4278,6 +4343,7 @@ def main() -> int:
     all_errors += check_sha_pinned_actions("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_workflow_gates("bootstrapper own workflows", "simple", _own_workflow_files())
     all_errors += check_secrets_word("bootstrapper own workflows", _own_workflow_files())
+    all_errors += check_user_visible_step("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_legacy_digests()
     if STRUCTURE_FIXTURES_RUN[0] == 0:
         all_errors.append("no hub/skill/stamp self-test fixture ran; run_self_tests() is not wired in")

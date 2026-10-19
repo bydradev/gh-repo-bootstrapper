@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=c18df5f2666a123ba8965b6560a499388a950fa3b8a170e20702758879f8f01d -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=7702d4c4ae0408eac3b722cadfbab7ab6522c9f1e6ef1bbae9b84e1a77058658 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -29,17 +29,19 @@ merge-ready:
   `perf`, or `revert`, or the change is breaking (`!` or a `BREAKING CHANGE:`
   footer). Answer `no` when it does not: documentation readers get from the
   repository or a site as soon as it merges, CI, tests, refactors, and
-  tooling, typed `docs`, `chore`, `refactor`, `test`, `build`, or `ci`. Text
-  a release ships, such as help output, is `yes`. The check reads the body as
+  tooling, typed `docs`, `chore`, `refactor`, `test`, `build`, or `ci`. Text a
+  release ships, such as help output, is `yes`. The check reads the body as
   Release Please does, so an extra entry of a released type, a `Release-As:`
-  footer, or a `BREAKING-CHANGE:` token anywhere in the body, even quoted,
-  also makes the answer `yes`. Keep that token, lines that open a paragraph
-  with a type, and the `BEGIN_COMMIT_OVERRIDE` marker (Release Please
-  replaces the commit with what follows it) out of prose, and indent a line
-  that starts with a call such as `f(g(x))`: Release Please cannot parse it
-  and drops the commit, which the check also reports. Editing the body
-  re-runs the check. Release Please and Dependabot PRs have no such line and
-  are not checked.
+  footer, or a `BREAKING-CHANGE:` token anywhere in the body but a footer's
+  own line, even quoted, also makes the answer `yes`. Keep that token, lines
+  that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
+  (Release Please replaces the commit with what follows it) out of prose, and
+  indent a line that starts with a call such as `f(g(x))`: Release Please
+  cannot parse it and drops the commit, which the check also reports. Write a
+  `Release-As:` version as numbers on the footer's own line, such as
+  `Release-As: 1.2.0`: Release Please stops with an error on one it cannot
+  read. Editing the body re-runs the check. Release Please and Dependabot PRs
+  have no such line and are not checked.
 - **Body:** optional prose describing the title's change, then any *extra*
   changelog entries: each a short, imperative, commit-subject-length line at
   column 0 with a bare type token (`fix: short subject`), blank-line separated,

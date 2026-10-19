@@ -21,7 +21,8 @@ def _script(text):
 
 
 # Each releasable case here was checked against release-please 17.6.0's own
-# parseConventionalCommits and DefaultChangelogNotes on 2026-10-18.
+# parseConventionalCommits and DefaultChangelogNotes, and each Release-As
+# version against its Version.parse, on 2026-10-18 or 2026-10-19.
 @unittest.skipUnless(shutil.which("bash") and shutil.which("python3"), "needs bash and python3")
 class UserVisibleLineTests(unittest.TestCase):
     SCRIPT = _script(TEMPLATE.read_text())
@@ -87,10 +88,18 @@ class UserVisibleLineTests(unittest.TestCase):
             "Prose.\n\nBREAKING CHANGE:\nRefs: #1",
             "Prose.\nBREAKING CHANGE: the flag is gone\n\nRefs: #1\nBREAKING CHANGE:",
             "Prose.\n\nRefs: the BREAKING-CHANGE: token",
+            "Prose.\n\nBREAKING-CHANGES: none",
+            "Prose.\n\nBREAKING CHANGES: none",
+            "Prose ending BREAKING-CHANGE:",
+            "Prose.\n\nBREAKING CHANGE: the flag is gone\n   \nRefs: #1",
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
         self.assertReleases("docs: x", "Prose.\n\nci!: drop a job", "the body has a commit marked breaking")
+        # Release Please reads a footer and its continuation lines again as
+        # a commit of their own.
+        self.assertReleases("docs: x", "Prose.\n\nExample:\n\n    BREAKING CHANGE: the --foo flag is gone", note)
+        self.assertReleases("docs: x", "Prose.\n\nRefs: #1\n  the BREAKING-CHANGE: token", note)
 
     def test_extra_entries_count_where_release_please_reads_them(self):
         # A paragraph that opens with a lowercase standard type is a commit.
@@ -101,6 +110,11 @@ class UserVisibleLineTests(unittest.TestCase):
         self.assertReleases("docs: x", "Prose.\n\nFix: also y", "the body has a fix entry")
         self.assertReleases("docs: x", "Prose.\n\nfeature(cli): add a flag", "the body has a feature entry")
         self.assertReleases("docs: x", "Note: this matters.\nFeat: y\n  continued", "the body has a feat entry")
+        # Release Please reads each footer with its continuation lines, less
+        # their indent, as a commit, unless it has no colon or such a line
+        # makes the parser throw.
+        self.assertReleases("docs: x", "Prose.\n\nExample:\n\n    feat(api): add the endpoint",
+                            "the body has a feat entry")
         # Elsewhere such lines are prose.
         for body in (
             "Prose.\n\nFix: also y\n\nMore prose.",
@@ -110,6 +124,10 @@ class UserVisibleLineTests(unittest.TestCase):
             "Prose.\n\n  fix: indented\n\nchore: also\n\nstyle: too\n\nFixes: #12",
             "Prose.\n\n- fix: a bullet\n\n> fix: quoted",
             "Prose.\n\nFeat: y\n  continued\nnot a footer",
+            "Prose.\n\nFix #12",
+            "Prose.\n\nRefs #12\n  feat: y",
+            "Prose.\n\nFix: y\n  f(g(x))",
+            "Prose.\n\nOutput:\n  fix: y\n\n  More output.",
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
@@ -127,12 +145,24 @@ class UserVisibleLineTests(unittest.TestCase):
                             "the body has a Release-As footer")
         self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: 1.0.0\n\nThen prose.")
         # The version is the footer's value or its last continuation line.
-        for body in ("Release-As #1.0.0", "Release-As:\n  1.0.0", "Release-As: pkg@1.0.0"):
+        for body in ("Release-As #1.0.0", "Release-As:\n  1.0.0", "Release-As: pkg@1.0.0",
+                     "Release-As: 1.0.0\nRelease-As: next", "Prose.\n\nExample:\n  Release-As: 2.0.0",
+                     "Release-As: 2.0.0\n\nchore: y\n\nRelease-As: next"):
             with self.subTest(body=body):
                 self.assertReleases("chore: release 1.0.0", body, "the body has a Release-As footer")
-        for body in ("Release-As: 1.0.0\n  then words", "Release-As: @scope/pkg@1.0.0"):
-            with self.subTest(body=body):
-                self.assertDoesNotRelease("chore: release 1.0.0", body)
+        self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: @scope/pkg@1.0.0")
+        self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: 1.2.x\n\nThen prose.")
+
+    def test_a_release_as_version_release_please_cannot_read_fails(self):
+        # Release Please reads the first Release-As footer's version before
+        # it writes the changelog, and stops with an error when it cannot.
+        for body in ("Release-As: 1.2.x", "Release-As: next", "Release-As:", "Release-As: 1.0.0\n  then words",
+                     "Release-As: next\nRelease-As: 1.0.0", "Prose.\n\nExample:\n  Release-As: next",
+                     "Release-As: 1.0.0\nRefs: x\n  Release-As: next"):
+            for title, answer in (("chore: release 1.0.0", "yes"), ("docs: x", "no"), ("feat: x", "yes")):
+                with self.subTest(body=body, title=title):
+                    self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
+                                     "cannot read the version in the Release-As footer")
 
     def test_override_and_nested_commits_count(self):
         self.assertDoesNotRelease("feat: x", "BEGIN_COMMIT_OVERRIDE\ndocs: y\nEND_COMMIT_OVERRIDE")
@@ -167,6 +197,16 @@ class UserVisibleLineTests(unittest.TestCase):
                          "cannot parse line 8")
         self.assertFails("docs: x", "Intro.\n\nBEGIN_COMMIT_OVERRIDE\nfix: y\nf(g(x))\nEND_COMMIT_OVERRIDE\n\n"
                          "User-visible: yes", "cannot parse line 5")
+        self.assertFails("docs: x", "User-visible: yes\n\n```\nfix: y\nf(g(x))\n```\n\nfix: y\nf(g(x))",
+                         "cannot parse line 9")
+        self.assertFails("docs: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfix: y\nf(g(x))\nEND_NESTED_COMMIT\n\nfeat: z\n\n"
+                         "User-visible: yes", "cannot parse line 5")
+        self.assertFails("docs: x", "Prose.\n\n```\nfix: y\nf(g(x))\n```\n\nBEGIN_NESTED_COMMIT\nfix: y\nf(g(x))\n"
+                         "END_NESTED_COMMIT\n\nfeat: z\n\nUser-visible: yes", "cannot parse line 10")
+        self.assertFails("docs: x", "Prose.\n\nBEGIN_NESTED_COMMIT\ndocs: n\nEND_NESTED_COMMIT\n\nfix: y\nf(g(x))\n\n"
+                         "User-visible: yes", "cannot parse line 8")
+        self.assertFails("fix: x", "Prose.\nBEGIN_NESTED_COMMIT\ndocs: n\nEND_NESTED_COMMIT\nf(g(x))\n\nUser-visible: yes",
+                         "cannot parse a line of the body")
         # Nothing that would release is lost, or the line parses.
         self.assertPasses("docs: x", "Prose.\n\n```\nf(a(b))\n```\n\nUser-visible: no")
         for line in ("  z.array(z.boolean())", "- f(g(x))", "f (g(x))", "f(x)(y)", "f()", "Prose ending f(g(x",

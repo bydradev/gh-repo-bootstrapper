@@ -562,16 +562,17 @@ visible. A second step in its required `validate-title` job fails unless the
 body has a line of its own, at column 0, reading `User-visible: yes` or
 `User-visible: no`, and the answer agrees with whether Release Please will
 release the change. `yes` needs a `feat`, `fix`, `perf` or `revert` title, a
-breaking change, a `Release-As:` footer, or an extra entry of a released
-type in the body; `no` needs none of them. The step follows how Release
-Please 17.6.0 reads a squash commit, a `BEGIN_COMMIT_OVERRIDE` block
-included, and also fails when a body line Release Please cannot parse,
-such as `f(g(x))` at the start of a line, would make it drop a change from
-the changelog. A yes/no question is harder to get wrong than a type, so the
-check catches a mistyped title, such as a `docs:` change that ships in a
-release or a `fix:` that ships nothing. Release Please and Dependabot pull
-requests skip the job, as before. The step reads the pull request only
-through its `env:`, and its script prints none of the body.
+breaking change, a `Release-As:` footer, or an extra entry of a released type
+in the body; `no` needs none of them. The step follows how Release Please
+17.6.0 reads a squash commit, a `BEGIN_COMMIT_OVERRIDE` block included. It
+also fails when a body line Release Please cannot parse, such as `f(g(x))` at
+the start of a line, would make it drop a change from the changelog, and when
+Release Please cannot read the version in a `Release-As:` footer, which would
+stop it with an error. A yes/no question is harder to get wrong than a type,
+so the check catches a mistyped title, such as a `docs:` change that ships in
+a release or a `fix:` that ships nothing. Release Please and Dependabot pull
+requests skip the job, as before. The step reads the pull request only through
+its `env:`, and its script prints none of the body.
 
 The `pull-requests` skill says how to answer, and `review-guidelines` asks
 the reviewer whether the type and the answer are true to the diff. `--check`

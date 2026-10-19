@@ -227,11 +227,12 @@ versions. Tests check the requirement, not the implementation's current
 output. Renames and refactors are complete. Comments and PR text do not claim
 checks that did not run.
 
-**Repository conventions.** The PR title is a Conventional Commit, and the
-change is one change. Outside a template adoption, generated `AGENTS.md`
-sections and files stamped `gh-repo-bootstrapper: template-owned` stay
-unchanged: repository rules go in `## Project specifics`, and template changes
-belong in the template. The required check set is not weakened.
+**Repository conventions.** The PR title is a Conventional Commit whose type,
+like the body's `User-visible:` answer, is true to the diff, and the change is
+one change. Outside a template adoption, generated `AGENTS.md` sections and
+files stamped `gh-repo-bootstrapper: template-owned` stay unchanged:
+repository rules go in `## Project specifics`, and template changes belong in
+the template. The required check set is not weakened.
 
 ## What counts as a finding
 

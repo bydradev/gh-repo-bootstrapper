@@ -21,9 +21,15 @@ Security issues go through private reporting instead; see
    title becomes the changelog entry, so it must be a
    [Conventional Commit](https://www.conventionalcommits.org) subject such as
    `fix: keep the full key when prompting`. A check enforces this.
-3. Run the checks listed under "Tooling" in [AGENTS.md](AGENTS.md) before you
+3. Answer the pull request template's `User-visible:` line with `yes` if a
+   release brings the change to users (a `feat`, `fix`, `perf` or `revert`
+   title, or a breaking change) or `no` if it does not (`docs`, `chore`,
+   `refactor`, `test`, `build` or `ci`). The same check fails when the line is
+   missing or disagrees with what Release Please will do with the title and
+   body.
+4. Run the checks listed under "Tooling" in [AGENTS.md](AGENTS.md) before you
    push, and add or update tests for the behaviour you change.
-4. Sign off every commit, as described below.
+5. Sign off every commit, as described below.
 
 The maintainer reviews every pull request and decides whether it is merged.
 Workflows on a first-time contributor's pull request may need the maintainer's

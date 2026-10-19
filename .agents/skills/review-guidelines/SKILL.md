@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=aefadfcb5fe6ac0d9276f687e5339d65cb1c6f6d23d3150b98075e39e280fe1b -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=e769bc58cd20e3a4b7c43472106787baef11c775c211d7681384b6b3014ccde4 -->
 
 # Review guidelines
 
@@ -228,11 +228,12 @@ versions. Tests check the requirement, not the implementation's current
 output. Renames and refactors are complete. Comments and PR text do not claim
 checks that did not run.
 
-**Repository conventions.** The PR title is a Conventional Commit, and the
-change is one change. Outside a template adoption, generated `AGENTS.md`
-sections and files stamped `gh-repo-bootstrapper: template-owned` stay
-unchanged: repository rules go in `## Project specifics`, and template changes
-belong in the template. The required check set is not weakened.
+**Repository conventions.** The PR title is a Conventional Commit whose type,
+like the body's `User-visible:` answer, is true to the diff, and the change is
+one change. Outside a template adoption, generated `AGENTS.md` sections and
+files stamped `gh-repo-bootstrapper: template-owned` stay unchanged:
+repository rules go in `## Project specifics`, and template changes belong in
+the template. The required check set is not weakened.
 
 ## What counts as a finding
 

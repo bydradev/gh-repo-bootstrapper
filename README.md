@@ -54,6 +54,10 @@ anything installed beyond a base Python interpreter.
 - in `nextjs`, the release job keeping the `release-please` id and its
   credentials and App token steps the names the weekly baseline review reads
   to tell a skipped release from one that ran
+- the title check's user-visible step, in every generated `pr-title-check.yml`
+  and this repository's own: one step after the title step, in the same job,
+  reading the pull request title and body only through its `env:`, never
+  through a `${{ }}` expression in its script
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy and its legacy-digest table
@@ -551,6 +555,38 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.14.0
+
+`pr-title-check.yml` asks every pull request whether the change is user
+visible. A second step in its required `validate-title` job fails unless the
+body has a line of its own, at column 0, reading `User-visible: yes` or
+`User-visible: no`, and the answer agrees with whether Release Please will
+release the change. `yes` needs a `feat`, `fix`, `perf` or `revert` title, a
+breaking change, a `Release-As:` footer, or an extra entry of a released type
+in the body; `no` needs none of them. The step follows how Release Please
+17.6.0 reads a squash commit, a `BEGIN_COMMIT_OVERRIDE` block included. It
+also fails when a body line Release Please cannot parse, such as `f(g(x))` at
+the start of a line, would make it drop a change from the changelog, and when
+Release Please cannot read the version in a `Release-As:` footer, which would
+stop it with an error. A yes/no question is harder to get wrong than a type,
+so the check catches a mistyped title, such as a `docs:` change that ships in
+a release or a `fix:` that ships nothing. Release Please and Dependabot pull
+requests skip the job, as before. The step reads the pull request only through
+its `env:`, and its script prints none of the body.
+
+The `pull-requests` skill says how to answer, and `review-guidelines` asks
+the reviewer whether the type and the answer are true to the diff. `--check`
+reports `pr-title-check.yml` and both skills as `stale`, and `--adopt`
+updates them; the new step uses no action, so the repository's action pins
+still apply. The adoption pull request runs the new check itself, so its body
+needs the line too: `User-visible: no` for the usual `chore:` adoption
+title. After it merges, add the line to each open pull request's body:
+editing the body re-runs the check.
+The step follows Release Please's default changelog sections, which every
+generated `release-please-config.json` uses; a repository that sets
+`changelog-sections` to show other types would see the check disagree with
+its releases.
+
 ### Upgrading to 0.13.0
 
 Every type gains the `review-guidelines` skill, for the agent doing a review.
@@ -704,7 +740,9 @@ template updates can be applied without overwriting them.
 
 Full CI pipeline for Next.js applications.
 
-- `pr-title-check.yml`: Conventional Commits validation on PR titles
+- `pr-title-check.yml`: Conventional Commits validation on PR titles, and a
+  `User-visible: yes` or `User-visible: no` line in PR bodies that must agree
+  with the title (see [Upgrading to 0.14.0](#upgrading-to-0140))
 - `release-please.yml`: test → release-please; deployment remains application-owned
 - `ci.yml`: runs the suite on every PR without the browser e2e lane; pushes
   to `main` add Chromium, and the Release Please merge (or a manual dispatch of

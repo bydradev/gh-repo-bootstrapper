@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.13.2...v0.14.0) (2026-10-19)
+
+
+### Features
+
+* generate a pull request template that asks for the user-visible line ([#120](https://github.com/bydradev/gh-repo-bootstrapper/issues/120)) ([741d462](https://github.com/bydradev/gh-repo-bootstrapper/commit/741d4620214ad23e9f310b66f2f0bb77ce31fda2))
+* require a user-visible yes/no line in pull request bodies ([#118](https://github.com/bydradev/gh-repo-bootstrapper/issues/118)) ([4f34c39](https://github.com/bydradev/gh-repo-bootstrapper/commit/4f34c39b2a94ab17c8d1585d7538227c2681ef6e))
+
 ## [0.13.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.13.1...v0.13.2) (2026-10-18)
 
 

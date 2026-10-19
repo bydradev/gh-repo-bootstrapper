@@ -740,17 +740,20 @@ Every type gets a type-specific `README.md` starter, `AGENTS.md` and
 highlight the additional files and README guidance for that type.
 
 The pull request template belongs to the repository. `--adopt` writes it only
-when the repository has no template of its own where GitHub reads one: a
-`pull_request_template.md` file (in any case, or with `.txt` or no extension)
-or a `PULL_REQUEST_TEMPLATE` folder in `.github/`, the root or `docs/`. It
-refuses to write the template when git ignores its path, since the file would
-never reach the default branch. GitHub
-uses an account or organization default from a `.github` repository only
-when a repository has no template, so the generated one replaces such a
-default. To go on using the default, copy it into the repository as its own
-template ([Creating a pull request template for your repository](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository)
+when the repository has no template of its own where GitHub reads one, in
+`.github/`, the root or `docs/`: a `pull_request_template` file in any case
+and with any extension or none, since GitHub's names are not case sensitive
+and can end in `.md` or `.txt`, or a `PULL_REQUEST_TEMPLATE` folder. A symlink
+at `.github/pull_request_template.md` counts as the repository's own template
+too. `--adopt` refuses to write the template when git ignores its path, since
+the file would never reach the default branch. GitHub uses an account or
+organization default from a `.github` repository only when a repository has
+no template, so the generated one replaces such a default. To go on using the
+default, copy it into the repository as its own template
+([About issue and pull request templates](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/about-issue-and-pull-request-templates),
+[Creating a pull request template for your repository](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/creating-a-pull-request-template-for-your-repository)
 and [Creating a default community health file](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file),
-both checked 2026-10-19).
+all checked 2026-10-19).
 
 The generated `AGENTS.md` ends with a `## Project specifics` section. Put
 repository-specific rules there, below every generated section, so later

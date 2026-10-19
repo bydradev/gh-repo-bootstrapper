@@ -90,9 +90,10 @@ SCREENSHOT_REVIEW = "docs/screenshot-review.md"
 CURRENT_WORK = "docs/current-work.md"
 # GitHub reads a pull request template from .github/, the root or docs/, in
 # that order, as pull_request_template.md or a PULL_REQUEST_TEMPLATE/ folder
-# of several ("Creating a pull request template for your repository" and
-# "Creating a default community health file", GitHub Docs, checked
-# 2026-10-19). Its docs do not say whether the name's case matters.
+# of several; the name is not case sensitive and can have an extension such
+# as .md or .txt ("About issue and pull request templates", "Creating a pull
+# request template for your repository" and "Creating a default community
+# health file", GitHub Docs, checked 2026-10-19).
 PR_TEMPLATE = ".github/pull_request_template.md"
 PR_TEMPLATE_FOLDERS = (".github", "", "docs")
 README = "README.md"
@@ -2424,23 +2425,23 @@ def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
 
 
 def _own_pr_template(repo_dir: Path) -> str | None:
-    """A pull request template GitHub would read from the repository, other than PR_TEMPLATE.
+    """A pull request template of the repository's own, where GitHub reads one.
 
-    Names are compared without case, and a template folder counts, so
-    --adopt never adds a second template beside the repository's own. A
-    name with an extension counts only as a file.
+    Names are compared without case, with any extension, and a template
+    folder counts, so --adopt never adds a second template beside the
+    repository's own. A name with an extension counts only as a file. Called
+    only when PR_TEMPLATE is not a file under that exact spelling, so an
+    entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such as
+    .github/PULL_REQUEST_TEMPLATE.md, is the repository's own.
     """
     for folder in PR_TEMPLATE_FOLDERS:
         base = repo_dir / folder
         if (folder and _symlink_in_path(repo_dir, folder)) or not base.is_dir():
             continue
         for entry in sorted(os.listdir(base)):
-            rel = f"{folder}/{entry}" if folder else entry
             name = Path(entry.lower())
-            if rel == PR_TEMPLATE or name.stem != "pull_request_template" or name.suffix not in ("", ".md", ".txt"):
-                continue
-            if not name.suffix or (base / entry).is_file():
-                return rel
+            if name.stem == "pull_request_template" and (not name.suffix or (base / entry).is_file()):
+                return f"{folder}/{entry}" if folder else entry
     return None
 
 
@@ -2525,6 +2526,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     legacy_bodies = None
     for rel, expected in files.items():
         path = repo_dir / rel
+        if rel == PR_TEMPLATE and path.is_symlink() and not _symlink_in_path(repo_dir, str(Path(rel).parent)):
+            report[rel] = ("own", "the repository's own pull request template is a symlink here; not compared or written")
+            continue
         if _symlink_in_path(repo_dir, rel):
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
@@ -2533,7 +2537,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
             continue
         try:
-            if not path.is_file():
+            # On a case-insensitive filesystem another spelling, such as
+            # .github/PULL_REQUEST_TEMPLATE.md, opens as PR_TEMPLATE.
+            if not path.is_file() or (rel == PR_TEMPLATE and not _exact_path_exists(repo_dir, rel)):
                 own = _own_pr_template(repo_dir) if rel == PR_TEMPLATE else None
                 if own:
                     report[rel] = ("own", f"the repository's own pull request template is {own}; not added")

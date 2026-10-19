@@ -427,7 +427,7 @@ class ExistingRepositoryTests(unittest.TestCase):
         files = _render()
         for own in ("pull_request_template.md", "docs/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",
                     "docs/PULL_REQUEST_TEMPLATE.txt", "pull_request_template.markdown",
-                    ".github/PULL_REQUEST_TEMPLATE/bug.md"):
+                    "docs/pull_request_template", ".github/PULL_REQUEST_TEMPLATE/bug.md"):
             with self.subTest(own=own):
                 shutil.rmtree(self.repo)
                 self.repo.mkdir()
@@ -482,21 +482,29 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ignored)
         _git(self.repo, "add", "-f", bootstrap.PR_TEMPLATE)
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("same", None))
-        # Nor does a template of the repository's own that git ignores count.
+        # Nor does a template of the repository's own that git ignores count,
+        # or a template folder holding only such files.
         shutil.rmtree(self.repo)
         self.repo.mkdir()
         self._git_init()
-        self._write(".gitignore", "docs/pull_request_template.md\n")
+        self._write(".gitignore", "docs/pull_request_template.md\n.github/PULL_REQUEST_TEMPLATE/local.md\n")
         self._write("docs/pull_request_template.md", "## Local\n")
+        self._write(".github/PULL_REQUEST_TEMPLATE/local.md", "## Local\n")
         self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
-        # A template in any other folder, a file only named like one, or a
-        # folder or dangling symlink named like a file, is not GitHub's.
+        # A template in any other folder, a file only named like one, a
+        # folder or dangling symlink named like a file, or a template folder
+        # that is empty, which git cannot commit, or holds only a hidden file
+        # and a dangling symlink, is not GitHub's.
         shutil.rmtree(self.repo)
         self.repo.mkdir()
         self._write("templates/pull_request_template.md", "## Not read by GitHub\n")
         self._write("docs/pull_request_template_notes.md", "Notes.\n")
         (self.repo / "docs/pull_request_template.md").mkdir()
         (self.repo / "pull_request_template.txt").symlink_to("missing.txt")
+        (self.repo / "docs/pull_request_template").symlink_to("missing")
+        (self.repo / ".github/PULL_REQUEST_TEMPLATE").mkdir(parents=True)
+        self._write("PULL_REQUEST_TEMPLATE/.gitkeep", "")
+        (self.repo / "PULL_REQUEST_TEMPLATE/old.md").symlink_to("missing.md")
         self.assertIn(("wrote", bootstrap.PR_TEMPLATE, ""), bootstrap.adopt_repository(self.repo, files))
         self.assertEqual((self.repo / bootstrap.PR_TEMPLATE).read_text(), files[bootstrap.PR_TEMPLATE])
         # The template itself is the repository's once written.

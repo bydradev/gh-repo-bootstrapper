@@ -746,9 +746,9 @@ The pull request template belongs to the repository. `--adopt` writes it only
 when the repository has no template of its own where GitHub reads one, in
 `.github/`, the root or `docs/`: a `pull_request_template` file in any case
 and with any extension or none, since GitHub's names are not case sensitive
-and can end in `.md` or `.txt`, or a `PULL_REQUEST_TEMPLATE` folder. A symlink
-at `.github/pull_request_template.md` counts as the repository's own template
-too. A template that git ignores does not count, and when git ignores
+and can end in `.md` or `.txt`, or a `PULL_REQUEST_TEMPLATE` folder holding
+at least one template file. A symlink at `.github/pull_request_template.md`
+counts as the repository's own template too. A template that git ignores does not count, and when git ignores
 `.github/pull_request_template.md`, `--adopt` refuses it, whether it is missing
 or an untracked file is already there, since neither would reach the default
 branch. GitHub uses an account or

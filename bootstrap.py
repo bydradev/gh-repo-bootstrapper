@@ -2429,10 +2429,12 @@ def _own_pr_template(repo_dir: Path) -> str | None:
 
     Names are compared without case, with any extension, and a template
     folder counts, so --adopt never adds a second template beside the
-    repository's own. A name with an extension counts only as a file. Called
-    only when PR_TEMPLATE itself is not compared (see _pr_template_state), so
-    an entry that opens as PR_TEMPLATE on a case-insensitive filesystem, such
-    as .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. One git
+    repository's own. A name with an extension counts only as a file, and a
+    folder only while it holds a file that is not hidden, since git keeps no
+    empty folder and a .gitkeep is no template. Called only when PR_TEMPLATE
+    itself is not compared (see _pr_template_state), so an entry that opens
+    as PR_TEMPLATE on a case-insensitive filesystem, such as
+    .github/PULL_REQUEST_TEMPLATE.md, is the repository's own. A file git
     ignores never reaches the default branch, so it does not count.
     """
     for folder in PR_TEMPLATE_FOLDERS:
@@ -2442,8 +2444,13 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         for entry in sorted(os.listdir(base)):
             name = Path(entry.lower())
             rel = f"{folder}/{entry}" if folder else entry
-            if (name.stem == "pull_request_template" and (not name.suffix or (base / entry).is_file())
-                    and not _git_ignored(repo_dir, rel)):
+            if name.stem != "pull_request_template" or _git_ignored(repo_dir, rel):
+                continue
+            path = base / entry
+            if path.is_file() or (not name.suffix and path.is_dir() and any(
+                    not inner.startswith(".") and (path / inner).is_file()
+                    and not _git_ignored(repo_dir, f"{rel}/{inner}")
+                    for inner in sorted(os.listdir(path)))):
                 return rel
     return None
 

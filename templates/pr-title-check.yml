@@ -173,21 +173,24 @@ jobs:
 
 
           def commit_releases(header, body, found, title, origin):
+              # "!" makes the subject a breaking-change note, and each footer
+              # marker's text replaces the note.
+              note, hyphen = body_notes(body)
+              note = note or bool(header[2] and header[3].strip())
+              for footer, text, _ in found:
+                  if footer[0].startswith(MARKERS):
+                      note = bool(text)
               if title:
                   if header[2]:
                       return "the title marks a breaking change"
                   if header[1].lower() in RELEASED:
                       return f"the title type is {header[1].lower()}"
-              elif header[2] and (header[3].strip() or WORD.fullmatch(header[1])):
-                  # "!" makes a note of the subject, and the preset adds one
-                  # for a type of word characters even when it is empty.
+              elif header[2] and (note or WORD.fullmatch(header[1])):
+                  # The preset adds a note for "!" when there is none, but
+                  # only for a type of word characters.
                   return f"{origin} has a commit marked breaking"
               elif header[1].lower() in RELEASED:
                   return f"{origin} has a {header[1].lower()} entry"
-              note, hyphen = body_notes(body)
-              for footer, text, _ in found:
-                  if footer[0].startswith(MARKERS):
-                      note = bool(text)  # the last marker's text is the note
               if note or hyphen:
                   return f"{origin} has a breaking-change note"
               for footer, text, _ in found:

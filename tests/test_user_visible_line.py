@@ -105,6 +105,17 @@ class UserVisibleLineTests(unittest.TestCase):
                      "Prose.\n\nBEGIN_NESTED_COMMIT\nd\u00f6cs!:\nEND_NESTED_COMMIT"):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
+        # An empty footer marker after the header replaces the subject's
+        # note, which the preset then restores only for a word type.
+        for body in ("Prose.\n\nRe-ref!: x\n  BREAKING CHANGE:",
+                     "Prose.\n\nBEGIN_NESTED_COMMIT\nRe-ref!: x\n\nBREAKING CHANGE:\nEND_NESTED_COMMIT",
+                     ("BEGIN_COMMIT_OVERRIDE\nre-ref(api)!: x\n\nBREAKING CHANGE: y\nBREAKING CHANGE:\n"
+                      "END_COMMIT_OVERRIDE")):
+            with self.subTest(body=body):
+                self.assertDoesNotRelease("docs: x", body)
+        self.assertReleases("docs: x", "Prose.\n\nci!: x\n  BREAKING CHANGE:", "the body has a commit marked breaking")
+        self.assertReleases("docs: x", "BEGIN_COMMIT_OVERRIDE\nre-ref!: x\n\nBREAKING CHANGE:\nBREAKING CHANGE: y\n"
+                            "END_COMMIT_OVERRIDE", "the commit override has a commit marked breaking")
         # Release Please reads a footer and its continuation lines again as
         # a commit of their own.
         self.assertReleases("docs: x", "Prose.\n\nExample:\n\n    BREAKING CHANGE: the --foo flag is gone", note)

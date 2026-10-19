@@ -468,6 +468,15 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], ("own", detail))
         self.assertIn(("kept", bootstrap.PR_TEMPLATE, detail), bootstrap.adopt_repository(self.repo, files))
         self.assertEqual(os.readlink(self.repo / bootstrap.PR_TEMPLATE), "../docs/pr.md")
+        # One to no file is refused, since no template reaches the default branch through it.
+        refused = ("symlink", "a symlink to no file here; not compared or written")
+        for target in ("../docs/missing.md", "../docs"):
+            with self.subTest(target=target):
+                (self.repo / bootstrap.PR_TEMPLATE).unlink()
+                (self.repo / bootstrap.PR_TEMPLATE).symlink_to(target)
+                self.assertEqual(bootstrap.compare_repository(self.repo, files)[bootstrap.PR_TEMPLATE], refused)
+                self.assertIn(("refused", bootstrap.PR_TEMPLATE, refused[1]), bootstrap.adopt_repository(self.repo, files))
+                self.assertEqual(os.readlink(self.repo / bootstrap.PR_TEMPLATE), target)
         # Ignored by git, a written template would never reach the default branch.
         shutil.rmtree(self.repo)
         self.repo.mkdir()

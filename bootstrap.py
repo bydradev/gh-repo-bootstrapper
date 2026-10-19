@@ -2461,15 +2461,18 @@ def _pr_template_state(repo_dir: Path) -> tuple | None:
     It is compared only as a regular file under its exact spelling that git
     does not ignore; on a case-insensitive filesystem another spelling, such
     as .github/PULL_REQUEST_TEMPLATE.md, opens as it. Otherwise the
-    repository's own template, a symlink here included, is kept; an ignored
-    path is refused, since nothing in it reaches the default branch; and an
-    absent one is written.
+    repository's own template, a symlink here to a file included, is kept; a
+    symlink to anything else, or an ignored path, is refused, since no
+    template reaches the default branch through it; and an absent one is
+    written.
     """
     path = repo_dir / PR_TEMPLATE
     if _symlink_in_path(repo_dir, str(Path(PR_TEMPLATE).parent)):
         return ("symlink", "a symlink in this path; not compared or written")
     ignored = _git_ignored(repo_dir, PR_TEMPLATE)
     if not ignored and path.is_symlink():
+        if not path.is_file():
+            return ("symlink", "a symlink to no file here; not compared or written")
         return ("own", "the repository's own pull request template is a symlink here; not compared or written")
     if not ignored and path.is_file() and _exact_path_exists(repo_dir, PR_TEMPLATE):
         return None

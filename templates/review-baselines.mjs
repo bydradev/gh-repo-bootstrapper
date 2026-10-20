@@ -17,6 +17,13 @@ const apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com";
 const releaseJobName = "release-please";
 const releaseCredentialsStep = "Check Release Please credentials";
 const releaseTokenStep = "Generate GitHub App token";
+// Every state the Dependabot alerts API lists, asked for by name (GitHub REST
+// docs, "List Dependabot alerts for a repository", checked 2026-10-20). A row's
+// alert may have been dismissed by GitHub's auto-triage rules
+// (`auto_dismissed`) or fixed, and Dependabot may raise no alert for a row at
+// all; reading only dismissed alerts mistook each of those for a row still
+// waiting on a dismissal.
+const alertStates = ["auto_dismissed", "dismissed", "fixed", "open"];
 
 // Math.ceil() of a small negative fraction returns -0 (per spec, for
 // -1 < x < 0), and -0 < 0 is false, so "less than a day past due" must be
@@ -75,11 +82,11 @@ async function pagedApi(repository, token, path, collectionKey, label) {
   return values;
 }
 
-function dismissedAlerts(repository, token) {
+function dependabotAlerts(repository, token) {
   return pagedApi(
     repository,
     token,
-    "dependabot/alerts?state=dismissed&per_page=100",
+    `dependabot/alerts?state=${alertStates.join(",")}&per_page=100`,
     null,
     "Dependabot",
   );
@@ -200,16 +207,26 @@ function orphanedAdvisoryRows(rows, auditedUrls) {
     .map((row) => `${row.ghsa} (${row.packageName}): ${row.reviewDate}`);
 }
 
+// A person's dismissal needs a row, and a row's alert must not stay open. A row
+// with no alert has nothing to dismiss, so it is listed but not actionable; the
+// orphaned-row check still compares its advisory with `npm audit`.
 function parity(rows, alerts) {
   const documented = new Set(rows.map(({ ghsa }) => ghsa));
-  const dismissed = new Set(
-    alerts
-      .map((alert) => alert.security_advisory?.ghsa_id)
-      .filter((ghsa) => typeof ghsa === "string"),
-  );
+  const states = new Map();
+  for (const alert of alerts) {
+    const ghsa = alert?.security_advisory?.ghsa_id;
+    if (typeof ghsa !== "string") continue;
+    if (!alertStates.includes(alert.state))
+      throw new Error(`Dependabot API returned an alert for ${ghsa} with an unexpected state`);
+    states.set(ghsa, (states.get(ghsa) ?? new Set()).add(alert.state));
+  }
+  const hasState = (ghsa, state) => states.get(ghsa)?.has(state) ?? false;
   return {
-    undocumentedDismissals: [...dismissed].filter((ghsa) => !documented.has(ghsa)),
-    rowsWithoutDismissal: [...documented].filter((ghsa) => !dismissed.has(ghsa)),
+    undocumentedDismissals: [...states.keys()].filter(
+      (ghsa) => hasState(ghsa, "dismissed") && !documented.has(ghsa),
+    ),
+    rowsWithOpenAlerts: [...documented].filter((ghsa) => hasState(ghsa, "open")),
+    rowsWithoutAlerts: [...documented].filter((ghsa) => !states.has(ghsa)),
   };
 }
 
@@ -364,20 +381,23 @@ async function main() {
   }
 
   try {
-    const result = parity(rows, await dismissedAlerts(repository, token));
-    actionable ||=
-      result.undocumentedDismissals.length > 0 || result.rowsWithoutDismissal.length > 0;
+    const result = parity(rows, await dependabotAlerts(repository, token));
+    actionable ||= result.undocumentedDismissals.length > 0 || result.rowsWithOpenAlerts.length > 0;
     if (result.undocumentedDismissals.length)
       lines.push(
         `- Dismissed Dependabot alerts without advisory-baseline rows:\n  - ${result.undocumentedDismissals.join("\n  - ")}`,
       );
-    if (result.rowsWithoutDismissal.length)
+    if (result.rowsWithOpenAlerts.length)
       lines.push(
-        `- Advisory-baseline rows without dismissed Dependabot alerts:\n  - ${result.rowsWithoutDismissal.join("\n  - ")}`,
+        `- Advisory-baseline rows whose Dependabot alert is still open (dismiss it, citing the row):\n  - ${result.rowsWithOpenAlerts.join("\n  - ")}`,
       );
-    if (!result.undocumentedDismissals.length && !result.rowsWithoutDismissal.length)
+    if (!result.undocumentedDismissals.length && !result.rowsWithOpenAlerts.length)
       lines.push(
-        "- Dependabot parity: every dismissed alert has a row and every row has a dismissed alert.",
+        "- Dependabot parity: every alert a person dismissed has a row, and no row's alert is open.",
+      );
+    if (result.rowsWithoutAlerts.length)
+      lines.push(
+        `- Advisory-baseline rows with no Dependabot alert (nothing to dismiss):\n  - ${result.rowsWithoutAlerts.join("\n  - ")}`,
       );
   } catch (error) {
     lines.push(`- Dependabot parity: could not be determined (${error.message})`);

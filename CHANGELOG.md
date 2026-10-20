@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.14.1...v0.15.0) (2026-10-20)
+
+
+### Features
+
+* tell agents to keep vendored third-party skills under review ([#123](https://github.com/bydradev/gh-repo-bootstrapper/issues/123)) ([941e0aa](https://github.com/bydradev/gh-repo-bootstrapper/commit/941e0aaaa17e8981d937452624578a7ffd9b5839))
+
 ## [0.14.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.14.0...v0.14.1) (2026-10-19)
 
 

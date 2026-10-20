@@ -254,6 +254,20 @@ skill named in `## Project specifics`, which governs where it is narrower, so
 a repository keeps its own tiers, ports and test-server notes there rather
 than in `AGENTS.md`.
 
+`verify-external-claims` also covers third-party skills, such as one a
+vendor's CLI installs into `.agents/skills/` with a lockfile entry. Agents
+treat them as vendored content: they never run a skill's own update
+instructions unasked, refresh one only in a pull request that shows the diff
+and names the upstream commit or release (pinning that commit in the lockfile
+when the install tool supports a ref), and keep corrections in
+`## Project specifics` rather than editing the vendored files. A repository
+whose vendored skill tells agents to update it names that command in a
+stop-and-ask line there, added in the pull request that adds the skill.
+`--adopt` never updates or removes such a skill. It reports a `SKILL.md`
+that is not a symlink as `shadowed` when its `name` is a template skill name
+or cannot be read unambiguously (see
+[Checking and adopting](#checking-and-adopting)).
+
 Reviews are split by role. `fresh-eyes-review` is the implementer's side: when
 substantial work needs a review, what to hand the reviewer, and how to handle
 the findings of any review (reproduce each one before changing code, fix or

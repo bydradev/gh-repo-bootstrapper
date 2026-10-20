@@ -276,6 +276,7 @@ AGENTS_COMMON_REQUIREMENTS = (
         _skill_path("verify-external-claims"),
     ),
     ("Do not hand-edit vendored files", _skill_path("verify-external-claims")),
+    ("installed in this repository, committed or not,", _skill_path("verify-external-claims")),
     ("but the rules below cover only vendored skills.", _skill_path("verify-external-claims")),
     ("remove it once a refresh brings in the upstream fix.", _skill_path("verify-external-claims")),
     ("add a stop-and-ask line naming that command", _skill_path("verify-external-claims")),

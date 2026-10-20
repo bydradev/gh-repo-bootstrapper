@@ -2798,6 +2798,40 @@ def format_legacy_digests(table: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict] = None) -> list:
+    """bootstrap.SEED_DIGESTS must equal what the release tags give.
+
+    --adopt brings a seed script up to date only when the table names its
+    bytes, so a stale table would keep an unchanged copy or, worse, miss one
+    the current template replaced. Without git tags (a shallow clone) the
+    table cannot be rebuilt, so the check is skipped with a notice."""
+    if computed is None:
+        if not bootstrap._release_tags():
+            print("notice: git vX.Y.Z release tags unavailable; skipped the SEED_DIGESTS check")
+            return []
+        computed = bootstrap.compute_seed_digests()
+    if recorded is None:
+        recorded = bootstrap.SEED_DIGESTS
+    if computed != recorded:
+        return [
+            "bootstrap.SEED_DIGESTS is stale; regenerate it with "
+            "`python3 validate_templates.py --regenerate-seed-digests` and paste the output"
+        ]
+    return []
+
+
+def format_seed_digests(table: dict) -> str:
+    """SEED_DIGESTS as deterministic Python source."""
+    lines = ["SEED_DIGESTS: dict[str, dict[str, str]] = {"]
+    for path in sorted(table):
+        lines.append(f"    {json.dumps(path)}: {{")
+        rows = sorted(table[path].items(), key=lambda row: (bootstrap._tag_version(row[1]), row[0]))
+        lines += [f"        {json.dumps(digest)}: {json.dumps(tag)}," for digest, tag in rows]
+        lines.append("    },")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Self-tests for check_workflow_job_consistency itself — these use synthetic
 # workflow fixtures (not bootstrap.generate_files output) to prove the missing
@@ -3937,6 +3971,13 @@ def _structure_self_tests() -> list:
         check_legacy_digests(computed={"docs/x.md": {"a"}}, recorded={"docs/x.md": {"b"}}),
         "LEGACY_TEMPLATE_DIGESTS is stale",
     )
+    # Seed digests: a recorded table missing a release's copy fails.
+    expect(
+        "stale seed digests",
+        check_seed_digests(computed={"scripts/x.mjs": {"a": "v0.1.0", "b": "v0.2.0"}},
+                           recorded={"scripts/x.mjs": {"a": "v0.1.0"}}),
+        "SEED_DIGESTS is stale",
+    )
 
     # Budget edges: one byte over the budget fails, and a fenced example of the
     # `## Project specifics` heading does not end the generated part early.
@@ -4390,6 +4431,7 @@ def main() -> int:
     all_errors += check_secrets_word("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_user_visible_step("bootstrapper own workflows", _own_workflow_files())
     all_errors += check_legacy_digests()
+    all_errors += check_seed_digests()
     if STRUCTURE_FIXTURES_RUN[0] == 0:
         all_errors.append("no hub/skill/stamp self-test fixture ran; run_self_tests() is not wired in")
 
@@ -4419,8 +4461,12 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["--regenerate-legacy-digests"]:
         print(format_legacy_digests(bootstrap.compute_legacy_digests()), end="")
         sys.exit(0)
+    if sys.argv[1:] == ["--regenerate-seed-digests"]:
+        print(format_seed_digests(bootstrap.compute_seed_digests()), end="")
+        sys.exit(0)
     if len(sys.argv) > 1:
         sys.exit(
-            "usage: validate_templates.py [--render-markdown <dir> | --regenerate-legacy-digests]"
+            "usage: validate_templates.py [--render-markdown <dir> | --regenerate-legacy-digests"
+            " | --regenerate-seed-digests]"
         )
     sys.exit(main())

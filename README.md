@@ -258,7 +258,8 @@ than in `AGENTS.md`.
 vendor's CLI installs into `.agents/skills/` with a lockfile entry. Agents
 treat them as vendored content: they never run a skill's own update
 instructions unasked, refresh one only in a pull request that shows the diff
-and names the upstream commit or release, and keep corrections in
+and names the upstream commit or release (pinning that commit in the lockfile
+when the install tool supports a ref), and keep corrections in
 `## Project specifics` rather than editing the vendored files. A repository
 whose vendored skill tells agents to update it names that command in a
 stop-and-ask line there, added in the pull request that adds the skill.

@@ -96,8 +96,8 @@ const testJob = {
   steps: [{ number: 1, name: "Set up job", status: "completed", conclusion: "success" }],
 };
 
-// GitHub lists only the alerts in the `state` values asked for, and every
-// state when none is given.
+// GitHub lists only the alerts in the `state` values asked for; the fixture
+// returns every alert when none is given.
 function alertsInStates(alerts, state) {
   if (!state || !Array.isArray(alerts)) return alerts;
   const states = state.split(",");
@@ -246,7 +246,7 @@ test("accepts a captured GitHub workflow-run payload and exits zero when healthy
   );
   assert.match(
     output,
-    /Dependabot parity: every dismissed alert has a row, and no row's alert is open/,
+    /Dependabot parity: every alert a person dismissed has a row, and no row's alert is open/,
   );
   assert.doesNotMatch(output, /no Dependabot alert/);
   assert.match(
@@ -305,7 +305,7 @@ test("reports both Dependabot parity directions and exits non-zero", async () =>
     output,
     /Advisory-baseline rows whose Dependabot alert is still open \(dismiss it, citing the row\):\n {2}- GHSA-aaaa-bbbb-cccc/,
   );
-  assert.doesNotMatch(output, /Dependabot parity: every dismissed alert has a row/);
+  assert.doesNotMatch(output, /Dependabot parity: every alert a person dismissed has a row/);
 });
 
 test("reports a row's open alert even when another alert for it is dismissed", async () => {
@@ -322,7 +322,7 @@ test("lists a row with no Dependabot alert without failing", async () => {
   assert.equal(code, 0, output);
   assert.match(
     output,
-    /Dependabot parity: every dismissed alert has a row, and no row's alert is open/,
+    /Dependabot parity: every alert a person dismissed has a row, and no row's alert is open/,
   );
   assert.match(
     output,
@@ -337,7 +337,7 @@ test("accepts a row whose alert was auto-dismissed or fixed", async () => {
       alerts: [alert("GHSA-aaaa-bbbb-cccc", state)],
     });
     assert.equal(code, 0, `${state}: ${output}`);
-    assert.match(output, /every dismissed alert has a row, and no row's alert is open/);
+    assert.match(output, /every alert a person dismissed has a row, and no row's alert is open/);
     assert.doesNotMatch(output, /no Dependabot alert/);
     assert.deepEqual(
       requests.filter((request) => request.includes("dependabot/alerts")),
@@ -346,10 +346,15 @@ test("accepts a row whose alert was auto-dismissed or fixed", async () => {
   }
 });
 
-test("does not ask for a row for an alert GitHub dismissed by itself", async () => {
+test("does not ask for a row for an alert no person dismissed", async () => {
   const { code, output } = await runFixture({
     rows: [documented],
-    alerts: [...matchingAlert, alert("GHSA-dddd-eeee-ffff", "auto_dismissed")],
+    alerts: [
+      ...matchingAlert,
+      alert("GHSA-dddd-eeee-ffff", "auto_dismissed"),
+      alert("GHSA-gggg-hhhh-iiii", "open"),
+      alert("GHSA-jjjj-kkkk-llll", "fixed"),
+    ],
   });
   assert.equal(code, 0, output);
   assert.doesNotMatch(output, /Dismissed Dependabot alerts without advisory-baseline rows/);
@@ -401,7 +406,7 @@ test("follows Link-header pagination for Dependabot alerts", async () => {
     auditReport: auditReportMatching("GHSA-aaaa-bbbb-cccc", "GHSA-dddd-eeee-ffff"),
   });
   assert.equal(code, 0, output);
-  assert.match(output, /every dismissed alert has a row, and no row's alert is open/);
+  assert.match(output, /every alert a person dismissed has a row, and no row's alert is open/);
   assert.doesNotMatch(output, /no Dependabot alert/);
   assert.equal(requests.filter((request) => request.includes("dependabot/alerts")).length, 2);
 });
@@ -424,7 +429,7 @@ test("reports rejected Dependabot API access without claiming healthy parity", a
   });
   assert.equal(code, 1);
   assert.match(output, /Dependabot parity: could not be determined \(Dependabot API returned 403/);
-  assert.doesNotMatch(output, /every dismissed alert has a row/);
+  assert.doesNotMatch(output, /every alert a person dismissed has a row/);
 });
 
 test("reports overdue review dates as actionable", async () => {

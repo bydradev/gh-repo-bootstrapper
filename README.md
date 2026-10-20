@@ -582,8 +582,9 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 `nextjs`: the weekly Baseline review's Dependabot parity check now reads alerts
 in every state (`auto_dismissed`, `dismissed`, `fixed` and `open`) instead of
-only dismissed ones. It still fails on a dismissed alert without an advisory
-row, and now fails on a row whose alert is still open. A row with no alert at
+only dismissed ones. It still fails on an alert a person dismissed without an
+advisory row, and on a row whose alert is open, now with its own message and
+even when another alert for that advisory is dismissed. A row with no alert at
 all, or whose alert GitHub's auto-triage rules dismissed or Dependabot marked
 fixed, no longer fails the review: there is nothing to dismiss, so a row with
 no alert is listed in the summary instead. Before, every such row failed the

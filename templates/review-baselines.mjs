@@ -17,11 +17,12 @@ const apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com";
 const releaseJobName = "release-please";
 const releaseCredentialsStep = "Check Release Please credentials";
 const releaseTokenStep = "Generate GitHub App token";
-// Every state the Dependabot alerts API lists, asked for by name. A row's alert
-// may have been dismissed by GitHub's auto-triage rules (`auto_dismissed`) or
-// fixed, and Dependabot may raise no alert for a row at all; reading only
-// dismissed alerts mistook each of those for a row still waiting on a
-// dismissal.
+// Every state the Dependabot alerts API lists, asked for by name (GitHub REST
+// docs, "List Dependabot alerts for a repository", checked 2026-10-20). A row's
+// alert may have been dismissed by GitHub's auto-triage rules
+// (`auto_dismissed`) or fixed, and Dependabot may raise no alert for a row at
+// all; reading only dismissed alerts mistook each of those for a row still
+// waiting on a dismissal.
 const alertStates = ["auto_dismissed", "dismissed", "fixed", "open"];
 
 // Math.ceil() of a small negative fraction returns -0 (per spec, for
@@ -392,7 +393,7 @@ async function main() {
       );
     if (!result.undocumentedDismissals.length && !result.rowsWithOpenAlerts.length)
       lines.push(
-        "- Dependabot parity: every dismissed alert has a row, and no row's alert is open.",
+        "- Dependabot parity: every alert a person dismissed has a row, and no row's alert is open.",
       );
     if (result.rowsWithoutAlerts.length)
       lines.push(

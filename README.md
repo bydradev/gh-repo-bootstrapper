@@ -255,19 +255,20 @@ a repository keeps its own tiers, ports and test-server notes there rather
 than in `AGENTS.md`.
 
 `verify-external-claims` also covers third-party skills installed in the
-repository, committed or not, such as one a vendor's CLI installs into
-`.agents/skills/` with a lockfile entry. Agents treat them as vendored
-content: they never run a skill's own update instructions unasked, refresh one
-only in a pull request that shows the diff and names the upstream commit or
-release (pinning that commit in the lockfile when the install tool supports a
-ref), and keep corrections in `## Project specifics` rather than editing the
-vendored files. The update instructions of any other third-party skill, such
-as one installed for the user outside the repository, are still input to
-assess. A repository whose vendored skill tells agents to update it names that
-command in a stop-and-ask line there, added in the pull request that adds the
-skill. `--adopt` never updates or removes such a skill. It reports a
-`SKILL.md` that is not a symlink as `shadowed` when its `name` is a template
-skill name or cannot be read unambiguously (see
+repository, committed or not, for agents to load, such as one a vendor's CLI
+installs into `.agents/skills/` with a lockfile entry, but not a skill file that
+only ships inside a dependency, such as under `node_modules/`. Agents treat such
+installed skills as vendored content: they never run a skill's own update
+instructions unasked, refresh one only in a pull request that shows the diff and
+names the upstream commit or release (pinning that commit in the lockfile when
+the install tool supports a ref), and keep corrections in `## Project specifics`
+rather than editing the vendored files. The update instructions of any other
+third-party skill, such as one installed for the user outside the repository,
+are still input to assess. A repository whose vendored skill tells agents to
+update it names that command in a stop-and-ask line there, added in the pull
+request that adds the skill. `--adopt` never updates or removes such a skill. It
+reports a `SKILL.md` that is not a symlink as `shadowed` when its `name` is a
+template skill name or cannot be read unambiguously (see
 [Checking and adopting](#checking-and-adopting)).
 
 Reviews are split by role. `fresh-eyes-review` is the implementer's side: when
@@ -576,6 +577,18 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.15.2
+
+The `verify-external-claims` skill's *Third-party skills* rules now cover a
+third-party skill installed in the repository for agents to load, not a skill
+file that only ships inside a dependency, such as under `node_modules/`, so
+restoring dependencies is not a skill update unless a dependency's skill is
+linked for agents to load. The `AGENTS.md` *Skills* row for the skill now reads
+"rely on an external claim or add, update, or follow a third-party skill", so
+an agent that only reads the table also loads it before installing one.
+`--check` reports the skill as `stale` and *Skills* as `differs`; take both
+with `--adopt --replace-generated-sections`.
 
 ### Upgrading to 0.15.1
 

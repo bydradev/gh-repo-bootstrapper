@@ -3008,6 +3008,18 @@ class SeedScriptTests(unittest.TestCase):
         self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
         self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
 
+    def test_a_missing_partner_that_cannot_be_written_holds_its_group(self):
+        self._repo_with(REVIEW=self.older[self.REVIEW])
+        (self.repo / self.REVIEW_TEST).unlink()
+        (self.repo / self.REVIEW_TEST).mkdir()
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.REVIEW_TEST], ("missing", None))
+        rows = self._seed_rows(bootstrap.adopt_repository(self.repo, self.files))
+        self.assertEqual(rows[self.REVIEW_TEST][0], "refused")
+        self.assertIn("something other than a file", rows[self.REVIEW_TEST][1])
+        self.assertEqual(rows[self.REVIEW][0], "kept")
+        self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
+        self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
+
     def test_a_seed_edited_after_the_scan_is_not_overwritten(self):
         self._repo_with(REVIEW=self.older[self.REVIEW])
         (self.repo / self.REVIEW).write_text(self.older[self.REVIEW] + "// ours\n", encoding="utf-8")
@@ -3046,6 +3058,30 @@ class SeedScriptTests(unittest.TestCase):
             self.assertEqual(validate_templates.check_seed_digests(recorded=recorded), [])
             # Changing the template after v0.2.0 makes v0.2.0's copy a shipped one.
             (templates / "x.mjs").write_text("c\n", encoding="utf-8")
+            errors = validate_templates.check_seed_digests(recorded=recorded)
+        self.assertTrue(any("SEED_DIGESTS is stale" in error for error in errors), errors)
+
+    def test_seed_table_check_is_skipped_with_a_notice_in_a_shallow_clone(self):
+        templates = self._tagged_templates({"v0.1.0": "a\n", "v0.2.0": "b\n"}, "b\n")
+        clone = Path(self._tmp.name) / "shallow"
+        # A shallow clone of a release keeps only that release's tag.
+        subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", "v0.2.0",
+                        templates.parent.as_uri(), str(clone)], check=True, capture_output=True)
+        output = io.StringIO()
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", clone / "templates"), \
+                unittest.mock.patch.object(bootstrap, "SEED_FILES", frozenset({"scripts/x.mjs"})), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(bootstrap._release_tags(), ["v0.2.0"])
+            recorded = {"scripts/x.mjs": {bootstrap._digest("a\n"): "v0.1.0"}}
+            self.assertEqual(validate_templates.check_seed_digests(recorded=recorded), [])
+        self.assertIn("skipped the SEED_DIGESTS check", output.getvalue())
+
+    def test_seed_table_check_runs_in_a_shallow_clone_that_has_every_tag(self):
+        templates = self._tagged_templates({"v0.1.0": "a\n", "v0.2.0": "b\n"}, "c\n")
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates), \
+                unittest.mock.patch.object(bootstrap, "SEED_FILES", frozenset({"scripts/x.mjs"})), \
+                unittest.mock.patch.object(validate_templates, "_shallow_checkout", return_value=True):
+            recorded = {"scripts/x.mjs": {bootstrap._digest("a\n"): "v0.1.0"}}
             errors = validate_templates.check_seed_digests(recorded=recorded)
         self.assertTrue(any("SEED_DIGESTS is stale" in error for error in errors), errors)
 

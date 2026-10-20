@@ -2798,20 +2798,33 @@ def format_legacy_digests(table: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _shallow_checkout() -> bool:
+    """True when the bootstrapper's own checkout is a shallow clone."""
+    result = subprocess.run(
+        ["git", "-C", str(bootstrap.TEMPLATES_DIR.parent), "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True, check=False, env=bootstrap._git_env(),
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict] = None) -> list:
     """bootstrap.SEED_DIGESTS must equal what the release tags give.
 
     --adopt brings a seed script up to date only when the table names its
     bytes, so a stale table would keep an unchanged copy or, worse, miss one
-    the current template replaced. Without git tags (a shallow clone) the
-    table cannot be rebuilt, so the check is skipped with a notice."""
-    if computed is None:
-        if not bootstrap._release_tags():
-            print("notice: git vX.Y.Z release tags unavailable; skipped the SEED_DIGESTS check")
-            return []
-        computed = bootstrap.compute_seed_digests()
+    the current template replaced. Without the release tags (none, or a
+    shallow clone missing a tag the table names, as one of a single release
+    is) the table cannot be rebuilt, so the check is skipped with a notice."""
     if recorded is None:
         recorded = bootstrap.SEED_DIGESTS
+    if computed is None:
+        tags = bootstrap._release_tags()
+        named = {tag for digests in recorded.values() for tag in digests.values()}
+        if not tags or (_shallow_checkout() and not named <= set(tags)):
+            print("notice: git vX.Y.Z release tags unavailable or incomplete in a shallow clone; "
+                  "skipped the SEED_DIGESTS check")
+            return []
+        computed = bootstrap.compute_seed_digests()
     if computed != recorded:
         return [
             "bootstrap.SEED_DIGESTS is stale; regenerate it with "

@@ -570,8 +570,9 @@ naming that release, and `--adopt` replaces it with the current template if
 git tracks it with no uncommitted changes. Each script changes only together
 with its test and `scripts/baseline-table.mjs`, which all three scripts
 import, so `--adopt` keeps an unedited copy while another file of its group is
-edited, has uncommitted changes, or is kept for the same reason, and names the
-file that holds it back. Merge the template's changes into that group by hand.
+edited, has uncommitted changes, cannot be written (such as a folder at a
+missing file's path), or is kept for the same reason, and names the file that
+holds it back. Merge the template's changes into that group by hand.
 
 For an existing `.gitignore`, missing entries are listed, not written; a
 missing `.gitignore` is created like any other file. Whether an added rule

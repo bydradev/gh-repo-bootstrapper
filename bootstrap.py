@@ -3126,15 +3126,18 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
 
     An edited seed is kept. A stale one is written only together with its
     groups (see _seed_holds), so before anything is written each stale seed
-    is checked as the write checks it; one that fails is refused and holds
-    its groups back, so no group is left half updated. A stale seed mapped
-    to None is written by _adopt_seed.
+    is checked as the write checks it, and each missing one for something
+    in the way of creating it; one that fails is refused and holds its
+    groups back, so no group is left half updated. A stale seed mapped to
+    None is written by _adopt_seed.
     """
     actions = {}
     stale = sorted(rel for rel in SEED_FILES if report.get(rel, (None,))[0] == "stale")
     for rel in SEED_FILES:
         if report.get(rel) == ("differs", SEED_EDITED):
             actions[rel] = ("kept", rel, "edited in this repository; not overwritten, so merge template changes by hand")
+        elif report.get(rel, (None,))[0] == "missing" and not _path_is_free(repo_dir, rel):
+            actions[rel] = ("refused", rel, "something other than a file is at this path; move it aside")
     for rel in stale:
         try:
             refusal = _seed_refusal(repo_dir, rel, files[rel])
@@ -3142,12 +3145,25 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             refusal = f"{type(exc).__name__}: {exc.strerror or exc}"
         if refusal:
             actions[rel] = ("refused", rel, refusal)
-    holds = _seed_holds(report, frozenset(rel for rel in stale if rel in actions))
+    holds = _seed_holds(report, frozenset(rel for rel, action in actions.items() if action[0] == "refused"))
     for rel in stale:
         if rel in holds and rel not in actions:
             actions[rel] = ("kept", rel, "unchanged since an earlier release, but " + _seed_hold_reason(holds[rel]))
         actions.setdefault(rel, None)
     return actions
+
+
+def _path_is_free(repo_dir: Path, rel: str) -> bool:
+    """True when nothing is at rel and every folder on the way is a directory
+    or absent, so a missing file can be created there."""
+    path = repo_dir
+    for part in Path(rel).parts:
+        path = path / part
+        if not os.path.lexists(path):
+            return True
+        if not stat.S_ISDIR(os.lstat(path).st_mode):
+            return False
+    return False
 
 
 def _seed_tag(rel: str, raw: bytes):

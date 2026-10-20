@@ -3035,6 +3035,18 @@ class SeedScriptTests(unittest.TestCase):
         self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
         self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
 
+    def test_a_missing_partner_with_a_staged_deletion_holds_its_group(self):
+        self._repo_with(REVIEW=self.older[self.REVIEW])
+        _git(self.repo, "rm", "-q", self.REVIEW_TEST)
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.REVIEW_TEST], ("missing", None))
+        rows = self._seed_rows(bootstrap.adopt_repository(self.repo, self.files))
+        self.assertEqual(rows[self.REVIEW_TEST][0], "kept")
+        self.assertIn("uncommitted change", rows[self.REVIEW_TEST][1])
+        self.assertEqual(rows[self.REVIEW][0], "kept")
+        self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
+        self.assertFalse((self.repo / self.REVIEW_TEST).exists())
+        self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
+
     def test_a_missing_seed_is_not_created_beside_a_held_group(self):
         self._repo_with(VERIFY=self.files[self.VERIFY] + "// ours\n", TABLE=self.older[self.TABLE],
                         AUDIT=self.older[self.AUDIT])

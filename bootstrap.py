@@ -3150,9 +3150,10 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
     An edited seed is kept. A stale or missing one is written only together
     with its groups (see _seed_holds), so before anything is written each
     stale seed is checked as the write checks it, each missing one for
-    something in the way of creating it, and each up-to-date file of their
-    groups for being untracked or uncommitted; one that fails holds its
-    groups back, so no group is left half updated. Only a write that fails
+    something in the way of creating it or a change git still has for it
+    (such as a staged deletion), and each up-to-date file of their groups
+    for being untracked or uncommitted; one that fails holds its groups
+    back, so no group is left half updated. Only a write that fails
     partway (a full disk, an interrupted run) can still leave one half
     updated: nothing is rolled back. A stale seed mapped to None is written
     by _adopt_seed; a missing one absent from the result, by _adopt_file.
@@ -3183,6 +3184,13 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             blocked.add(rel)
             actions[rel] = ("kept", rel, "up to date, but untracked or with uncommitted changes, so the files that "
                             "change with it wait; commit it, then re-run --adopt")
+        elif status(rel) == "missing" and rel not in actions and _git_file_state(repo_dir, rel) == "dirty":
+            # Absent on disk, but git still tracks or stages it: recreating it
+            # untracked would leave that change, such as a staged deletion, to
+            # be committed beside the rest of its group.
+            blocked.add(rel)
+            actions[rel] = ("kept", rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
+                            "it and the files that change with it wait; commit or undo that change, then re-run --adopt")
     holds = _seed_holds(report, frozenset(blocked))
     for rel in pending:
         if rel in holds and rel not in actions:

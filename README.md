@@ -573,8 +573,10 @@ changes. Each script changes only together with its test and
 neither updates an unedited copy nor creates a missing one while another file
 of its group is edited, untracked or has uncommitted changes, cannot be
 written (such as a folder at a missing file's path), or is kept for the same
-reason, and names the file that holds it back. Merge the template's changes
-into that group by hand, or commit the file and re-run `--adopt`.
+reason, and names the file that holds it back. A missing file that git still
+has a change for, such as a staged deletion, is not recreated and holds its
+group the same way. Merge the template's changes into that group by hand, or
+commit the file and re-run `--adopt`.
 
 For an existing `.gitignore`, missing entries are listed, not written; a
 missing `.gitignore` is created like any other file. Whether an added rule

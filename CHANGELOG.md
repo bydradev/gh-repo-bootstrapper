@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.1...v0.15.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* keep skill files that ship inside a dependency out of the vendored-skill rules ([#127](https://github.com/bydradev/gh-repo-bootstrapper/issues/127)) ([a3251fa](https://github.com/bydradev/gh-repo-bootstrapper/commit/a3251fa65dd5c5a5a15e955c5600c92969a3d476))
+* send agents to verify-external-claims before they add or update a third-party skill ([a3251fa](https://github.com/bydradev/gh-repo-bootstrapper/commit/a3251fa65dd5c5a5a15e955c5600c92969a3d476))
+
 ## [0.15.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.0...v0.15.1) (2026-10-20)
 
 

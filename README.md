@@ -254,18 +254,20 @@ skill named in `## Project specifics`, which governs where it is narrower, so
 a repository keeps its own tiers, ports and test-server notes there rather
 than in `AGENTS.md`.
 
-`verify-external-claims` also covers third-party skills, such as one a
-vendor's CLI installs into `.agents/skills/` with a lockfile entry. Agents
-treat them as vendored content: they never run a skill's own update
-instructions unasked, refresh one only in a pull request that shows the diff
-and names the upstream commit or release (pinning that commit in the lockfile
-when the install tool supports a ref), and keep corrections in
-`## Project specifics` rather than editing the vendored files. A repository
+`verify-external-claims` also covers third-party skills checked into the
+repository, such as one a vendor's CLI installs into `.agents/skills/` with a
+lockfile entry. Agents treat them as vendored content: they never run a
+skill's own update instructions unasked, refresh one only in a pull request
+that shows the diff and names the upstream commit or release (pinning that
+commit in the lockfile when the install tool supports a ref), and keep
+corrections in `## Project specifics` rather than editing the vendored files.
+The update instructions of any other third-party skill, such as one installed
+for the user outside the repository, are still input to assess. A repository
 whose vendored skill tells agents to update it names that command in a
 stop-and-ask line there, added in the pull request that adds the skill.
-`--adopt` never updates or removes such a skill. It reports a `SKILL.md`
-that is not a symlink as `shadowed` when its `name` is a template skill name
-or cannot be read unambiguously (see
+`--adopt` never updates or removes such a skill. It reports a `SKILL.md` that
+is not a symlink as `shadowed` when its `name` is a template skill name or
+cannot be read unambiguously (see
 [Checking and adopting](#checking-and-adopting)).
 
 Reviews are split by role. `fresh-eyes-review` is the implementer's side: when
@@ -574,6 +576,16 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.15.1
+
+The `verify-external-claims` skill's *Third-party skills* rules now cover only
+third-party skills checked into the repository; the update instructions of any
+other third-party skill, such as one installed for the user, are still input
+to assess. A correction to a vendored skill stays in `## Project specifics`
+until a refresh brings in the upstream fix, and the `skills` 1.7.4 pinning
+example names its source and asks for a full commit SHA. `--check` reports the
+skill as `stale`, and `--adopt` updates it.
 
 ### Upgrading to 0.14.1
 

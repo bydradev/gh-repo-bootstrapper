@@ -60,8 +60,8 @@ anything installed beyond a base Python interpreter.
   through a `${{ }}` expression in its script
 - no generated file describing the retired provider-deploy or production e2e
   lanes
-- the bootstrapper's own runbook copy, its legacy-digest table and its
-  seed-script digest table, each against the git release tags
+- the bootstrapper's own runbook copy, and its legacy-digest and
+  seed-script digest tables against the git release tags
 - the bootstrapper's own agent files (the general skills and their
   `.claude/skills` links, both reviewer agents, `CLAUDE.md`, and `AGENTS.md`
   above `## Project specifics`), which must match its `--type simple` render.
@@ -564,15 +564,17 @@ writing (`--non-interactive` skips the prompt).
 The `nextjs` baseline scripts, `scripts/audit-production.mjs`,
 `scripts/verify-baselines.mjs` and `scripts/review-baselines.mjs` with their
 `.test.mjs` files and `scripts/baseline-table.mjs`, belong to the repository,
-so an edited one is reported as `differs` and kept. A copy whose bytes equal
-one a release shipped was never edited: `--check` reports it as `stale`,
-naming that release, and `--adopt` replaces it with the current template if
-git tracks it with no uncommitted changes. Each script changes only together
-with its test and `scripts/baseline-table.mjs`, which all three scripts
-import, so `--adopt` keeps an unedited copy while another file of its group is
-edited, has uncommitted changes, cannot be written (such as a folder at a
-missing file's path), or is kept for the same reason, and names the file that
-holds it back. Merge the template's changes into that group by hand.
+so a copy that matches no release, such as an edited one, is reported as
+`differs` and kept. A copy whose bytes equal one a release shipped was never
+edited: `--check` reports it as `stale`, naming that release, and `--adopt`
+replaces it with the current template if git tracks it with no uncommitted
+changes. Each script changes only together with its test and
+`scripts/baseline-table.mjs`, which all three scripts import, so `--adopt`
+neither updates an unedited copy nor creates a missing one while another file
+of its group is edited, untracked or has uncommitted changes, cannot be
+written (such as a folder at a missing file's path), or is kept for the same
+reason, and names the file that holds it back. Merge the template's changes
+into that group by hand, or commit the file and re-run `--adopt`.
 
 For an existing `.gitignore`, missing entries are listed, not written; a
 missing `.gitignore` is created like any other file. Whether an added rule
@@ -606,7 +608,9 @@ when the repository never edited it, together with the rest of its group (see
 the `scripts/review-baselines.mjs` and `scripts/review-baselines.test.mjs`
 copies 0.15.2 shipped gets the 0.15.3 change below from `--adopt`, without
 copying them by hand. An edited copy is still `differs`, and its change is
-still merged by hand.
+still merged by hand. A missing baseline script is no longer created while
+the rest of its group is held back, so `--adopt` no longer pairs a current
+test with an older script.
 
 ### Upgrading to 0.15.3
 

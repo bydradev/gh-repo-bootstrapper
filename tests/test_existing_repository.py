@@ -2949,7 +2949,7 @@ class SeedScriptTests(unittest.TestCase):
                          ("differs", bootstrap.SEED_EDITED))
         rows = self._seed_rows(bootstrap.adopt_repository(self.repo, self.files))
         self.assertEqual(rows, {self.VERIFY: (
-            "kept", "edited in this repository; not overwritten, so merge template changes by hand",
+            "kept", "matches no released copy; not overwritten, so merge template changes by hand",
         )})
         self.assertEqual((self.repo / self.VERIFY).read_text(encoding="utf-8"), edited)
 
@@ -2964,8 +2964,8 @@ class SeedScriptTests(unittest.TestCase):
     def test_an_unchanged_seed_waits_for_an_edited_partner(self):
         edited = self.files[self.REVIEW_TEST] + "// ours\n"
         self._repo_with(REVIEW=self.older[self.REVIEW], REVIEW_TEST=edited)
-        reason = ("it changes only together with scripts/review-baselines.test.mjs, which --adopt cannot "
-                  "update; update them together by hand")
+        reason = ("it changes only together with scripts/review-baselines.test.mjs, which --adopt leaves "
+                  "as it is; update them together by hand")
         self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.REVIEW], (
             "stale", f"unchanged since gh-repo-bootstrapper v0.9.0 shipped it; --adopt keeps it, since {reason}",
         ))
@@ -3019,6 +3019,36 @@ class SeedScriptTests(unittest.TestCase):
         self.assertEqual(rows[self.REVIEW][0], "kept")
         self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
         self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
+
+    def test_an_up_to_date_partner_with_a_staged_change_holds_its_group(self):
+        self._repo_with(REVIEW=self.older[self.REVIEW])
+        # The working copy matches the template, but git has an edit staged.
+        partner = self.repo / self.REVIEW_TEST
+        partner.write_text(self.files[self.REVIEW_TEST] + "// staged\n", encoding="utf-8")
+        _git(self.repo, "add", self.REVIEW_TEST)
+        partner.write_text(self.files[self.REVIEW_TEST], encoding="utf-8")
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.REVIEW_TEST], ("same", None))
+        rows = self._seed_rows(bootstrap.adopt_repository(self.repo, self.files))
+        self.assertEqual(rows[self.REVIEW_TEST][0], "kept")
+        self.assertIn("uncommitted changes", rows[self.REVIEW_TEST][1])
+        self.assertEqual(rows[self.REVIEW][0], "kept")
+        self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
+        self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
+
+    def test_a_missing_seed_is_not_created_beside_a_held_group(self):
+        self._repo_with(VERIFY=self.files[self.VERIFY] + "// ours\n", TABLE=self.older[self.TABLE],
+                        AUDIT=self.older[self.AUDIT])
+        (self.repo / self.AUDIT_TEST).unlink()
+        _git(self.repo, "commit", "-q", "-am", "no audit test")
+        reason = ("it changes only together with scripts/verify-baselines.mjs, which --adopt leaves as it is; "
+                  "update them together by hand")
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.AUDIT_TEST],
+                         ("missing", f"--adopt does not create it, since {reason}"))
+        rows = self._seed_rows(bootstrap.adopt_repository(self.repo, self.files))
+        self.assertEqual(rows[self.AUDIT_TEST], ("kept", f"not created, but {reason}"))
+        self.assertEqual(rows[self.AUDIT][0], "kept")
+        self.assertFalse((self.repo / self.AUDIT_TEST).exists())
+        self.assertEqual((self.repo / self.AUDIT).read_text(encoding="utf-8"), self.older[self.AUDIT])
 
     def test_a_seed_edited_after_the_scan_is_not_overwritten(self):
         self._repo_with(REVIEW=self.older[self.REVIEW])

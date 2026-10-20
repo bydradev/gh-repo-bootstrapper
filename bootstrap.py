@@ -2655,32 +2655,34 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
 TYPE_MISMATCH = "(--type)"
 
 
-SEED_EDITED = "edited in this repository, so --adopt keeps it; merge template changes by hand"
+SEED_EDITED = "matches no released copy, so --adopt keeps it; merge template changes by hand"
 
 
 def _seed_holds(report: dict, blocked=frozenset()) -> dict:
-    """The files holding back each stale seed script, for those --adopt keeps.
+    """The files holding back each stale or missing seed script --adopt keeps.
 
-    A stale seed is brought up to date only when every other file of each
-    group holding it is the same as the render, stale, or missing, and no
-    stale file of those groups is held back. blocked names files --adopt
-    cannot write, which hold their groups back like an edited file. Each
-    stale seed held back maps to the files at the root of its hold.
+    A stale seed is brought up to date, and a missing one created, only when
+    every other file of each group holding it is the same as the render,
+    stale, or missing, and no stale or missing file of those groups is held
+    back. blocked names files that hold their groups back like an edited
+    file: ones --adopt cannot write, and up-to-date ones that are untracked
+    or uncommitted. Each seed held back maps to the files at the root of its
+    hold.
     """
     def status(rel):
         return report[rel][0] if rel in report else None
 
-    stale = {rel for rel in SEED_FILES if status(rel) == "stale"}
-    roots = {rel: set() for rel in stale}
+    pending = {rel for rel in SEED_FILES if status(rel) in ("stale", "missing")}
+    roots = {rel: set() for rel in pending}
     for group in SEED_GROUPS:
         unfit = {rel for rel in group if rel in blocked or status(rel) not in ("same", "stale", "missing")}
-        for rel in stale.intersection(group):
+        for rel in pending.intersection(group):
             roots[rel] |= unfit - {rel}
     changed = True
     while changed:
         changed = False
         for group in SEED_GROUPS:
-            members = stale.intersection(group)
+            members = pending.intersection(group)
             held = set().union(*(roots[rel] for rel in members))
             for rel in members:
                 extra = held - {rel} - roots[rel]
@@ -2700,7 +2702,7 @@ def _seed_stale_detail(tag: str, roots) -> str:
 def _seed_hold_reason(roots) -> str:
     return (
         "it changes only together with " + ", ".join(roots)
-        + ", which --adopt cannot update; update them together by hand"
+        + ", which --adopt leaves as it is; update them together by hand"
     )
 
 
@@ -2786,6 +2788,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     for rel, tag in seed_tags.items():
         if tag:
             report[rel] = ("stale", _seed_stale_detail(tag, holds.get(rel)))
+    for rel in SEED_FILES:
+        if rel in holds and report[rel][0] == "missing":
+            report[rel] = ("missing", "--adopt does not create it, since " + _seed_hold_reason(holds[rel]))
     report.update(_extra_owned_files(repo_dir, files))
     report.update(_dangling_mirrors(repo_dir, links))
     mismatch = sorted(rel for rel, (status, _) in report.items() if status == "other-type")
@@ -3122,34 +3127,51 @@ def adopt_repository(
 
 
 def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
-    """The --adopt action for each seed script the report finds stale or edited.
+    """The --adopt action for each seed script the report finds stale, missing or edited.
 
-    An edited seed is kept. A stale one is written only together with its
-    groups (see _seed_holds), so before anything is written each stale seed
-    is checked as the write checks it, and each missing one for something
-    in the way of creating it; one that fails is refused and holds its
-    groups back, so no group is left half updated. A stale seed mapped to
-    None is written by _adopt_seed.
+    An edited seed is kept. A stale or missing one is written only together
+    with its groups (see _seed_holds), so before anything is written each
+    stale seed is checked as the write checks it, each missing one for
+    something in the way of creating it, and each up-to-date file of their
+    groups for being untracked or uncommitted; one that fails holds its
+    groups back, so no group is left half updated. Only a write that fails
+    partway (a full disk, an interrupted run) can still leave one half
+    updated: nothing is rolled back. A stale seed mapped to None is written
+    by _adopt_seed; a missing one absent from the result, by _adopt_file.
     """
+    def status(rel):
+        return report.get(rel, (None,))[0]
+
     actions = {}
-    stale = sorted(rel for rel in SEED_FILES if report.get(rel, (None,))[0] == "stale")
+    pending = sorted(rel for rel in SEED_FILES if status(rel) in ("stale", "missing"))
     for rel in SEED_FILES:
         if report.get(rel) == ("differs", SEED_EDITED):
-            actions[rel] = ("kept", rel, "edited in this repository; not overwritten, so merge template changes by hand")
-        elif report.get(rel, (None,))[0] == "missing" and not _path_is_free(repo_dir, rel):
+            actions[rel] = ("kept", rel, "matches no released copy; not overwritten, so merge template changes by hand")
+        elif status(rel) == "missing" and not _path_is_free(repo_dir, rel):
             actions[rel] = ("refused", rel, "something other than a file is at this path; move it aside")
-    for rel in stale:
-        try:
-            refusal = _seed_refusal(repo_dir, rel, files[rel])
-        except OSError as exc:
-            refusal = f"{type(exc).__name__}: {exc.strerror or exc}"
-        if refusal:
-            actions[rel] = ("refused", rel, refusal)
-    holds = _seed_holds(report, frozenset(rel for rel, action in actions.items() if action[0] == "refused"))
-    for rel in stale:
+        elif status(rel) == "stale":
+            try:
+                refusal = _seed_refusal(repo_dir, rel, files[rel])
+            except OSError as exc:
+                refusal = f"{type(exc).__name__}: {exc.strerror or exc}"
+            if refusal:
+                actions[rel] = ("refused", rel, refusal)
+    blocked = {rel for rel, action in actions.items() if action[0] == "refused"}
+    touched = set().union(*(group for group in SEED_GROUPS if set(group).intersection(pending)))
+    for rel in sorted(touched):
+        if status(rel) == "same" and _git_file_state(repo_dir, rel) != "clean":
+            # Up to date on disk, but untracked or not what git has committed
+            # and staged, so a commit could pair another copy with its group.
+            blocked.add(rel)
+            actions[rel] = ("kept", rel, "up to date, but untracked or with uncommitted changes, so the files that "
+                            "change with it wait; commit it, then re-run --adopt")
+    holds = _seed_holds(report, frozenset(blocked))
+    for rel in pending:
         if rel in holds and rel not in actions:
-            actions[rel] = ("kept", rel, "unchanged since an earlier release, but " + _seed_hold_reason(holds[rel]))
-        actions.setdefault(rel, None)
+            what = "unchanged since an earlier release" if status(rel) == "stale" else "not created"
+            actions[rel] = ("kept", rel, f"{what}, but " + _seed_hold_reason(holds[rel]))
+        elif status(rel) == "stale":
+            actions.setdefault(rel, None)
     return actions
 
 

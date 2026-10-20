@@ -583,11 +583,12 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 The `verify-external-claims` skill's *Third-party skills* rules now cover a
 third-party skill installed in the repository for agents to load, not a skill
 file that only ships inside a dependency, such as under `node_modules/`, so
-restoring dependencies is not a skill update. The `AGENTS.md` *Skills* row for
-the skill now reads "rely on an external claim or add, update or follow a
-third-party skill", so an agent that only reads the table also loads it before
-installing one. `--check` reports the skill as `stale` and *Skills* as
-`differs`; take both with `--adopt --replace-generated-sections`.
+restoring dependencies is not a skill update unless a dependency's skill is
+linked for agents to load. The `AGENTS.md` *Skills* row for the skill now reads
+"rely on an external claim or add, update, or follow a third-party skill", so
+an agent that only reads the table also loads it before installing one.
+`--check` reports the skill as `stale` and *Skills* as `differs`; take both
+with `--adopt --replace-generated-sections`.
 
 ### Upgrading to 0.15.1
 

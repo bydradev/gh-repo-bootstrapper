@@ -96,11 +96,24 @@ const testJob = {
   steps: [{ number: 1, name: "Set up job", status: "completed", conclusion: "success" }],
 };
 
+// GitHub lists only the alerts in the `state` values asked for, and every
+// state when none is given.
+function alertsInStates(alerts, state) {
+  if (!state || !Array.isArray(alerts)) return alerts;
+  const states = state.split(",");
+  return alerts.filter((alert) => states.includes(alert.state));
+}
+
+function alert(ghsa, state = "dismissed") {
+  return { state, security_advisory: { ghsa_id: ghsa } };
+}
+
 async function runFixture({
   rows,
   lintRows = [],
   alerts,
   alertPages,
+  filterAlertStates = true,
   latestReleaseRuns = [successfulRelease()],
   unfilteredReleaseRuns = latestReleaseRuns,
   successfulReleaseRuns = latestReleaseRuns,
@@ -121,8 +134,10 @@ async function runFixture({
     response.setHeader("content-type", "application/json");
     if (url.pathname === "/repos/bydradev/fixture/dependabot/alerts") {
       response.statusCode = dependabotStatus;
+      const served = (page) =>
+        filterAlertStates ? alertsInStates(page, url.searchParams.get("state")) : page;
       if (!alertPages) {
-        response.end(JSON.stringify(alerts));
+        response.end(JSON.stringify(served(alerts)));
         return;
       }
       // Serve one page per request and link to the next, as GitHub does.
@@ -133,7 +148,7 @@ async function runFixture({
         next.searchParams.set("page", String(page + 1));
         response.setHeader("link", `<${next}>; rel="next", <${next}>; rel="last"`);
       }
-      response.end(JSON.stringify(alertPages[page - 1]));
+      response.end(JSON.stringify(served(alertPages[page - 1])));
       return;
     }
     if (url.pathname === "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs") {
@@ -212,7 +227,9 @@ async function runFixture({
 
 const documented =
   "| `GHSA-aaaa-bbbb-cccc` | fixture | high | dev | fixture | fixture | 2099-01-01 |";
-const matchingAlert = [{ security_advisory: { ghsa_id: "GHSA-aaaa-bbbb-cccc" } }];
+const matchingAlert = [alert("GHSA-aaaa-bbbb-cccc")];
+const dependabotRequest =
+  "/repos/bydradev/fixture/dependabot/alerts?state=auto_dismissed%2Cdismissed%2Cfixed%2Copen&per_page=100";
 
 test("accepts a captured GitHub workflow-run payload and exits zero when healthy", async () => {
   const freshCapturedRun = successfulRelease();
@@ -229,13 +246,18 @@ test("accepts a captured GitHub workflow-run payload and exits zero when healthy
   );
   assert.match(
     output,
-    /Dependabot parity: every dismissed alert has a row and every row has a dismissed alert/,
+    /Dependabot parity: every dismissed alert has a row, and no row's alert is open/,
   );
+  assert.doesNotMatch(output, /no Dependabot alert/);
   assert.match(
     output,
     /Release pipeline: last successful `release-please\.yml` run completed successfully/,
   );
   assert.match(output, /Baseline review completed/);
+  assert.deepEqual(
+    requests.filter((request) => request.includes("dependabot/alerts")),
+    [dependabotRequest],
+  );
   assert.deepEqual(
     requests.filter((request) => request.includes("release-please.yml/runs")),
     [
@@ -272,11 +294,79 @@ test("ignores a newer in-progress release run when determining release health", 
 test("reports both Dependabot parity directions and exits non-zero", async () => {
   const { code, output } = await runFixture({
     rows: [documented],
-    alerts: [{ security_advisory: { ghsa_id: "GHSA-dddd-eeee-ffff" } }],
+    alerts: [alert("GHSA-dddd-eeee-ffff"), alert("GHSA-aaaa-bbbb-cccc", "open")],
   });
   assert.equal(code, 1);
-  assert.match(output, /Dismissed Dependabot alerts without advisory-baseline rows/);
-  assert.match(output, /Advisory-baseline rows without dismissed Dependabot alerts/);
+  assert.match(
+    output,
+    /Dismissed Dependabot alerts without advisory-baseline rows:\n {2}- GHSA-dddd-eeee-ffff/,
+  );
+  assert.match(
+    output,
+    /Advisory-baseline rows whose Dependabot alert is still open \(dismiss it, citing the row\):\n {2}- GHSA-aaaa-bbbb-cccc/,
+  );
+  assert.doesNotMatch(output, /Dependabot parity: every dismissed alert has a row/);
+});
+
+test("reports a row's open alert even when another alert for it is dismissed", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: [alert("GHSA-aaaa-bbbb-cccc"), alert("GHSA-aaaa-bbbb-cccc", "open")],
+  });
+  assert.equal(code, 1);
+  assert.match(output, /whose Dependabot alert is still open[^\n]*\n {2}- GHSA-aaaa-bbbb-cccc/);
+});
+
+test("lists a row with no Dependabot alert without failing", async () => {
+  const { code, output } = await runFixture({ rows: [documented], alerts: [] });
+  assert.equal(code, 0, output);
+  assert.match(
+    output,
+    /Dependabot parity: every dismissed alert has a row, and no row's alert is open/,
+  );
+  assert.match(
+    output,
+    /Advisory-baseline rows with no Dependabot alert \(nothing to dismiss\):\n {2}- GHSA-aaaa-bbbb-cccc/,
+  );
+});
+
+test("accepts a row whose alert was auto-dismissed or fixed", async () => {
+  for (const state of ["auto_dismissed", "fixed"]) {
+    const { code, output, requests } = await runFixture({
+      rows: [documented],
+      alerts: [alert("GHSA-aaaa-bbbb-cccc", state)],
+    });
+    assert.equal(code, 0, `${state}: ${output}`);
+    assert.match(output, /every dismissed alert has a row, and no row's alert is open/);
+    assert.doesNotMatch(output, /no Dependabot alert/);
+    assert.deepEqual(
+      requests.filter((request) => request.includes("dependabot/alerts")),
+      [dependabotRequest],
+    );
+  }
+});
+
+test("does not ask for a row for an alert GitHub dismissed by itself", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: [...matchingAlert, alert("GHSA-dddd-eeee-ffff", "auto_dismissed")],
+  });
+  assert.equal(code, 0, output);
+  assert.doesNotMatch(output, /Dismissed Dependabot alerts without advisory-baseline rows/);
+});
+
+test("reports an alert in an unexpected state as undetermined parity", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: [alert("GHSA-aaaa-bbbb-cccc", "unknown")],
+    // Served as is: a state the script did not ask for.
+    filterAlertStates: false,
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Dependabot parity: could not be determined \(Dependabot API returned an alert for GHSA-aaaa-bbbb-cccc with an unexpected state\)/,
+  );
 });
 
 test("reports an advisory-baseline row whose advisory no longer appears in npm audit", async () => {
@@ -303,15 +393,16 @@ test("reports orphan detection as unavailable when npm audit fails", async () =>
   );
 });
 
-test("follows Link-header pagination for dismissed Dependabot alerts", async () => {
+test("follows Link-header pagination for Dependabot alerts", async () => {
   const other = documented.replaceAll("GHSA-aaaa-bbbb-cccc", "GHSA-dddd-eeee-ffff");
   const { code, output, requests } = await runFixture({
     rows: [documented, other],
-    alertPages: [matchingAlert, [{ security_advisory: { ghsa_id: "GHSA-dddd-eeee-ffff" } }]],
+    alertPages: [matchingAlert, [alert("GHSA-dddd-eeee-ffff", "auto_dismissed")]],
     auditReport: auditReportMatching("GHSA-aaaa-bbbb-cccc", "GHSA-dddd-eeee-ffff"),
   });
   assert.equal(code, 0, output);
-  assert.match(output, /every dismissed alert has a row and every row has a dismissed alert/);
+  assert.match(output, /every dismissed alert has a row, and no row's alert is open/);
+  assert.doesNotMatch(output, /no Dependabot alert/);
   assert.equal(requests.filter((request) => request.includes("dependabot/alerts")).length, 2);
 });
 
@@ -333,10 +424,7 @@ test("reports rejected Dependabot API access without claiming healthy parity", a
   });
   assert.equal(code, 1);
   assert.match(output, /Dependabot parity: could not be determined \(Dependabot API returned 403/);
-  assert.doesNotMatch(
-    output,
-    /every dismissed alert has a row and every row has a dismissed alert/,
-  );
+  assert.doesNotMatch(output, /every dismissed alert has a row/);
 });
 
 test("reports overdue review dates as actionable", async () => {

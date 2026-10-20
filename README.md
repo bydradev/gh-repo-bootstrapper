@@ -578,6 +578,24 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.15.3
+
+`nextjs`: the weekly Baseline review's Dependabot parity check now reads alerts
+in every state (`auto_dismissed`, `dismissed`, `fixed` and `open`) instead of
+only dismissed ones. It still fails on a dismissed alert without an advisory
+row, and now fails on a row whose alert is still open. A row with no alert at
+all, or whose alert GitHub's auto-triage rules dismissed or Dependabot marked
+fixed, no longer fails the review: there is nothing to dismiss, so a row with
+no alert is listed in the summary instead. Before, every such row failed the
+review each week. The `baseline-process` skill describes the new check;
+`--check` reports it as `stale`, and `--adopt` updates it.
+`scripts/review-baselines.mjs` and `scripts/review-baselines.test.mjs` belong
+to the repository, so `--adopt` keeps them and `--check` reports them as
+`differs`. Copy both from `templates/` at the `v0.15.3` tag, or merge the
+change into an edited copy by hand, and take them together: the new tests
+expect the new request and summary lines. The request needs no new permission;
+`baseline-review.yml` already grants `vulnerability-alerts: read`.
+
 ### Upgrading to 0.15.2
 
 The `verify-external-claims` skill's *Third-party skills* rules now cover a

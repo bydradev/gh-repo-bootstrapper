@@ -3150,11 +3150,12 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
     An edited seed is kept. A stale or missing one is written only together
     with its groups (see _seed_holds), so before anything is written each
     stale seed is checked as the write checks it, each missing one for
-    something in the way of creating it or a change git still has for it
-    (such as a staged deletion), and each up-to-date file of their groups
-    for being untracked or uncommitted; one that fails holds its groups
-    back, so no group is left half updated. Only a write that fails
-    partway (a full disk, an interrupted run) can still leave one half
+    something in the way of creating it, an ignore rule, or a change git
+    still has for it (such as a staged deletion), and each up-to-date file
+    of their groups for being untracked or uncommitted; one that fails
+    holds its groups back, so every file of a group that changes is tracked
+    and clean, or absent from both disk and git. Only a write that fails
+    partway (a full disk, an interrupted run) can still leave a group half
     updated: nothing is rolled back. A stale seed mapped to None is written
     by _adopt_seed; a missing one absent from the result, by _adopt_file.
     """
@@ -3168,6 +3169,10 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             actions[rel] = ("kept", rel, "matches no released copy; not overwritten, so merge template changes by hand")
         elif status(rel) == "missing" and not _path_is_free(repo_dir, rel):
             actions[rel] = ("refused", rel, "something other than a file is at this path; move it aside")
+        elif status(rel) == "missing" and _git_ignored(repo_dir, rel):
+            # git status would not show a new copy, so a commit could take the
+            # rest of its group without it.
+            actions[rel] = ("refused", rel, "ignored by git; update the ignore rules before adopting")
         elif status(rel) == "stale":
             try:
                 refusal = _seed_refusal(repo_dir, rel, files[rel])

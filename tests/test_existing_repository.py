@@ -3047,6 +3047,19 @@ class SeedScriptTests(unittest.TestCase):
         self.assertFalse((self.repo / self.REVIEW_TEST).exists())
         self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
 
+    def test_an_ignored_missing_partner_is_refused_and_holds_its_group(self):
+        self._repo_with(REVIEW=self.older[self.REVIEW])
+        (self.repo / self.REVIEW_TEST).unlink()
+        with (self.repo / ".gitignore").open("a", encoding="utf-8") as ignore:
+            ignore.write(self.REVIEW_TEST + "\n")
+        _git(self.repo, "commit", "-q", "-am", "ignore the review test")
+        rows = self._seed_rows(bootstrap.adopt_repository(self.repo, self.files))
+        self.assertEqual(rows[self.REVIEW_TEST], ("refused", "ignored by git; update the ignore rules before adopting"))
+        self.assertEqual(rows[self.REVIEW][0], "kept")
+        self.assertIn(self.REVIEW_TEST, rows[self.REVIEW][1])
+        self.assertFalse((self.repo / self.REVIEW_TEST).exists())
+        self.assertEqual((self.repo / self.REVIEW).read_text(encoding="utf-8"), self.older[self.REVIEW])
+
     def test_a_missing_seed_is_not_created_beside_a_held_group(self):
         self._repo_with(VERIFY=self.files[self.VERIFY] + "// ours\n", TABLE=self.older[self.TABLE],
                         AUDIT=self.older[self.AUDIT])

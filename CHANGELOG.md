@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.2...v0.15.3) (2026-10-20)
+
+
+### Bug Fixes
+
+* stop failing the baseline review for advisory rows with no alert to dismiss ([#129](https://github.com/bydradev/gh-repo-bootstrapper/issues/129)) ([1f013be](https://github.com/bydradev/gh-repo-bootstrapper/commit/1f013bede7ffda22abcb5a095e4fc5bc7c1efea2))
+
 ## [0.15.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.1...v0.15.2) (2026-10-20)
 
 

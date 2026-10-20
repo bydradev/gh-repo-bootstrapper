@@ -262,9 +262,10 @@ and names the upstream commit or release, and keep corrections in
 `## Project specifics` rather than editing the vendored files. A repository
 whose vendored skill tells agents to update it names that command in a
 stop-and-ask line there, added in the pull request that adds the skill.
-`--adopt` leaves such a skill alone unless it collides with a template skill
-or its `name` cannot be read unambiguously; see `shadowed` under
-[Checking and adopting](#checking-and-adopting).
+`--adopt` never updates or removes such a skill. It reports a `SKILL.md`
+that is not a symlink as `shadowed` when its `name` is a template skill name
+or cannot be read unambiguously (see
+[Checking and adopting](#checking-and-adopting)).
 
 Reviews are split by role. `fresh-eyes-review` is the implementer's side: when
 substantial work needs a review, what to hand the reviewer, and how to handle

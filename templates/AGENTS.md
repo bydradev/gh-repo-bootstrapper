@@ -131,7 +131,7 @@ well.
 | create a worktree or temporary files | `worktrees-and-scratch` |
 | call substantial work done or ready for review | `fresh-eyes-review` |
 | review a change | `review-guidelines` |
-| rely on an external platform or dependency claim | `verify-external-claims` |
+| rely on an external claim or a third-party skill | `verify-external-claims` |
 | fan out to subagents | `delegation` |
 # <<SKILL_ROWS_TYPE>>
 

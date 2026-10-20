@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.0...v0.15.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* cite the source for the skills 1.7.4 ref-pinning example ([cb56d46](https://github.com/bydradev/gh-repo-bootstrapper/commit/cb56d4671988587b4baae9462fa5aa921cf4d982))
+* keep a vendored-skill correction until a refresh brings in the upstream fix ([cb56d46](https://github.com/bydradev/gh-repo-bootstrapper/commit/cb56d4671988587b4baae9462fa5aa921cf4d982))
+* limit the vendored-skill rules to skills installed in the repository ([#125](https://github.com/bydradev/gh-repo-bootstrapper/issues/125)) ([cb56d46](https://github.com/bydradev/gh-repo-bootstrapper/commit/cb56d4671988587b4baae9462fa5aa921cf4d982))
+
 ## [0.15.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.14.1...v0.15.0) (2026-10-20)
 
 

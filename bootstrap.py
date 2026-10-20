@@ -642,14 +642,32 @@ def compute_legacy_digests() -> dict:
     }
 
 
+def _checkout_version():
+    """The release this checkout's .release-please-manifest.json records, as
+    _tag_version gives it, or None when the manifest names no X.Y.Z version."""
+    try:
+        manifest = json.loads((TEMPLATES_DIR.parent / ".release-please-manifest.json").read_text(encoding="utf-8"))
+        version = manifest.get(".")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        return None
+    return _tag_version("v" + version)
+
+
 def compute_seed_digests() -> dict:
     """Rebuild SEED_DIGESTS from every release tag: for each seed file, the
     digest of each copy a release shipped, mapped to the newest release that
     shipped it. The current template's copy is left out, since a file equal to
-    it is `same`. Without git or release tags the result is empty."""
+    it is `same`. A tag newer than the release the checkout's manifest records,
+    as in an older checkout that fetched later tags, is a later release, so it
+    is left out too. Without git or release tags the result is empty."""
     tags = _release_tags()
     if not tags:
         return {}
+    known = _checkout_version()
+    if known is not None:
+        tags = [tag for tag in tags if _tag_version(tag) <= known]
     env = _git_env()
     table = {}
     for rel in sorted(SEED_FILES):

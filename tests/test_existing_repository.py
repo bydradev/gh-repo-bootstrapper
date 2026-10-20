@@ -3080,6 +3080,16 @@ class SeedScriptTests(unittest.TestCase):
             bootstrap._digest("a\n"): "v0.1.0", bootstrap._digest("b\n"): "v0.10.0",
         }})
 
+    def test_seed_table_leaves_out_releases_newer_than_the_checkout(self):
+        templates = self._tagged_templates({"v0.1.0": "a\n", "v0.2.0": "b\n", "v0.3.0": "c\n"}, "b\n")
+        # An older checkout (its manifest records v0.2.0) that has fetched a later tag.
+        (templates.parent / ".release-please-manifest.json").write_text('{".": "0.2.0"}\n', encoding="utf-8")
+        recorded = {"scripts/x.mjs": {bootstrap._digest("a\n"): "v0.1.0"}}
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates), \
+                unittest.mock.patch.object(bootstrap, "SEED_FILES", frozenset({"scripts/x.mjs"})):
+            self.assertEqual(bootstrap.compute_seed_digests(), recorded)
+            self.assertEqual(validate_templates.check_seed_digests(recorded=recorded), [])
+
     def test_validator_flags_a_seed_table_missing_the_last_release(self):
         templates = self._tagged_templates({"v0.1.0": "a\n", "v0.2.0": "b\n"}, "b\n")
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates), \

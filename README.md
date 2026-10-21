@@ -665,8 +665,15 @@ repository settings do not change. `release-please.yml` is template-owned, so
 pins, and `--check` reports an older copy as `stale`. A repository whose
 release workflow is `local-modified` keeps its own and can make the same two
 edits by hand: add that `permissions:` block to the `release-please` job, and
-set the guard step's `GH_TOKEN` to `${{ github.token }}`. `simple` has no guard
-and is unchanged.
+set the guard step's `GH_TOKEN` to `${{ github.token }}`. `simple` has no guard,
+so its workflow is unchanged.
+
+The branch protection runbook, `docs/branch-protection-runbook.md`, is also
+template-owned, in every type including `simple`. Its sentence on the
+workflow's own `GITHUB_TOKEN` said it stays at `contents: read`; it now says the
+token only reads, and that the release job of a repository whose release waits
+for tests also reads pull requests, for the guard. `--check` reports an older
+copy as `stale`, and `--adopt` replaces an unedited one.
 
 ### Upgrading to 0.16.1
 

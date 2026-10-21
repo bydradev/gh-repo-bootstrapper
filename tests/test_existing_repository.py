@@ -3429,6 +3429,25 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
         self.assertEqual(set(differing), {skill, own} | github)
         self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
 
+    def test_own_pr_template_in_a_listable_but_unsearchable_folder_stays_unreadable(self):
+        # Python 3.14's Path.is_file() answers False on a permission error, which
+        # would report the repository's own docs/pull_request_template.md as absent
+        # and let --adopt write the template's copy beside it.
+        for name, check in {"is_symlink": os.path.islink, "is_file": os.path.isfile,
+                            "exists": os.path.exists, "is_dir": os.path.isdir}.items():
+            self.enterContext(unittest.mock.patch.object(Path, name, lambda path, check=check: check(path)))
+        (self.repo / bootstrap.PR_TEMPLATE).unlink()
+        self._write("docs/pull_request_template.md", "Own template.\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "own template")
+        self._chmod("docs", 0o444)
+        differing = self._differing()
+        self.assertEqual(differing[bootstrap.PR_TEMPLATE][0], "unreadable")
+        self.assertIn("docs", differing[bootstrap.PR_TEMPLATE][1])
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual([action for action, rel, _ in actions if rel == bootstrap.PR_TEMPLATE], ["refused"])
+        self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+
     def test_unsearchable_claude_folder_covers_the_skill_mirrors(self):
         self._chmod(".claude", 0o000)
         links = bootstrap._links_for_files(self.files)

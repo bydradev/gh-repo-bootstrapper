@@ -2604,8 +2604,18 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         for entry in listing:
             name = Path(entry.lower())
             rel = f"{folder}/{entry}" if folder else entry
-            if (name.stem == "pull_request_template" and (base / entry).is_file()
-                    and not _git_ignored(repo_dir, rel)):
+            if name.stem != "pull_request_template":
+                continue
+            try:
+                # os.stat, not Path.is_file(): the latter answers False on a
+                # permission error from Python 3.14, which would pass a template
+                # in a folder that can be listed but not searched off as absent.
+                is_file = stat.S_ISREG(os.stat(base / entry).st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as exc:
+                raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {folder or '.'}") from exc
+            if is_file and not _git_ignored(repo_dir, rel):
                 return rel
     return None
 

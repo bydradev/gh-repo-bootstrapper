@@ -2130,7 +2130,15 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     hashed = set()
     if test:
         for call in HASH_FILES_CALL_RE.findall(str((guard.get("env") or {}).get(test.group(1), ""))):
-            hashed |= {p for p in QUOTED_PATTERN_RE.findall(call) if not p.startswith("--")}
+            # The runner reads `--follow-symbolic-links` as an option only in
+            # first place and refuses any other `--` option there; later on it
+            # is a pattern like any other (actions/runner
+            # src/Runner.Worker/Expressions/HashFilesFunction.cs, checked
+            # 2026-10-22), so only that first argument is left out.
+            patterns = QUOTED_PATTERN_RE.findall(call)
+            if patterns and patterns[0].lower() == "--follow-symbolic-links":
+                patterns = patterns[1:]
+            hashed |= set(patterns)
     if hashed != expected:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must hash exactly the files the pip cache does "
@@ -4365,6 +4373,12 @@ def _structure_self_tests() -> list:
     expect("python manifest guard that follows symbolic links",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("hashFiles(", "hashFiles('--follow-symbolic-links', "))), None)
+    expect("python manifest guard with the symbolic-link option out of first place",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("'uv.lock'", "'uv.lock', '--follow-symbolic-links'"))), same_files)
+    expect("python manifest guard with another option",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("hashFiles(", "hashFiles('--no-such-option', "))), same_files)
     expect("python setup-python without a cache needs no guard", gates("python", test, drop_cache), None)
     expect("App token with an extra permission",
            gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(

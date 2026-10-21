@@ -17,7 +17,10 @@ repository has a dependency manifest: a `pyproject.toml` or a
 `requirements*.txt` anywhere in it, or a `uv.lock`. Those are the files its pip
 cache hashes, and `actions/setup-python` stops with `No file ... matched`
 without one; a `setup.py` alone does not count. An empty `requirements-dev.txt`
-is enough for a project with no dependencies.
+is enough for a project with no dependencies. The install step below reads only
+the root `pyproject.toml`, `requirements-dev.txt` and `requirements.txt`, so a
+manifest only in a subdirectory passes this check but installs nothing: keep
+the project's manifest at the root.
 
 It then installs dependencies in this order; check that repository-owned file
 for the current steps.

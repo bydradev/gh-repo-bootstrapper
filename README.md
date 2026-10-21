@@ -25,7 +25,9 @@ anything installed beyond a base Python interpreter.
   declaring `on: workflow_call`
 - workflow token scopes: every generated workflow declaring `permissions:`
   explicitly, with `ci.yml` and `test.yml` pinned to exactly `contents: read`
-  and no write scope outside `release-please.yml`
+  and no write scope outside `release-please.yml`, whose release job declares
+  exactly `contents: read` and `pull-requests: read` in the types with a gated
+  release (for the untested-merge guard) and no block of its own in `simple`
 - rendered Release Please config *values*, not just that the JSON parses
 - the branch-protection payload, the runbook (its pinned rules, and no
   incident run IDs, SHAs or timestamps), and the Next.js lint/advisory
@@ -45,8 +47,9 @@ anything installed beyond a base Python interpreter.
   browser installs tied to their `full` conditions; the release job waiting for
   `test` with no condition of its own; its release steps skipped, with a
   warning, only while the Release Please App credentials are missing; the
-  release App token limited to contents and pull requests; and pinned fallback
-  versions of the Python CI tools
+  release App token limited to contents and pull requests, with the
+  untested-merge guard reading with the workflow token instead; and pinned
+  fallback versions of the Python CI tools
 - the word `secrets` in every generated workflow and in this repository's own
   only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
   because some generated repositories run workflow validators that refuse it
@@ -124,6 +127,32 @@ This is deliberately a self-consistency check between bootstrapper-owned
 artefacts, not a claim that the generated repository's external scaffold
 actually provides those scripts. Changing a scaffold's scripts still requires
 checking that scaffold separately.
+
+One assumption is about what a script does, not only its name: `lint` must run
+`eslint --max-warnings=0`, with unused disable directives reported. The
+generated `docs/lint-baseline.md` relies on both to fail CI on an unused
+`eslint-disable` directive and calls the baseline mostly self-cleaning on that
+condition; without either, a stale baseline row only surfaces at its review date.
+Nothing the bootstrapper generates checks either: `test.yml` runs
+`npm run lint` as the scaffold defines it, `scripts/verify-baselines.mjs` does
+not read `package.json` or the ESLint configuration, and the generated
+`README.md`, `docs/lint-baseline.md` and `local-validation-nextjs` skill state
+them as requirements. `create-next-app` does not set the flag: its generated
+`lint` script is `eslint` (`create-next-app` 16.4.2, `dist/index.js`, checked
+2026-10-22), and ESLint exits with an error status on warnings only when
+`--max-warnings` is given ([ESLint v9.x command-line reference](https://eslint.org/docs/v9.x/use/command-line-interface#--max-warnings),
+checked 2026-10-22). Reporting unused directives is the default since ESLint 9
+(`linterOptions.reportUnusedDisableDirectives` defaults to `"warn"`, [ESLint v9.x
+rules reference](https://eslint.org/docs/v9.x/use/configure/rules#report-unused-eslint-disable-comments);
+"Unused disable directives cause warnings by default" in the [ESLint v9.0.0
+release post](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/); ESLint
+10.13.0's `lib/config/default-config.js` sets `reportUnusedDisableDirectives: 1`,
+that is `"warn"`; all checked 2026-10-22), so it holds for a new
+`create-next-app` project (`eslint@^9`, and its `eslint-config-next` accepts
+`eslint >=9.0.0`). ESLint 8 reports unused directives only when asked, such as
+with `--report-unused-disable-directives`, and a configuration that sets the
+option to `"off"` reports none. Add the flag to the scaffold's `lint` script and keep the
+reporting on.
 
 The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
 configuration: a project named `chromium`, which ordinary `main` pushes run
@@ -672,6 +701,103 @@ the row clears only when the file matches the template, comment included.
 generated `README.md` of a new repository says the same; an existing one keeps
 its own.
 
+Every type's generated `release-please-config.json` now sets
+`"bump-minor-pre-major": true`, beside `include-component-in-tag`. While a
+repository is below 1.0.0, a breaking change (`feat!`, `chore!` or a
+`BREAKING CHANGE:` footer) now proposes the next minor, such as 0.17.0 from
+0.16.0, where Release Please proposes 1.0.0 without the option; at 1.0.0 or
+above the option has no effect
+([manifest releaser documentation](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md),
+release-please 17.6.0 `versioning-strategies/default.js`, which
+release-please-action v5.0.0 locks, checked 2026-10-21).
+`release-please-config.json` belongs to the repository, so `--adopt` keeps it,
+and a repository generated before 0.17.0 takes the change by hand: one that
+means to stay below 1.0.0 adds `"bump-minor-pre-major": true,` at the top level
+of the file, beside `include-component-in-tag`, and one that wants 1.0.0 from
+its next breaking change leaves it out. `--check` compares the whole file, so
+it reports the file as `differs`, and exits 1, until it matches the template.
+An unedited config reads `same` again once the line is added. One that leaves
+the line out stays `differs`, as does one with other edits, such as an
+`extra-files` entry, even after the line is added. A repository already at
+1.0.0 or above can add the line only to clear the row.
+
+In `nextjs`, `python`, `rust` and `swift`, the untested-merge guard in
+`release-please.yml` now reads with the workflow's `GITHUB_TOKEN` instead of
+the Release Please App token, so the App token, which can write contents and
+pull requests, goes only to `release-please-action`. The guard lists merged
+release pull requests with `gh pr list --label`, which searches through
+GraphQL, and compares commits. No docs page states the permission that search
+needs (the REST search endpoint for issues and pull requests requires none,
+[Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests),
+read 2026-10-22), so the `release-please` job gains `permissions:` with
+`contents: read` and `pull-requests: read`, the reads the REST endpoints for
+the same data require
+([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
+[Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
+checked 2026-10-21). That is inferred, and has not yet been run on a private
+repository. A job-level block replaces the workflow's `contents: read`, so both
+are listed
+([Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idpermissions),
+checked 2026-10-21). The workflow's own block, the App's permissions and the
+repository settings do not change. `release-please.yml` is template-owned, so
+`--adopt` brings the change to existing repositories, keeping each one's action
+pins, and `--check` reports an older copy as `stale`. A repository whose
+release workflow is `local-modified` keeps its own and can make the same two
+edits by hand: add that `permissions:` block to the `release-please` job, and
+set the guard step's `GH_TOKEN` to `${{ github.token }}`. `simple` has no guard,
+so its workflow is unchanged. The branch protection runbook,
+`docs/branch-protection-runbook.md`, is also template-owned, in every type
+including `simple`: its sentence on the workflow's own `GITHUB_TOKEN` said it
+stays at `contents: read`, and now says the token only reads, and that the
+release job of a repository whose release waits for tests also reads pull
+requests, for the guard. `--check` reports an older copy as `stale`, and
+`--adopt` replaces an unedited one.
+
+`nextjs`: the lint baseline no longer states as fact that `npm run lint` runs
+with `--max-warnings=0`. Nothing the bootstrapper generates provides or checks
+the flag, and the `lint` script of a new `create-next-app` project with the
+ESLint option, `eslint`, does not set it, so the baseline's claim that an unused
+`eslint-disable` directive fails CI held only for a scaffold that had added the
+flag. The claim also needs ESLint to report unused disable directives, which is
+the default since ESLint 9 but not ESLint 8's, and not that of a configuration
+that sets `reportUnusedDisableDirectives` to `"off"`. The generated `README.md`
+and `docs/lint-baseline.md` now say that `npm run lint` must run
+`eslint --max-warnings=0` with unused disable directives reported, and that
+without either a stale baseline row only surfaces at its review date; the
+`local-validation-nextjs` skill says the same. `--adopt` brings the skill, which
+is template-owned. The README and `docs/lint-baseline.md` belong to the
+repository, so `--adopt` reports them as `kept` and `--check` as `differs`:
+merge the wording by hand from the files in `templates/` at the `v0.17.0` tag.
+The change that matters is in your own `package.json` and ESLint configuration:
+add `--max-warnings=0` to the `lint` script's `eslint` command, keeping the
+targets and other arguments it has (and wide enough to cover every file
+`scripts/verify-baselines.mjs` scans, so a narrowed target such as `eslint src`
+does not leave a stale directive elsewhere unreported), and keep unused disable
+directives reported
+(the default since ESLint 9; `--report-unused-disable-directives` or
+`reportUnusedDisableDirectives` on ESLint 8), or a stale `eslint-disable`
+directive and its baseline row go unnoticed until the row's review date. Keep a
+file target such as `.` on ESLint 8 with an eslintrc configuration: only flat
+config lints the current directory when no file is given, and eslintrc then
+stops with an error
+([ESLint v9.0.0 release notes](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/),
+"Running eslint with no file arguments", checked 2026-10-22).
+
+The `nextjs` template's `next dev` block in `AGENTS.md` now matches Next.js
+16.4: its heading is `## This is NOT the Next.js you know`, where 16.3 wrote
+`# This is NOT the Next.js you know`, and the two paragraphs are unchanged.
+`--adopt` brings nothing here: the block is inside the `next dev` markers, which
+`--check` does not compare and `--adopt` does not rewrite, so an existing
+repository keeps its own block. It gets the new heading from the next `next dev`
+run under an AI coding agent on Next.js 16.4 or later (`syncAgentRulesForDev` in
+`dist/server/lib/app-info-log.js` writes the block only when it detects one, and
+removes it instead when `next.config` sets `agentRules: false`; checked in 16.4.2
+on 2026-10-22), as one changed line to commit with your work. A
+repository that stays on Next.js 16.3 sees the reverse once: its `next dev`
+rewrites a block taken from this release to the level-1 heading. `--adopt` still
+restores the template's block in a repository whose `AGENTS.md` has none. There
+is nothing to merge by hand.
+
 ### Upgrading to 0.16.1
 
 `--check` and `--adopt` now name the cause in four cases that gave a symptom or
@@ -1053,6 +1179,15 @@ Every type gets a type-specific `README.md` starter, `AGENTS.md` and
 `.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
 highlight the additional files and README guidance for that type.
 
+`release-please-config.json` sets `bump-minor-pre-major`, so while a repository
+is below 1.0.0 a breaking change (`feat!`, `chore!` or a `BREAKING CHANGE:`
+footer) proposes the next minor, 0.2.0 from the seeded 0.1.0, and not 1.0.0,
+which Release Please proposes without the option. To release 1.0.0 on purpose,
+merge a commit with a `Release-As: 1.0.0` footer, or remove the line before
+the breaking change merges. The repository owns the file, so `--adopt` writes
+it only when it is missing and keeps an existing one (see
+[Upgrading to 0.17.0](#upgrading-to-0170)).
+
 The pull request template belongs to the repository. `--adopt` writes it only
 when the repository has no template of its own where GitHub reads one, in
 `.github/`, the root or `docs/`: a `pull_request_template` file in any case
@@ -1111,8 +1246,20 @@ Options:
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
 caller contract. `test.yml` is necessarily scaffold-general: it retains that
 `full` input and adds the optional PostgreSQL service, while each generated
-application supplies its own package scripts and any application-owned
-release-triggered deployment workflow.
+application supplies its own package scripts, which must include a `lint`
+script that runs `eslint --max-warnings=0` (see
+[Next.js npm-script assumptions](#nextjs-npm-script-assumptions)), and any
+application-owned release-triggered deployment workflow.
+
+The `next dev` block at the top of `AGENTS.md` is the text Next.js 16.4.0 to
+16.4.2 writes, under `## This is NOT the Next.js you know`; 16.3.x writes the
+same two paragraphs under a level-1 heading. It was compared byte for byte with
+`buildAgentRulesBlock()` in `dist/server/lib/generate-agent-files.js` of the
+published `next` package on 2026-10-22 (16.4.2 was `latest`). `next dev` rewrites
+a block that differs from its own version's, but only when it detects an AI
+coding agent, so a repository on 16.3.x gets a one-line change to commit the
+next time `next dev` runs under one. Update the template's block from that file
+when a release changes it.
 
 ### `python`
 
@@ -1275,7 +1422,20 @@ the rest.
 ## GitHub App for Release Please
 
 Release Please runs via a GitHub App rather than the default `GITHUB_TOKEN` so
-it can open PRs that trigger other workflows. You will need to supply:
+it can open PRs that trigger other workflows. In every type but `simple`, the
+untested-merge guard before it reads with the workflow's `GITHUB_TOKEN`, and the
+App token goes only to `release-please-action`. The guard lists merged release
+pull requests with `gh pr list --label`, which searches through GraphQL, and
+compares commits. No docs page states the permission that search needs (the
+REST search endpoint for issues and pull requests requires none,
+[Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests),
+read 2026-10-22), so the release job declares `contents: read` and
+`pull-requests: read`, the reads the REST endpoints for the same data require
+([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
+[Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
+checked 2026-10-21). That is inferred, and has not yet been run on a private
+repository. A job-level block replaces the workflow's, so both are listed. You
+will need to supply:
 
 - `RELEASE_PLEASE_CLIENT_ID`: set as a GitHub variable
 - `RELEASE_PLEASE_APP_KEY`: set as a GitHub secret

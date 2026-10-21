@@ -113,6 +113,20 @@ OWN_WORKFLOWS_DIR = Path(__file__).parent / ".github" / "workflows"
 BASELINE_DOCUMENT_REQUIREMENTS = {
     "docs/lint-baseline.md": (
         "self-cleaning",
+        # The max-warnings gate is a requirement on the application scaffold,
+        # not something the bootstrapper generates or checks: it writes no
+        # package.json. Stating it as fact ("npm run lint runs ...") promised a
+        # self-cleaning baseline that nothing provided. The flag only fails CI
+        # on a stale eslint-disable directive while ESLint reports unused
+        # disable directives (the default since ESLint 9, "warn"; ESLint 8
+        # reports them only when asked, and a config that sets "off" reports
+        # none), so the condition is pinned with it. The opening paragraph
+        # points at the policy instead of restating it, and is pinned too, so
+        # reverting it to an unconditional claim fails.
+        "mostly self-cleaning when `npm run lint` meets both requirements in the policy below",
+        "`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported",
+        '`reportUnusedDisableDirectives: "warn"`',
+        "without either requirement, a stale baseline row only surfaces at its review date",
         "docs/advisory-baseline.md",
         "Why this is accepted",
         "Review date",
@@ -158,6 +172,10 @@ README_REQUIREMENTS = {
         "## Start here",
         "## Local development",
         "## Verification",
+        # The scaffold's lint script is the only place the flag can live, and
+        # the flag fails a stale directive only while ESLint reports them.
+        "must run `eslint --max-warnings=0`",
+        "ESLint must report unused disable directives",
     ),
     "python": (
         "## Local development",
@@ -379,6 +397,8 @@ AGENTS_TYPE_REQUIREMENTS = {
             "--trace=retain-on-failure",
             "stop a manually started `next dev`",
             "reported as `flaky`, not failed",
+            "requires the `lint` script in `package.json` to run `eslint --max-warnings=0` "
+            "with unused disable directives reported",
             LOCAL_VALIDATION_ROUTING,
         )
     ),
@@ -1814,12 +1834,24 @@ EXPECTED_WORKFLOW_PERMISSIONS = {
 # the App token — a job-level grant here is exactly the kind of future
 # addition #11 was raised to stop from passing unexamined, the way the old
 # filename exemption let it.
+#
+# That holds for `simple`. The types with a gated release add one read-only
+# block, GATED_RELEASE_JOB_PERMISSIONS below, for the untested-merge guard,
+# which reads with the workflow token and never gets the App token.
+RELEASE_PLEASE_JOB = (".github/workflows/release-please.yml", "release-please")
 EXPECTED_JOB_PERMISSIONS = {
-    (".github/workflows/release-please.yml", "release-please"): None,
+    RELEASE_PLEASE_JOB: None,
 }
 
+# The guard lists pull requests (Pull requests, read) and compares commits
+# (Contents, read) in the same repository. A job-level block replaces the
+# workflow's, so contents: read is stated again. Nothing here is write: the
+# App token, not GITHUB_TOKEN, is what release-please writes with.
+GATED_RELEASE_TYPES = ("nextjs", "python", "swift", "rust")
+GATED_RELEASE_JOB_PERMISSIONS = {"contents": "read", "pull-requests": "read"}
 
-def check_workflow_permissions(label: str, files: dict) -> list:
+
+def check_workflow_permissions(label: str, repo_type: str, files: dict) -> list:
     """Every generated workflow and job must scope GITHUB_TOKEN explicitly,
     minimally, and exactly — not merely "some mapping" (#10) and not merely
     "this file may hold write" (#11).
@@ -1841,6 +1873,9 @@ def check_workflow_permissions(label: str, files: dict) -> list:
        nothing when a map is expected is caught the same as declaring the
        wrong map, closing the gap where deleting a required permission block
        passed silently and left a workflow to inherit an unsuitable default.
+       The release-please job is the one whose expectation depends on the
+       repository type: a gated release declares GATED_RELEASE_JOB_PERMISSIONS
+       for its guard, `simple` declares nothing.
     4. A job outside that map that declares any permissions block is rejected
        outright as unexpected — an allowlist by (file, job), not a write/read
        heuristic that a new job-level grant could satisfy just by being
@@ -1895,6 +1930,8 @@ def check_workflow_permissions(label: str, files: dict) -> list:
                 continue
 
             expected_job = EXPECTED_JOB_PERMISSIONS[key]
+            if key == RELEASE_PLEASE_JOB and repo_type in GATED_RELEASE_TYPES:
+                expected_job = GATED_RELEASE_JOB_PERMISSIONS
             if expected_job is None:
                 if declared:
                     errors.append(
@@ -1973,6 +2010,11 @@ def check_sha_pinned_actions(label: str, files: dict) -> list:
 VERIFIED_ACTION_OWNERS = frozenset({"googleapis"})
 GITHUB_OWNED_ACTION_OWNERS = frozenset({"actions", "github"})
 APP_TOKEN_PERMISSIONS = {"permission-contents": "write", "permission-pull-requests": "write"}
+# The untested-merge guard of a gated release only reads, so it runs with the
+# workflow token and the job's read-only permissions (GATED_RELEASE_JOB_PERMISSIONS);
+# the App token, which can write, goes only to release-please.
+RELEASE_GUARD_STEP_ID = "guard"
+RELEASE_GUARD_TOKEN = "${{ github.token }}"
 PYTHON_SUITE_COMMANDS = ("ruff format --check .", "ruff check .", "mypy .", "python -m pytest")
 PYTHON_TOOL_PIN_RE = re.compile(r"\b(ruff|mypy|pytest)==\d+(\.\d+)+\b")
 PYTHON_TOOL_LOOP_RE = re.compile(r"^\s*for tool in ([^;\n]+); do\s*$", re.MULTILINE)
@@ -2158,6 +2200,21 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] release-please.yml job 'release-please' must not be conditional")
         if "if" in (release_jobs.get("test") or {}):
             errors.append(f"[{label}] release-please.yml job 'test' must not be conditional")
+        guards = [
+            s for s in (release_jobs.get("release-please") or {}).get("steps") or []
+            if isinstance(s, dict) and s.get("id") == RELEASE_GUARD_STEP_ID
+        ]
+        if len(guards) != 1:
+            errors.append(
+                f"[{label}] release-please.yml job 'release-please' must have exactly one "
+                f"'{RELEASE_GUARD_STEP_ID}' step, the untested-merge guard; found {len(guards)}"
+            )
+        elif " ".join(str((guards[0].get("env") or {}).get("GH_TOKEN", "")).split()) != RELEASE_GUARD_TOKEN:
+            errors.append(
+                f"[{label}] release-please.yml step '{RELEASE_GUARD_STEP_ID}' must read with the "
+                f"workflow token (GH_TOKEN: {RELEASE_GUARD_TOKEN}), not the App token that "
+                f"release-please writes with; got {(guards[0].get('env') or {}).get('GH_TOKEN')!r}"
+            )
     if ".github/workflows/release-please.yml" in files:
         errors += _release_credentials_errors(label, release_jobs.get("release-please"))
 
@@ -2542,6 +2599,22 @@ def check_release_please_config(label: str, cfg: dict, files: dict) -> list:
         errors.append(
             f"[{label}] release-please-config.json must set "
             f"include-component-in-tag: false (single-package repos tag vX.Y.Z)"
+        )
+    # A new repository starts at 0.1.0. Without this option release-please
+    # proposes 1.0.0 for the first breaking change; with it, 0.2.0. A
+    # package-level value wins over the top-level one, so it must not turn the
+    # option off either.
+    if config.get("bump-minor-pre-major") is not True:
+        errors.append(
+            f"[{label}] release-please-config.json must set "
+            f"bump-minor-pre-major: true at the top level (a breaking change "
+            f"on 0.x bumps the minor; without it release-please proposes 1.0.0)"
+        )
+    if package.get("bump-minor-pre-major", True) is not True:
+        errors.append(
+            f"[{label}] release-please-config.json package '.' overrides "
+            f"bump-minor-pre-major to {package['bump-minor-pre-major']!r}; "
+            f"the generated config must not turn it off"
         )
 
     manifest_source = files.get(".release-please-manifest.json")
@@ -3392,6 +3465,78 @@ def run_self_tests() -> list:
     if not any("scripts/verify-baselines.mjs is missing 'parseLintRows'" in e for e in result):
         errors.append(f"self-test 'stale lint parser' did not fail as expected: {result}")
 
+    # Case 26b: the max-warnings gate is a requirement on the scaffold, not a
+    # fact about it. The old wording stated that `npm run lint` runs with the
+    # flag, which nothing generated provides or checks; the baseline document
+    # and the README must say the scaffold has to provide it, and the baseline
+    # document must say what is lost without it. The flag fails a stale
+    # directive only while ESLint reports unused disable directives (the
+    # default since ESLint 9; ESLint 8 reports them only when asked, and a
+    # config that sets "off" reports none), so that condition is required next
+    # to it and dropping it fails. The opening paragraph is pinned as well, so
+    # restoring its old unconditional sentence fails too.
+    cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
+    files = bootstrap.generate_files(dict(cfg))
+    result = check_baseline_documents("self-test:max-warnings requirement", "nextjs", files)
+    if result:
+        errors.append(f"self-test 'max-warnings requirement' unexpectedly failed: {result}")
+    requirement = "`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported"
+    consequence = "without either requirement, a stale baseline row only surfaces at its review date"
+    opening = "mostly self-cleaning when `npm run lint` meets both requirements in the policy below"
+    default = '`reportUnusedDisableDirectives: "warn"`'
+    baseline = " ".join(files["docs/lint-baseline.md"].split())
+    for name, mutated_text, named in (
+        (
+            "stated as fact",
+            baseline.replace(requirement, "`npm run lint` runs `eslint --max-warnings=0`").replace(
+                consequence, "a stale baseline row is reported"
+            ),
+            (requirement, consequence),
+        ),
+        (
+            "reporting condition dropped",
+            baseline.replace(" with unused disable directives reported", ""),
+            (requirement,),
+        ),
+        (
+            "reporting default dropped",
+            baseline.replace(default, "the default"),
+            (default,),
+        ),
+        (
+            "opening reverted to the unconditional sentence",
+            baseline.replace(
+                opening, "mostly self-cleaning. Because `npm run lint` runs with `--max-warnings=0`,"
+            ),
+            (opening,),
+        ),
+    ):
+        mutated = dict(files)
+        mutated["docs/lint-baseline.md"] = mutated_text
+        result = check_baseline_documents(f"self-test:max-warnings {name}", "nextjs", mutated)
+        for phrase in named:
+            if not any(repr(phrase) in e for e in result):
+                errors.append(f"self-test 'max-warnings {name}' did not name {phrase!r}: {result}")
+    for name, old, new_text, phrase in (
+        (
+            "readme requirement",
+            "must run `eslint --max-warnings=0`",
+            "runs `eslint --max-warnings=0`",
+            "must run `eslint --max-warnings=0`",
+        ),
+        (
+            "readme reporting condition",
+            "ESLint must report unused disable directives",
+            "ESLint reports unused disable directives",
+            "ESLint must report unused disable directives",
+        ),
+    ):
+        mutated = dict(files)
+        mutated[bootstrap.README] = files[bootstrap.README].replace(old, new_text)
+        result = check_readme(f"self-test:{name} max-warnings", cfg, mutated)
+        if not any(repr(phrase) in e for e in result):
+            errors.append(f"self-test '{name} max-warnings' did not fail as expected: {result}")
+
     # Case 27: the regression that shipped. release-please-gated.yml passes
     # `full` to test.yml; a called workflow that doesn't declare it fails at
     # parse time, so the whole release pipeline never runs. This is the exact
@@ -3446,7 +3591,7 @@ def run_self_tests() -> list:
         )
         target = ".github/workflows/test.yml" if repo_type != "simple" else ".github/workflows/pr-title-check.yml"
         files[target] = re.sub(r"\npermissions:\n(?:  \S+: \S+\n)+", "\n", files[target], count=1)
-        result = check_workflow_permissions(f"self-test:unscoped token {repo_type}", files)
+        result = check_workflow_permissions(f"self-test:unscoped token {repo_type}", repo_type, files)
         if not any("declares no top-level permissions" in e for e in result):
             errors.append(
                 f"self-test 'unscoped token {repo_type}' did not fail as expected: {result}"
@@ -3466,7 +3611,7 @@ def run_self_tests() -> list:
             broadened[path] = files[path].replace(
                 "permissions:\n  contents: read", "permissions:\n  contents: write", 1
             )
-            result = check_workflow_permissions(f"self-test:broadened {repo_type} {path}", broadened)
+            result = check_workflow_permissions(f"self-test:broadened {repo_type} {path}", repo_type, broadened)
             if not any("must grant exactly" in e for e in result):
                 errors.append(
                     f"self-test 'broadened scope {repo_type} {path}' did not fail "
@@ -3480,7 +3625,7 @@ def run_self_tests() -> list:
     files[bootstrap.NEXTJS_BASELINE_REVIEW_WORKFLOW] = files[
         bootstrap.NEXTJS_BASELINE_REVIEW_WORKFLOW
     ].replace("contents: read", "contents: write", 1)
-    result = check_workflow_permissions("self-test:write-scoped observer", files)
+    result = check_workflow_permissions("self-test:write-scoped observer", "nextjs", files)
     if not any("must grant exactly" in e for e in result):
         errors.append(f"self-test 'write-scoped observer' did not fail as expected: {result}")
 
@@ -3494,7 +3639,7 @@ def run_self_tests() -> list:
     files[".github/workflows/release-please.yml"] = files[".github/workflows/release-please.yml"].replace(
         "permissions:\n  contents: read", "permissions:\n  contents: write\n  pull-requests: write", 1
     )
-    result = check_workflow_permissions("self-test:release write regressed", files)
+    result = check_workflow_permissions("self-test:release write regressed", "simple", files)
     if not any("must grant exactly" in e for e in result):
         errors.append(f"self-test 'release write regressed' did not fail as expected: {result}")
 
@@ -3505,7 +3650,7 @@ def run_self_tests() -> list:
     files[".github/workflows/release-please.yml"] = files[".github/workflows/release-please.yml"].replace(
         "permissions:\n  contents: read", "permissions:\n  contents: read\n  issues: write", 1
     )
-    result = check_workflow_permissions("self-test:release extra scope", files)
+    result = check_workflow_permissions("self-test:release extra scope", "python", files)
     if not any("must grant exactly" in e for e in result):
         errors.append(f"self-test 'release extra scope' did not fail as expected: {result}")
 
@@ -3515,7 +3660,7 @@ def run_self_tests() -> list:
     # "presence is not correctness" gap #10 exposed, one layer up.
     files = bootstrap.generate_files(next(cfg for _, cfg in configurations() if cfg["repo_type"] == "simple"))
     files[".github/workflows/mystery.yml"] = files[".github/workflows/pr-title-check.yml"]
-    result = check_workflow_permissions("self-test:unrecognised workflow", files)
+    result = check_workflow_permissions("self-test:unrecognised workflow", "simple", files)
     if not any("is not a recognised generated workflow" in e for e in result):
         errors.append(f"self-test 'unrecognised workflow' did not fail as expected: {result}")
 
@@ -3523,22 +3668,60 @@ def run_self_tests() -> list:
     # block. This is the exact shape a future "helpful" addition would take —
     # a job-level grant that looks locally reasonable while reopening the
     # standing write access the live-run test proved unnecessary.
+    # `simple` declares no block, so any block fails; a gated release declares
+    # only its guard's reads, so the same write fails as a drift from them.
+    release_job_reads = "    permissions:\n      contents: read\n      pull-requests: read\n"
     for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
-        files[".github/workflows/release-please.yml"] = re.sub(
-            r"(\n  release-please:\n)",
-            r"\1    permissions:\n      contents: write\n",
-            files[".github/workflows/release-please.yml"],
-            count=1,
-        )
-        result = check_workflow_permissions(f"self-test:release job permissions {repo_type}", files)
-        if not any("must not declare its own permissions block" in e for e in result):
+        workflow = files[".github/workflows/release-please.yml"]
+        if repo_type in GATED_RELEASE_TYPES:
+            workflow = workflow.replace(
+                release_job_reads, "    permissions:\n      contents: write\n      pull-requests: read\n", 1
+            )
+            needle = "must grant exactly"
+        else:
+            workflow = re.sub(
+                r"(\n  release-please:\n)", r"\1    permissions:\n      contents: write\n", workflow, count=1
+            )
+            needle = "must not declare its own permissions block"
+        files[".github/workflows/release-please.yml"] = workflow
+        result = check_workflow_permissions(f"self-test:release job permissions {repo_type}", repo_type, files)
+        if not any(needle in e for e in result):
             errors.append(
                 f"self-test 'release job permissions {repo_type}' did not fail "
                 f"as expected: {result}"
             )
+
+    # Case 29i: the guard reads pull requests and commits with the workflow
+    # token, so a gated release's job declares exactly contents: read and
+    # pull-requests: read. A job-level block replaces the workflow's, so the
+    # two ways to break it that a glance would miss are keeping only the new
+    # line (the guard then cannot compare commits) and dropping the block (the
+    # guard then cannot list pull requests, and a release PR is never tagged).
+    for repo_type in GATED_RELEASE_TYPES:
+        files = bootstrap.generate_files(
+            next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
+        )
+        for name, replacement, needle in (
+            ("no block", "", "declares no permissions block"),
+            ("only pull-requests", "    permissions:\n      pull-requests: read\n", "must grant exactly"),
+            ("only contents", "    permissions:\n      contents: read\n", "must grant exactly"),
+            ("pull-requests write",
+             "    permissions:\n      contents: read\n      pull-requests: write\n", "must grant exactly"),
+            ("an extra scope", release_job_reads + "      issues: read\n", "must grant exactly"),
+        ):
+            changed = dict(files)
+            changed[".github/workflows/release-please.yml"] = files[".github/workflows/release-please.yml"].replace(
+                release_job_reads, replacement, 1
+            )
+            result = check_workflow_permissions(f"self-test:gated job {name} {repo_type}", repo_type, changed)
+            if not any(needle in e for e in result):
+                errors.append(
+                    f"self-test 'gated release job with {name} {repo_type}' did not fail "
+                    f"as expected: {result}"
+                )
 
     # Case 29h-null: a bare `permissions:` key with no value parses to None in
     # YAML — identical to an absent key under `.get()`. That makes it a
@@ -3552,11 +3735,27 @@ def run_self_tests() -> list:
         files[".github/workflows/release-please.yml"],
         count=1,
     )
-    result = check_workflow_permissions("self-test:release job null permissions", files)
+    result = check_workflow_permissions("self-test:release job null permissions", "simple", files)
     if not any("must not declare its own permissions block" in e for e in result):
         errors.append(
             f"self-test 'release job null permissions' did not fail as expected: {result}"
         )
+
+    # Case 29j: the expectation follows the repository type. The block a gated
+    # release needs is a drift in `simple`, which has no guard, and `simple`'s
+    # missing block is a drift in a gated type.
+    for rendered_type, checked_as, needle in (
+        ("python", "simple", "must not declare its own permissions block"),
+        ("simple", "python", "declares no permissions block"),
+    ):
+        files = bootstrap.generate_files(
+            next(cfg for _, cfg in configurations() if cfg["repo_type"] == rendered_type)
+        )
+        result = check_workflow_permissions(f"self-test:{rendered_type} checked as {checked_as}", checked_as, files)
+        if not any(needle in e for e in result):
+            errors.append(
+                f"self-test '{rendered_type} checked as {checked_as}' did not fail as expected: {result}"
+            )
 
     # Case 30: `permissions: read-all` is valid GitHub syntax but not an
     # explicit per-scope grant, so it must not satisfy the check.
@@ -3564,7 +3763,7 @@ def run_self_tests() -> list:
     files[".github/workflows/test.yml"] = files[".github/workflows/test.yml"].replace(
         "permissions:\n  contents: read", "permissions: read-all", 1
     )
-    result = check_workflow_permissions("self-test:scalar permissions", files)
+    result = check_workflow_permissions("self-test:scalar permissions", "swift", files)
     if not any("must be a mapping" in e for e in result):
         errors.append(f"self-test 'scalar permissions' did not fail as expected: {result}")
 
@@ -3600,6 +3799,35 @@ def run_self_tests() -> list:
     )
     if not any("no '.' package entry" in e for e in result):
         errors.append(f"self-test 'packageless config' did not fail as expected: {result}")
+
+    # Case 33b: bump-minor-pre-major is as invisible to a parse-only check as
+    # the values above. Without it the first breaking change on a new 0.1.0
+    # repository proposes 1.0.0, so dropping the key, setting it false or
+    # turning it off for the package must each fail, for every type.
+    for _, cfg in configurations():
+        rendered = json.loads(bootstrap.generate_files(dict(cfg))["release-please-config.json"])
+        for what, mutate, expected in (
+            ("dropped", lambda c: c.pop("bump-minor-pre-major", None), "must set bump-minor-pre-major"),
+            ("false", lambda c: c.__setitem__("bump-minor-pre-major", False),
+             "must set bump-minor-pre-major"),
+            ("package override", lambda c: c["packages"]["."].__setitem__("bump-minor-pre-major", False),
+             "overrides bump-minor-pre-major"),
+        ):
+            mutated = json.loads(json.dumps(rendered))
+            mutate(mutated)
+            files = bootstrap.generate_files(dict(cfg))
+            files["release-please-config.json"] = json.dumps(mutated, indent=2) + "\n"
+            result = check_release_please_config(f"self-test:bump-minor-pre-major {what}", cfg, files)
+            if not any(expected in e for e in result):
+                errors.append(
+                    f"self-test 'bump-minor-pre-major {what}' did not fail as expected for "
+                    f"{cfg['repo_type']}: {result}"
+                )
+        # The unmutated render must pass.
+        files = bootstrap.generate_files(dict(cfg))
+        result = check_release_please_config("self-test:bump-minor-pre-major intact", cfg, files)
+        if result:
+            errors.append(f"self-test 'bump-minor-pre-major intact' failed for {cfg['repo_type']}: {result}")
 
     # Case 34: a mutation test for the SHA-pinning gate itself — regressing one
     # pinned `uses:` back to a tag must fail, not pass silently. This is the
@@ -4248,6 +4476,21 @@ def _structure_self_tests() -> list:
     expect("untested-merge guard that runs without credentials",
            gates("python", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")
                  .pop("if")), "'Refuse to tag an untested release merge' must run only")
+    # The guard only reads: it runs with the workflow token, so the App token
+    # (contents and pull requests: write) reaches release-please alone.
+    for repo_type in ("nextjs", "python", "swift", "rust"):
+        expect(f"{repo_type} guard that reads with the App token",
+               gates(repo_type, release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
+                     .update({"GH_TOKEN": "${{ steps.app-token.outputs.token }}"})), "must read with the workflow token")
+    expect("guard without a token",
+           gates("python", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
+                 .pop("GH_TOKEN")), "must read with the workflow token")
+    expect("guard that is gone",
+           gates("rust", release, lambda w: w["jobs"]["release-please"]["steps"].remove(
+               step(w, "release-please", lambda s: s.get("id") == "guard"))), "exactly one 'guard' step")
+    expect("guard that runs twice",
+           gates("nextjs", release, lambda w: w["jobs"]["release-please"]["steps"].append(
+               dict(step(w, "release-please", lambda s: s.get("id") == "guard")))), "exactly one 'guard' step")
     expect("python suite without the format check",
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(
                step(w, "test", lambda s: s.get("run") == "ruff format --check ."))),
@@ -4501,7 +4744,7 @@ def main() -> int:
             label, cfg["repo_type"], files, expects_screenshots(cfg)
         )
         all_errors += check_workflow_job_consistency(label, cfg["repo_type"], files)
-        all_errors += check_workflow_permissions(label, files)
+        all_errors += check_workflow_permissions(label, cfg["repo_type"], files)
         all_errors += check_sha_pinned_actions(label, files)
         all_errors += check_workflow_gates(label, cfg["repo_type"], files)
         all_errors += check_secrets_word(label, files)

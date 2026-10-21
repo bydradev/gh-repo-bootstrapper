@@ -1265,5 +1265,86 @@ class PythonToolInstallTests(unittest.TestCase):
         self.assertEqual(installed, expected)
 
 
+class ReleasePleaseConfigTests(unittest.TestCase):
+    """A generated repository starts at 0.1.0, so its first breaking change must not propose 1.0.0."""
+
+    OWN_CONFIG = Path(bootstrap.__file__).parent / "release-please-config.json"
+
+    def _files(self, repo_type):
+        return bootstrap.generate_files(
+            {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        )
+
+    def _config(self, repo_type):
+        return json.loads(self._files(repo_type)["release-please-config.json"])
+
+    def test_every_type_bumps_the_minor_for_a_breaking_change_before_1_0_0(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type=repo_type):
+                config = self._config(repo_type)
+                self.assertIs(config["bump-minor-pre-major"], True)
+                # Top level only: a package-level value would override it.
+                self.assertNotIn("bump-minor-pre-major", config["packages"]["."])
+
+    def test_the_option_sits_beside_include_component_in_tag(self):
+        keys = list(self._config("simple"))
+        self.assertEqual(keys[keys.index("include-component-in-tag") + 1], "bump-minor-pre-major")
+
+    def test_generated_config_agrees_with_this_repositorys_own(self):
+        own = json.loads(self.OWN_CONFIG.read_text(encoding="utf-8"))
+        for repo_type in ("nextjs", "simple"):
+            with self.subTest(repo_type=repo_type):
+                config = self._config(repo_type)
+                for key in ("include-component-in-tag", "bump-minor-pre-major"):
+                    self.assertEqual(config[key], own[key])
+
+    def test_the_manifest_still_seeds_0_1_0(self):
+        # The option only means something while the version is below 1.0.0.
+        manifest = self._files("simple")[".release-please-manifest.json"]
+        self.assertEqual(json.loads(manifest), {".": "0.1.0"})
+
+
+class ReleaseGuardTokenTests(unittest.TestCase):
+    """The untested-merge guard reads with the workflow token; the App token goes only to release-please."""
+
+    GUARD = "Refuse to tag an untested release merge"
+    WORKFLOW = ".github/workflows/release-please.yml"
+    APP_TOKEN = "steps.app-token.outputs.token"
+
+    def _workflow(self, repo_type):
+        files = bootstrap.generate_files(
+            {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        )
+        return yaml.safe_load(files[self.WORKFLOW])
+
+    def test_the_guard_reads_with_the_workflow_token(self):
+        for repo_type in ("nextjs", "python", "swift", "rust"):
+            with self.subTest(repo_type=repo_type):
+                steps = self._workflow(repo_type)["jobs"]["release-please"]["steps"]
+                guard = next(step for step in steps if step.get("name") == self.GUARD)
+                self.assertEqual(guard["env"]["GH_TOKEN"], "${{ github.token }}")
+
+    def test_only_release_please_gets_the_app_token(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type=repo_type):
+                steps = self._workflow(repo_type)["jobs"]["release-please"]["steps"]
+                users = [step for step in steps if self.APP_TOKEN in json.dumps(step)]
+                self.assertEqual(len(users), 1, users)
+                self.assertTrue(users[0]["uses"].startswith("googleapis/release-please-action@"))
+                self.assertEqual(users[0]["with"]["token"], "${{ " + self.APP_TOKEN + " }}")
+
+    def test_the_job_declares_the_reads_the_guard_needs_and_nothing_more(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type=repo_type):
+                workflow = self._workflow(repo_type)
+                job = workflow["jobs"]["release-please"]
+                # A job-level block replaces the workflow's, so it repeats contents: read.
+                self.assertEqual(workflow["permissions"], {"contents": "read"})
+                if repo_type == "simple":
+                    self.assertNotIn("permissions", job)
+                else:
+                    self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
+
+
 if __name__ == "__main__":
     unittest.main()

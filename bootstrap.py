@@ -2522,13 +2522,16 @@ def _symlinked_skill_collisions(repo_dir: Path, files: dict, skill_paths: dict) 
     try:
         if _symlink_in_path(repo_dir, ".agents/skills") or not base.is_dir():
             return {}
-        entries = sorted(os.scandir(base), key=lambda e: e.name)
+        # On a filesystem whose directory entries carry no file type,
+        # is_symlink() asks lstat, which fails in a folder that cannot be searched.
+        entries = [entry for entry in sorted(os.scandir(base), key=lambda e: e.name)
+                   if entry.is_symlink()]
     except OSError as exc:
         return {".agents/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
     found = {}
     for entry in entries:
         rel = f".agents/skills/{entry.name}"
-        if not entry.is_symlink() or f"{rel}/SKILL.md" in files:
+        if f"{rel}/SKILL.md" in files:
             continue
         text = _read_regular_prefix(Path(entry.path) / "SKILL.md", SYMLINKED_SKILL_READ_LIMIT)
         if text is None:
@@ -2558,13 +2561,16 @@ def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
     try:
         if _symlink_in_path(repo_dir, ".claude/skills") or not base.is_dir():
             return {}
-        entries = sorted(os.scandir(base), key=lambda e: e.name)
+        # A declared mirror is not asked about; see _symlinked_skill_collisions
+        # for what is_symlink() can raise.
+        entries = [entry for entry in sorted(os.scandir(base), key=lambda e: e.name)
+                   if f".claude/skills/{entry.name}" not in links and entry.is_symlink()]
     except OSError as exc:
         return {".claude/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
     found = {}
     for entry in entries:
         rel = f".claude/skills/{entry.name}"
-        if rel in links or not entry.is_symlink() or not _target_missing(entry.path):
+        if not _target_missing(entry.path):
             continue
         found[rel] = ("dangling", f"symlink to {os.readlink(entry.path)}, which does not exist")
     return found

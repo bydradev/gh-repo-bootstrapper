@@ -2,6 +2,7 @@
 
 import os
 import contextlib
+import errno
 import base64
 import json
 import zlib
@@ -3478,6 +3479,30 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
         line = next(line for line in result.stdout.splitlines() if line.startswith(f"  refused  {rel}"))
         self.assertTrue(line.endswith("PermissionError: Permission denied: docs"), line)
         self.assertFalse((self.repo / rel).exists())
+
+    # R1-Q1: a filesystem that gives no file type in a listing (DT_UNKNOWN) makes
+    # DirEntry.is_symlink() ask lstat, which fails in a folder that cannot be searched.
+    def test_a_directory_entry_that_needs_lstat_makes_its_folder_unreadable_not_a_crash(self):
+        real = os.DirEntry.is_symlink
+
+        def is_symlink(entry):
+            if entry.name == "extra":
+                raise PermissionError(errno.EACCES, "Permission denied", entry.path)
+            return real(entry)
+
+        for base in (".agents/skills", ".claude/skills"):
+            with self.subTest(base=base):
+                link = self.repo / base / "extra"
+                link.symlink_to(os.path.relpath(self.repo / "docs", link.parent))
+                try:
+                    self.assertEqual(self._differing(), {})
+                    with unittest.mock.patch.object(os.DirEntry, "is_symlink", is_symlink):
+                        self.assertEqual(
+                            self._differing(), {base: ("unreadable", "PermissionError: Permission denied")})
+                        actions = bootstrap.adopt_repository(self.repo, self.files)
+                    self.assertEqual([(action, rel) for action, rel, _ in actions], [("refused", base)])
+                finally:
+                    link.unlink()
 
 
 if __name__ == "__main__":

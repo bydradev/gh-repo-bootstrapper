@@ -515,7 +515,8 @@ still reports every other file and exits 1, and `--adopt` refuses that path and
 goes on with the others. A repository-owned folder under `.agents/skills`,
 `.claude/agents` or `.opencode/agents` that can be listed but not searched is
 reported as `unreadable` itself, since the scan for orphaned template files
-cannot look inside it.
+cannot look inside it. That scan skips a folder it cannot even list without a
+row.
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
 prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't
@@ -620,8 +621,8 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 `--check` and `--adopt` no longer stop with a `PermissionError` traceback when
 a directory in the repository cannot be searched by the user running them, such
 as a skill folder owned by another user in a shared or container-mounted
-checkout. The files below it are reported as `unreadable` with the directory
-named, `--check` exits 1 as for any drift, and `--adopt` refuses those paths
+checkout. The template files below it are reported as `unreadable` with the
+directory named, `--check` exits 1 as for any drift, and `--adopt` refuses those paths
 and carries on with the rest. Run the command as a user that can search the
 directory, or fix its permissions, to compare those files. Nothing else
 changes.

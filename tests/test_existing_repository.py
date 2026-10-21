@@ -3411,6 +3411,23 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
         self.assertEqual({action for action, _, _ in actions}, {"refused"})
         self.assertEqual({rel for _, rel, _ in actions}, github)
 
+    def test_unsearchable_folders_stay_unreadable_where_pathlib_swallows_permission_errors(self):
+        # Python 3.14 answers False for these on any OSError, as os.path does; CI runs 3.11 and 3.13.
+        for name, check in {"is_symlink": os.path.islink, "is_file": os.path.isfile,
+                            "exists": os.path.exists, "is_dir": os.path.isdir}.items():
+            self.enterContext(unittest.mock.patch.object(Path, name, lambda path, check=check: check(path)))
+        skill = f"{self.SKILL_DIR}/SKILL.md"
+        own = ".agents/skills/my-skill"
+        self._write(f"{own}/SKILL.md", "---\nname: my-skill\n---\n")
+        self._write(f"{own}/notes.md", "Notes.\n")
+        self._chmod(self.SKILL_DIR, 0o000)
+        self._chmod(own, 0o444)
+        self._chmod(".github", 0o000)
+        differing = self._differing()
+        github = {rel for rel in self.files if rel.startswith(".github/")}
+        self.assertEqual(set(differing), {skill, own} | github)
+        self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
+
     def test_unsearchable_claude_folder_covers_the_skill_mirrors(self):
         self._chmod(".claude", 0o000)
         links = bootstrap._links_for_files(self.files)

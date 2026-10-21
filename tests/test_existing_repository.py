@@ -3539,14 +3539,21 @@ class CheckReportWordingTests(unittest.TestCase):
             self.assertEqual(actions[rel], ("refused", self.NOT_A_FILE))
         self.assertEqual(self._tree(), before)
 
-    def _run_with_stdout_closed(self, *args):
-        """Run bootstrap.py with stdout a pipe whose reader has already left."""
+    def _run_with_stdout_closed(self, *args, answers=None):
+        """Run bootstrap.py with stdout a pipe whose reader has already left.
+
+        With answers, stdout is unbuffered, as under many CI runners and
+        agent harnesses, so the first prompt reaches the closed pipe at once
+        (buffered, input() drops the failed flush and the dry run's own
+        handler catches the later one).
+        """
         reader, writer = os.pipe()
         os.close(reader)
+        env = os.environ if answers is None else {**os.environ, "PYTHONUNBUFFERED": "1"}
         try:
             return subprocess.run(
                 [sys.executable, str(Path(bootstrap.__file__)), *args],
-                stdout=writer, stderr=subprocess.PIPE, encoding="utf-8",
+                input=answers, stdout=writer, stderr=subprocess.PIPE, encoding="utf-8", env=env,
             )
         finally:
             os.close(writer)
@@ -3560,6 +3567,20 @@ class CheckReportWordingTests(unittest.TestCase):
         result = self._run_with_stdout_closed("--name", "x", "--type", "simple", "--dry-run", "--non-interactive")
         self._assert_quiet(result)
         self.assertEqual(result.returncode, 0)
+
+    def test_dry_run_asking_its_questions_into_a_closed_pipe_exits_quietly(self):
+        # `--dry-run | head -0` without --org: the owner prompt is the first write.
+        result = self._run_with_stdout_closed("--name", "x", "--type", "simple", "--dry-run",
+                                              answers="example-org\n" + "\n" * 20)
+        self._assert_quiet(result)
+        self.assertEqual(result.returncode, 0)
+
+    def test_configure_only_dry_run_into_a_closed_pipe_still_fails(self):
+        # The combination is refused after the questions; a closed pipe must not turn that into success.
+        result = self._run_with_stdout_closed("--name", "x", "--type", "simple", "--configure-only",
+                                              "--dry-run", answers="example-org\n" + "\n" * 20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BrokenPipeError", result.stderr)
 
     def test_dry_run_read_by_a_reader_that_leaves_early_exits_quietly(self):
         # `--dry-run | head -1`: the nextjs output (over 200 KB) is larger than a pipe holds.

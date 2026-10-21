@@ -4135,7 +4135,13 @@ def main():
 
     if not args.dry_run:
         check_dependencies()
-    cfg = gather_config(args)
+    try:
+        cfg = gather_config(args)
+    except BrokenPipeError:
+        if not args.dry_run or args.configure_only:
+            raise  # a creating or configuring run must not end quietly
+        _stdout_reader_left()  # a dry run writes nothing, so leaving during its questions loses nothing
+        return
 
     # --- configure-only: apply GitHub config to an existing repo ---
     if cfg["configure_only"]:

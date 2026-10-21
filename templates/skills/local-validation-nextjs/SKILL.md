@@ -87,6 +87,24 @@ call in `release-please.yml`, for its current tiers:
 - **Push to `main` (`release-please.yml`):** the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
 - **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** the full validation suite, including every Playwright project.
 
+`test.yml` runs `npm run lint` as the scaffold defines it, and the lint baseline
+requires the `lint` script in `package.json` to run `eslint --max-warnings=0`
+with unused disable directives reported, which is the default since ESLint 9
+(`reportUnusedDisableDirectives: "warn"`). ESLint 8 reports them only when
+asked, such as with `--report-unused-disable-directives`, and a configuration
+that sets the option to `"off"` reports none. Without the flag, a warning does not fail lint locally
+or in CI, and without the reporting, an unused `eslint-disable` directive is no
+warning at all; either way a stale baseline row only surfaces at its review
+date. `create-next-app` generates a plain `eslint` script for its ESLint
+option, so check the script and the ESLint configuration before treating a green
+lint run as proof that no stale directive remains, and add the flag to the
+script in `package.json`, the one place both local runs and CI read. Keep the
+script's file target wide enough to cover every file
+`scripts/verify-baselines.mjs` scans (the JavaScript and TypeScript files
+outside `node_modules`, `.next` and the other directories it excludes); a
+narrowed target such as `eslint src` leaves a stale directive elsewhere
+unreported while its baseline row keeps passing.
+
 ## Worktrees
 
 A worktree starts without `node_modules`, `.next`, or test output. Install
@@ -104,3 +122,14 @@ verification copy.
 - Output directory, flaky status, and `failOnFlakyTests`: Playwright 1.63.0's
   `outputDir`, test-status, and `failOnFlakyTests` documentation, checked
   2026-09-29.
+- `lint` script of a new project: `create-next-app` 16.4.2 (npm `latest`,
+  published 2026-10-15), `dist/index.js`, which writes `lint: "eslint"` for the
+  ESLint option, checked 2026-10-22.
+- `--max-warnings` and the unused-directive default: the ESLint v9.x
+  command-line reference (`--max-warnings` exits with an error status above
+  the threshold) and rules reference (`reportUnusedDisableDirectives` defaults
+  to `"warn"`), eslint.org/docs/v9.x, and the ESLint v9.0.0 release post
+  ("Unused disable directives cause warnings by default", so earlier versions
+  did not), eslint.org/blog/2024/04/eslint-v9.0.0-released, and ESLint
+  10.13.0's `lib/config/default-config.js` (`reportUnusedDisableDirectives: 1`,
+  that is `"warn"`), checked 2026-10-22.

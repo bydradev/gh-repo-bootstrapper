@@ -1304,5 +1304,47 @@ class ReleasePleaseConfigTests(unittest.TestCase):
         self.assertEqual(json.loads(manifest), {".": "0.1.0"})
 
 
+class ReleaseGuardTokenTests(unittest.TestCase):
+    """The untested-merge guard reads with the workflow token; the App token goes only to release-please."""
+
+    GUARD = "Refuse to tag an untested release merge"
+    WORKFLOW = ".github/workflows/release-please.yml"
+    APP_TOKEN = "steps.app-token.outputs.token"
+
+    def _workflow(self, repo_type):
+        files = bootstrap.generate_files(
+            {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        )
+        return yaml.safe_load(files[self.WORKFLOW])
+
+    def test_the_guard_reads_with_the_workflow_token(self):
+        for repo_type in ("nextjs", "python", "swift", "rust"):
+            with self.subTest(repo_type=repo_type):
+                steps = self._workflow(repo_type)["jobs"]["release-please"]["steps"]
+                guard = next(step for step in steps if step.get("name") == self.GUARD)
+                self.assertEqual(guard["env"]["GH_TOKEN"], "${{ github.token }}")
+
+    def test_only_release_please_gets_the_app_token(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type=repo_type):
+                steps = self._workflow(repo_type)["jobs"]["release-please"]["steps"]
+                users = [step for step in steps if self.APP_TOKEN in json.dumps(step)]
+                self.assertEqual(len(users), 1, users)
+                self.assertTrue(users[0]["uses"].startswith("googleapis/release-please-action@"))
+                self.assertEqual(users[0]["with"]["token"], "${{ " + self.APP_TOKEN + " }}")
+
+    def test_the_job_declares_the_reads_the_guard_needs_and_nothing_more(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+            with self.subTest(repo_type=repo_type):
+                workflow = self._workflow(repo_type)
+                job = workflow["jobs"]["release-please"]
+                # A job-level block replaces the workflow's, so it repeats contents: read.
+                self.assertEqual(workflow["permissions"], {"contents": "read"})
+                if repo_type == "simple":
+                    self.assertNotIn("permissions", job)
+                else:
+                    self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
+
+
 if __name__ == "__main__":
     unittest.main()

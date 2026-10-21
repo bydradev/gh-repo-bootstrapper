@@ -3371,9 +3371,9 @@ class CheckReportWordingTests(unittest.TestCase):
         crlf = self.files["AGENTS.md"].replace("\n", "\r\n")
         (self.repo / "AGENTS.md").write_bytes(crlf.encode())
         self._commit("crlf")
-        rows = [("differs", self.CRLF_ROW)]
-        self.assertEqual(bootstrap.compare_agents(self.files["AGENTS.md"], crlf), rows)
-        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("differs", rows))
+        self.assertEqual(
+            bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("differs", [("differs", self.CRLF_ROW)])
+        )
         checked, adopted = self._check_and_adopt()
         self.assertIn(f"differs  {self.CRLF_ROW}", checked)
         self.assertNotIn("## Development workflow", checked)
@@ -3384,8 +3384,19 @@ class CheckReportWordingTests(unittest.TestCase):
         crlf = self.files["AGENTS.md"] + "Ours.\r\n"
         (self.repo / "AGENTS.md").write_bytes(crlf.encode())
         self._commit("owned crlf")
-        self.assertNotIn(("differs", self.CRLF_ROW), bootstrap.compare_agents(self.files["AGENTS.md"], crlf))
         self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("same", None))
+
+    def test_compare_agents_keeps_every_row_for_crlf_text_so_a_rebuild_still_refuses(self):
+        # The one row belongs to the --check report; rebuild_agents relies on compare_agents' local and retired rows.
+        generated, owned = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        retired = sorted(bootstrap.RETIRED_SECTIONS.difference(*bootstrap._TYPE_RETIRED_SECTIONS.values()))[0]
+        actual = generated + f"{retired}\n\nOld text.\n\n## Our local rules\n\nKeep me.\n\n" + owned
+        for text in (actual, actual.replace("\n", "\r\n")):
+            rows = bootstrap.compare_agents(self.files["AGENTS.md"], text)
+            self.assertIn(("local", "## Our local rules"), rows)
+            self.assertIn(("retired", retired), rows)
+            with self.assertRaises(ValueError):
+                bootstrap.rebuild_agents(self.files["AGENTS.md"], text)
 
     def test_byte_order_mark_is_one_row_and_adopt_still_refuses(self):
         marked = "\ufeff" + self.files["AGENTS.md"]
@@ -3400,13 +3411,12 @@ class CheckReportWordingTests(unittest.TestCase):
         self.assertNotIn("text before the first heading", checked)
         self.assertNotIn("# Working in this repo", checked)
         self.assertIn(
-            f"refused  AGENTS.md{self.DASH}fix this structure, or move it under ## Project specifics, first: "
-            f"{self.BOM_ROW}", adopted)
+            f"refused  AGENTS.md{self.DASH}remove the byte-order mark at the start of the file first\n", adopted)
         # Both causes are named when a file has both.
-        both = marked.replace("\n", "\r\n")
+        (self.repo / "AGENTS.md").write_bytes(marked.replace("\n", "\r\n").encode())
         self.assertEqual(
-            [row for row in bootstrap.compare_agents(self.files["AGENTS.md"], both) if row[0] != "same"],
-            [("local", self.BOM_ROW), ("differs", self.CRLF_ROW)],
+            bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"],
+            ("differs", [("local", self.BOM_ROW), ("differs", self.CRLF_ROW)]),
         )
 
     def test_unstamped_file_at_a_template_skill_path_names_its_cause(self):
@@ -3472,9 +3482,9 @@ class CheckReportWordingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
 
     def test_dry_run_read_by_a_reader_that_leaves_early_exits_quietly(self):
-        # `--dry-run | head -1`: the output is larger than a pipe holds.
+        # `--dry-run | head -1`: the nextjs output (over 200 KB) is larger than a pipe holds.
         proc = subprocess.Popen(
-            [sys.executable, str(Path(bootstrap.__file__)), "--name", "x", "--type", "simple", "--dry-run",
+            [sys.executable, str(Path(bootstrap.__file__)), "--name", "x", "--type", "nextjs", "--dry-run",
              "--non-interactive"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
         )
@@ -3493,6 +3503,23 @@ class CheckReportWordingTests(unittest.TestCase):
         drifted = self._run_with_stdout_closed("--check", str(self.repo), "--type", "simple")
         self._assert_quiet(drifted)
         self.assertEqual(drifted.returncode, 1)
+
+
+    def test_output_with_stdout_closed_from_the_start_keeps_its_status(self):
+        # `>&-`: sys.stdout is None, so there is nothing to flush and nothing to break.
+        def run(*args):
+            return subprocess.run(
+                ["sh", "-c", 'exec "$@" >&-', "sh", sys.executable, str(Path(bootstrap.__file__)), *args],
+                stderr=subprocess.PIPE, encoding="utf-8",
+            )
+
+        dry_run = run("--name", "x", "--type", "simple", "--dry-run", "--non-interactive")
+        self.assertEqual((dry_run.returncode, dry_run.stderr), (0, ""))
+        aligned = run("--check", str(self.repo), "--type", "simple")
+        self.assertEqual((aligned.returncode, aligned.stderr), (0, ""))
+        (self.repo / "docs/current-work.md").unlink()
+        drifted = run("--check", str(self.repo), "--type", "simple")
+        self.assertEqual((drifted.returncode, drifted.stderr), (1, ""))
 
 
 if __name__ == "__main__":

@@ -1929,11 +1929,8 @@ def compare_agents(expected: str, actual: str) -> list:
     `## Project specifics` on are repository-owned and never compared, except
     that unedited guidance an older template put there is reported `retired`.
 
-    Two causes that no section row could name are reported once instead: a
-    leading byte-order mark is stripped before the comparison and reported as
-    one `local` row, and when anything differs in a file with carriage returns
-    the rows are replaced by one `differs` row, since --adopt would refuse the
-    file for its line endings whatever the sections hold.
+    A leading byte-order mark is stripped before the comparison and reported
+    as one `local` row, since it would otherwise hide the first heading.
     """
     bom = actual.startswith("\ufeff")
     actual = actual.removeprefix("\ufeff")
@@ -2004,8 +2001,6 @@ def compare_agents(expected: str, actual: str) -> list:
         rows.append(("retired", RETIRED_SPECIFICS_GUIDANCE))
     if _nextjs_rules_block(expected) and not _nextjs_rules_block(actual):
         rows.append(("missing", NEXTJS_RULES_BEGIN))
-    if "\r" in actual and any(row_status != "same" for row_status, _ in rows):
-        rows = [("differs", CARRIAGE_RETURNS)]
     if bom:
         rows.insert(0, ("local", BYTE_ORDER_MARK))
     return rows
@@ -2816,6 +2811,10 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         elif rel == "AGENTS.md":
             rows = compare_agents(expected, actual)
             aligned = all(row_status == "same" for row_status, _ in rows)
+            if not aligned and "\r" in actual:
+                # --adopt refuses the file for its line endings whatever the
+                # sections hold, so one row names that instead of a row per section.
+                rows = [row for row in rows if row[1] == BYTE_ORDER_MARK] + [("differs", CARRIAGE_RETURNS)]
             report[rel] = ("same", None) if aligned else ("differs", rows)
         elif rel == ".gitignore":
             missing = _missing_lines(expected, actual)
@@ -3436,8 +3435,6 @@ def _adopt_file(
         problems = _undeclared_inputs(repo_dir, expected) if rel in TEMPLATE_OWNED_WORKFLOWS else []
         if problems:
             return ("refused", rel, "; ".join(problems) + "; fix that, then re-run --adopt")
-        if not _path_is_free(repo_dir, rel):
-            return ("refused", rel, "something other than a file is at this path; move it aside")
         created = []
         try:
             parent = _open_parent(repo_dir, rel, create=True, created=created)
@@ -3445,6 +3442,14 @@ def _adopt_file(
                 _publish_new(parent, name, expected)
             finally:
                 os.close(parent)
+        except (FileExistsError, NotADirectoryError):
+            _remove_empty_dirs(repo_dir, created)
+            # The scan found no file here, so whatever blocks the write is a directory or a
+            # file in a folder's place; say so as for a seed script. A file that appeared
+            # since the scan keeps its error.
+            if _path_is_free(repo_dir, rel) or (repo_dir / rel).is_file():
+                raise
+            return ("refused", rel, "something other than a file is at this path; move it aside")
         except BaseException:
             _remove_empty_dirs(repo_dir, created)
             raise
@@ -3471,6 +3476,8 @@ def _adopt_file(
         local = [heading for row_status, heading in rows if row_status == "local"]
         if NEXTJS_BLOCK_MOVED in local:
             return ("refused", rel, "move the `next dev`-managed block back to the top of the file first")
+        if BYTE_ORDER_MARK in local:
+            return ("refused", rel, "remove the byte-order mark at the start of the file first")
         structure = [heading for heading in local if heading.startswith("(")]
         if structure:
             return ("refused", rel, "fix this structure, or move it under ## Project specifics, first: "
@@ -4017,6 +4024,12 @@ def print_success(cfg: dict):
 # ---------------------------------------------------------------------------
 
 
+def _flush_stdout():
+    """Flush stdout inside the caller's try, so a reader that already left is noticed there."""
+    if sys.stdout is not None:  # closed before the run began (`>&-`): print() is a no-op
+        sys.stdout.flush()
+
+
 def _stdout_reader_left():
     """Quiet the rest of a run whose stdout reader has gone, as in `--dry-run | head`.
 
@@ -4058,7 +4071,7 @@ def main():
             report = compare_repository(repo_dir, files)
             try:
                 aligned = print_repository_report(repo_dir, cfg, report)
-                sys.stdout.flush()  # a reader that already left shows here, not only on a full buffer
+                _flush_stdout()
             except BrokenPipeError:
                 _stdout_reader_left()
                 # The exit status still says whether the repository is aligned.
@@ -4126,7 +4139,7 @@ def main():
     if cfg["dry_run"]:
         try:
             print_dry_run(cfg, files)
-            sys.stdout.flush()
+            _flush_stdout()
         except BrokenPipeError:
             _stdout_reader_left()  # nothing is written or created, so leaving early loses nothing
         return

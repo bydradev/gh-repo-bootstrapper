@@ -19,8 +19,12 @@ description: "Use before adding an inline lint suppression, accepting a dependen
   PRs. Its Baseline review workflow summary reports overdue and near-due
   reviews, orphaned advisory rows (an advisory no longer in `npm audit`),
   Dependabot alerts a person dismissed without a row (auto-triage dismissals
-  are not checked), and rows whose alert is still open. A row with no alert is
-  listed but not flagged, and a row whose alert auto-triage dismissed or
-  Dependabot marked fixed passes: neither has anything to dismiss.
+  are not checked), and rows whose alert is still open. Reassess such a row
+  against its alert, scope included, before dismissing the alert: auto-triage
+  can reopen an alert it dismissed, for example when the dependency moves from
+  development to production scope (GitHub Docs, *Dependabot auto-triage
+  rules*, checked 2026-10-21). A row with no alert is listed but not flagged,
+  and a row whose alert auto-triage dismissed or Dependabot marked fixed
+  passes: neither has anything to dismiss.
 - **Review dates are not a merge gate:** a calendar-only failure would make
   changing the date easier than performing the review.

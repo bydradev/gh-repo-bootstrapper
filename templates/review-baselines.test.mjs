@@ -303,7 +303,7 @@ test("reports both Dependabot parity directions and exits non-zero", async () =>
   );
   assert.match(
     output,
-    /Advisory-baseline rows whose Dependabot alert is still open \(dismiss it, citing the row\):\n {2}- GHSA-aaaa-bbbb-cccc/,
+    /Advisory-baseline rows whose Dependabot alert is still open \(reassess the row against the alert, scope included, before dismissing the alert citing the row\):\n {2}- GHSA-aaaa-bbbb-cccc/,
   );
   assert.doesNotMatch(output, /Dependabot parity: every alert a person dismissed has a row/);
 });

@@ -670,7 +670,11 @@ format the same text differently between releases, patch releases included
 ([Install](https://prettier.io/docs/install), Prettier docs, checked
 2026-10-21). `.prettierignore` belongs to the repository, so `--adopt` keeps it
 and `--check` reports it as `differs`: add the four paths to it by hand, one per
-line. `ci.yml` and `test.yml` belong to the repository and stay formatted. The
+line. `--check` compares the file byte for byte, so it goes on reporting
+`.prettierignore` (and `README.md`, which also changed) as `differs` and exiting
+1 afterwards, as for other repository-owned files that differ from the template;
+the row clears only when the file matches the template, comment included.
+`ci.yml` and `test.yml` belong to the repository and stay formatted. The
 generated `README.md` of a new repository says the same; an existing one keeps
 its own.
 

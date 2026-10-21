@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.3...v0.16.0) (2026-10-21)
+
+
+### Features
+
+* bring unedited nextjs baseline scripts up to date with --adopt ([#131](https://github.com/bydradev/gh-repo-bootstrapper/issues/131)) ([5bb6f2b](https://github.com/bydradev/gh-repo-bootstrapper/commit/5bb6f2b4320c7578ac355f77e05572cec90730ac))
+* record shared vendored-skill corrections in every repository that vendors the skill ([#133](https://github.com/bydradev/gh-repo-bootstrapper/issues/133)) ([086700b](https://github.com/bydradev/gh-repo-bootstrapper/commit/086700b2fcf33d9fe6bcf4b38d2c421456e467e2))
+
+
+### Bug Fixes
+
+* tell the baseline review to reassess a row before dismissing its open alert ([#134](https://github.com/bydradev/gh-repo-bootstrapper/issues/134)) ([c89a80c](https://github.com/bydradev/gh-repo-bootstrapper/commit/c89a80c2a304aefe217cab8789d4065b85222e19))
+
 ## [0.15.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.2...v0.15.3) (2026-10-20)
 
 

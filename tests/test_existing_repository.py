@@ -3526,7 +3526,11 @@ class AdoptOrphanTrackingTests(unittest.TestCase):
         self.assertEqual(rows[self.SKILL][0], "deleted")
         action, detail = rows[".agents/skills/old"]
         self.assertEqual(action, "refused")
-        self.assertRegex(detail, r"^PermissionError: .*; folder left in place, so its \.claude/skills mirror stays$")
+        self.assertRegex(
+            detail,
+            r"^PermissionError: .*; folder left in place, so the \.claude/skills mirror of its skill stays; "
+            r"remove the emptied folders by hand, then re-run --adopt to delete the mirror$",
+        )
         self.assertEqual(list((self.repo / ".agents/skills/old").iterdir()), [])
         self.assertTrue((self.repo / self.MIRROR).is_symlink())
 
@@ -3546,13 +3550,40 @@ class AdoptOrphanTrackingTests(unittest.TestCase):
         self.assertRegex(result.stdout, r"refused\s+\.agents/skills/old\s")
         self.assertTrue(old.is_dir())
         self.assertTrue(mirror.is_symlink())
-        # The README's remedy: make the parent writable, delete the empty folder by hand.
+        # Making the parent writable is not enough: the skill's file is gone, so a
+        # second run has nothing to retry and leaves the folder and mirror as they are.
         skills.chmod(0o755)
+        result = adopt()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(old.is_dir())
+        self.assertTrue(mirror.is_symlink())
+        # The README's remedy: delete the empty folder by hand.
         old.rmdir()
         result = adopt()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertRegex(result.stdout, rf"deleted\s+{re.escape(self.MIRROR)}")
         self.assertFalse(os.path.lexists(mirror))
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_one_unremovable_folder_does_not_stop_the_cleanup_of_the_others(self):
+        bootstrap.adopt_repository(self.repo, self.files)
+        for name, skill in (("z", "z/n/SKILL.md"), ("b", "b/SKILL.md"), ("c", "c/SKILL.md")):
+            self._write(f".agents/skills/{skill}", bootstrap.stamp("# Old\n"))
+            (self.repo / ".claude/skills" / name).symlink_to(f"../../.agents/skills/{name}")
+        self._commit_all()
+        # z sorts last, so its folder is tried first
+        locked = self.repo / ".agents/skills/z"
+        locked.chmod(0o555)  # z/n can be emptied but not unlinked from z
+        self.addCleanup(locked.chmod, 0o755)
+        rows = self._rows()
+        self.assertEqual(rows[".agents/skills/z/n"][0], "refused")
+        for name in ("b", "c"):
+            self.assertEqual(rows[f".claude/skills/{name}"][0], "deleted")
+            self.assertFalse((self.repo / ".agents/skills" / name).exists())
+            self.assertFalse(os.path.lexists(self.repo / ".claude/skills" / name))
+        self.assertNotIn(".claude/skills/z", rows)
+        self.assertTrue((self.repo / ".agents/skills/z/n").is_dir())
+        self.assertTrue((self.repo / ".claude/skills/z").is_symlink())
 
     def test_check_leaves_an_orphaned_skill_its_folder_and_mirror(self):
         self._orphan_skill_with_mirror()

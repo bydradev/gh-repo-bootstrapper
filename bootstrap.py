@@ -3195,7 +3195,8 @@ def _adopt_emptied_skills(repo_dir: Path, actions: list, report: dict, mirrors: 
                 rows.append((
                     "refused", folder,
                     f"{type(exc).__name__}: {exc.strerror or exc}; "
-                    "folder left in place, so its .claude/skills mirror stays",
+                    "folder left in place, so the .claude/skills mirror of its skill stays; "
+                    "remove the emptied folders by hand, then re-run --adopt to delete the mirror",
                 ))
     try:
         dangling = _dangling_mirrors(repo_dir, mirrors)

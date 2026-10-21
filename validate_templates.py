@@ -2147,7 +2147,7 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
             errors.append(
                 f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} env {test.group(1)} must be exactly "
                 "${{ hashFiles(<patterns>) }} and nothing else, because an operator, a second call, a "
-                "fallback such as `|| 'missing'` or text around the call keeps an empty hash from "
+                "fallback such as `|| 'missing'` or text around the call can keep an empty hash from "
                 f"being empty, so the guard never fires; got {value!r}"
             )
         else:
@@ -4402,7 +4402,7 @@ def _structure_self_tests() -> list:
     expect("python manifest guard with another option",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("hashFiles(", "hashFiles('--no-such-option', "))), same_files)
-    # The first three hash the right patterns, so only the bare-call rule fails
+    # The first four hash the right patterns, so only the bare-call rule fails
     # them; the last shows that whitespace inside the braces is allowed.
     bare_call = "must be exactly ${{ hashFiles(<patterns>) }} and nothing else"
     expect("python manifest guard hash with a literal fallback",
@@ -4412,6 +4412,9 @@ def _structure_self_tests() -> list:
                w, lambda v: v.replace("${{ ", "${{ format('{0}', ").replace(" }}", ") }}"))), bare_call)
     expect("python manifest guard hash with text around the expression",
            gates("python", test, lambda w: guard_env(w, lambda v: v + "-")), bare_call)
+    # A `|` block scalar ends in a newline, so its value is no longer the bare call.
+    expect("python manifest guard hash with a trailing newline",
+           gates("python", test, lambda w: guard_env(w, lambda v: v + "\n")), bare_call)
     expect("python manifest guard hash without spaces inside the braces",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("${{ ", "${{").replace(" }}", "}}"))), None)

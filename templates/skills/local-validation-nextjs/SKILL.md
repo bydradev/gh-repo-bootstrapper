@@ -98,7 +98,12 @@ warning at all; either way a stale baseline row only surfaces at its review
 date. `create-next-app` generates a plain `eslint` script for its ESLint
 option, so check the script and the ESLint configuration before treating a green
 lint run as proof that no stale directive remains, and add the flag to the
-script in `package.json`, the one place both local runs and CI read.
+script in `package.json`, the one place both local runs and CI read. Keep the
+script's file target wide enough to cover every file
+`scripts/verify-baselines.mjs` scans (the JavaScript and TypeScript files
+outside `node_modules`, `.next` and the other directories it excludes); a
+narrowed target such as `eslint src` leaves a stale directive elsewhere
+unreported while its baseline row keeps passing.
 
 ## Worktrees
 

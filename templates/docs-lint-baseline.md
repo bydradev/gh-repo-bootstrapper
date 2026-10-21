@@ -26,8 +26,9 @@ the default since ESLint 9 (`reportUnusedDisableDirectives: "warn"`). ESLint 8 r
 asked, such as with `--report-unused-disable-directives`, and a configuration that sets the option to
 `"off"` reports none. The bootstrapper does not create `package.json`, so the application scaffold
 provides the `lint` script and must include the flag and keep the reporting on; without the flag a
-warning does not fail CI. A clean run prints nothing and exits 0. Any warning or error is new work to
-investigate; do not hide it in a growing baseline.
+warning does not fail CI. Its file target must also cover every file `scripts/verify-baselines.mjs` scans: each `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` and `.cts` file outside `.git`, `node_modules`, `.next`, `upstream`, `coverage`, `playwright-report` and `test-results`. A narrowed target such as `eslint src` meets the two requirements above and still leaves an unused directive in `scripts/` unreported, while its row keeps passing the baseline check.
+A clean run reports no diagnostics (npm still prints its own script banner) and exits 0. Any
+warning or error is new work to investigate; do not hide it in a growing baseline.
 
 When a warning appears:
 

@@ -688,7 +688,10 @@ repository, so `--adopt` reports them as `kept` and `--check` as `differs`:
 merge the wording by hand from the files in `templates/` at the `v0.17.0` tag.
 The change that matters is in your own `package.json` and ESLint configuration:
 add `--max-warnings=0` to the `lint` script's `eslint` command, keeping the
-targets and other arguments it has, and keep unused disable directives reported
+targets and other arguments it has (and wide enough to cover every file
+`scripts/verify-baselines.mjs` scans, so a narrowed target such as `eslint src`
+does not leave a stale directive elsewhere unreported), and keep unused disable
+directives reported
 (the default since ESLint 9; `--report-unused-disable-directives` or
 `reportUnusedDisableDirectives` on ESLint 8), or a stale `eslint-disable`
 directive and its baseline row go unnoticed until the row's review date. Keep a

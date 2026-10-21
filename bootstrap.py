@@ -2090,16 +2090,27 @@ def _indent(line: str) -> int:
 _UNVERIFIABLE = object()
 
 
-# The only flow collections the reader admits: `{}`, `[]`, or a list of plain words.
-_FLOW_VALUE_RE = re.compile(r"\{\s*\}|\[\s*(?:[A-Za-z0-9_./-]+(?:\s*,\s*[A-Za-z0-9_./-]+)*)?\s*\]")
+# An item of a flow sequence: a plain word, or a quoted string with no escape
+# and no quote of its own, which YAML 1.2.2 (sections 7.3.1 and 7.3.2, checked
+# 2026-10-21) reads as the text between its quotes.
+_FLOW_ITEM = r"""[A-Za-z0-9_./-]+|"[^"\\]*"|'[^']*'"""
+
+# The only flow collections the reader admits: `{}`, `[]`, or a list of those items.
+_FLOW_VALUE_RE = re.compile(rf"\{{\s*\}}|\[\s*(?:(?:{_FLOW_ITEM})(?:\s*,\s*(?:{_FLOW_ITEM}))*)?\s*\]")
+
+
+def _flow_items(value: str) -> list:
+    """The strings in a flow sequence _value() admitted, without their quotes."""
+    return [item[1:-1] if item[0] in "\"'" else item for item in re.findall(_FLOW_ITEM, value[1:-1])]
 
 
 def _value(text: str) -> str | None:
     """A single-line value without its comment, or None outside the modelled subset.
 
     Admitted: plain scalars, quoted scalars without escapes, and the flow
-    collections _FLOW_VALUE_RE describes. Anchors, aliases, tags, escapes,
-    other flow collections and indicator-led plain scalars are refused.
+    collections _FLOW_VALUE_RE describes (plain words and quoted strings
+    without escapes or quotes inside). Anchors, aliases, tags, escapes, other
+    flow collections and indicator-led plain scalars are refused.
     """
     text = text.strip()
     if not text or text.startswith("#"):
@@ -2148,20 +2159,32 @@ def _structural_lines(text: str) -> list | None:
     bootstrap.py has no YAML parser, so this models only block mappings and
     sequences, single-line scalars and flow collections, and block scalars,
     whose text it skips. Anything else (a quoted scalar or flow collection
-    spanning lines, anchors, aliases, tags, a plain scalar continued on the
-    next line, tabs, other whitespace than space and line breaks, characters
-    YAML forbids, several documents) returns None,
+    spanning lines, a quoted item with an escape or a quote inside, anchors,
+    aliases, tags, a plain scalar continued on the next line, tabs, other
+    whitespace than space and line breaks, characters YAML forbids, several
+    documents) returns None,
     so callers refuse instead of guessing. Sequence entries are rows with key
     None.
 
     The guarantee covers workflows GitHub can load: for those, the rows are
     right or the result is None. A file GitHub rejects as invalid YAML already
-    fails every run, so it is out of scope.
+    fails every run, so it is out of scope. _scan_rows() also says which line.
     """
-    if any(_outside_subset_char(char) for char in text):
-        return None
-    rows, block, content, blank = [], None, None, 0
-    for line in text.splitlines():
+    return _scan_rows(text)[0]
+
+
+def _scan_rows(text: str) -> tuple:
+    """(rows, None) as _structural_lines() reads them, or (None, n) where n is
+    the 1-based number of the first line outside the subset."""
+    lines = text.splitlines()
+    # `stop` is the number of the first line found outside the subset. The
+    # lines from one holding a character the reader does not model are not read.
+    stop = next((i for i, char in enumerate(text) if _outside_subset_char(char)), None)
+    if stop is not None:
+        stop = len((text[:stop] + "x").splitlines())
+        lines = lines[: stop - 1]
+    rows, numbers, block, content, blank = [], [], None, None, 0
+    for number, line in enumerate(lines, 1):
         if not line.strip():
             if block is not None and content is None:
                 blank = max(blank, len(line.rstrip("\r")))
@@ -2171,22 +2194,24 @@ def _structural_lines(text: str) -> list | None:
             if indent > block:
                 # Content keeps the first content line's indentation or more,
                 # and no leading blank line may be indented deeper than it.
-                if content is not None and indent < content:
-                    return None
-                if content is None and blank > indent:
-                    return None
+                if (content is not None and indent < content) or (content is None and blank > indent):
+                    stop = number
+                    break
                 content = indent if content is None else content
                 continue
             block = None
         body = line[indent:]
         if body.startswith("\t") or body.startswith("#"):
             if body.startswith("\t"):
-                return None
+                stop = number
+                break
             continue
         if indent == 0 and body.rstrip() in ("---", "..."):
-            return None
+            stop = number
+            break
         while body == "-" or body.startswith("- "):
             rows.append((indent, None, None))
+            numbers.append(number)
             rest = body[1:]
             indent += 1 + len(rest) - len(rest.lstrip(" "))
             body = rest.lstrip(" ")
@@ -2197,26 +2222,32 @@ def _structural_lines(text: str) -> list | None:
             # A sequence entry that is a scalar, not a mapping.
             value = _value(body)
             if value is None or not rows or rows[-1][1] is not None:
-                return None
+                stop = number
+                break
             continue
         key = key_match.group(1)
         if key[0] not in "\"'" and not (key == "on" and indent == 0) and _IMPLICIT_KEY_RE.fullmatch(key):
-            return None  # a YAML 1.1 parser reads it as a boolean, null or number
+            stop = number  # a YAML 1.1 parser reads it as a boolean, null or number
+            break
         key = key[1:-1] if key[0] in "\"'" else key
         raw = body[key_match.end():]
         if re.fullmatch(r"[ \t]*[|>][-+]?(?:[ \t]+#.*)?[ \t]*", raw):
             rows.append((indent, key, "|"))
+            numbers.append(number)
             block, content, blank = indent, None, 0
             continue
         value = _value(raw)
         if value is None:
-            return None
+            stop = number
+            break
         rows.append((indent, key, value))
+        numbers.append(number)
     # A scalar value cannot have deeper children; such a file is outside the subset.
-    for (indent, key, value), (next_indent, _, _) in zip(rows, rows[1:]):
+    for k, ((indent, key, value), (next_indent, _, _)) in enumerate(zip(rows, rows[1:])):
         if key is not None and value and next_indent > indent:
-            return None
-    return rows
+            stop = numbers[k + 1] if stop is None else min(stop, numbers[k + 1])
+            break
+    return (rows, None) if stop is None else (None, stop)
 
 
 def _children(rows: list, start: int):
@@ -2263,7 +2294,7 @@ def _declared_inputs(text: str):
     if value:
         # A scalar names one event exactly; only a flow list names several.
         if value.startswith("["):
-            events = [event.strip() for event in value[1:-1].split(",") if event.strip()]
+            events = _flow_items(value)
         elif value.startswith("{"):
             events = []
         else:
@@ -2329,6 +2360,21 @@ def _passed_inputs(text: str) -> dict | None:
     return calls
 
 
+def _outside_subset_note(text: str | None) -> str:
+    """Names the first line of `text` that _scan_rows() refuses, as a suffix for
+    a message; empty when it names none (or there is no text)."""
+    number = None if text is None else _scan_rows(text)[1]
+    if number is None:
+        return ""
+    # Split as the stamp does, so a character Python reads as a line break but
+    # YAML does not (such as U+0085) stays in the line shown.
+    shown = re.split(r"\r\n?|\n", text)[number - 1].strip(" ")
+    if len(shown) > 80:
+        shown = shown[:77] + "..."
+    # repr() keeps a control character in the file from reaching the terminal.
+    return f" (line {number} is outside the YAML subset: {shown!r})"
+
+
 def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     """Problems with `workflow`'s calls to the repository's own reusable workflows.
 
@@ -2337,22 +2383,28 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     a newer release workflow passes. A called file that does not exist yet is
     written by --adopt from the same render, so it is not checked. Files are
     read with _structural_lines(); anything outside its subset is reported as
-    unverifiable rather than guessed.
+    unverifiable, naming the first line outside it when there is one, rather
+    than guessed.
     """
     calls = _passed_inputs(workflow)
     if calls is None:
-        return ["cannot verify the inputs this workflow passes; check them by hand"]
+        return ["cannot verify the inputs this workflow passes; check them by hand"
+                + _outside_subset_note(workflow)]
     problems = []
     for rel, passed in calls.items():
         called = repo_dir / rel
+        text = None
         try:
             if _symlink_in_path(repo_dir, rel) or not called.is_file():
                 continue
-            declared = _declared_inputs(called.read_text(encoding="utf-8"))
+            text = called.read_text(encoding="utf-8")
+            declared = _declared_inputs(text)
         except (OSError, UnicodeDecodeError):
             declared = _UNVERIFIABLE
         if declared is _UNVERIFIABLE:
-            problems.append(f"cannot verify the inputs {rel} declares; check them by hand")
+            problems.append(
+                f"cannot verify the inputs {rel} declares; check them by hand" + _outside_subset_note(text)
+            )
             continue
         missing = [name for name in passed if declared is None or name not in declared]
         if missing:

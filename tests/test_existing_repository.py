@@ -3448,10 +3448,11 @@ class CheckReportWordingTests(unittest.TestCase):
                 rows = bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1]
                 self.assertEqual(rows[: len(named)], [("differs", row) for row in named])
                 self.assertNotIn(("differs", self.CRLF_ROW), rows)
-                self.assertTrue(any(row[0] == "differs" and row[1].startswith("## ") for row in rows))
+                self.assertIn(("differs", "## Development workflow"), rows)
                 checked, adopted = self._check_and_adopt()
                 for row in named:
                     self.assertIn(f"differs  {row}\n", checked)
+                self.assertIn("differs  ## Development workflow\n", checked)
                 self.assertNotIn("CRLF or CR", checked)
                 self.assertIn(
                     "refused  AGENTS.md" + self.DASH + "not LF-terminated UTF-8 text; update it by hand", adopted)

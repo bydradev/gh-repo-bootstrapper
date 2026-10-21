@@ -543,15 +543,16 @@ generated heading that falls inside a code block). A file with CRLF or CR line
 endings, which `--adopt` refuses, gets one `differs` row naming them in place of
 a `differs` row per section, and keeps its `missing`, `local` and `retired`
 rows and the order of its generated sections. A file that mixes LF lines with
-CRLF ones keeps every row and gains `(CRLF and LF line endings mixed; convert
-to LF first)`. A file with LF lines and a carriage return inside a line keeps
-every row too and gains `(carriage return inside a line; remove it first)`,
-since converting the line endings leaves it. A leading byte-order mark is one
-`local` row. Convert or remove it, then re-run. The `next dev`-managed block and
-everything from `## Project specifics` on are the repository's own and are not
-compared, except that an unedited guidance paragraph from an older template
-there is `retired`. The block must stay at the top of the file: a moved block is
-`local`, and a missing one is `missing`. Only a `## Project specifics` heading
+CRLF ones keeps every row and gains
+`(CRLF and LF line endings mixed; convert to LF first)`. A file with LF lines
+and a carriage return inside a line keeps every row too and gains
+`(carriage return inside a line; remove it first)`, since converting the line
+endings leaves it. A leading byte-order mark is one `local` row. Convert or
+remove it, then re-run. The `next dev`-managed block and everything from
+`## Project specifics` on are the repository's own and are not compared, except
+that an unedited guidance paragraph from an older template there is `retired`.
+The block must stay at the top of the file: a moved block is `local`, and a
+missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
@@ -624,8 +625,9 @@ generated file changes, so there is nothing to merge by hand.
   `(CRLF or CR line endings; convert to LF first)`, in place of a `differs` row
   per generated section; its `missing`, `local` and `retired` rows and the order
   of its generated sections stay. A file that mixes LF lines with CRLF ones
-  keeps every row and gains `(CRLF and LF line endings mixed; convert to LF
-  first)`. A file with LF lines and a carriage return inside a line gains
+  keeps every row and gains
+  `(CRLF and LF line endings mixed; convert to LF first)`. A file with LF
+  lines and a carriage return inside a line gains
   `(carriage return inside a line; remove it first)`, because converting line
   endings does not remove it. `--adopt` still refuses these files, with
   `not LF-terminated UTF-8 text; update it by hand`.

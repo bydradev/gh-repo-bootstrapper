@@ -88,13 +88,16 @@ call in `release-please.yml`, for its current tiers:
 - **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** the full validation suite, including every Playwright project.
 
 `test.yml` runs `npm run lint` as the scaffold defines it, and the lint baseline
-requires the `lint` script in `package.json` to run `eslint --max-warnings=0`.
-Without the flag, a warning, including an unused `eslint-disable` directive,
-does not fail lint locally or in CI, and a stale baseline row only surfaces at
-its review date. `create-next-app` generates a plain `eslint` script for its
-ESLint option, so check the script before treating a green lint run as proof
-that no stale directive remains, and add the flag to the script in
-`package.json`, so that local runs and CI agree.
+requires the `lint` script in `package.json` to run `eslint --max-warnings=0`
+with unused disable directives reported, which is ESLint 9's default
+(`reportUnusedDisableDirectives: "warn"`; ESLint 8, or a config that sets it to
+`"off"`, reports none). Without the flag, a warning does not fail lint locally
+or in CI, and without the reporting, an unused `eslint-disable` directive is no
+warning at all; either way a stale baseline row only surfaces at its review
+date. `create-next-app` generates a plain `eslint` script for its ESLint
+option, so check the script and the ESLint configuration before treating a green
+lint run as proof that no stale directive remains, and add the flag to the
+script in `package.json`, so that local runs and CI agree.
 
 ## Worktrees
 
@@ -119,4 +122,6 @@ verification copy.
 - `--max-warnings` and the unused-directive default: the ESLint v9.x
   command-line reference (`--max-warnings` exits with an error status above
   the threshold) and rules reference (`reportUnusedDisableDirectives` defaults
-  to `"warn"`), eslint.org/docs/v9.x, checked 2026-10-22.
+  to `"warn"`), eslint.org/docs/v9.x, and the ESLint v9.0.0 release post
+  ("Unused disable directives cause warnings by default", so earlier versions
+  did not), eslint.org/blog/2024/04/eslint-v9.0.0-released, checked 2026-10-22.

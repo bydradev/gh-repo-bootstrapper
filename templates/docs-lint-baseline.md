@@ -9,11 +9,12 @@ downgrade it, or change its options for a file. It is deliberately separate from
 security advisories.
 
 This baseline is mostly self-cleaning, on one condition: `npm run lint` must run
-`eslint --max-warnings=0`, a requirement on the application scaffold (see the policy below). ESLint
-reports an unused `eslint-disable` directive when the code it covered is removed or refactored. With
-the flag, that warning fails CI and requires removing both the stale directive and its row below;
-without it, a stale baseline row only surfaces at its review date. TypeScript likewise fails on an
-unused `@ts-expect-error`, so prefer it to `@ts-ignore`. Nothing reports an
+`eslint --max-warnings=0` with unused disable directives reported, which is ESLint 9's default
+(`reportUnusedDisableDirectives: "warn"`). Both are requirements on the application scaffold (see the
+policy below). ESLint then reports an unused `eslint-disable` directive when the code it covered is
+removed or refactored, and that warning fails CI and requires removing both the stale directive and
+its row below; without both, a stale baseline row only surfaces at its review date. TypeScript
+likewise fails on an unused `@ts-expect-error`, so prefer it to `@ts-ignore`. Nothing reports an
 unused `@ts-ignore`, `@ts-nocheck`, or `eslint` configuration comment; those rows stay accurate
 only through their review dates. Dependency advisories do not self-clean either; their review triggers belong in `docs/advisory-baseline.md`. Each accepted
 suppression below carries a review date for the same reason: the weekly `npm run review:baselines`
@@ -22,8 +23,10 @@ weekly review only and never gates a pull request. The review cadence is six mon
 
 ## Policy: the baseline is zero
 
-`npm run lint` must run `eslint --max-warnings=0`. The bootstrapper does not create `package.json`,
-so the application scaffold provides the `lint` script and must include the flag; without it a
+`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported, which is
+ESLint 9's default (`reportUnusedDisableDirectives: "warn"`; ESLint 8, or a config that sets it to
+`"off"`, reports none). The bootstrapper does not create `package.json`, so the application scaffold
+provides the `lint` script and must include the flag and keep the reporting on; without the flag a
 warning does not fail CI. A clean run reports `0 problems` and exits 0. Any warning or error is new
 work to investigate; do not hide it in a growing baseline.
 

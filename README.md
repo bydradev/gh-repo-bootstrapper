@@ -126,18 +126,26 @@ actually provides those scripts. Changing a scaffold's scripts still requires
 checking that scaffold separately.
 
 One assumption is about what a script does, not only its name: `lint` must run
-`eslint --max-warnings=0`. The generated `docs/lint-baseline.md` relies on the
-flag to fail CI on an unused `eslint-disable` directive and calls the baseline
-mostly self-cleaning on that condition; without it, a stale baseline row only
-surfaces at its review date. Nothing the bootstrapper generates checks the
-flag: `test.yml` runs `npm run lint` as the scaffold defines it,
-`scripts/verify-baselines.mjs` does not read `package.json`, and the generated
+`eslint --max-warnings=0`, with unused disable directives reported. The
+generated `docs/lint-baseline.md` relies on both to fail CI on an unused
+`eslint-disable` directive and calls the baseline mostly self-cleaning on that
+condition; without both, a stale baseline row only surfaces at its review date.
+Nothing the bootstrapper generates checks either: `test.yml` runs
+`npm run lint` as the scaffold defines it, `scripts/verify-baselines.mjs` does
+not read `package.json` or the ESLint configuration, and the generated
 `README.md`, `docs/lint-baseline.md` and `local-validation-nextjs` skill state
-it as a requirement. `create-next-app` does not set it: its generated `lint`
-script is `eslint` (`create-next-app` 16.4.2, `dist/index.js`, checked
+them as requirements. `create-next-app` does not set the flag: its generated
+`lint` script is `eslint` (`create-next-app` 16.4.2, `dist/index.js`, checked
 2026-10-22), and ESLint exits with an error status on warnings only when
 `--max-warnings` is given ([ESLint v9.x command-line reference](https://eslint.org/docs/v9.x/use/command-line-interface#--max-warnings),
-checked 2026-10-22). Add the flag to the scaffold's `lint` script.
+checked 2026-10-22). Reporting unused directives is ESLint 9's default
+(`linterOptions.reportUnusedDisableDirectives` defaults to `"warn"`, [ESLint v9.x
+rules reference](https://eslint.org/docs/v9.x/use/configure/rules#report-unused-eslint-disable-comments);
+"Unused disable directives cause warnings by default" in the [ESLint v9.0.0
+release post](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/), checked
+2026-10-22), so it holds for a new `create-next-app` project, but not for
+ESLint 8 or a configuration that sets the option to `"off"`. Add the flag to the
+scaffold's `lint` script and keep the reporting on.
 
 The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
 configuration: a project named `chromium`, which ordinary `main` pushes run
@@ -662,18 +670,24 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 `nextjs`: the lint baseline no longer states as fact that `npm run lint` runs
 with `--max-warnings=0`. Nothing the bootstrapper generates provides or checks
 the flag, and the `lint` script of a new `create-next-app` project with the
-ESLint option, `eslint`, does not set it, so the baseline's claim that an unused `eslint-disable` directive
-fails CI held only for a scaffold that had added the flag. The generated
-`README.md` and `docs/lint-baseline.md` now say that `npm run lint` must run
-`eslint --max-warnings=0` and that without it a stale baseline row only
-surfaces at its review date, and the `local-validation-nextjs` skill says the
-same. `--adopt` brings the skill, which is template-owned. The README and
-`docs/lint-baseline.md` belong to the repository, so `--adopt` reports them
-as `kept` and `--check` as `differs`: merge the wording by hand from the files
-in `templates/` at the `v0.17.0` tag. The change that matters is in your own
-`package.json`: set the `lint` script to `eslint --max-warnings=0`, keeping any
-other arguments it has, or a stale `eslint-disable` directive and its baseline
-row go unnoticed until the row's review date.
+ESLint option, `eslint`, does not set it, so the baseline's claim that an unused
+`eslint-disable` directive fails CI held only for a scaffold that had added the
+flag. The claim also needs ESLint to report unused disable directives, which is
+ESLint 9's default but not ESLint 8's or that of a configuration that sets
+`reportUnusedDisableDirectives` to `"off"`. The generated `README.md` and
+`docs/lint-baseline.md` now say that `npm run lint` must run
+`eslint --max-warnings=0` with unused disable directives reported, and that
+without both a stale baseline row only surfaces at its review date; the
+`local-validation-nextjs` skill says the same. `--adopt` brings the skill, which
+is template-owned. The README and `docs/lint-baseline.md` belong to the
+repository, so `--adopt` reports them as `kept` and `--check` as `differs`:
+merge the wording by hand from the files in `templates/` at the `v0.17.0` tag.
+The change that matters is in your own `package.json` and ESLint configuration:
+set the `lint` script to `eslint --max-warnings=0`, keeping any other arguments
+it has, and keep unused disable directives reported (ESLint 9's default;
+`--report-unused-disable-directives` or `reportUnusedDisableDirectives` on
+ESLint 8), or a stale `eslint-disable` directive and its baseline row go
+unnoticed until the row's review date.
 
 ### Upgrading to 0.16.1
 

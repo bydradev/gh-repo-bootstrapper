@@ -15,9 +15,11 @@ The bootstrapper supplies repository automation but does not create or patch
 instructions before shipping.
 
 The scaffold's `lint` script must run `eslint --max-warnings=0`, so that any
-warning fails `npm run lint`. The [lint baseline](docs/lint-baseline.md) relies
-on it to fail CI on a stale `eslint-disable` directive; without it, a stale
-baseline row only surfaces at its review date.
+warning fails `npm run lint`, and ESLint must report unused disable directives,
+which ESLint 9 does by default (`reportUnusedDisableDirectives: "warn"`). The
+[lint baseline](docs/lint-baseline.md) relies on both to fail CI on a stale
+`eslint-disable` directive; without both, a stale baseline row only surfaces at
+its review date.
 
 ## Local development
 

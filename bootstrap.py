@@ -1992,6 +1992,12 @@ def _strip_retired_guidance(owned: str) -> str:
 # A heading indented four or more spaces is an indented code block, not a heading.
 _PROJECT_SPECIFICS_RE = re.compile(r" {0,3}" + re.escape("## Project specifics") + r"[ \t]*")
 NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
+# --adopt rewrites only LF-terminated text (_decode_for_rewrite), and a leading
+# byte-order mark hides the first heading; --check says so in one row each.
+CARRIAGE_RETURNS = "(CRLF or CR line endings; convert to LF first)"
+MIXED_LINE_ENDINGS = "(CRLF and LF line endings mixed; convert to LF first)"
+STRAY_CARRIAGE_RETURN = "(carriage return inside a line; remove it first)"
+BYTE_ORDER_MARK = "(byte-order mark before the first heading; remove it first)"
 
 
 def _split_project_specifics(text: str) -> tuple:
@@ -2016,7 +2022,12 @@ def compare_agents(expected: str, actual: str) -> list:
     the parser does not model. The `next dev` block and everything from
     `## Project specifics` on are repository-owned and never compared, except
     that unedited guidance an older template put there is reported `retired`.
+
+    A leading byte-order mark is stripped before the comparison and reported
+    as one `local` row, since it would otherwise hide the first heading.
     """
+    bom = actual.startswith("\ufeff")
+    actual = actual.removeprefix("\ufeff")
     exp_generated, _ = _split_project_specifics(_mask_nextjs_rules(expected))
     act_generated, act_owned = _split_project_specifics(_mask_nextjs_rules(actual))
     exp_pre, exp_sections = _agents_sections(exp_generated)
@@ -2088,6 +2099,8 @@ def compare_agents(expected: str, actual: str) -> list:
         rows.append(("retired", RETIRED_SPECIFICS_GUIDANCE))
     if _nextjs_rules_block(expected) and not _nextjs_rules_block(actual):
         rows.append(("missing", NEXTJS_RULES_BEGIN))
+    if bom:
+        rows.insert(0, ("local", BYTE_ORDER_MARK))
     return rows
 
 
@@ -2882,6 +2895,10 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
 
 
 TYPE_MISMATCH = "(--type)"
+SHADOWED_UNSTAMPED_SKILL = (
+    "an unstamped file at a template skill's path; move it aside so --adopt can write the "
+    "template skill, or rename the skill if it is the repository's own"
+)
 
 
 SEED_EDITED = "matches no released copy, so --adopt keeps it; merge template changes by hand"
@@ -2935,6 +2952,39 @@ def _seed_hold_reason(roots) -> str:
     )
 
 
+def _carriage_return_rows(rows: list, text: str) -> list:
+    """compare_agents' rows for an AGENTS.md holding carriage returns, plus the row naming them.
+
+    --adopt refuses such a file whatever its sections hold, so the report says
+    why. When no line ends in a bare LF, the file has CRLF or CR line endings
+    and every section differs from the LF template, which says nothing about
+    its text: the per-section `differs` and `same` rows give way to one row,
+    while the `missing`, `local` and `retired` rows, which stay true, remain,
+    as does the order of the generated sections. A file with a bare LF line is
+    not that case, whatever its other lines end in: only the sections holding a
+    carriage return differ because of it, so every row stays and the rows
+    added name the cause. CRLF lines among LF ones are mixed endings, which
+    converting to LF fixes; a carriage return not followed by an LF is a stray
+    character that conversion leaves, so it is named on its own.
+    """
+    crlf_or_cr = re.search(r"(?<!\r)\n", text) is None
+    marks = [row for row in rows if row[1] == BYTE_ORDER_MARK]
+    rest = [row for row in rows if row[1] != BYTE_ORDER_MARK]
+    if crlf_or_cr:
+        named = [("differs", CARRIAGE_RETURNS)]
+        rest = [
+            (status, heading) for status, heading in rest
+            if status in ("missing", "local", "retired") or (status == "differs" and heading.startswith("("))
+        ]
+    else:
+        named = []
+        if "\r\n" in text:
+            named.append(("differs", MIXED_LINE_ENDINGS))
+        if re.search(r"\r(?!\n)", text):
+            named.append(("differs", STRAY_CARRIAGE_RETURN))
+    return marks + named + rest
+
+
 def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     """Per-file status of an existing repository against the rendered files."""
     report = {}
@@ -2975,7 +3025,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             continue
         if owned:
             status = _template_file_state(rel, expected, actual)
-            detail = None
+            detail = SHADOWED_UNSTAMPED_SKILL if status == "shadowed" else None
             variant = None
             if status == "local-modified" and rel in _LEGACY_WORKFLOW_SOURCES and stamp_is_valid(actual, True):
                 detail = (
@@ -3024,6 +3074,8 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         elif rel == "AGENTS.md":
             rows = compare_agents(expected, actual)
             aligned = all(row_status == "same" for row_status, _ in rows)
+            if not aligned and "\r" in actual:
+                rows = _carriage_return_rows(rows, actual)
             report[rel] = ("same", None) if aligned else ("differs", rows)
         elif rel == ".gitignore":
             missing = _missing_lines(expected, actual)
@@ -3111,6 +3163,8 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
                     hint = "  → move under ## Project specifics" if row_status == "local" else ""
                     if heading == NEXTJS_BLOCK_MOVED:
                         hint = "  → move it back to the top of the file"
+                    elif heading == BYTE_ORDER_MARK:
+                        hint = ""
                     print(f"      {row_status:<8} {heading}{hint}")
                 if row_status == "retired" and retired_text.get(heading):
                     lines = retired_text[heading]
@@ -3739,6 +3793,14 @@ def _adopt_file(
                 _publish_new(parent, name, expected)
             finally:
                 os.close(parent)
+        except (FileExistsError, NotADirectoryError):
+            _remove_empty_dirs(repo_dir, created)
+            # The scan found no file here, so whatever blocks the write is a directory or a
+            # file in a folder's place; say so as for a seed script. A file that appeared
+            # since the scan keeps its error.
+            if _path_is_free(repo_dir, rel) or (repo_dir / rel).is_file():
+                raise
+            return ("refused", rel, "something other than a file is at this path; move it aside")
         except BaseException:
             _remove_empty_dirs(repo_dir, created)
             raise
@@ -3765,6 +3827,8 @@ def _adopt_file(
         local = [heading for row_status, heading in rows if row_status == "local"]
         if NEXTJS_BLOCK_MOVED in local:
             return ("refused", rel, "move the `next dev`-managed block back to the top of the file first")
+        if BYTE_ORDER_MARK in local:
+            return ("refused", rel, "remove the byte-order mark at the start of the file first")
         structure = [heading for heading in local if heading.startswith("(")]
         if structure:
             return ("refused", rel, "fix this structure, or move it under ## Project specifics, first: "
@@ -4311,6 +4375,29 @@ def print_success(cfg: dict):
 # ---------------------------------------------------------------------------
 
 
+def _flush_stdout():
+    """Flush stdout inside the caller's try, so a reader that already left is noticed there."""
+    if sys.stdout is not None:  # closed before the run began (`>&-`): print() is a no-op
+        sys.stdout.flush()
+
+
+def _stdout_reader_left():
+    """Quiet the rest of a run whose stdout reader has gone, as in `--dry-run | head`.
+
+    Python flushes stdout again when it exits and would fail the same way, so
+    point the stream at the null device first (the Python docs' note on
+    SIGPIPE).
+    """
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError):
+        pass  # stdout is not a real descriptor, so there is no pipe to close
+
+
 def main():
     # Template text carries em dashes; a non-UTF-8 locale must not crash output.
     for stream in (sys.stdout, sys.stderr):
@@ -4332,7 +4419,14 @@ def main():
         repo_dir = Path(cfg["repo_dir"])
         files = generate_files(cfg)
         if args.check:
-            aligned = print_repository_report(repo_dir, cfg, compare_repository(repo_dir, files))
+            report = compare_repository(repo_dir, files)
+            try:
+                aligned = print_repository_report(repo_dir, cfg, report)
+                _flush_stdout()
+            except BrokenPipeError:
+                _stdout_reader_left()
+                # The exit status still says whether the repository is aligned.
+                aligned = all(status == "same" for status, _ in report.values())
             sys.exit(0 if aligned else 1)
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
         notice = screenshot_review_notice(cfg)
@@ -4359,7 +4453,15 @@ def main():
 
     if not args.dry_run:
         check_dependencies()
-    cfg = gather_config(args)
+    try:
+        cfg = gather_config(args)
+    except BrokenPipeError:
+        if not args.dry_run or args.configure_only:
+            raise  # a creating or configuring run must not end quietly
+        _stdout_reader_left()  # a dry run writes nothing, so leaving during its questions loses nothing
+        if not args.non_interactive:
+            return  # the remaining questions were never seen, so there are no answers to check
+        cfg = gather_config(args)  # asks nothing, so its refusals still decide the exit status
 
     # --- configure-only: apply GitHub config to an existing repo ---
     if cfg["configure_only"]:
@@ -4394,7 +4496,11 @@ def main():
     files = generate_files(cfg)
 
     if cfg["dry_run"]:
-        print_dry_run(cfg, files)
+        try:
+            print_dry_run(cfg, files)
+            _flush_stdout()
+        except BrokenPipeError:
+            _stdout_reader_left()  # nothing is written or created, so leaving early loses nothing
         return
 
     vis = "private" if cfg["private"] else "public"

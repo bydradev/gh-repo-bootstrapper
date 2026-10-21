@@ -650,14 +650,20 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 In `nextjs`, `python`, `rust` and `swift`, the untested-merge guard in
 `release-please.yml` now reads with the workflow's `GITHUB_TOKEN` instead of
-the Release Please App token. It only lists pull requests and compares commits,
-which need the Pull requests and Contents repository permissions at read
+the Release Please App token, so the App token, which can write contents and
+pull requests, goes only to `release-please-action`. The guard lists merged
+release pull requests with `gh pr list --label`, which searches through
+GraphQL, and compares commits. No docs page states the permission that search
+needs (the REST search endpoint for issues and pull requests requires none,
+[Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests),
+read 2026-10-22), so the `release-please` job gains `permissions:` with
+`contents: read` and `pull-requests: read`, the reads the REST endpoints for
+the same data require
 ([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
 [Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
-checked 2026-10-21), so the App token, which can write contents and pull
-requests, now goes only to `release-please-action`. The `release-please` job
-gains `permissions:` with `contents: read` and `pull-requests: read`; a
-job-level block replaces the workflow's `contents: read`, so both are listed
+checked 2026-10-21). That is inferred, and has not yet been run on a private
+repository. A job-level block replaces the workflow's `contents: read`, so both
+are listed
 ([Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idpermissions),
 checked 2026-10-21). The workflow's own block, the App's permissions and the
 repository settings do not change. `release-please.yml` is template-owned, so
@@ -666,14 +672,13 @@ pins, and `--check` reports an older copy as `stale`. A repository whose
 release workflow is `local-modified` keeps its own and can make the same two
 edits by hand: add that `permissions:` block to the `release-please` job, and
 set the guard step's `GH_TOKEN` to `${{ github.token }}`. `simple` has no guard,
-so its workflow is unchanged.
-
-The branch protection runbook, `docs/branch-protection-runbook.md`, is also
-template-owned, in every type including `simple`. Its sentence on the
-workflow's own `GITHUB_TOKEN` said it stays at `contents: read`; it now says the
-token only reads, and that the release job of a repository whose release waits
-for tests also reads pull requests, for the guard. `--check` reports an older
-copy as `stale`, and `--adopt` replaces an unedited one.
+so its workflow is unchanged. The branch protection runbook,
+`docs/branch-protection-runbook.md`, is also template-owned, in every type
+including `simple`: its sentence on the workflow's own `GITHUB_TOKEN` said it
+stays at `contents: read`, and now says the token only reads, and that the
+release job of a repository whose release waits for tests also reads pull
+requests, for the guard. `--check` reports an older copy as `stale`, and
+`--adopt` replaces an unedited one.
 
 ### Upgrading to 0.16.1
 
@@ -1278,14 +1283,19 @@ the rest.
 
 Release Please runs via a GitHub App rather than the default `GITHUB_TOKEN` so
 it can open PRs that trigger other workflows. In every type but `simple`, the
-untested-merge guard before it only lists pull requests and compares commits,
-which need the Pull requests and Contents repository permissions at read
+untested-merge guard before it reads with the workflow's `GITHUB_TOKEN`, and the
+App token goes only to `release-please-action`. The guard lists merged release
+pull requests with `gh pr list --label`, which searches through GraphQL, and
+compares commits. No docs page states the permission that search needs (the
+REST search endpoint for issues and pull requests requires none,
+[Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests),
+read 2026-10-22), so the release job declares `contents: read` and
+`pull-requests: read`, the reads the REST endpoints for the same data require
 ([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
 [Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
-checked 2026-10-21), so it reads with the workflow's `GITHUB_TOKEN` and the App
-token goes only to `release-please-action`. The release job declares
-`contents: read` and `pull-requests: read` for it; a job-level block replaces
-the workflow's, so both are listed. You will need to supply:
+checked 2026-10-21). That is inferred, and has not yet been run on a private
+repository. A job-level block replaces the workflow's, so both are listed. You
+will need to supply:
 
 - `RELEASE_PLEASE_CLIENT_ID`: set as a GitHub variable
 - `RELEASE_PLEASE_APP_KEY`: set as a GitHub secret

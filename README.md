@@ -445,12 +445,17 @@ template may lack one; `--adopt` then refuses and names the missing inputs, so
 add them to `test.yml` and re-run.
 
 `bootstrap.py` has no YAML parser: it reads the called file in a strict
-subset of YAML (block mappings and sequences, single-line values, block
-scalars, no tabs or other unusual whitespace). It refuses with "cannot
-verify" for anything else, such as a quoted value that spans lines, an anchor
-or an inline `on:` mapping. For a workflow GitHub can load, its answer is
-right or it refuses; a file GitHub rejects already fails every run, so that
-case is out of scope.
+subset of YAML (block mappings and sequences, single-line values, flow
+sequences of plain words and quoted items such as `["3.11", '3.12']`, block
+scalars, no tabs or other unusual whitespace). A quoted item in a flow
+sequence has no escape and no quote of its own. It refuses with "cannot
+verify" for anything else, such as a quoted value that spans lines, a quoted
+item with an escape or a quote inside, an anchor or an inline `on:` mapping.
+When a line is outside the subset, the refusal names the first such line and
+shows its text; a refusal for a reason that is no single line, such as a
+repeated key or `on:` written as a block sequence, names none. For a workflow
+GitHub can load, its answer is right or it refuses; a file GitHub rejects
+already fails every run, so that case is out of scope.
 
 Dependabot keeps updating the actions these workflows use. A workflow's
 digest ignores the version after `@` on each `uses:` line and the comment
@@ -605,6 +610,20 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.16.1
+
+`--adopt` now reads quoted items in a flow sequence of the repository's own
+`test.yml`, such as `python-version: ["3.11", "3.12"]`,
+`node-version: ["20.x"]`, `branches: ["main"]` or `paths: ['**.py']`. Before,
+such a line put the file outside the YAML subset `--adopt` reads, so it refused
+to create or upgrade `release-please.yml` on every run with "cannot verify the
+inputs .github/workflows/test.yml declares", until the line was rewritten as a
+block sequence. When `--adopt` still cannot read a called workflow because a
+line is outside the YAML subset, the refusal now also gives the number and
+text of the first such line, as in
+`(line 5 is outside the YAML subset: 'inputs: {full: {}}')`. A quoted item with
+an escape, a quote inside or a line break is still refused.
 
 ### Upgrading to 0.16.0
 

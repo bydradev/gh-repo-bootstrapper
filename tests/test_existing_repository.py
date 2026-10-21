@@ -1795,7 +1795,10 @@ class ExistingRepositoryTests(unittest.TestCase):
         rel = ".github/workflows/release-please.yml"
         self._write(".github/workflows/test.yml", "on:\n  workflow_call:\n    inputs: {e2e: {type: boolean}, full: {type: boolean}}\n")
         problems = bootstrap._undeclared_inputs(self.repo, bootstrap.read_stamp(files[rel], True)[1])
-        self.assertEqual(problems, ["cannot verify the inputs .github/workflows/test.yml declares; check them by hand"])
+        self.assertEqual(problems, [
+            "cannot verify the inputs .github/workflows/test.yml declares; check them by hand"
+            " (line 3 is outside the YAML subset: 'inputs: {e2e: {type: boolean}, full: {type: boolean}}')"
+        ])
 
     def test_scalars_never_hide_or_fake_an_action(self):
         hidden = "steps:\n  - name: |\n      label\n    uses: actions/checkout@one\n"
@@ -3305,6 +3308,242 @@ class CommandLineTests(unittest.TestCase):
             result = self._run("--adopt", tmp, "--type", "simple")
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("refused  AGENTS.md", result.stdout)
+
+
+# A-02: a quoted item in a flow sequence, and the line a refusal names.
+class QuotedFlowSequenceTests(unittest.TestCase):
+    RELEASE = ".github/workflows/release-please.yml"
+    TEST = ".github/workflows/test.yml"
+    HEAD = "name: t\non:\n  workflow_call:\n    inputs:\n      full:\n        type: boolean\n"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+
+    def _write(self, rel, text):
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def _commit_all(self):
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+
+    def _adopt(self, files):
+        return {path: (action, detail) for action, path, detail in bootstrap.adopt_repository(self.repo, files)}
+
+    def _release_body(self):
+        return bootstrap.read_stamp(_render("python")[self.RELEASE], True)[1]
+
+    def _declared_with(self, line):
+        """What the reader finds declared by a test.yml that holds `line` in a matrix."""
+        text = self.HEAD + "jobs:\n  test:\n    strategy:\n      matrix:\n        " + line + "\n"
+        return bootstrap._declared_inputs(text)
+
+    def test_adopt_writes_the_release_workflow_beside_a_test_yml_with_quoted_flow_items(self):
+        files = _render("python")
+        plain = "python-version-file: .python-version"
+        self.assertIn(plain, files[self.TEST])
+        lines = {
+            "double-quoted matrix": 'python-version: ["3.11", "3.12"]',
+            "mixed quotes": "python-version: [\"3.10\", '3.11']",
+            "node version": 'node-version: ["20.x"]',
+            "branches": 'branches: ["main"]',
+            "paths": "paths: ['**.py']",
+        }
+        for label, line in lines.items():
+            for state in ("missing", "stale"):
+                with self.subTest(label, state=state):
+                    self.repo = Path(self._tmp.name) / f"{label}-{state}".replace(" ", "-")
+                    self.repo.mkdir()
+                    for rel, text in files.items():
+                        self._write(rel, text)
+                    self._write(self.TEST, files[self.TEST].replace(plain, line))
+                    if state == "missing":
+                        (self.repo / self.RELEASE).unlink()
+                    else:
+                        self._write(self.RELEASE, bootstrap.read_stamp(files[self.RELEASE], True)[1])
+                    self._commit_all()
+                    action, detail = self._adopt(files)[self.RELEASE]
+                    self.assertEqual(action, "wrote" if state == "missing" else "updated", detail)
+                    self.assertTrue(bootstrap.stamp_is_valid((self.repo / self.RELEASE).read_text(), True))
+
+    def test_a_test_yml_with_quoted_items_is_read_and_declares_its_inputs(self):
+        for line in (
+            "python-version: [\"3.10\", '3.11']",
+            'node-version: ["20.x"]',
+            "paths: ['**.py']",
+            "tags: [ 'v1' , \"v2\",  v3 ]",
+            'names: ["a, b", "c]d", "e[f", "g#h", "- i", "j: k", "---", "&l", "*m", "!n", "|", ""]',
+            "names: [\"{}\", '{a: b}', \"'\", '\"']",
+        ):
+            with self.subTest(line):
+                self.assertEqual(self._declared_with(line), ["full"])
+
+    def test_quoted_events_are_read_as_whole_strings(self):
+        import yaml
+
+        def truth(text):
+            data = yaml.safe_load(text)
+            on = data.get("on", data.get(True))
+            return [] if "workflow_call" in on else None
+
+        for events in (
+            '["push", "workflow_call"]', "['workflow_call']", '[push, "workflow_call"]', "[ 'push' , workflow_call ]",
+            '["workflow_call,push"]', '["a, workflow_call"]', '["push, workflow_call", pull_request]',
+            '["workflow_call "]', '[" workflow_call"]', '["x]", workflow_call]', '["workflow_call#"]',
+            '["push"]', "[]", "['']",
+        ):
+            with self.subTest(events):
+                text = f"on: {events}\n"
+                self.assertEqual(bootstrap._declared_inputs(text), truth(text))
+
+    def test_quoted_flow_items_are_accepted_or_refused_whole(self):
+        import yaml
+
+        accepted = [
+            '["a"]', "['a']", "[\"a\", 'b', c]", '[ "a" ,"b" ]', '[""]', "['']", '["a,b"]', "['a,b']", '["a]"]',
+            '["[a"]', '["a#b"]', '["a #b"]', '["a: b"]', '["a:b"]', '["{a"]', '["- a"]', '["? a"]', '["- "]',
+            '["a" ] # c: d', '["a"]  ', "[\"a'b\"]", "['a\"b']", '["a b"]', '["*"]', '["a\u00e9"]',
+        ]
+        for text in accepted:
+            with self.subTest(text):
+                value = bootstrap._value(text)
+                self.assertTrue(value, text)
+                self.assertEqual(bootstrap._flow_items(value), yaml.safe_load(text))
+        refused = [
+            '["a\\"b"]', '["a\\nb"]', '["\\u0041"]', '["a\\\\"]', "['it''s']", "['a''']", "[''']",
+            '["a" "b"]', "['a' 'b']", '["a"b"]', '["a"b]', '["a",]', '["a", ]', '[,"a"]', '["a",, "b"]',
+            '["a":b]', '["a": b]', '["a" : b]', '[a: "b"]', '[? "a"]', '[&x "a"]', '[*x]', '[!!str "a"]',
+            '[["a"]]', '["a", [b]]', '[{}]', '[{"a": 1}]', '{"a": 1}', '{ "a" }', '["a"] x', '["a"]]', '[["a"]',
+            '["a', '["a"', '["a",', '[', '["a" # c', '["a\tb"]', '["a\x00b"]', '["a\x7fb"]', '["a\x1bb"]',
+        ]
+        for text in refused:
+            with self.subTest(text):
+                self.assertIsNone(bootstrap._value(text), text)
+
+    def test_every_short_flow_sequence_the_reader_admits_parses_the_same_in_pyyaml(self):
+        import yaml
+
+        admitted = 0
+        for length in range(7):
+            for combo in itertools.product("\"', a#\\][:", repeat=length):
+                text = "[" + "".join(combo)
+                value = bootstrap._value(text)
+                if not value or value[0] != "[":
+                    continue
+                admitted += 1
+                try:
+                    expected = yaml.safe_load(text)
+                except yaml.YAMLError:
+                    self.fail(f"{text!r} is admitted but is not YAML")
+                self.assertEqual(bootstrap._flow_items(value), expected, text)
+        self.assertGreater(admitted, 1000)
+
+    def test_a_refusal_names_the_line_and_shows_it(self):
+        sentence = "cannot verify the inputs .github/workflows/test.yml declares; check them by hand"
+        cases = {
+            "quoted item spanning lines": (self.HEAD + 'x: ["3.11\n  ", "3.12"]\n', 7, 'x: ["3.11'),
+            "sequence spanning lines": (self.HEAD + 'jobs:\n  t:\n    x: [\n      "3.11"]\n', 9, "x: ["),
+            "escape in a quoted item": (self.HEAD + 'x: ["a\\n"]\n', 7, 'x: ["a\\n"]'),
+            "quote inside a quoted item": (self.HEAD + "x: ['it''s']\n", 7, "x: ['it''s']"),
+            "a key after the flow": (self.HEAD + 'x: ["a"] y: z\n', 7, 'x: ["a"] y: z'),
+            "anchor": (self.HEAD.replace("full:", "full: &a") + "other: *a\n", 5, "full: &a"),
+            "inline on mapping": ("on: {workflow_call: {}}\n", 1, "on: {workflow_call: {}}"),
+            "tab": (self.HEAD + "x:\ty\n", 7, "x:\ty"),
+            "second document": (self.HEAD + "---\nname: u\n", 7, "---"),
+            "plain scalar continued": (self.HEAD + "x: a\n  b\n", 8, "b"),
+        }
+        for label, (text, number, shown) in cases.items():
+            with self.subTest(label):
+                self._write(self.TEST, text)
+                problems = bootstrap._undeclared_inputs(self.repo, self._release_body())
+                self.assertEqual(problems, [sentence + f" (line {number} is outside the YAML subset: {shown!r})"])
+
+    def test_the_line_named_is_the_first_one_outside_the_subset(self):
+        cases = {
+            "a refused line after a deeper child": (self.HEAD + "x: a\n  - b\ny: {a: b}\n", 8),
+            "a refused line before a character": (self.HEAD + "x: {a: b}\n# a\ttab\n", 7),
+            "a deeper child before a character": (self.HEAD + "x: a\n  - b\n# a\ttab\n", 8),
+            "a character before a refused line": (self.HEAD + "# a\ttab\nx: {a: b}\n", 7),
+            "a character before a deeper child": (self.HEAD + "x: a\x00\ny: b\n  - c\n", 7),
+        }
+        for label, (text, number) in cases.items():
+            with self.subTest(label):
+                self.assertEqual(bootstrap._scan_rows(text), (None, number))
+        # The first line at which the file stops being readable, found the slow way.
+        fragments = [
+            "x: a", "  y: b", "  - d", "- e", "-", "k: |", "      text", "", "# c", "x:\ty", "---", "a: {}",
+            "a: [b, c]", "a: {b: 1}", "a: &x 1", "on: push", "true: x", "z: \u00a0", "x: [a,", "b]",
+            "- [a, b]", "- - a", "x: 'a", "  more text", 'p: ["a", \'b\']', 'p: ["a",', '  "b"]', "y: \x00",
+        ]
+        import random
+
+        rng = random.Random(2)
+        for _ in range(3000):
+            lines = [rng.choice(fragments) for _ in range(rng.randint(1, 9))]
+            expected = next(
+                (n for n in range(1, len(lines) + 1)
+                 if bootstrap._structural_lines("\n".join(lines[:n]) + "\n") is None),
+                None,
+            )
+            self.assertEqual(bootstrap._scan_rows("\n".join(lines) + "\n")[1], expected, lines)
+
+    def test_a_refusal_with_no_single_line_to_name_names_none(self):
+        sentence = "cannot verify the inputs .github/workflows/test.yml declares; check them by hand"
+        for label, text in {
+            "on as a block sequence": "on:\n  - push\n  - workflow_call\n",
+            "repeated key": self.HEAD + "name: u\n",
+            "workflow_call scalar": "on:\n  workflow_call: yes\n",
+        }.items():
+            with self.subTest(label):
+                self._write(self.TEST, text)
+                self.assertEqual(bootstrap._undeclared_inputs(self.repo, self._release_body()), [sentence])
+
+    def test_adopt_refuses_with_the_line_and_exits_one(self):
+        files = _render("python")
+        for rel, text in files.items():
+            self._write(rel, text)
+        broken = files[self.TEST].replace("python-version-file: .python-version", 'python-version: ["3.11",\n          "3.12"]')
+        number = [line.strip() for line in broken.splitlines()].index('python-version: ["3.11",') + 1
+        self._write(self.TEST, broken)
+        (self.repo / self.RELEASE).unlink()
+        self._commit_all()
+        action, detail = self._adopt(files)[self.RELEASE]
+        self.assertEqual(action, "refused")
+        self.assertEqual(
+            detail,
+            "cannot verify the inputs .github/workflows/test.yml declares; check them by hand"
+            f" (line {number} is outside the YAML subset: 'python-version: [\"3.11\",'); fix that, then re-run --adopt",
+        )
+        self.assertFalse((self.repo / self.RELEASE).exists())
+        result = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo), "--type", "python",
+             "--non-interactive"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(f"(line {number} is outside the YAML subset", result.stdout)
+
+    def test_the_line_shown_cannot_carry_a_control_character_or_run_long(self):
+        for text, shown in (
+            (self.HEAD + "x: \x1b[31mred\n", "x: \\x1b[31mred"),
+            (self.HEAD + "x: a\x85b\n", "x: a\\x85b"),
+            (self.HEAD + "x: a\t\n", "x: a\\t"),
+            (self.HEAD + "\u00a0x: a\n", "\\xa0x: a"),
+            (self.HEAD + "x: a\u2028b\n", "x: a\\u2028b"),
+            (self.HEAD + "x: {" + "a" * 100 + "}\n", "x: {" + "a" * 73 + "..."),
+        ):
+            with self.subTest(shown[:12]):
+                note = bootstrap._outside_subset_note(text)
+                self.assertTrue(note.startswith(" (line 7 is outside the YAML subset: '"), note)
+                self.assertIn(shown, note)
+                self.assertTrue(note.isprintable(), note)
+        self.assertEqual(bootstrap._outside_subset_note(self.HEAD), "")
+        self.assertEqual(bootstrap._outside_subset_note(None), "")
 
 
 if __name__ == "__main__":

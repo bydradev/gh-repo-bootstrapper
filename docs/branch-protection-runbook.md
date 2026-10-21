@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=57f8f1ce3287962aad7f5e3e08eeca74f80e3f99348eb15a25f60146f183e05f -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=750df03aa9c4fe6a97e6b0c06437d96dc938ee7f6a34952ed5ae9e86428a6033 -->
 # Branch protection runbook
 
 Use this when a required check blocks a pull request, most often a release
@@ -14,11 +14,13 @@ checks: read it with the commands below, never from another repository.
   `test / build` and `test / e2e` for Next.js, `test / test` for Python, Swift
   and Rust, not the job name inside `test.yml`.
 - Release Please uses this repository's GitHub App token, so its PRs start
-  checks without approval; the workflow's own `GITHUB_TOKEN` stays at
-  `contents: read`. The operator sets variable `RELEASE_PLEASE_CLIENT_ID` and
-  secret `RELEASE_PLEASE_APP_KEY`; never put either in source, logs, issues or
-  pull requests. Trust release automation once its first release PR reports
-  every required check.
+  checks without approval; the workflow's own `GITHUB_TOKEN` only reads
+  (`contents: read`, plus `pull-requests: read` on the release job of a
+  repository whose release waits for tests, for the guard that lists merged
+  release pull requests). The operator sets variable
+  `RELEASE_PLEASE_CLIENT_ID` and secret `RELEASE_PLEASE_APP_KEY`; never put
+  either in source, logs, issues or pull requests. Trust release automation
+  once its first release PR reports every required check.
 
 ## A check fails on code that `main` already fixed
 

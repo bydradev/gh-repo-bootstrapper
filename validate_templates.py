@@ -2103,7 +2103,9 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     )
     between = steps[checkout + 1:setup] if checkout is not None and checkout < setup else []
     guards = [step for step in between if step.get("name") == PYTHON_MANIFEST_GUARD_NAME]
-    if len(guards) != 1:
+    # A copy anywhere else in the job also runs: before the checkout it fails
+    # every run, so the job must hold exactly one, in place.
+    if len(guards) != 1 or sum(step.get("name") == PYTHON_MANIFEST_GUARD_NAME for step in steps) != 1:
         return [
             f"{where} must have exactly one step {PYTHON_MANIFEST_GUARD_NAME!r} after actions/checkout and "
             f"before setup-python, which fails with a clear error when its pip cache has no manifest to hash"
@@ -4327,6 +4329,8 @@ def _structure_self_tests() -> list:
            gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(manifest_guard(w))), no_guard)
     expect("python manifest guard after setup-python", gates("python", test, move_guard_last), no_guard)
     expect("python manifest guard before the checkout", gates("python", test, move_guard_first), no_guard)
+    expect("python manifest guard copied before the checkout",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].insert(0, dict(manifest_guard(w)))), no_guard)
     expect("python manifest guard that cannot fail",
            gates("python", test, lambda w: guard_script(w, lambda r: r.replace("exit 1", "exit 0"))),
            "then print an ::error:: message and exit 1")

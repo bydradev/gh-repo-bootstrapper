@@ -49,6 +49,17 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The guard step below lists pull requests and compares commits with the
+    # workflow token, not the App token, so this job reads both. A job-level
+    # block replaces the workflow's, so contents: read is repeated here.
+    # Source: docs.github.com "Workflow syntax for GitHub Actions"
+    # (permissions); "Forming calls with GraphQL" (the data read decides the
+    # permission; gh pr list --label searches through GraphQL); and the REST
+    # reads of the same data, "List pull requests" (Pull requests, read) and
+    # "Compare two commits" (Contents, read), checked 2026-10-21.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -99,12 +110,14 @@ jobs:
       # run. This assumes one release PR at a time, which release-please keeps for
       # the single-package config generated here (it opens no release PR while a
       # merged one is pending). Never label a PR "autorelease: pending" by hand,
-      # and rework this guard before moving to a multi-package config.
+      # and rework this guard before moving to a multi-package config. The guard
+      # only reads, so it runs with the workflow token (see this job's
+      # permissions); the App token goes only to release-please.
       - name: Refuse to tag an untested release merge
         id: guard
         if: steps.credentials.outputs.configured == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TESTED_SHA: ${{ github.sha }}
         run: |

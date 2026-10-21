@@ -504,8 +504,8 @@ states:
 | `missing` | not present | written |
 | `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
-| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
-| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
+| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>` and git tracks it with no uncommitted change; any other symlink, and one git does not track, is refused |
+| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git tracks it with no uncommitted or staged change; refused when git does not track it, outside a git repository, and inside a repository git cannot read. Deleting a skill's files also removes the folders this leaves empty and then, in the same run, the `.claude/skills` mirror that pointed at the folder (see `dangling`); a folder it cannot remove is refused and keeps its mirror |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
@@ -608,6 +608,26 @@ writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.16.1
+
+`--adopt` now deletes an orphaned template-owned file, or a dangling
+`.claude/skills` mirror, only when git tracks it with no uncommitted or staged
+change, as every overwrite already required. Before, a digest-valid orphan
+that git did not track, such as a stamped copy in `.claude/agents` that was
+never committed, or any orphan in a directory that is not a git repository, was
+deleted with nothing committed to recover it from. It is now refused with
+"not tracked by git", and `--adopt` exits 1 for it: commit the file, then
+re-run `--adopt`, or delete it by hand.
+
+Deleting an orphaned skill used to leave its emptied folder behind, and the
+`.claude/skills` mirror pointing at it stayed live, so a second `--adopt`
+reported nothing to do. `--adopt` now removes a folder that deleting the
+skill's files leaves empty and, in the same run, the mirror that pointed at it,
+if git tracks that mirror with no uncommitted change. A folder that still holds
+other files stays, and so does its mirror. A folder that is empty but cannot be
+removed, such as one in a read-only directory, is reported as `refused` and
+`--adopt` exits 1; its mirror stays. An empty folder and mirror left by an
+earlier run or by such a refusal stay as they are: delete the empty folder by
+hand, and the mirror then shows as `dangling`, which `--adopt` deletes.
 
 `--check` now reports a second copy of a generated `AGENTS.md` heading as
 `local`, for example `(duplicate generated heading: ## Commits)`, next to the

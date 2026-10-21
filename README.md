@@ -613,9 +613,9 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 `local`, for example `(duplicate generated heading: ## Commits)`, next to the
 `differs` row it already printed. Before, a rebuild with
 `--adopt --replace-generated-sections` dropped the text under the extra copy.
-`--adopt` now refuses the rebuild, with or without that flag, and leaves the
-file as it is. Remove the extra copy, or move its text under
-`## Project specifics`, then re-run `--adopt`.
+`--adopt` now refuses the rebuild even with that flag, and leaves the file as
+it is. Remove the extra copy, or move its text under `## Project specifics`,
+then re-run `--adopt`.
 
 ### Upgrading to 0.16.0
 

@@ -2,6 +2,7 @@
 
 import os
 import contextlib
+import errno
 import base64
 import json
 import zlib
@@ -3544,6 +3545,623 @@ class QuotedFlowSequenceTests(unittest.TestCase):
                 self.assertTrue(note.isprintable(), note)
         self.assertEqual(bootstrap._outside_subset_note(self.HEAD), "")
         self.assertEqual(bootstrap._outside_subset_note(None), "")
+
+
+# A-01: a directory the user cannot search made --check and --adopt crash.
+@unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores file permissions")
+class AdoptUnreadableDirectoryTests(unittest.TestCase):
+    SKILL_DIR = ".agents/skills/verify-external-claims"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render()
+        _git(self.repo, "init", "-q")
+        bootstrap.adopt_repository(self.repo, self.files)
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+
+    def _chmod(self, rel, mode):
+        path = self.repo if rel == "." else self.repo / rel
+        path.chmod(mode)
+        # Runs before the temporary directory is removed (cleanups run last in, first out).
+        self.addCleanup(path.chmod, 0o755)
+
+    def _write(self, rel, text):
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def _differing(self):
+        report = bootstrap.compare_repository(self.repo, self.files)
+        return {rel: row for rel, row in report.items() if row[0] != "same"}
+
+    def _cli(self, flag):
+        return subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), flag, str(self.repo), "--type", "python"],
+            capture_output=True, text=True,
+        )
+
+    def test_check_reports_an_unsearchable_skill_folder_instead_of_crashing(self):
+        rel = f"{self.SKILL_DIR}/SKILL.md"
+        for mode in (0o000, 0o444):  # no access at all; listable but not searchable
+            with self.subTest(mode=oct(mode)):
+                self._chmod(self.SKILL_DIR, mode)
+                differing = self._differing()
+                self.assertEqual(list(differing), [rel])
+                status, detail = differing[rel]
+                self.assertEqual(status, "unreadable")
+                self.assertIn(f"Permission denied: {self.SKILL_DIR}", detail)
+                result = self._cli("--check")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertIn(f"unreadable {rel}", result.stdout)
+                self.assertIn(f"Permission denied: {self.SKILL_DIR}", result.stdout)
+                self._chmod(self.SKILL_DIR, 0o755)
+
+    def test_adopt_refuses_only_the_unsearchable_path_and_does_the_rest(self):
+        rel = f"{self.SKILL_DIR}/SKILL.md"
+        (self.repo / "CLAUDE.md").unlink()
+        self._chmod(self.SKILL_DIR, 0o000)
+        result = self._cli("--adopt")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        refused = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("  refused")]
+        self.assertEqual(refused, [rel])
+        self.assertIn("wrote    CLAUDE.md", result.stdout)
+        self.assertTrue((self.repo / "CLAUDE.md").is_file())
+        # Nothing else was touched, and the folder's mode is as it was left.
+        self.assertEqual(list(self._differing()), [rel])
+        self.assertEqual((self.repo / self.SKILL_DIR).stat().st_mode & 0o777, 0o000)
+
+    def test_unsearchable_repository_owned_folder_is_reported_once(self):
+        # One folder holds a subfolder as well, which is looked at first.
+        own = {".agents/skills/my-skill": ("SKILL.md", "notes.md", "references/more.md"),
+               ".agents/skills/plain-skill": ("SKILL.md", "notes.md")}
+        for folder, names in own.items():
+            for name in names:
+                text = f"---\nname: {Path(folder).name}\n---\n" if name == "SKILL.md" else "Text.\n"
+                self._write(f"{folder}/{name}", text)
+            self._chmod(folder, 0o444)
+        differing = self._differing()
+        self.assertEqual(set(differing), set(own))
+        for folder in own:
+            status, detail = differing[folder]
+            self.assertEqual(status, "unreadable")
+            self.assertIn("Permission denied", detail)
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual(sorted((action, rel) for action, rel, _ in actions), [("refused", folder) for folder in sorted(own)])
+
+    def test_unreadable_github_folder_covers_the_pull_request_template_and_called_workflows(self):
+        self._chmod(".github", 0o000)
+        differing = self._differing()
+        github = {rel for rel in self.files if rel.startswith(".github/")}
+        self.assertEqual(set(differing), github)
+        self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
+        for rel, (_, detail) in differing.items():
+            self.assertIn("Permission denied: .github", detail, rel)
+        workflow = bootstrap.read_stamp(self.files[".github/workflows/release-please.yml"], True)[1]
+        self.assertEqual(
+            bootstrap._undeclared_inputs(self.repo, workflow),
+            ["cannot verify the inputs .github/workflows/test.yml declares; check them by hand"],
+        )
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual({action for action, _, _ in actions}, {"refused"})
+        self.assertEqual({rel for _, rel, _ in actions}, github)
+
+    def test_unsearchable_folders_stay_unreadable_where_pathlib_swallows_permission_errors(self):
+        # Python 3.14 answers False for these on any OSError, as os.path does; CI runs 3.11 and 3.13.
+        for name, check in {"is_symlink": os.path.islink, "is_file": os.path.isfile,
+                            "exists": os.path.exists, "is_dir": os.path.isdir}.items():
+            self.enterContext(unittest.mock.patch.object(Path, name, lambda path, check=check: check(path)))
+        skill = f"{self.SKILL_DIR}/SKILL.md"
+        own = ".agents/skills/my-skill"
+        self._write(f"{own}/SKILL.md", "---\nname: my-skill\n---\n")
+        self._write(f"{own}/notes.md", "Notes.\n")
+        self._chmod(self.SKILL_DIR, 0o000)
+        self._chmod(own, 0o444)
+        self._chmod(".github", 0o000)
+        differing = self._differing()
+        github = {rel for rel in self.files if rel.startswith(".github/")}
+        self.assertEqual(set(differing), {skill, own} | github)
+        self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
+
+    def test_own_pr_template_in_a_listable_but_unsearchable_folder_stays_unreadable(self):
+        # Python 3.14's Path.is_file() answers False on a permission error, which
+        # would report the repository's own docs/pull_request_template.md as absent
+        # and let --adopt write the template's copy beside it.
+        for name, check in {"is_symlink": os.path.islink, "is_file": os.path.isfile,
+                            "exists": os.path.exists, "is_dir": os.path.isdir}.items():
+            self.enterContext(unittest.mock.patch.object(Path, name, lambda path, check=check: check(path)))
+        (self.repo / bootstrap.PR_TEMPLATE).unlink()
+        self._write("docs/pull_request_template.md", "Own template.\n")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "own template")
+        self._chmod("docs", 0o444)
+        differing = self._differing()
+        self.assertEqual(differing[bootstrap.PR_TEMPLATE][0], "unreadable")
+        self.assertIn("docs", differing[bootstrap.PR_TEMPLATE][1])
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual([action for action, rel, _ in actions if rel == bootstrap.PR_TEMPLATE], ["refused"])
+        self.assertFalse((self.repo / bootstrap.PR_TEMPLATE).exists())
+
+    def test_unsearchable_claude_folder_covers_the_skill_mirrors(self):
+        self._chmod(".claude", 0o000)
+        links = bootstrap._links_for_files(self.files)
+        differing = self._differing()
+        self.assertEqual({differing[rel][0] for rel in links}, {"unreadable"})
+        self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
+        self.assertTrue({".claude/skills", ".claude/agents"} <= set(differing))
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual({action for action, _, _ in actions}, {"refused"})
+        self.assertEqual({rel for _, rel, _ in actions}, set(differing))
+
+    def test_screenshot_detection_treats_an_unsearchable_path_as_not_the_templates(self):
+        for rel in bootstrap.SCREENSHOT_FILES:
+            with self.subTest(rel=rel):
+                parent = Path(rel).parent.as_posix()
+                (self.repo / parent).mkdir(parents=True, exist_ok=True)
+                self._chmod(parent, 0o000)
+                self.assertFalse(bootstrap._template_screenshot_file(self.repo, rel, "nextjs"))
+                self._chmod(parent, 0o755)
+
+    def test_unsearchable_repository_root_does_not_crash_the_report(self):
+        report = {"AGENTS.md": ("unreadable", "PermissionError: Permission denied")}
+        cfg = {"repo_type": "python"}
+        self._chmod(".", 0o444)
+        self.assertEqual(bootstrap._retired_section_text(self.repo, [("retired", "## Old")]), {})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(bootstrap.print_repository_report(self.repo, cfg, report))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(bootstrap.print_repository_report(
+                self.repo, cfg, bootstrap.compare_repository(self.repo, self.files)))
+
+    # R1-01: with no template in .github, the search for the repository's own
+    # lists docs, and the row for the generated template has to name that folder.
+    def test_unsearchable_docs_folder_is_named_when_the_pull_request_template_is_absent(self):
+        rel = ".github/pull_request_template.md"
+        _git(self.repo, "rm", "-q", rel)
+        _git(self.repo, "commit", "-q", "-m", "drop the template")
+        self._chmod("docs", 0o000)
+        status, detail = self._differing()[rel]
+        self.assertEqual((status, detail), ("unreadable", "PermissionError: Permission denied: docs"))
+        result = self._cli("--check")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn(f"unreadable {rel}\n      PermissionError: Permission denied: docs\n", result.stdout)
+        result = self._cli("--adopt")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        line = next(line for line in result.stdout.splitlines() if line.startswith(f"  refused  {rel}"))
+        self.assertTrue(line.endswith("PermissionError: Permission denied: docs"), line)
+        self.assertFalse((self.repo / rel).exists())
+
+    # R1-Q1: a filesystem that gives no file type in a listing (DT_UNKNOWN) makes
+    # DirEntry.is_symlink() ask lstat, which fails in a folder that cannot be searched.
+    def test_a_directory_entry_that_needs_lstat_makes_its_folder_unreadable_not_a_crash(self):
+        real = os.DirEntry.is_symlink
+
+        def is_symlink(entry):
+            if entry.name == "extra":
+                raise PermissionError(errno.EACCES, "Permission denied", entry.path)
+            return real(entry)
+
+        for base in (".agents/skills", ".claude/skills"):
+            with self.subTest(base=base):
+                link = self.repo / base / "extra"
+                link.symlink_to(os.path.relpath(self.repo / "docs", link.parent))
+                try:
+                    self.assertEqual(self._differing(), {})
+                    with unittest.mock.patch.object(os.DirEntry, "is_symlink", is_symlink):
+                        self.assertEqual(
+                            self._differing(), {base: ("unreadable", "PermissionError: Permission denied")})
+                        actions = bootstrap.adopt_repository(self.repo, self.files)
+                    self.assertEqual([(action, rel) for action, rel, _ in actions], [("refused", base)])
+                finally:
+                    link.unlink()
+
+
+class AdoptOrphanTrackingTests(unittest.TestCase):
+    # A-03 and A-11 of the 2026-10-21 assessment: --adopt deleted an orphaned
+    # file git does not track, and left an emptied skill folder and its mirror.
+    ORPHAN = ".claude/agents/old-reviewer.md"
+    SKILL = ".agents/skills/old/SKILL.md"
+    MIRROR = ".claude/skills/old"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render()
+
+    def _write(self, rel, text):
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def _commit_all(self):
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "--allow-empty", "-m", "init")
+
+    def _rows(self):
+        return {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, self.files)}
+
+    def _orphan_skill_with_mirror(self):
+        self._write(self.SKILL, bootstrap.stamp("# Old\n"))
+        (self.repo / ".claude/skills").mkdir(parents=True, exist_ok=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+
+    def test_untracked_orphan_is_refused(self):
+        self._commit_all()
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.ORPHAN][0], "orphaned")
+        action, detail = self._rows()[self.ORPHAN]
+        self.assertEqual(action, "refused")
+        self.assertIn("not tracked by git", detail)
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_untracked_orphan_makes_the_command_exit_1_and_keeps_the_file(self):
+        bootstrap.adopt_repository(self.repo, self.files)
+        self._commit_all()
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        result = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo),
+             "--type", "python", "--non-interactive"], capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertRegex(result.stdout, rf"refused\s+{re.escape(self.ORPHAN)}")
+        self.assertNotRegex(result.stdout, r"(?m)^\s*deleted ")
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_orphan_outside_a_git_repository_is_refused(self):
+        if bootstrap._has_git_marker(self.repo):
+            self.skipTest("the temporary directory sits inside a git repository")
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        action, detail = self._rows()[self.ORPHAN]
+        self.assertEqual(action, "refused")
+        self.assertIn("not tracked by git", detail)
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_orphan_added_to_the_index_but_not_committed_is_refused(self):
+        self._commit_all()
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        _git(self.repo, "add", self.ORPHAN)
+        action, detail = self._rows()[self.ORPHAN]
+        self.assertEqual(action, "refused")
+        self.assertIn("uncommitted or staged", detail)
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_tracked_clean_orphan_is_still_deleted(self):
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        self._commit_all()
+        self.assertEqual(self._rows()[self.ORPHAN][0], "deleted")
+        self.assertFalse((self.repo / self.ORPHAN).exists())
+
+    def test_untracked_dangling_mirror_is_refused(self):
+        self._commit_all()
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+        action, detail = self._rows()[self.MIRROR]
+        self.assertEqual(action, "refused")
+        self.assertIn("not tracked by git", detail)
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_deleting_an_orphaned_skill_removes_its_folder_and_mirror_in_one_run(self):
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertEqual(rows[self.MIRROR][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+        self.assertFalse(os.path.lexists(self.repo / self.MIRROR))
+        report = bootstrap.compare_repository(self.repo, self.files)
+        self.assertEqual({rel for rel, (status, _) in report.items() if status in ("orphaned", "dangling")}, set())
+
+    def test_nested_orphaned_skill_removes_every_emptied_folder(self):
+        nested = ".agents/skills/old/nested/SKILL.md"
+        self._write(nested, bootstrap.stamp("# Old\n"))
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[nested][0], "deleted")
+        self.assertEqual(rows[self.MIRROR][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+
+    def test_skill_folder_that_still_holds_files_keeps_its_folder_and_mirror(self):
+        self._orphan_skill_with_mirror()
+        self._write(".agents/skills/old/notes.md", "Repository notes.\n")
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertNotIn(self.MIRROR, rows)
+        self.assertEqual((self.repo / ".agents/skills/old/notes.md").read_text(), "Repository notes.\n")
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_untracked_mirror_of_a_deleted_orphaned_skill_is_refused_not_deleted(self):
+        self._write(self.SKILL, bootstrap.stamp("# Old\n"))
+        self._commit_all()
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+        self.assertEqual(rows[self.MIRROR][0], "refused")
+        self.assertIn("not tracked by git", rows[self.MIRROR][1])
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_refused_orphaned_skill_keeps_its_folder_and_mirror(self):
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        self._write(self.SKILL, bootstrap.stamp("# Old\n") + "Local edit.\n")
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "refused")
+        self.assertNotIn(self.MIRROR, rows)
+        self.assertTrue((self.repo / self.SKILL).is_file())
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_untracked_symlink_that_is_not_a_mirror_keeps_its_shape_refusal(self):
+        self._commit_all()
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / ".claude/skills/elsewhere").symlink_to("../../no/such/place")
+        action, detail = self._rows()[".claude/skills/elsewhere"]
+        self.assertEqual(action, "refused")
+        self.assertIn("is not a skill mirror", detail)
+        self.assertTrue((self.repo / ".claude/skills/elsewhere").is_symlink())
+
+    def _snapshot(self):
+        """Every path under the repository except .git, links not followed."""
+        found = set()
+        for directory, dirs, names in os.walk(self.repo):
+            dirs[:] = [d for d in dirs if d != ".git"]
+            found.update(Path(directory, name).relative_to(self.repo).as_posix() for name in dirs + names)
+        return found
+
+    def test_cleanup_leaves_empty_directories_this_run_did_not_empty(self):
+        self._orphan_skill_with_mirror()
+        mine = self.repo / ".agents/skills/mine-empty"
+        mine.mkdir(parents=True)
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+        self.assertTrue(mine.is_dir())
+        self.assertNotIn(".agents/skills/mine-empty", rows)
+
+    def test_orphaned_skill_folder_holding_an_empty_directory_is_kept_with_its_mirror(self):
+        self._orphan_skill_with_mirror()
+        (self.repo / ".agents/skills/old/references").mkdir()
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertNotIn(self.MIRROR, rows)
+        self.assertTrue((self.repo / ".agents/skills/old/references").is_dir())
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_cleanup_never_removes_a_directory_through_a_symlink(self):
+        outside = Path(self._tmp.name) / "outside"
+        (outside / "skills/old").mkdir(parents=True)
+        deleted = [("deleted", self.SKILL, "")]
+        with self.subTest("symlinked skill folder"):
+            (self.repo / ".agents/skills").mkdir(parents=True)
+            (self.repo / ".agents/skills/old").symlink_to(outside / "skills/old")
+            self.assertEqual(bootstrap._adopt_emptied_skills(self.repo, deleted, {}, {}), [])
+            self.assertTrue((self.repo / ".agents/skills/old").is_symlink())
+            self.assertTrue((outside / "skills/old").is_dir())
+        with self.subTest("symlinked parent"):
+            shutil.rmtree(self.repo / ".agents")
+            (self.repo / ".agents").symlink_to(outside)
+            self.assertEqual(bootstrap._adopt_emptied_skills(self.repo, deleted, {}, {}), [])
+            self.assertTrue((self.repo / ".agents").is_symlink())
+            self.assertTrue((outside / "skills/old").is_dir())
+
+    def _unremovable_skill_folder(self):
+        """An orphaned skill and its mirror under a skills folder this user cannot write to.
+
+        SKILL.md can be deleted, because the skill's own folder is writable,
+        but that folder cannot then be unlinked from its read-only parent.
+        Returns the read-only parent.
+        """
+        bootstrap.adopt_repository(self.repo, self.files)
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        skills = self.repo / ".agents/skills"
+        skills.chmod(0o555)
+        self.addCleanup(skills.chmod, 0o755)
+        return skills
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_emptied_folder_that_cannot_be_removed_is_refused_and_keeps_its_mirror(self):
+        self._unremovable_skill_folder()
+        rows = self._rows()
+        self.assertEqual(set(rows), {self.SKILL, ".agents/skills/old"})
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        action, detail = rows[".agents/skills/old"]
+        self.assertEqual(action, "refused")
+        self.assertRegex(
+            detail,
+            r"^PermissionError: .*; folder left in place, so the \.claude/skills mirror of its skill stays; "
+            r"remove the emptied folders by hand, then re-run --adopt to delete the mirror$",
+        )
+        self.assertEqual(list((self.repo / ".agents/skills/old").iterdir()), [])
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_command_exits_1_for_a_folder_it_cannot_remove_and_finishes_once_it_is_cleared(self):
+        skills = self._unremovable_skill_folder()
+        old, mirror = self.repo / ".agents/skills/old", self.repo / self.MIRROR
+
+        def adopt():
+            return subprocess.run(
+                [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo),
+                 "--type", "python", "--non-interactive"], capture_output=True, text=True,
+            )
+
+        result = adopt()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertRegex(result.stdout, r"refused\s+\.agents/skills/old\s")
+        self.assertTrue(old.is_dir())
+        self.assertTrue(mirror.is_symlink())
+        # Making the parent writable is not enough: the skill's file is gone, so a
+        # second run has nothing to retry and leaves the folder and mirror as they are.
+        skills.chmod(0o755)
+        result = adopt()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(old.is_dir())
+        self.assertTrue(mirror.is_symlink())
+        # The README's remedy: delete the empty folder by hand.
+        old.rmdir()
+        result = adopt()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, rf"deleted\s+{re.escape(self.MIRROR)}")
+        self.assertFalse(os.path.lexists(mirror))
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_one_unremovable_folder_does_not_stop_the_cleanup_of_the_others(self):
+        bootstrap.adopt_repository(self.repo, self.files)
+        for name, skill in (("z", "z/n/SKILL.md"), ("b", "b/SKILL.md"), ("c", "c/SKILL.md")):
+            self._write(f".agents/skills/{skill}", bootstrap.stamp("# Old\n"))
+            (self.repo / ".claude/skills" / name).symlink_to(f"../../.agents/skills/{name}")
+        self._commit_all()
+        # z sorts last, so its folder is tried first
+        locked = self.repo / ".agents/skills/z"
+        locked.chmod(0o555)  # z/n can be emptied but not unlinked from z
+        self.addCleanup(locked.chmod, 0o755)
+        rows = self._rows()
+        self.assertEqual(rows[".agents/skills/z/n"][0], "refused")
+        for name in ("b", "c"):
+            self.assertEqual(rows[f".claude/skills/{name}"][0], "deleted")
+            self.assertFalse((self.repo / ".agents/skills" / name).exists())
+            self.assertFalse(os.path.lexists(self.repo / ".claude/skills" / name))
+        self.assertNotIn(".claude/skills/z", rows)
+        self.assertTrue((self.repo / ".agents/skills/z/n").is_dir())
+        self.assertTrue((self.repo / ".claude/skills/z").is_symlink())
+
+    def test_check_leaves_an_orphaned_skill_its_folder_and_mirror(self):
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        before = self._snapshot()
+        result = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--check", str(self.repo), "--type", "python"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("orphaned", result.stdout)
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.SKILL][0], "orphaned")
+
+
+# Finding A-04: text under a duplicated generated heading was dropped by a rebuild.
+class AgentsDuplicateHeadingTests(unittest.TestCase):
+    RULE = "Local commit rule hidden in a duplicate section."
+    DUPLICATE = f"## Commits\n\n{RULE}\n\n"
+    ROW = ("local", "(duplicate generated heading: ## Commits)")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render()
+
+    def _commit(self, agents):
+        (self.repo / "AGENTS.md").write_text(agents)
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+
+    def _duplicated(self):
+        agents = self.files["AGENTS.md"].replace("\n## Branches\n", "\n" + self.DUPLICATE + "## Branches\n", 1)
+        self.assertNotEqual(agents, self.files["AGENTS.md"])
+        return agents
+
+    def test_check_reports_the_duplicate_as_local(self):
+        agents = self._duplicated()
+        self._commit(agents)
+        report = bootstrap.compare_repository(self.repo, self.files)
+        status, rows = report["AGENTS.md"]
+        self.assertEqual(status, "differs")
+        self.assertIn(("differs", "## Commits"), rows)
+        self.assertIn(("differs", "(order of generated sections)"), rows)
+        self.assertIn(self.ROW, rows)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            aligned = bootstrap.print_repository_report(self.repo, {"repo_type": "python"}, report)
+        self.assertFalse(aligned)
+        self.assertIn(
+            "      local    (duplicate generated heading: ## Commits)  \u2192 move under ## Project specifics\n",
+            output.getvalue(),
+        )
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_adopt_refuses_the_rebuild_with_and_without_replacing_generated_sections(self):
+        agents = self._duplicated()
+        self._commit(agents)
+        for replace_generated in (False, True):
+            with self.subTest(replace_generated=replace_generated), \
+                    unittest.mock.patch.object(bootstrap, "rebuild_agents", side_effect=AssertionError("rebuilt")):
+                actions = bootstrap.adopt_repository(
+                    self.repo, self.files, replace_generated=replace_generated, confirm=lambda _: True,
+                )
+                action, _, detail = next(a for a in actions if a[1] == "AGENTS.md")
+                self.assertEqual(action, "refused")
+                self.assertIn("fix this structure, or move it under ## Project specifics, first", detail)
+                self.assertIn(self.ROW[1], detail)
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_command_line_adopt_exits_1_and_keeps_the_file(self):
+        agents = self._duplicated()
+        self._commit(agents)
+        for flags in ((), ("--replace-generated-sections",)):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo),
+                     "--type", "python", "--non-interactive", *flags],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("refused  AGENTS.md", result.stdout)
+                self.assertIn(self.ROW[1], result.stdout)
+                self.assertNotIn("updated  AGENTS.md", result.stdout)
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_moving_the_duplicate_under_project_specifics_lets_the_rebuild_run(self):
+        generated, owned = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        # The file also lacks a generated section, so there is something to rebuild.
+        start = generated.index("## Preservation and destructive operations")
+        end = generated.index("## Definition of done")
+        agents = generated[:start] + generated[end:] + owned + f"\n### Moved\n\n{self.RULE}\n"
+        self.assertNotIn(self.ROW, bootstrap.compare_agents(self.files["AGENTS.md"], agents))
+        self._commit(agents)
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        rebuilt = (self.repo / "AGENTS.md").read_text()
+        self.assertIn(self.RULE, rebuilt)
+        self.assertEqual(rebuilt.count("\n## Commits\n"), 1)
+
+    def test_a_file_without_a_duplicate_still_rebuilds(self):
+        generated, owned = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        edited = generated.replace("## Commits\n\n", "## Commits\n\nLocal edit.\n\n", 1)
+        self.assertNotEqual(edited, generated)
+        self._commit(edited + owned)
+        rows = bootstrap.compare_agents(self.files["AGENTS.md"], edited + owned)
+        self.assertIn(("differs", "## Commits"), rows)
+        self.assertFalse([row for row in rows if row[0] == "local"], rows)
+        actions = bootstrap.adopt_repository(self.repo, self.files, replace_generated=True, confirm=lambda _: True)
+        action, _, detail = next(a for a in actions if a[1] == "AGENTS.md")
+        self.assertEqual(action, "updated")
+        self.assertIn("replaced: ## Commits", detail)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), self.files["AGENTS.md"])
+
+    def test_no_repository_type_renders_a_duplicate_generated_heading(self):
+        for repo_type in bootstrap.TEMPLATE_SKILLS:
+            with self.subTest(repo_type):
+                agents = _render(repo_type)["AGENTS.md"]
+                self.assertEqual({status for status, _ in bootstrap.compare_agents(agents, agents)}, {"same"})
 
 
 if __name__ == "__main__":

@@ -509,9 +509,19 @@ states:
 | `missing` | not present | written |
 | `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
-| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>`; any other symlink is refused |
-| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
+| `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>` and git tracks it with no uncommitted change; any other symlink, and one git does not track, is refused |
+| `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git tracks it with no uncommitted or staged change; refused when git does not track it, outside a git repository, and inside a repository git cannot read. Deleting a skill's files also removes the folders this leaves empty and then, in the same run, the `.claude/skills` mirror that pointed at the folder (see `dangling`); a folder it cannot remove is refused and keeps its mirror |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
+
+A path is `unreadable` when the user running the command cannot read the file
+or cannot search a directory above it, such as a skill folder owned by another
+user in a shared or mounted checkout. The detail names the directory, `--check`
+still reports every other file and exits 1, and `--adopt` refuses that path and
+goes on with the others. A repository-owned folder under `.agents/skills`,
+`.claude/agents` or `.opencode/agents` that can be listed but not searched is
+reported as `unreadable` itself, since the scan for orphaned template files
+cannot look inside it. That scan skips a folder it cannot even list without a
+row.
 
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
 prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't
@@ -543,8 +553,9 @@ sections in a different order), and anything `local`:
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence, a fence indented four or more columns, an HTML
-block such as a `<!-- -->` comment or `<details>`, or a
-generated heading that falls inside a code block). The `next dev`-managed block and everything from
+block such as a `<!-- -->` comment or `<details>`, a
+generated heading that appears more than once, or a generated heading that
+falls inside a code block). The `next dev`-managed block and everything from
 `## Project specifics` on are the repository's own and are not compared,
 except that an unedited guidance paragraph from an older template there is
 `retired`. The block must stay at the top of the file: a moved block is `local`,
@@ -624,6 +635,42 @@ line is outside the YAML subset, the refusal now also gives the number and
 text of the first such line, as in
 `(line 5 is outside the YAML subset: 'inputs: {full: {}}')`. A quoted item with
 an escape, a quote inside or a line break is still refused.
+
+`--check` and `--adopt` no longer stop with a `PermissionError` traceback when
+a directory in the repository cannot be searched by the user running them, such
+as a skill folder owned by another user in a shared or container-mounted
+checkout. The template files below it are reported as `unreadable` with the
+directory named, `--check` exits 1 as for any drift, and `--adopt` refuses those paths
+and carries on with the rest. Run the command as a user that can search the
+directory, or fix its permissions, to compare those files.
+
+`--adopt` now deletes an orphaned template-owned file, or a dangling
+`.claude/skills` mirror, only when git tracks it with no uncommitted or staged
+change, as every overwrite already required. Before, a digest-valid orphan
+that git did not track, such as a stamped copy in `.claude/agents` that was
+never committed, or any orphan in a directory that is not a git repository, was
+deleted with nothing committed to recover it from. It is now refused with
+"not tracked by git", and `--adopt` exits 1 for it: commit the file, then
+re-run `--adopt`, or delete it by hand.
+
+Deleting an orphaned skill used to leave its emptied folder behind, and the
+`.claude/skills` mirror pointing at it stayed live, so a second `--adopt`
+reported nothing to do. `--adopt` now removes a folder that deleting the
+skill's files leaves empty and, in the same run, the mirror that pointed at it,
+if git tracks that mirror with no uncommitted change. A folder that still holds
+other files stays, and so does its mirror. A folder that is empty but cannot be
+removed, such as one in a read-only directory, is reported as `refused` and
+`--adopt` exits 1; its mirror stays. An empty folder and mirror left by an
+earlier run or by such a refusal stay as they are: delete the empty folder by
+hand, and the mirror then shows as `dangling`, which `--adopt` deletes.
+
+`--check` now reports a second copy of a generated `AGENTS.md` heading as
+`local`, for example `(duplicate generated heading: ## Commits)`, next to the
+`differs` row it already printed. Before, a rebuild with
+`--adopt --replace-generated-sections` dropped the text under the extra copy.
+`--adopt` now refuses the rebuild even with that flag, and leaves the file as
+it is. Remove the extra copy, or move its text under `## Project specifics`,
+then re-run `--adopt`.
 
 ### Upgrading to 0.16.0
 

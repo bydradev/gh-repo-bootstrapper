@@ -3599,10 +3599,6 @@ class AdoptOrphanTrackingTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.SKILL][0], "orphaned")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # Finding A-04: text under a duplicated generated heading was dropped by a rebuild.
 class AgentsDuplicateHeadingTests(unittest.TestCase):
     RULE = "Local commit rule hidden in a duplicate section."

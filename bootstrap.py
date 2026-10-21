@@ -2996,21 +2996,25 @@ def _open_parent(repo_dir: Path, rel: str, create: bool, created: list = None) -
 
 
 def _remove_empty_dirs(repo_dir: Path, created: list) -> None:
-    """Best-effort removal of directories this run left empty, deepest first.
-
-    These are directories it created, or whose last file it deleted. The list
-    holds parents before children, and only empty directories go: a directory
-    that still holds anything, or is a symlink, is left as it is.
-    """
+    """Best-effort removal of directories this run created, deepest first."""
     for rel_dir in reversed(created):
         try:
-            parent = _open_parent(repo_dir, rel_dir, create=False)
-            try:
-                os.rmdir(Path(rel_dir).name, dir_fd=parent)
-            finally:
-                os.close(parent)
+            _rmdir_anchored(repo_dir, rel_dir)
         except OSError:
             pass
+
+
+def _rmdir_anchored(repo_dir: Path, rel_dir: str) -> None:
+    """Remove the empty directory rel_dir, reached without following a symlink.
+
+    Only an empty directory goes: one that still holds anything, or is a
+    symlink, raises OSError and is left as it is.
+    """
+    parent = _open_parent(repo_dir, rel_dir, create=False)
+    try:
+        os.rmdir(Path(rel_dir).name, dir_fd=parent)
+    finally:
+        os.close(parent)
 
 
 def _read_anchored(parent: int, name: str) -> tuple:
@@ -3153,9 +3157,21 @@ def adopt_repository(
     return actions
 
 
+# What rmdir reports for a folder that holds something (a non-empty directory
+# can also fail as EEXIST), that is gone already, or that a symlink or a file
+# has replaced. None of those is an emptied folder this run failed to remove.
+_NOT_OURS_TO_REMOVE = {errno.ENOTEMPTY, errno.EEXIST, errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+
+
 def _adopt_emptied_skills(repo_dir: Path, actions: list, report: dict, mirrors: dict) -> list:
     """Clear what deleting orphaned skill files left behind: emptied folders,
     then the `.claude/skills` mirrors that point at a folder that is gone.
+
+    A folder that still holds anything is left without a row, as is one that
+    is gone already or is no longer a plain directory (a symlink put there
+    mid-run). A folder that should be empty but cannot be removed, such as
+    one in a read-only parent, is refused: its mirror then stays live, and a
+    later run has no deleted file left to retry from.
 
     The mirrors were judged before the deletion, while their folder still
     existed, so they are looked at again, and only ones the scan did not
@@ -3170,12 +3186,21 @@ def _adopt_emptied_skills(repo_dir: Path, actions: list, report: dict, mirrors: 
     })
     if not folders:
         return []
-    _remove_empty_dirs(repo_dir, folders)
+    rows = []
+    for folder in reversed(folders):
+        try:
+            _rmdir_anchored(repo_dir, folder)
+        except OSError as exc:
+            if exc.errno not in _NOT_OURS_TO_REMOVE:
+                rows.append((
+                    "refused", folder,
+                    f"{type(exc).__name__}: {exc.strerror or exc}; "
+                    "folder left in place, so its .claude/skills mirror stays",
+                ))
     try:
         dangling = _dangling_mirrors(repo_dir, mirrors)
     except OSError as exc:
-        return [("refused", ".claude/skills", f"{type(exc).__name__}: {exc.strerror or exc}")]
-    rows = []
+        return rows + [("refused", ".claude/skills", f"{type(exc).__name__}: {exc.strerror or exc}")]
     for rel, (status, _) in sorted(dangling.items()):
         if status != "dangling" or rel in report:
             continue

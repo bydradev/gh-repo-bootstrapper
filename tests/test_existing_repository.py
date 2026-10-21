@@ -3336,7 +3336,7 @@ class AdoptOrphanTrackingTests(unittest.TestCase):
 
     def _orphan_skill_with_mirror(self):
         self._write(self.SKILL, bootstrap.stamp("# Old\n"))
-        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / ".claude/skills").mkdir(parents=True, exist_ok=True)
         (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
 
     def test_untracked_orphan_is_refused(self):
@@ -3502,6 +3502,57 @@ class AdoptOrphanTrackingTests(unittest.TestCase):
             self.assertEqual(bootstrap._adopt_emptied_skills(self.repo, deleted, {}, {}), [])
             self.assertTrue((self.repo / ".agents").is_symlink())
             self.assertTrue((outside / "skills/old").is_dir())
+
+    def _unremovable_skill_folder(self):
+        """An orphaned skill and its mirror under a skills folder this user cannot write to.
+
+        SKILL.md can be deleted, because the skill's own folder is writable,
+        but that folder cannot then be unlinked from its read-only parent.
+        Returns the read-only parent.
+        """
+        bootstrap.adopt_repository(self.repo, self.files)
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        skills = self.repo / ".agents/skills"
+        skills.chmod(0o555)
+        self.addCleanup(skills.chmod, 0o755)
+        return skills
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_emptied_folder_that_cannot_be_removed_is_refused_and_keeps_its_mirror(self):
+        self._unremovable_skill_folder()
+        rows = self._rows()
+        self.assertEqual(set(rows), {self.SKILL, ".agents/skills/old"})
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        action, detail = rows[".agents/skills/old"]
+        self.assertEqual(action, "refused")
+        self.assertRegex(detail, r"^PermissionError: .*; folder left in place, so its \.claude/skills mirror stays$")
+        self.assertEqual(list((self.repo / ".agents/skills/old").iterdir()), [])
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_command_exits_1_for_a_folder_it_cannot_remove_and_finishes_once_it_is_cleared(self):
+        skills = self._unremovable_skill_folder()
+        old, mirror = self.repo / ".agents/skills/old", self.repo / self.MIRROR
+
+        def adopt():
+            return subprocess.run(
+                [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo),
+                 "--type", "python", "--non-interactive"], capture_output=True, text=True,
+            )
+
+        result = adopt()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertRegex(result.stdout, r"refused\s+\.agents/skills/old\s")
+        self.assertTrue(old.is_dir())
+        self.assertTrue(mirror.is_symlink())
+        # The README's remedy: make the parent writable, delete the empty folder by hand.
+        skills.chmod(0o755)
+        old.rmdir()
+        result = adopt()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, rf"deleted\s+{re.escape(self.MIRROR)}")
+        self.assertFalse(os.path.lexists(mirror))
 
     def test_check_leaves_an_orphaned_skill_its_folder_and_mirror(self):
         self._orphan_skill_with_mirror()

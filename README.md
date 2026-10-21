@@ -649,19 +649,21 @@ Every type's generated `release-please-config.json` now sets
 `"bump-minor-pre-major": true`, beside `include-component-in-tag`. While a
 repository is below 1.0.0, a breaking change (`feat!`, `chore!` or a
 `BREAKING CHANGE:` footer) now proposes the next minor, such as 0.17.0 from
-0.16.0. Without the option Release Please proposes 1.0.0, and a new repository
-is seeded at 0.1.0. The option has no effect at 1.0.0 or above. This
-repository's own config already sets it
+0.16.0, where Release Please proposes 1.0.0 without the option; at 1.0.0 or
+above the option has no effect
 ([manifest releaser documentation](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md),
 release-please 17.6.0 `versioning-strategies/default.js`, which
 release-please-action v5.0.0 locks, checked 2026-10-21).
-
 `release-please-config.json` belongs to the repository, so `--adopt` keeps it,
-and a repository generated before 0.17.0 takes the change by hand. One that
+and a repository generated before 0.17.0 takes the change by hand: one that
 means to stay below 1.0.0 adds `"bump-minor-pre-major": true,` at the top level
-of the file, beside `include-component-in-tag`. One that wants 1.0.0 from its
-next breaking change leaves it out. Either way `--check` reports the file as
-`differs`, and exits 1, until the file matches the template.
+of the file, beside `include-component-in-tag`, and one that wants 1.0.0 from
+its next breaking change leaves it out. `--check` compares the whole file, so
+it reports the file as `differs`, and exits 1, until it matches the template.
+An unedited config reads `same` again once the line is added. One that leaves
+the line out stays `differs`, as does one with other edits, such as an
+`extra-files` entry, even after the line is added. A repository already at
+1.0.0 or above can add the line only to clear the row.
 
 ### Upgrading to 0.16.1
 

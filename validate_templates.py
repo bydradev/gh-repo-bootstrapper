@@ -1953,7 +1953,14 @@ PYTHON_MANIFEST_GUARD_NAME = "Require a dependency manifest"
 # the pinned commit, checked 2026-10-21).
 PYTHON_CACHE_BACKUP_PATH = "**/pyproject.toml"
 PYTHON_GUARD_TEST_RE = re.compile(r'\[ -z "\$(\w+)" \]')
-HASH_FILES_CALL_RE = re.compile(r"hashFiles\(([^()]*)\)")
+# The guard's env value must be the bare call and nothing else. `||` yields its
+# first truthy operand (actions/runner
+# src/Sdk/DTExpressions2/Expressions2/Sdk/Operators/Or.cs, checked 2026-10-22),
+# and hashFiles returns '' when no file matches, which is falsy (docs.github.com
+# "Evaluate expressions in workflows and actions", checked 2026-10-22), so
+# `hashFiles(...) || 'missing'` is never empty and `[ -z "$VAR" ]` never fires.
+# Any other operator, call or text around the call can do the same.
+HASH_FILES_VALUE_RE = re.compile(r"\$\{\{\s*hashFiles\(([^()]*)\)\s*\}\}")
 QUOTED_PATTERN_RE = re.compile(r"'([^']*)'")
 PLAYWRIGHT_INSTALLS = (
     ("${{ inputs.full }}", "npx playwright install --with-deps"),
@@ -2074,7 +2081,8 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     does not say what to add. A step after the checkout and before setup-python
     must fail with one that does when the cache would find nothing: it hashes the same
     files (cache-dependency-path plus the action's own fallback), so a pattern
-    added to one and not the other fails here. (The runner's hashFiles does not
+    added to one and not the other fails here, and its hash is the bare
+    hashFiles call, so a fallback cannot make an empty hash non-empty. (The runner's hashFiles does not
     follow symbolic links unless asked and the action's does; a manifest
     reachable only through a link to a directory outside the checkout would
     pass the cache and fail the guard, which a runner's checkout cannot hold.)
@@ -2130,18 +2138,29 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         line.strip() for line in str(options.get("cache-dependency-path", "")).splitlines() if line.strip()
     } | {PYTHON_CACHE_BACKUP_PATH}
     hashed = set()
+    bare = True
     if test:
-        for call in HASH_FILES_CALL_RE.findall(str((guard.get("env") or {}).get(test.group(1), ""))):
+        value = (guard.get("env") or {}).get(test.group(1), "")
+        call = HASH_FILES_VALUE_RE.fullmatch(str(value))
+        if call is None:
+            bare = False
+            errors.append(
+                f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} env {test.group(1)} must be exactly "
+                "${{ hashFiles(<patterns>) }} and nothing else, because an operator, a second call, a "
+                "fallback such as `|| 'missing'` or text around the call keeps an empty hash from "
+                f"being empty, so the guard never fires; got {value!r}"
+            )
+        else:
             # The runner reads `--follow-symbolic-links` as an option only in
             # first place and refuses any other `--` option there; later on it
             # is a pattern like any other (actions/runner
             # src/Runner.Worker/Expressions/HashFilesFunction.cs, checked
             # 2026-10-22), so only that first argument is left out.
-            patterns = QUOTED_PATTERN_RE.findall(call)
+            patterns = QUOTED_PATTERN_RE.findall(call.group(1))
             if patterns and patterns[0].lower() == "--follow-symbolic-links":
                 patterns = patterns[1:]
-            hashed |= set(patterns)
-    if hashed != expected:
+            hashed = set(patterns)
+    if bare and hashed != expected:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must hash exactly the files the pip cache does "
             f"(its cache-dependency-path and {PYTHON_CACHE_BACKUP_PATH}), {sorted(expected)}; got {sorted(hashed)}"
@@ -4383,6 +4402,19 @@ def _structure_self_tests() -> list:
     expect("python manifest guard with another option",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("hashFiles(", "hashFiles('--no-such-option', "))), same_files)
+    # The first three hash the right patterns, so only the bare-call rule fails
+    # them; the last shows that whitespace inside the braces is allowed.
+    bare_call = "must be exactly ${{ hashFiles(<patterns>) }} and nothing else"
+    expect("python manifest guard hash with a literal fallback",
+           gates("python", test, lambda w: guard_env(w, lambda v: v.replace(" }}", " || 'missing' }}"))), bare_call)
+    expect("python manifest guard hash wrapped in another expression",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("${{ ", "${{ format('{0}', ").replace(" }}", ") }}"))), bare_call)
+    expect("python manifest guard hash with text around the expression",
+           gates("python", test, lambda w: guard_env(w, lambda v: v + "-")), bare_call)
+    expect("python manifest guard hash without spaces inside the braces",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("${{ ", "${{").replace(" }}", "}}"))), None)
     expect("python setup-python without a cache needs no guard", gates("python", test, drop_cache), None)
     expect("App token with an extra permission",
            gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(

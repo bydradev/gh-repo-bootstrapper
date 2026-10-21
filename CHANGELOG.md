@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.16.0...v0.16.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* accept quoted items in flow sequences and name the line the yaml reader refuses ([#140](https://github.com/bydradev/gh-repo-bootstrapper/issues/140)) ([ac94f9c](https://github.com/bydradev/gh-repo-bootstrapper/commit/ac94f9ccc33df6e0d9ac2ce89f057139acde041b))
+* diff a local-modified workflow against the nearest release after v0.8.1 too ([#136](https://github.com/bydradev/gh-repo-bootstrapper/issues/136)) ([496a7de](https://github.com/bydradev/gh-repo-bootstrapper/commit/496a7de28841c9cd74bd658c1d1f072b51d42a72))
+* name the cause in four adopt and check refusals ([#138](https://github.com/bydradev/gh-repo-bootstrapper/issues/138)) ([f975b38](https://github.com/bydradev/gh-repo-bootstrapper/commit/f975b38a8941c4134bd9a689c79a5262b4f3e1e4))
+* refuse the agents.md rebuild when a generated heading is duplicated ([#135](https://github.com/bydradev/gh-repo-bootstrapper/issues/135)) ([c6bd037](https://github.com/bydradev/gh-repo-bootstrapper/commit/c6bd0376fc99f3e9b9ff1d7fc9021b92d086ea49))
+* refuse to delete an orphaned template file git does not track ([#137](https://github.com/bydradev/gh-repo-bootstrapper/issues/137)) ([223fbda](https://github.com/bydradev/gh-repo-bootstrapper/commit/223fbdadce760b3712d27a5602cb1e65e9153b7d))
+* report an unsearchable directory as unreadable instead of crashing ([#139](https://github.com/bydradev/gh-repo-bootstrapper/issues/139)) ([726204c](https://github.com/bydradev/gh-repo-bootstrapper/commit/726204c9814afc89dc8a594dc15fbb5f5cc47991))
+
 ## [0.16.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.15.3...v0.16.0) (2026-10-21)
 
 

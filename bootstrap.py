@@ -1456,16 +1456,24 @@ def gather_config(args) -> dict:
 
 def _release_please_config(name: str, repo_type: str) -> str:
     schema = "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+    # bump-minor-pre-major: a breaking change on a 0.x version bumps the minor,
+    # not the major, so a new repository (seeded at 0.1.0) does not jump to
+    # 1.0.0 on its first `feat!`, `chore!` or BREAKING CHANGE footer. Without it
+    # release-please 17.6.0, the version release-please-action v5.0.0 locks,
+    # proposes 1.0.0 (versioning-strategies/default.js, checked 2026-10-21).
+    # This repository's own release-please-config.json sets it too.
     if repo_type == "nextjs":
         cfg = {
             "$schema": schema,
             "include-component-in-tag": False,
+            "bump-minor-pre-major": True,
             "packages": {".": {"release-type": "node", "package-name": name}},
         }
     else:  # simple, python, swift, rust — all use release-type: simple
         cfg = {
             "$schema": schema,
             "include-component-in-tag": False,
+            "bump-minor-pre-major": True,
             "packages": {".": {"release-type": "simple", "package-name": name}},
         }
     return json.dumps(cfg, indent=2) + "\n"

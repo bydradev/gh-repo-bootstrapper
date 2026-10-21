@@ -480,9 +480,15 @@ screenshot-review skill or doc counts as not using screenshot review, so
 `--adopt` refuses its `AGENTS.md`, and with `--replace-generated-sections`
 takes the skill's row and pointer out of the hub. The same holds for an
 edited, stamped screenshot-review skill or doc that you delete to regenerate.
-`--check` shows the local changes as a diff against the nearest released body.
-The diff needs the bootstrapper's git release tags; from a copy without them,
-`--check` prints a notice and skips it.
+`--check` shows the local changes as a diff against the nearest body: for an
+unstamped doc, one a release through v0.6.0 shipped; for an unstamped workflow,
+one any release shipped or today's template, so a workflow forked from a later
+template doesn't show that template's own later changes as the repository's.
+A workflow's diff header names its base, such as
+`legacy/v0.11.0/.github/workflows/release-please.yml` (the first release that
+shipped the body) or `current/.github/workflows/release-please.yml`. The diff
+needs the bootstrapper's git release tags; from a copy without them, `--check`
+prints a notice and skips it.
 
 ### Checking and adopting
 
@@ -605,6 +611,18 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.16.1
+
+The diff `--check` prints for an unstamped, locally modified
+`pr-title-check.yml`, `release-please.yml` or `baseline-review.yml` now picks
+its base from the body of every release and from today's template, not only
+the releases through v0.8.1, and names it in the header, such as
+`legacy/v0.12.0/.github/workflows/release-please.yml` or
+`current/.github/workflows/release-please.yml`. A workflow forked from a later
+template used to show that template's own later changes, such as
+`queue: max` or the credentials check, as the repository's own additions and
+removals. The state (`local-modified`) and the `--adopt` refusal are unchanged.
 
 ### Upgrading to 0.16.0
 

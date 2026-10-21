@@ -486,11 +486,12 @@ LEGACY_WORKFLOWS_LAST_TAG = (0, 8, 1)
 # Each name must be a current file in templates/: _template_source loads every
 # listed name from today's templates to find which one renders a workflow, and
 # _legacy_template_bodies also reads each name at every legacy release tag to
-# rebuild what those releases shipped. Renaming or removing one of these files
-# is therefore a migration, not a one-line edit: the new name goes here; the old
-# name moves to a separate list that _legacy_template_bodies reads at legacy
-# tags, and that _legacy_key and _legacy_variant also consult (with its
-# LEGACY_TEMPLATE_DIGESTS rows) so older copies are still classified as stale
+# rebuild what those releases shipped, and _workflow_diff_bases at every release
+# tag for --check's diff. Renaming or removing one of these files is therefore a
+# migration, not a one-line edit: the new name goes here; the old name moves to
+# a separate list that those two read at release tags, and that _legacy_key and
+# _legacy_variant also consult (with its LEGACY_TEMPLATE_DIGESTS rows) so older
+# copies are still classified as stale
 # rather than local-modified; and the stamp's template= provenance changes with
 # it. A test fails if a name here is not a current template file.
 _LEGACY_WORKFLOW_SOURCES = {
@@ -584,6 +585,11 @@ def _legacy_tags() -> list[str] | None:
     return [tag for tag in tags if _tag_version(tag) <= last]
 
 
+def _no_release_tags_notice(repo: Path) -> None:
+    print(f"notice: no git release tags in {repo}; skipped the diff against legacy template docs",
+          file=sys.stderr)
+
+
 def _legacy_template_bodies() -> dict[str, list[str]]:
     """Render historical owned docs; new skills and agents have no legacy copies.
 
@@ -595,8 +601,7 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
     env = _git_env()
     refs = _legacy_tags()
     if not refs:
-        print(f"notice: no git release tags in {repo}; skipped the diff against legacy template docs",
-              file=sys.stderr)
+        _no_release_tags_notice(repo)
         return {}
     bodies = {}
     for ref in refs:
@@ -634,6 +639,35 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
                         _compose(common, "PLATFORM_GUIDANCE", fragment)
                     )
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
+
+
+def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[str, str]]:
+    """(label, body) of each body --check can diff an unstamped, locally modified
+    workflow against: this render without its stamp, then every distinct body
+    any of `tags` shipped, labelled with the first release that did.
+
+    The diff only. LEGACY_TEMPLATE_DIGESTS and _legacy_template_bodies stop at
+    the last unstamped release, since a later release can only be recognised by
+    its stamp; a fork of a later template still needs its own base here, or the
+    template's later changes read as local edits. Without tags there is no
+    release to name, so the result is empty and the diff is skipped.
+    """
+    if not tags:
+        return []
+    repo = TEMPLATES_DIR.parent
+    env = _git_env()
+    bases = {current: f"current/{rel}"}
+    for tag in tags:
+        for name in _LEGACY_WORKFLOW_SOURCES[rel]:
+            result = subprocess.run(
+                ["git", "-C", str(repo), "show", f"{tag}:templates/{name}"],
+                capture_output=True, check=False, env=env,
+            )
+            if result.returncode == 0:
+                # The deploy markers v0.1.0 spliced in (see _legacy_template_bodies).
+                body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", result.stdout.decode("utf-8", errors="replace"))
+                bases.setdefault(body, f"legacy/{tag}/{rel}")
+    return [(label, body) for body, label in bases.items()]
 
 
 def compute_legacy_digests() -> dict:
@@ -2731,6 +2765,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     report = {}
     links = _links_for_files(files) if links is None else links
     legacy_bodies = None
+    release_tags = None
     seed_tags = {}
     for rel, expected in files.items():
         path = repo_dir / rel
@@ -2776,16 +2811,24 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             elif status == "local-modified" and read_stamp(actual, _is_yaml(rel))[0] is None and any(
                 key.split("#")[0] == rel for key in LEGACY_TEMPLATE_DIGESTS
             ):
-                if legacy_bodies is None:
-                    legacy_bodies = _legacy_template_bodies()
-                candidates = [body for key, bodies in legacy_bodies.items() if key.split("#")[0] == rel for body in bodies]
+                if rel in _LEGACY_WORKFLOW_SOURCES:
+                    if release_tags is None:
+                        release_tags = _release_tags() or []
+                        if not release_tags:
+                            _no_release_tags_notice(TEMPLATES_DIR.parent)
+                    candidates = _workflow_diff_bases(rel, read_stamp(expected, True)[1], release_tags)
+                else:
+                    if legacy_bodies is None:
+                        legacy_bodies = _legacy_template_bodies()
+                    candidates = [(f"legacy/{rel}", body) for key, bodies in legacy_bodies.items()
+                                  if key.split("#")[0] == rel for body in bodies]
                 if candidates:
-                    nearest = max(candidates, key=lambda body: difflib.SequenceMatcher(
-                        None, body.splitlines(), actual.splitlines(), autojunk=False
+                    label, nearest = max(candidates, key=lambda base: difflib.SequenceMatcher(
+                        None, base[1].splitlines(), actual.splitlines(), autojunk=False
                     ).ratio())
                     detail = "".join(difflib.unified_diff(
                         nearest.splitlines(keepends=True), actual.splitlines(keepends=True),
-                        fromfile=f"legacy/{rel}", tofile=rel,
+                        fromfile=label, tofile=rel,
                     ))
             report[rel] = (status, detail)
         elif actual == expected:

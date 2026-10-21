@@ -3307,5 +3307,95 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("refused  AGENTS.md", result.stdout)
 
 
+# A-06: the diff --check prints for an unstamped, locally modified workflow.
+class LegacyWorkflowDiffBaseTests(unittest.TestCase):
+    PR_TITLE = ".github/workflows/pr-title-check.yml"
+    RELEASE = ".github/workflows/release-please.yml"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render("nextjs")
+
+    def _released(self, tag, name):
+        result = subprocess.run(
+            ["git", "-C", str(Path(bootstrap.__file__).parent), "show", f"{tag}:templates/{name}"],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+        if result.returncode:
+            self.skipTest("release tags unavailable")
+        return result.stdout
+
+    @staticmethod
+    def _fork(body):
+        """`body` with its first step renamed, and that step's original line."""
+        step = re.search(r"(?m)^ +- name: .+$", body)
+        return body[:step.end()] + " (ours)" + body[step.end():], step[0]
+
+    def _commit(self, bodies):
+        for rel, body in bodies.items():
+            path = self.repo / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body, encoding="utf-8")
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "--allow-empty", "-m", "fork")
+
+    def _assert_only_the_fork_edit(self, rel, body, step, base):
+        """--check's diff of `body` lists just the renamed `step`, from the base `base` names."""
+        self._commit({rel: body})
+        status, detail = bootstrap.compare_repository(self.repo, self.files)[rel]
+        self.assertEqual(status, "local-modified")
+        lines = detail.splitlines()
+        self.assertEqual([line for line in lines[2:] if line[0] in "+-"], ["-" + step, "+" + step + " (ours)"])
+        self.assertEqual(lines[0], f"--- {base}")
+
+    def test_diff_names_the_release_a_later_workflow_was_forked_from(self):
+        for rel, name, tag in (
+            (self.RELEASE, "release-please-nextjs.yml", "v0.11.0"),
+            (self.RELEASE, "release-please-nextjs.yml", "v0.12.0"),
+            (self.PR_TITLE, "pr-title-check.yml", "v0.14.0"),
+        ):
+            with self.subTest(tag=tag, rel=rel):
+                body, step = self._fork(self._released(tag, name))
+                self._assert_only_the_fork_edit(rel, body, step, f"legacy/{tag}/{rel}")
+
+    def test_diff_names_the_current_template_when_the_workflow_was_forked_from_it(self):
+        for rel in (self.RELEASE, self.PR_TITLE):
+            with self.subTest(rel=rel):
+                body, step = self._fork(bootstrap.read_stamp(self.files[rel], True)[1])
+                self._assert_only_the_fork_edit(rel, body, step, f"current/{rel}")
+
+    def test_diff_of_a_fork_from_an_earlier_release_still_names_that_release(self):
+        # v0.4.0 first shipped the body v0.5.0 carried; v0.8.1 is the last unstamped release.
+        for tag, first in (("v0.5.0", "v0.4.0"), ("v0.8.1", "v0.8.1")):
+            with self.subTest(tag=tag):
+                body, step = self._fork(self._released(tag, "release-please-nextjs.yml"))
+                self._assert_only_the_fork_edit(self.RELEASE, body, step, f"legacy/{first}/{self.RELEASE}")
+
+    def test_widened_diff_leaves_the_state_and_the_adopt_refusal_alone(self):
+        body, _ = self._fork(self._released("v0.12.0", "release-please-nextjs.yml"))
+        self._commit({self.RELEASE: body})
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.RELEASE][0], "local-modified")
+        rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, self.files)}
+        self.assertEqual(rows[self.RELEASE], "refused")
+        self.assertEqual((self.repo / self.RELEASE).read_text(encoding="utf-8"), body)
+
+    def test_diff_is_skipped_with_one_notice_when_git_cannot_list_release_tags(self):
+        bodies = {rel: bootstrap.read_stamp(self.files[rel], True)[1] + "# ours\n" for rel in (self.RELEASE, self.PR_TITLE)}
+        self._commit(bodies)
+        for tags in (None, []):
+            with self.subTest(tags=tags), unittest.mock.patch.object(bootstrap, "_release_tags", return_value=tags):
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors):
+                    report = bootstrap.compare_repository(self.repo, self.files)
+                for rel in bodies:
+                    self.assertEqual(report[rel], ("local-modified", None))
+                self.assertEqual(len(errors.getvalue().splitlines()), 1, errors.getvalue())
+                self.assertIn("skipped the diff against legacy template docs", errors.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

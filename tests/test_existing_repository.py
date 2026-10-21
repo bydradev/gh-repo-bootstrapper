@@ -3307,5 +3307,193 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("refused  AGENTS.md", result.stdout)
 
 
+# Row 1.6: findings A-12 (four refusals that did not name their cause) and A-15 (broken pipe).
+class CheckReportWordingTests(unittest.TestCase):
+    CRLF_ROW = "(CRLF or CR line endings; convert to LF first)"
+    BOM_ROW = "(byte-order mark before the first heading; remove it first)"
+    SHADOWED = (
+        "an unstamped file at a template skill's path; move it aside so --adopt can write the "
+        "template skill, or rename the skill if it is the repository's own"
+    )
+    NOT_A_FILE = "something other than a file is at this path; move it aside"
+    DASH = " \u2014 "  # what --adopt prints between a path and its detail
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render("simple")
+        bootstrap.adopt_repository(self.repo, self.files)
+        self._commit("init")
+
+    def _commit(self, message):
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "--allow-empty", "-m", message)
+
+    def _tree(self):
+        """Everything under the repository but .git, plus what git says changed."""
+        tree = {}
+        for directory, dirs, names in os.walk(self.repo):
+            dirs[:] = [name for name in dirs if name != ".git"]
+            for name in names + dirs:
+                path = Path(directory) / name
+                rel = path.relative_to(self.repo).as_posix()
+                if path.is_symlink():
+                    tree[rel] = ("link", os.readlink(path))
+                elif path.is_dir():
+                    tree[rel] = ("dir",)
+                else:
+                    tree[rel] = ("file", path.read_bytes())
+        status = subprocess.run(
+            ["git", "-C", str(self.repo), "status", "--porcelain"], capture_output=True, text=True, check=True
+        ).stdout
+        return tree, status
+
+    def _cli(self, *args):
+        return subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), *args], capture_output=True, encoding="utf-8"
+        )
+
+    def _check_and_adopt(self):
+        """Run --check and --adopt on the repository; assert neither changed it. Returns both outputs."""
+        before = self._tree()
+        checked = self._cli("--check", str(self.repo), "--type", "simple")
+        self.assertEqual(self._tree(), before)
+        adopted = self._cli("--adopt", str(self.repo), "--type", "simple", "--non-interactive")
+        self.assertEqual(self._tree(), before)
+        self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+        self.assertEqual(adopted.returncode, 1, adopted.stdout + adopted.stderr)
+        return checked.stdout, adopted.stdout
+
+    def test_crlf_agents_is_one_row_and_adopt_still_refuses(self):
+        crlf = self.files["AGENTS.md"].replace("\n", "\r\n")
+        (self.repo / "AGENTS.md").write_bytes(crlf.encode())
+        self._commit("crlf")
+        rows = [("differs", self.CRLF_ROW)]
+        self.assertEqual(bootstrap.compare_agents(self.files["AGENTS.md"], crlf), rows)
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("differs", rows))
+        checked, adopted = self._check_and_adopt()
+        self.assertIn(f"differs  {self.CRLF_ROW}", checked)
+        self.assertNotIn("## Development workflow", checked)
+        self.assertIn("refused  AGENTS.md" + self.DASH + "not LF-terminated UTF-8 text; update it by hand", adopted)
+
+    def test_carriage_returns_in_repository_owned_text_do_not_change_the_state(self):
+        # Only a file that differs gets the row, so a CR under ## Project specifics stays `same`.
+        crlf = self.files["AGENTS.md"] + "Ours.\r\n"
+        (self.repo / "AGENTS.md").write_bytes(crlf.encode())
+        self._commit("owned crlf")
+        self.assertNotIn(("differs", self.CRLF_ROW), bootstrap.compare_agents(self.files["AGENTS.md"], crlf))
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("same", None))
+
+    def test_byte_order_mark_is_one_row_and_adopt_still_refuses(self):
+        marked = "\ufeff" + self.files["AGENTS.md"]
+        (self.repo / "AGENTS.md").write_bytes(marked.encode())
+        self._commit("bom")
+        rows = bootstrap.compare_agents(self.files["AGENTS.md"], marked)
+        self.assertEqual([row for row in rows if row[0] != "same"], [("local", self.BOM_ROW)])
+        self.assertIn(("same", "# Working in this repo"), rows)  # the heading is read, not reported missing
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("differs", rows))
+        checked, adopted = self._check_and_adopt()
+        self.assertIn(f"local    {self.BOM_ROW}\n", checked)  # no "move under ## Project specifics" hint
+        self.assertNotIn("text before the first heading", checked)
+        self.assertNotIn("# Working in this repo", checked)
+        self.assertIn(
+            f"refused  AGENTS.md{self.DASH}fix this structure, or move it under ## Project specifics, first: "
+            f"{self.BOM_ROW}", adopted)
+        # Both causes are named when a file has both.
+        both = marked.replace("\n", "\r\n")
+        self.assertEqual(
+            [row for row in bootstrap.compare_agents(self.files["AGENTS.md"], both) if row[0] != "same"],
+            [("local", self.BOM_ROW), ("differs", self.CRLF_ROW)],
+        )
+
+    def test_unstamped_file_at_a_template_skill_path_names_its_cause(self):
+        rel = ".agents/skills/delegation/SKILL.md"
+        for label, text in {"empty": "", "other text": "# Not the template\n"}.items():
+            with self.subTest(label):
+                (self.repo / rel).write_text(text)
+                self._commit(label)
+                self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[rel], ("shadowed", self.SHADOWED))
+                checked, adopted = self._check_and_adopt()
+                self.assertIn(f"shadowed {rel}\n      {self.SHADOWED}\n", checked)
+                self.assertIn(f"refused  {rel}{self.DASH}{self.SHADOWED}\n", adopted)
+                self.assertEqual((self.repo / rel).read_text(), text)
+
+    def test_directory_at_an_owned_file_path_is_refused_like_a_seed_script(self):
+        rel = "docs/branch-protection-runbook.md"
+        (self.repo / rel).unlink()
+        (self.repo / rel).mkdir()
+        (self.repo / rel / "notes.txt").write_text("Ours.\n")
+        self._commit("directory")
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[rel], ("missing", None))
+        checked, adopted = self._check_and_adopt()
+        self.assertIn(f"refused  {rel}{self.DASH}{self.NOT_A_FILE}\n", adopted)
+        self.assertNotIn("FileExistsError", adopted)
+        self.assertEqual((self.repo / rel / "notes.txt").read_text(), "Ours.\n")
+        # The seed-script path says the same thing in the same words.
+        nextjs, seed = _render("nextjs"), "scripts/audit-production.mjs"
+        other = Path(self._tmp.name) / "web"
+        (other / seed).mkdir(parents=True)
+        self.assertIn(("refused", seed, self.NOT_A_FILE), bootstrap.adopt_repository(other, nextjs))
+        self.assertEqual(list((other / seed).iterdir()), [])
+
+    def test_file_where_a_folder_belongs_is_refused_in_the_same_words(self):
+        shutil.rmtree(self.repo / "docs")
+        (self.repo / "docs").write_text("Ours.\n")
+        self._commit("docs is a file")
+        before = self._tree()
+        actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, self.files)}
+        for rel in ("docs/branch-protection-runbook.md", "docs/current-work.md"):
+            self.assertEqual(actions[rel], ("refused", self.NOT_A_FILE))
+        self.assertEqual(self._tree(), before)
+
+    def _run_with_stdout_closed(self, *args):
+        """Run bootstrap.py with stdout a pipe whose reader has already left."""
+        reader, writer = os.pipe()
+        os.close(reader)
+        try:
+            return subprocess.run(
+                [sys.executable, str(Path(bootstrap.__file__)), *args],
+                stdout=writer, stderr=subprocess.PIPE, encoding="utf-8",
+            )
+        finally:
+            os.close(writer)
+
+    def _assert_quiet(self, result):
+        for noise in ("Traceback", "BrokenPipeError", "Exception ignored"):
+            self.assertNotIn(noise, result.stderr)
+        self.assertEqual(result.stderr, "")
+
+    def test_dry_run_into_a_closed_pipe_exits_quietly(self):
+        result = self._run_with_stdout_closed("--name", "x", "--type", "simple", "--dry-run", "--non-interactive")
+        self._assert_quiet(result)
+        self.assertEqual(result.returncode, 0)
+
+    def test_dry_run_read_by_a_reader_that_leaves_early_exits_quietly(self):
+        # `--dry-run | head -1`: the output is larger than a pipe holds.
+        proc = subprocess.Popen(
+            [sys.executable, str(Path(bootstrap.__file__)), "--name", "x", "--type", "simple", "--dry-run",
+             "--non-interactive"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
+        )
+        proc.stdout.readline()
+        proc.stdout.close()
+        stderr = proc.stderr.read()
+        proc.stderr.close()
+        self.assertEqual(proc.wait(timeout=60), 0)
+        self.assertEqual(stderr, "")
+
+    def test_check_into_a_closed_pipe_exits_quietly_with_its_usual_status(self):
+        aligned = self._run_with_stdout_closed("--check", str(self.repo), "--type", "simple")
+        self._assert_quiet(aligned)
+        self.assertEqual(aligned.returncode, 0)
+        (self.repo / "docs/current-work.md").unlink()
+        drifted = self._run_with_stdout_closed("--check", str(self.repo), "--type", "simple")
+        self._assert_quiet(drifted)
+        self.assertEqual(drifted.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

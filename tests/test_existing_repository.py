@@ -3307,5 +3307,114 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("refused  AGENTS.md", result.stdout)
 
 
+# Finding A-04: text under a duplicated generated heading was dropped by a rebuild.
+class AgentsDuplicateHeadingTests(unittest.TestCase):
+    RULE = "Local commit rule hidden in a duplicate section."
+    DUPLICATE = f"## Commits\n\n{RULE}\n\n"
+    ROW = ("local", "(duplicate generated heading: ## Commits)")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render()
+
+    def _commit(self, agents):
+        (self.repo / "AGENTS.md").write_text(agents)
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+
+    def _duplicated(self):
+        agents = self.files["AGENTS.md"].replace("\n## Branches\n", "\n" + self.DUPLICATE + "## Branches\n", 1)
+        self.assertNotEqual(agents, self.files["AGENTS.md"])
+        return agents
+
+    def test_check_reports_the_duplicate_as_local(self):
+        agents = self._duplicated()
+        self._commit(agents)
+        report = bootstrap.compare_repository(self.repo, self.files)
+        status, rows = report["AGENTS.md"]
+        self.assertEqual(status, "differs")
+        self.assertIn(("differs", "## Commits"), rows)
+        self.assertIn(("differs", "(order of generated sections)"), rows)
+        self.assertIn(self.ROW, rows)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            aligned = bootstrap.print_repository_report(self.repo, {"repo_type": "python"}, report)
+        self.assertFalse(aligned)
+        self.assertIn(
+            "      local    (duplicate generated heading: ## Commits)  \u2192 move under ## Project specifics\n",
+            output.getvalue(),
+        )
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_adopt_refuses_the_rebuild_with_and_without_replacing_generated_sections(self):
+        agents = self._duplicated()
+        self._commit(agents)
+        for replace_generated in (False, True):
+            with self.subTest(replace_generated=replace_generated), \
+                    unittest.mock.patch.object(bootstrap, "rebuild_agents", side_effect=AssertionError("rebuilt")):
+                actions = bootstrap.adopt_repository(
+                    self.repo, self.files, replace_generated=replace_generated, confirm=lambda _: True,
+                )
+                action, _, detail = next(a for a in actions if a[1] == "AGENTS.md")
+                self.assertEqual(action, "refused")
+                self.assertIn("fix this structure, or move it under ## Project specifics, first", detail)
+                self.assertIn(self.ROW[1], detail)
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_command_line_adopt_exits_1_and_keeps_the_file(self):
+        agents = self._duplicated()
+        self._commit(agents)
+        for flags in ((), ("--replace-generated-sections",)):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo),
+                     "--type", "python", "--non-interactive", *flags],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("refused  AGENTS.md", result.stdout)
+                self.assertIn(self.ROW[1], result.stdout)
+                self.assertNotIn("updated  AGENTS.md", result.stdout)
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
+    def test_moving_the_duplicate_under_project_specifics_lets_the_rebuild_run(self):
+        generated, owned = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        # The file also lacks a generated section, so there is something to rebuild.
+        start = generated.index("## Preservation and destructive operations")
+        end = generated.index("## Definition of done")
+        agents = generated[:start] + generated[end:] + owned + f"\n### Moved\n\n{self.RULE}\n"
+        self.assertNotIn(self.ROW, bootstrap.compare_agents(self.files["AGENTS.md"], agents))
+        self._commit(agents)
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
+        rebuilt = (self.repo / "AGENTS.md").read_text()
+        self.assertIn(self.RULE, rebuilt)
+        self.assertEqual(rebuilt.count("\n## Commits\n"), 1)
+
+    def test_a_file_without_a_duplicate_still_rebuilds(self):
+        generated, owned = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        edited = generated.replace("## Commits\n\n", "## Commits\n\nLocal edit.\n\n", 1)
+        self.assertNotEqual(edited, generated)
+        self._commit(edited + owned)
+        rows = bootstrap.compare_agents(self.files["AGENTS.md"], edited + owned)
+        self.assertIn(("differs", "## Commits"), rows)
+        self.assertFalse([row for row in rows if row[0] == "local"], rows)
+        actions = bootstrap.adopt_repository(self.repo, self.files, replace_generated=True, confirm=lambda _: True)
+        action, _, detail = next(a for a in actions if a[1] == "AGENTS.md")
+        self.assertEqual(action, "updated")
+        self.assertIn("replaced: ## Commits", detail)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), self.files["AGENTS.md"])
+
+    def test_no_repository_type_renders_a_duplicate_generated_heading(self):
+        for repo_type in bootstrap.TEMPLATE_SKILLS:
+            with self.subTest(repo_type):
+                agents = _render(repo_type)["AGENTS.md"]
+                self.assertEqual({status for status, _ in bootstrap.compare_agents(agents, agents)}, {"same"})
+
+
 if __name__ == "__main__":
     unittest.main()

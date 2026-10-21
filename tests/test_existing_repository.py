@@ -344,6 +344,13 @@ def _render(repo_type="python", name="sample", screenshots=False):
     )
 
 
+def _keeping_block(agents: str, original: str) -> str:
+    """The rendered AGENTS.md with `original`'s `next dev` block, which --adopt keeps."""
+    return agents.replace(
+        bootstrap._nextjs_rules_block(agents), bootstrap._nextjs_rules_block(original), 1
+    )
+
+
 def _git(repo: Path, *args):
     subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -586,7 +593,9 @@ class ExistingRepositoryTests(unittest.TestCase):
         actions = bootstrap.adopt_repository(self.repo, files, True)
         self.assertEqual(next(a for a in actions if a[1] == "AGENTS.md")[0], "updated")
         result = (self.repo / "AGENTS.md").read_text()
-        self.assertEqual(result, files["AGENTS.md"] + "\n" + mine)
+        # The block is the repository's own, so its level-1 heading stays.
+        self.assertIn("\n# This is NOT the Next.js you know\n", result)
+        self.assertEqual(result, _keeping_block(files["AGENTS.md"], original) + "\n" + mine)
 
     def _main(self, *args):
         """Run bootstrap.main() with these arguments; return (exit code, stdout)."""
@@ -648,7 +657,10 @@ class ExistingRepositoryTests(unittest.TestCase):
         for rel in (skill, doc):
             self.assertEqual((self.repo / rel).read_text(), expected[rel])
         self.assertTrue((self.repo / ".claude/skills/screenshot-review").is_symlink())
-        self.assertEqual((self.repo / "AGENTS.md").read_text(), expected["AGENTS.md"] + "\n" + mine)
+        self.assertEqual(
+            (self.repo / "AGENTS.md").read_text(),
+            _keeping_block(expected["AGENTS.md"], _AGENTS_0_11_1_NEXTJS) + "\n" + mine,
+        )
         code, out = self._main("--check", str(self.repo), "--type", "nextjs")
         self.assertEqual(code, 0, out)
         self.assertIn(notice, out)
@@ -747,7 +759,9 @@ class ExistingRepositoryTests(unittest.TestCase):
         for rel in (*bootstrap.SCREENSHOT_FILES, ".claude/skills/screenshot-review"):
             self.assertFalse(os.path.lexists(self.repo / rel), rel)
         agents = (self.repo / "AGENTS.md").read_text()
-        self.assertEqual(agents, _render("nextjs")["AGENTS.md"] + "\n" + mine)
+        self.assertEqual(
+            agents, _keeping_block(_render("nextjs")["AGENTS.md"], _AGENTS_0_11_1_NEXTJS) + "\n" + mine
+        )
         self.assertNotIn("`screenshot-review`", agents)
         code, out = self._main("--check", str(self.repo), "--type", "nextjs")
         self.assertEqual(code, 0, out)
@@ -764,7 +778,10 @@ class ExistingRepositoryTests(unittest.TestCase):
             self.assertEqual((self.repo / rel).read_text(), expected[rel])
         self.assertEqual(os.readlink(self.repo / ".claude/skills/screenshot-review"),
                          "../../.agents/skills/screenshot-review")
-        self.assertEqual((self.repo / "AGENTS.md").read_text(), expected["AGENTS.md"] + "\n" + mine)
+        self.assertEqual(
+            (self.repo / "AGENTS.md").read_text(),
+            _keeping_block(expected["AGENTS.md"], _AGENTS_0_11_1_NEXTJS) + "\n" + mine,
+        )
 
     def test_existing_repository_config_detects_screenshot_files(self):
         def config(*args):
@@ -4724,6 +4741,57 @@ class AgentsDuplicateHeadingTests(unittest.TestCase):
             with self.subTest(repo_type):
                 agents = _render(repo_type)["AGENTS.md"]
                 self.assertEqual({status for status, _ in bootstrap.compare_agents(agents, agents)}, {"same"})
+
+
+class NextjsAgentRulesBlockTests(unittest.TestCase):
+    # What `next dev` writes into AGENTS.md: buildAgentRulesBlock() in
+    # dist/server/lib/generate-agent-files.js of next@16.4.0 to 16.4.2 and
+    # 16.5.0-canary.21 (https://unpkg.com/next@16.4.2/dist/server/lib/generate-agent-files.js,
+    # checked 2026-10-22). Next.js 16.3.x (16.3.8 is the last) writes the same
+    # text with a level-1 heading. `next dev` rewrites any block that differs
+    # by a character, so the template carries the text verbatim.
+    BLOCK = (
+        "<!-- BEGIN:nextjs-agent-rules -->\n\n"
+        "## This is NOT the Next.js you know\n\n"
+        "This version has breaking changes \u2014 APIs, conventions, and file structure may all "
+        "differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` "
+        "(resolved from this file's directory; in monorepos the `next` package may not be visible "
+        "from the repo root) before writing any code. Heed deprecation notices.\n\n"
+        "This block is written and re-added by `next dev` \u2014 verify at "
+        "`node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only "
+        "re-creates the uncommitted change; committing it with your work keeps the tree clean.\n\n"
+        "<!-- END:nextjs-agent-rules -->"
+    )
+    BLOCK_16_3 = BLOCK.replace("\n## This is NOT", "\n# This is NOT", 1)
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+
+    def test_the_template_block_is_the_text_next_16_4_writes(self):
+        self.assertNotEqual(self.BLOCK, self.BLOCK_16_3)
+        for screenshots in (False, True):
+            with self.subTest(screenshots=screenshots):
+                agents = _render("nextjs", screenshots=screenshots)["AGENTS.md"]
+                self.assertEqual(bootstrap._nextjs_rules_block(agents), self.BLOCK)
+                self.assertTrue(agents.startswith(self.BLOCK + "\n\n# This project uses the App Router\n"))
+
+    def test_a_block_with_the_16_3_heading_is_not_compared_or_rewritten(self):
+        files = _render("nextjs")
+        mine = files["AGENTS.md"].replace(self.BLOCK, self.BLOCK_16_3, 1)
+        self.assertNotEqual(mine, files["AGENTS.md"])
+        rows = bootstrap.compare_agents(files["AGENTS.md"], mine)
+        self.assertTrue(all(status == "same" for status, _ in rows), rows)
+        self.assertEqual(bootstrap.rebuild_agents(files["AGENTS.md"], mine), mine)
+        (self.repo / "AGENTS.md").write_text(mine)
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)["AGENTS.md"][0], "same")
+        bootstrap.adopt_repository(self.repo, files)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), mine)
 
 
 if __name__ == "__main__":

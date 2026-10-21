@@ -968,7 +968,7 @@ def check_template_stamps(label: str, cfg: dict, files: dict) -> list:
             if bootstrap._passed_inputs(bootstrap.read_stamp(files[path], True)[1]) is None:
                 errors.append(
                     f"[{label}] template-owned {path} is outside the YAML subset bootstrap.py reads, "
-                    f"so --adopt could not check the inputs it passes"
+                    f"so --adopt could not check the inputs it passes{bootstrap._outside_subset_note(files[path])}"
                 )
             if tolerant != real:
                 errors.append(
@@ -4054,6 +4054,22 @@ def _structure_self_tests() -> list:
     )
     expect("script text that looks like a pinned action",
            check_template_stamps("self-test:pins", owned_cfg, owned), "differ from its action references")
+
+    # A quoted item in a flow sequence stays inside the YAML subset bootstrap.py
+    # reads; one with a quote of its own does not, and the error names its line
+    # in the generated file (the stamp is line 1).
+    for name, flow, refused in (
+        ("quoted flow sequence items", '["3.11", \'3.12\']', False),
+        ("quoted flow sequence item with a quote inside", "['it''s', \"3.12\"]", True),
+    ):
+        matrix = body + f"  extra:\n    strategy:\n      matrix:\n        version: {flow}\n"
+        owned[release_path] = bootstrap.stamp(
+            matrix, is_yaml=True, template=bootstrap.stamp_template(owned[release_path]),
+        )
+        expect(
+            name, check_template_stamps("self-test:flow", owned_cfg, owned),
+            f"(line {len(matrix.splitlines()) + 1} is outside the YAML subset: " if refused else None,
+        )
 
     # Workflow gates: each executable gate fails when broken.
     def gates(repo_type, path=None, change=None, text=None):

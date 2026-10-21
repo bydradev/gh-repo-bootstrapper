@@ -485,9 +485,21 @@ screenshot-review skill or doc counts as not using screenshot review, so
 `--adopt` refuses its `AGENTS.md`, and with `--replace-generated-sections`
 takes the skill's row and pointer out of the hub. The same holds for an
 edited, stamped screenshot-review skill or doc that you delete to regenerate.
-`--check` shows the local changes as a diff against the nearest released body.
-The diff needs the bootstrapper's git release tags; from a copy without them,
-`--check` prints a notice and skips it.
+`--check` shows the local changes as a diff against the nearest body: for an
+unstamped doc, one a release through v0.6.0 shipped; for an unstamped workflow,
+one any release shipped or today's template, so a workflow forked from a later
+template doesn't show that template's own later changes as the repository's.
+A workflow's diff header names its base, such as
+`legacy/v0.11.0/.github/workflows/release-please.yml` (the first release that
+shipped the body) or `current/.github/workflows/release-please.yml`; a body
+from another type's template is named by its template file, such as
+`legacy/v0.12.0/templates/release-please-gated.yml`. A copy that equals its base
+apart from the missing stamp is reported as that, and as one to check `--type`
+for when the base is another type's. The diff needs the bootstrapper's git
+release tags; from a copy without them, or for a workflow from a shallow clone
+or one with no tag through v0.8.1, `--check` prints a notice and skips it,
+since the few releases such a clone holds could name a base later than the one
+the workflow was forked from.
 
 ### Checking and adopting
 
@@ -623,6 +635,24 @@ writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.16.1
+
+The diff `--check` prints for an unstamped, locally modified
+`pr-title-check.yml`, `release-please.yml` or `baseline-review.yml` now picks
+its base from the body of every release and from today's template, not only
+the releases through v0.8.1, and names it in the header, such as
+`legacy/v0.12.0/.github/workflows/release-please.yml`,
+`current/.github/workflows/release-please.yml` or, for another type's template,
+`legacy/v0.12.0/templates/release-please-gated.yml`. A workflow forked from a
+later template used to show that template's own later changes, such as
+`queue: max` or the credentials check, as the repository's own additions and
+removals. A copy that equals a release body from after v0.8.1 apart from the
+missing stamp used to be diffed against an older release; `--check` now says it
+is identical to that release, and to check `--type` when the release's template
+is another type's. The state (`local-modified`) is unchanged, and `--adopt`
+still refuses these files: with that `--type` reason in the second case, and
+otherwise with `an unstamped copy of <base>; delete the file and re-run --adopt
+to write the stamped version`. From a shallow clone of the bootstrapper, or one
+with no tag through v0.8.1, `--check` prints a notice and skips this diff.
 
 `--adopt` now reads quoted items in a flow sequence of the repository's own
 `test.yml`, such as `python-version: ["3.11", "3.12"]`,

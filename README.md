@@ -698,6 +698,21 @@ stops with an error
 ([ESLint v9.0.0 release notes](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/),
 "Running eslint with no file arguments", checked 2026-10-22).
 
+The `nextjs` template's `next dev` block in `AGENTS.md` now matches Next.js
+16.4: its heading is `## This is NOT the Next.js you know`, where 16.3 wrote
+`# This is NOT the Next.js you know`, and the two paragraphs are unchanged.
+`--adopt` brings nothing here: the block is inside the `next dev` markers, which
+`--check` does not compare and `--adopt` does not rewrite, so an existing
+repository keeps its own block. It gets the new heading from the next `next dev`
+run under an AI coding agent on Next.js 16.4 or later (`syncAgentRulesForDev` in
+`dist/server/lib/app-info-log.js` writes the block only when it detects one, and
+removes it instead when `next.config` sets `agentRules: false`; checked in 16.4.2
+on 2026-10-22), as one changed line to commit with your work. A
+repository that stays on Next.js 16.3 sees the reverse once: its `next dev`
+rewrites a block taken from this release to the level-1 heading. `--adopt` still
+restores the template's block in a repository whose `AGENTS.md` has none. There
+is nothing to merge by hand.
+
 ### Upgrading to 0.16.1
 
 `--check` and `--adopt` now name the cause in four cases that gave a symptom or
@@ -1140,6 +1155,16 @@ application supplies its own package scripts, which must include a `lint`
 script that runs `eslint --max-warnings=0` (see
 [Next.js npm-script assumptions](#nextjs-npm-script-assumptions)), and any
 application-owned release-triggered deployment workflow.
+
+The `next dev` block at the top of `AGENTS.md` is the text Next.js 16.4.0 to
+16.4.2 writes, under `## This is NOT the Next.js you know`; 16.3.x writes the
+same two paragraphs under a level-1 heading. It was compared byte for byte with
+`buildAgentRulesBlock()` in `dist/server/lib/generate-agent-files.js` of the
+published `next` package on 2026-10-22 (16.4.2 was `latest`). `next dev` rewrites
+a block that differs from its own version's, but only when it detects an AI
+coding agent, so a repository on 16.3.x gets a one-line change to commit the
+next time `next dev` runs under one. Update the template's block from that file
+when a release changes it.
 
 ### `python`
 

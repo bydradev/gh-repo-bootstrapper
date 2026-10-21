@@ -1903,6 +1903,7 @@ NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
 # --adopt rewrites only LF-terminated text (_decode_for_rewrite), and a leading
 # byte-order mark hides the first heading; --check says so in one row each.
 CARRIAGE_RETURNS = "(CRLF or CR line endings; convert to LF first)"
+STRAY_CARRIAGE_RETURN = "(carriage return in a file with LF line endings; remove it first)"
 BYTE_ORDER_MARK = "(byte-order mark before the first heading; remove it first)"
 
 
@@ -2741,6 +2742,30 @@ def _seed_hold_reason(roots) -> str:
     )
 
 
+def _carriage_return_rows(rows: list, text: str) -> list:
+    """compare_agents' rows for an AGENTS.md holding carriage returns, plus one row naming them.
+
+    --adopt refuses such a file whatever its sections hold, so the report says
+    why. When no line ends in a bare LF, the file has CRLF or CR line endings
+    and every section differs from the LF template, which says nothing about
+    its text: the per-section `differs` and `same` rows give way to one row,
+    while the `missing`, `local` and `retired` rows, which stay true, remain,
+    as does the order of the generated sections. Otherwise the file ends its
+    lines with LF and a carriage return elsewhere (inside a line, or on a few
+    CRLF lines) makes only the sections holding it differ, so every row stays
+    and one row says to remove it.
+    """
+    crlf_or_cr = re.search(r"(?<!\r)\n", text) is None
+    marks = [row for row in rows if row[1] == BYTE_ORDER_MARK]
+    rest = [row for row in rows if row[1] != BYTE_ORDER_MARK]
+    if crlf_or_cr:
+        rest = [
+            (status, heading) for status, heading in rest
+            if status in ("missing", "local", "retired") or (status == "differs" and heading.startswith("("))
+        ]
+    return marks + [("differs", CARRIAGE_RETURNS if crlf_or_cr else STRAY_CARRIAGE_RETURN)] + rest
+
+
 def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     """Per-file status of an existing repository against the rendered files."""
     report = {}
@@ -2812,9 +2837,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             rows = compare_agents(expected, actual)
             aligned = all(row_status == "same" for row_status, _ in rows)
             if not aligned and "\r" in actual:
-                # --adopt refuses the file for its line endings whatever the
-                # sections hold, so one row names that instead of a row per section.
-                rows = [row for row in rows if row[1] == BYTE_ORDER_MARK] + [("differs", CARRIAGE_RETURNS)]
+                rows = _carriage_return_rows(rows, actual)
             report[rel] = ("same", None) if aligned else ("differs", rows)
         elif rel == ".gitignore":
             missing = _missing_lines(expected, actual)

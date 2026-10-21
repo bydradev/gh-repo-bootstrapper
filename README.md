@@ -539,13 +539,18 @@ repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence, a fence indented four or more columns, an HTML
 block such as a `<!-- -->` comment or `<details>`, or a
-generated heading that falls inside a code block). A file with CRLF or CR line endings, which `--adopt`
-refuses, is reported as one `differs` row naming them, not a row per section, and a leading byte-order
-mark as one `local` row; convert or remove it, then re-run. The `next dev`-managed block and everything from
-`## Project specifics` on are the repository's own and are not compared,
-except that an unedited guidance paragraph from an older template there is
-`retired`. The block must stay at the top of the file: a moved block is `local`,
-and a missing one is `missing`. Only a `## Project specifics` heading
+generated heading that falls inside a code block). A file with CRLF or CR line
+endings, which `--adopt` refuses, gets one `differs` row naming them in place of
+a `differs` row per section, and keeps its `missing`, `local` and `retired`
+rows. A carriage return in a file that otherwise ends its lines with LF, such as
+one inside a line, keeps every row and adds one `differs` row saying to remove
+it, since converting the line endings leaves it. A leading byte-order mark is
+one `local` row. Convert or remove it, then re-run. The `next dev`-managed
+block and everything from `## Project specifics` on are the repository's own
+and are not compared, except that an unedited guidance paragraph from an older
+template there is `retired`. The block must stay at the top of the file: a
+moved block is `local`, and a missing one is `missing`. Only a
+`## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,

@@ -3310,6 +3310,7 @@ class CommandLineTests(unittest.TestCase):
 # Row 1.6: findings A-12 (four refusals that did not name their cause) and A-15 (broken pipe).
 class CheckReportWordingTests(unittest.TestCase):
     CRLF_ROW = "(CRLF or CR line endings; convert to LF first)"
+    STRAY_ROW = "(carriage return in a file with LF line endings; remove it first)"
     BOM_ROW = "(byte-order mark before the first heading; remove it first)"
     SHADOWED = (
         "an unstamped file at a template skill's path; move it aside so --adopt can write the "
@@ -3384,6 +3385,74 @@ class CheckReportWordingTests(unittest.TestCase):
         crlf = self.files["AGENTS.md"] + "Ours.\r\n"
         (self.repo / "AGENTS.md").write_bytes(crlf.encode())
         self._commit("owned crlf")
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("same", None))
+
+    def test_crlf_agents_keeps_the_rows_its_line_endings_do_not_explain(self):
+        # Only the per-section `differs` rows are meaningless for CRLF text; what is missing, local or retired is not.
+        generated, owned = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        retired = sorted(bootstrap.RETIRED_SECTIONS.difference(*bootstrap._TYPE_RETIRED_SECTIONS.values()))[0]
+        cases = {
+            "no Project specifics": (
+                generated, [("differs", self.CRLF_ROW), ("missing", bootstrap.PROJECT_SPECIFICS)]
+            ),
+            "local and retired sections": (
+                generated + f"{retired}\n\nOld text.\n\n## Our local rules\n\nKeep me.\n\n" + owned,
+                [("differs", self.CRLF_ROW), ("retired", retired), ("local", "## Our local rules")],
+            ),
+        }
+        for label, (text, expected_rows) in cases.items():
+            for ending, name in (("\r\n", "CRLF"), ("\r", "CR")):
+                with self.subTest(f"{label}, {name}"):
+                    (self.repo / "AGENTS.md").write_bytes(text.replace("\n", ending).encode())
+                    self._commit(f"{label} {name}")
+                    rows = bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1]
+                    self.assertEqual([row for row in rows if row[0] != "same"], expected_rows)
+                    checked, adopted = self._check_and_adopt()
+                    self.assertIn(f"differs  {self.CRLF_ROW}\n", checked)
+                    for status, heading in expected_rows[1:]:
+                        self.assertIn(f"{status:<8} {heading}", checked)
+                    self.assertNotIn("## Development workflow", checked)
+                    self.assertIn(
+                        "refused  AGENTS.md" + self.DASH + "not LF-terminated UTF-8 text; update it by hand", adopted)
+
+    def test_crlf_agents_with_a_byte_order_mark_and_missing_sections_names_all_three(self):
+        generated, _ = bootstrap._split_project_specifics(self.files["AGENTS.md"])
+        (self.repo / "AGENTS.md").write_bytes(("\ufeff" + generated).replace("\n", "\r\n").encode())
+        self._commit("bom, crlf, no Project specifics")
+        rows = bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1]
+        self.assertEqual(
+            [row for row in rows if row[0] != "same"],
+            [("local", self.BOM_ROW), ("differs", self.CRLF_ROW), ("missing", bootstrap.PROJECT_SPECIFICS)],
+        )
+
+    def test_stray_carriage_return_keeps_the_section_rows_and_adds_one_row(self):
+        # A CR inside a line is not a line ending: a CRLF-to-LF converter leaves it, so the report must not
+        # claim line endings, and the section it sits in must still be named.
+        text = self.files["AGENTS.md"]
+        self.assertIn("Check status and read", text)
+        stray = text.replace("Check status and read", "Check status\rand read", 1)
+        mixed = text.replace("\n", "\r\n", 5)  # a few CRLF lines among LF ones
+        for label, content in {"inside a line": stray, "a few CRLF lines": mixed}.items():
+            with self.subTest(label):
+                (self.repo / "AGENTS.md").write_bytes(content.encode())
+                self._commit(label)
+                rows = bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1]
+                self.assertEqual(rows[0], ("differs", self.STRAY_ROW))
+                self.assertNotIn(("differs", self.CRLF_ROW), rows)
+                self.assertIn(("differs", "## Development workflow"), rows)
+                checked, adopted = self._check_and_adopt()
+                self.assertIn(f"differs  {self.STRAY_ROW}\n", checked)
+                self.assertIn("differs  ## Development workflow\n", checked)
+                self.assertNotIn("CRLF or CR", checked)
+                self.assertIn(
+                    "refused  AGENTS.md" + self.DASH + "not LF-terminated UTF-8 text; update it by hand", adopted)
+        # Converting CRLF to LF leaves the stray character, and the row stays until it is removed.
+        (self.repo / "AGENTS.md").write_bytes(stray.replace("\r\n", "\n").encode())
+        self._commit("converted")
+        self.assertEqual(
+            bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1][0], ("differs", self.STRAY_ROW))
+        (self.repo / "AGENTS.md").write_bytes(stray.replace("\r", " ").encode())
+        self._commit("removed")
         self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("same", None))
 
     def test_compare_agents_keeps_every_row_for_crlf_text_so_a_rebuild_still_refuses(self):

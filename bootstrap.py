@@ -2996,7 +2996,12 @@ def _open_parent(repo_dir: Path, rel: str, create: bool, created: list = None) -
 
 
 def _remove_empty_dirs(repo_dir: Path, created: list) -> None:
-    """Best-effort removal of directories this run created, deepest first."""
+    """Best-effort removal of directories this run left empty, deepest first.
+
+    These are directories it created, or whose last file it deleted. The list
+    holds parents before children, and only empty directories go: a directory
+    that still holds anything, or is a symlink, is left as it is.
+    """
     for rel_dir in reversed(created):
         try:
             parent = _open_parent(repo_dir, rel_dir, create=False)
@@ -3096,7 +3101,8 @@ def adopt_repository(
 
     Writes missing generated files and mirrors, upgrades stale template-owned
     files and unchanged copies of the repository-owned seed scripts (see
-    _seed_actions), and deletes digest-valid orphaned template-owned files. Locally
+    _seed_actions), and deletes digest-valid orphaned template-owned files that git
+    tracks with no uncommitted change. Locally
     modified or shadowed owned files and ignored paths are refused. Other
     existing files are kept, except that AGENTS.md is rebuilt while keeping
     `## Project specifics` and the `next dev` block. That rewrite needs the
@@ -3143,7 +3149,41 @@ def adopt_repository(
             action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
         if action:
             actions.append(action)
+    actions.extend(_adopt_emptied_skills(repo_dir, actions, report, mirrors))
     return actions
+
+
+def _adopt_emptied_skills(repo_dir: Path, actions: list, report: dict, mirrors: dict) -> list:
+    """Clear what deleting orphaned skill files left behind: emptied folders,
+    then the `.claude/skills` mirrors that point at a folder that is gone.
+
+    The mirrors were judged before the deletion, while their folder still
+    existed, so they are looked at again, and only ones the scan did not
+    already report are added.
+    """
+    folders = sorted({
+        folder.as_posix()
+        for action, rel, _ in actions
+        if action == "deleted" and rel.startswith(".agents/skills/")
+        for folder in Path(rel).parents
+        if len(folder.parts) > 2
+    })
+    if not folders:
+        return []
+    _remove_empty_dirs(repo_dir, folders)
+    try:
+        dangling = _dangling_mirrors(repo_dir, mirrors)
+    except OSError as exc:
+        return [("refused", ".claude/skills", f"{type(exc).__name__}: {exc.strerror or exc}")]
+    rows = []
+    for rel, (status, _) in sorted(dangling.items()):
+        if status != "dangling" or rel in report:
+            continue
+        try:
+            rows.append(_adopt_dangling_mirror(repo_dir, rel))
+        except OSError as exc:
+            rows.append(("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}"))
+    return rows
 
 
 def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
@@ -3274,7 +3314,8 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
     name = Path(rel).name
     if _git_ignored(repo_dir, rel):
         return ("refused", rel, "ignored by git; not deleted")
-    if _git_file_state(repo_dir, rel) == "dirty":
+    state = _git_file_state(repo_dir, rel)
+    if state not in ("clean", "untracked"):
         return ("refused", rel, "dangling mirror has uncommitted or staged changes; not deleted")
     parent = _open_parent(repo_dir, rel, create=False)
     try:
@@ -3286,6 +3327,9 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
             return ("refused", rel, f"symlink to {target} is not a skill mirror; remove it by hand")
         if not _target_missing(repo_dir / ".agents/skills" / name):
             return ("refused", rel, "its skill folder exists or cannot be checked; not deleted")
+        if state == "untracked":
+            # Judged after the shape, so "commit it" is only advised for a real mirror.
+            return ("refused", rel, "dangling mirror is not tracked by git; not deleted")
         after = os.stat(name, dir_fd=parent, follow_symlinks=False)
         if (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino):
             return ("refused", rel, "changed while --adopt was running")
@@ -3369,7 +3413,11 @@ def _adopt_file(
             if status == "orphaned":
                 if _git_ignored(repo_dir, rel):
                     return ("refused", rel, "ignored by git; not deleted")
-                if _git_file_state(repo_dir, rel) == "dirty":
+                state = _git_file_state(repo_dir, rel)
+                if state == "untracked":
+                    # Nothing committed to recover it from, also outside a git repository.
+                    return ("refused", rel, "orphaned file is not tracked by git; not deleted")
+                if state != "clean":
                     return ("refused", rel, "orphaned file has uncommitted or staged changes; not deleted")
                 try:
                     current = raw.decode("utf-8")

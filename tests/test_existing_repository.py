@@ -3307,5 +3307,215 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("refused  AGENTS.md", result.stdout)
 
 
+class AdoptOrphanTrackingTests(unittest.TestCase):
+    # A-03 and A-11 of the 2026-10-21 assessment: --adopt deleted an orphaned
+    # file git does not track, and left an emptied skill folder and its mirror.
+    ORPHAN = ".claude/agents/old-reviewer.md"
+    SKILL = ".agents/skills/old/SKILL.md"
+    MIRROR = ".claude/skills/old"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render()
+
+    def _write(self, rel, text):
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def _commit_all(self):
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "--allow-empty", "-m", "init")
+
+    def _rows(self):
+        return {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, self.files)}
+
+    def _orphan_skill_with_mirror(self):
+        self._write(self.SKILL, bootstrap.stamp("# Old\n"))
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+
+    def test_untracked_orphan_is_refused(self):
+        self._commit_all()
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.ORPHAN][0], "orphaned")
+        action, detail = self._rows()[self.ORPHAN]
+        self.assertEqual(action, "refused")
+        self.assertIn("not tracked by git", detail)
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_untracked_orphan_makes_the_command_exit_1_and_keeps_the_file(self):
+        bootstrap.adopt_repository(self.repo, self.files)
+        self._commit_all()
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        result = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--adopt", str(self.repo),
+             "--type", "python", "--non-interactive"], capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertRegex(result.stdout, rf"refused\s+{re.escape(self.ORPHAN)}")
+        self.assertNotRegex(result.stdout, r"(?m)^\s*deleted ")
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_orphan_outside_a_git_repository_is_refused(self):
+        if bootstrap._has_git_marker(self.repo):
+            self.skipTest("the temporary directory sits inside a git repository")
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        action, detail = self._rows()[self.ORPHAN]
+        self.assertEqual(action, "refused")
+        self.assertIn("not tracked by git", detail)
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_orphan_added_to_the_index_but_not_committed_is_refused(self):
+        self._commit_all()
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        _git(self.repo, "add", self.ORPHAN)
+        action, detail = self._rows()[self.ORPHAN]
+        self.assertEqual(action, "refused")
+        self.assertIn("uncommitted or staged", detail)
+        self.assertTrue((self.repo / self.ORPHAN).is_file())
+
+    def test_tracked_clean_orphan_is_still_deleted(self):
+        self._write(self.ORPHAN, self.files[".claude/agents/fresh-eyes-reviewer.md"])
+        self._commit_all()
+        self.assertEqual(self._rows()[self.ORPHAN][0], "deleted")
+        self.assertFalse((self.repo / self.ORPHAN).exists())
+
+    def test_untracked_dangling_mirror_is_refused(self):
+        self._commit_all()
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+        action, detail = self._rows()[self.MIRROR]
+        self.assertEqual(action, "refused")
+        self.assertIn("not tracked by git", detail)
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_deleting_an_orphaned_skill_removes_its_folder_and_mirror_in_one_run(self):
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertEqual(rows[self.MIRROR][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+        self.assertFalse(os.path.lexists(self.repo / self.MIRROR))
+        report = bootstrap.compare_repository(self.repo, self.files)
+        self.assertEqual({rel for rel, (status, _) in report.items() if status in ("orphaned", "dangling")}, set())
+
+    def test_nested_orphaned_skill_removes_every_emptied_folder(self):
+        nested = ".agents/skills/old/nested/SKILL.md"
+        self._write(nested, bootstrap.stamp("# Old\n"))
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[nested][0], "deleted")
+        self.assertEqual(rows[self.MIRROR][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+
+    def test_skill_folder_that_still_holds_files_keeps_its_folder_and_mirror(self):
+        self._orphan_skill_with_mirror()
+        self._write(".agents/skills/old/notes.md", "Repository notes.\n")
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertNotIn(self.MIRROR, rows)
+        self.assertEqual((self.repo / ".agents/skills/old/notes.md").read_text(), "Repository notes.\n")
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_untracked_mirror_of_a_deleted_orphaned_skill_is_refused_not_deleted(self):
+        self._write(self.SKILL, bootstrap.stamp("# Old\n"))
+        self._commit_all()
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / self.MIRROR).symlink_to("../../.agents/skills/old")
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+        self.assertEqual(rows[self.MIRROR][0], "refused")
+        self.assertIn("not tracked by git", rows[self.MIRROR][1])
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_refused_orphaned_skill_keeps_its_folder_and_mirror(self):
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        self._write(self.SKILL, bootstrap.stamp("# Old\n") + "Local edit.\n")
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "refused")
+        self.assertNotIn(self.MIRROR, rows)
+        self.assertTrue((self.repo / self.SKILL).is_file())
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_untracked_symlink_that_is_not_a_mirror_keeps_its_shape_refusal(self):
+        self._commit_all()
+        (self.repo / ".claude/skills").mkdir(parents=True)
+        (self.repo / ".claude/skills/elsewhere").symlink_to("../../no/such/place")
+        action, detail = self._rows()[".claude/skills/elsewhere"]
+        self.assertEqual(action, "refused")
+        self.assertIn("is not a skill mirror", detail)
+        self.assertTrue((self.repo / ".claude/skills/elsewhere").is_symlink())
+
+    def _snapshot(self):
+        """Every path under the repository except .git, links not followed."""
+        found = set()
+        for directory, dirs, names in os.walk(self.repo):
+            dirs[:] = [d for d in dirs if d != ".git"]
+            found.update(Path(directory, name).relative_to(self.repo).as_posix() for name in dirs + names)
+        return found
+
+    def test_cleanup_leaves_empty_directories_this_run_did_not_empty(self):
+        self._orphan_skill_with_mirror()
+        mine = self.repo / ".agents/skills/mine-empty"
+        mine.mkdir(parents=True)
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertFalse((self.repo / ".agents/skills/old").exists())
+        self.assertTrue(mine.is_dir())
+        self.assertNotIn(".agents/skills/mine-empty", rows)
+
+    def test_orphaned_skill_folder_holding_an_empty_directory_is_kept_with_its_mirror(self):
+        self._orphan_skill_with_mirror()
+        (self.repo / ".agents/skills/old/references").mkdir()
+        self._commit_all()
+        rows = self._rows()
+        self.assertEqual(rows[self.SKILL][0], "deleted")
+        self.assertNotIn(self.MIRROR, rows)
+        self.assertTrue((self.repo / ".agents/skills/old/references").is_dir())
+        self.assertTrue((self.repo / self.MIRROR).is_symlink())
+
+    def test_cleanup_never_removes_a_directory_through_a_symlink(self):
+        outside = Path(self._tmp.name) / "outside"
+        (outside / "skills/old").mkdir(parents=True)
+        deleted = [("deleted", self.SKILL, "")]
+        with self.subTest("symlinked skill folder"):
+            (self.repo / ".agents/skills").mkdir(parents=True)
+            (self.repo / ".agents/skills/old").symlink_to(outside / "skills/old")
+            self.assertEqual(bootstrap._adopt_emptied_skills(self.repo, deleted, {}, {}), [])
+            self.assertTrue((self.repo / ".agents/skills/old").is_symlink())
+            self.assertTrue((outside / "skills/old").is_dir())
+        with self.subTest("symlinked parent"):
+            shutil.rmtree(self.repo / ".agents")
+            (self.repo / ".agents").symlink_to(outside)
+            self.assertEqual(bootstrap._adopt_emptied_skills(self.repo, deleted, {}, {}), [])
+            self.assertTrue((self.repo / ".agents").is_symlink())
+            self.assertTrue((outside / "skills/old").is_dir())
+
+    def test_check_leaves_an_orphaned_skill_its_folder_and_mirror(self):
+        self._orphan_skill_with_mirror()
+        self._commit_all()
+        before = self._snapshot()
+        result = subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), "--check", str(self.repo), "--type", "python"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("orphaned", result.stdout)
+        self.assertEqual(self._snapshot(), before)
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.SKILL][0], "orphaned")
+
+
 if __name__ == "__main__":
     unittest.main()

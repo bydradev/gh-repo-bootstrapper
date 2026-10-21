@@ -3324,7 +3324,8 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
             ["git", "-C", str(Path(bootstrap.__file__).parent), "show", f"{tag}:templates/{name}"],
             capture_output=True, text=True, encoding="utf-8",
         )
-        if result.returncode:
+        if result.returncode or not bootstrap._workflow_diff_tags():
+            # No tag to read, or a shallow checkout: --check skips the workflow diff there.
             self.skipTest("release tags unavailable")
         return result.stdout
 

@@ -1955,6 +1955,10 @@ def compare_agents(expected: str, actual: str) -> list:
             rows.append(("same", heading))
         else:
             rows.append(("differs", heading))
+            if len(found) > 1:
+                # A rebuild keeps one copy of the section, so the text written
+                # under the other copies would be dropped.
+                rows.append(("local", f"(duplicate generated heading: {heading})"))
             known = set(_subheadings(body))
             rows += [
                 ("local", f"{heading} › {sub}")

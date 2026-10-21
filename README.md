@@ -613,6 +613,41 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.16.1
+
+`--check` and `--adopt` now name the cause in four cases that gave a symptom or
+a raw error. No file is classified, written or refused differently, and no
+generated file changes, so there is nothing to merge by hand.
+
+- An `AGENTS.md` with CRLF or CR line endings is one `differs` row,
+  `(CRLF or CR line endings; convert to LF first)`, in place of a `differs` row
+  per generated section; its `missing`, `local` and `retired` rows stay. A
+  carriage return in an `AGENTS.md` that otherwise ends its lines with LF, such
+  as one inside a line, keeps every row and adds
+  `(carriage return in a file with LF line endings; remove it first)`, because
+  converting line endings does not remove it. `--adopt` still refuses both
+  files, with `not LF-terminated UTF-8 text; update it by hand`.
+- A byte-order mark at the start of `AGENTS.md` is one `local` row,
+  `(byte-order mark before the first heading; remove it first)`, in place of
+  `(text before the first heading)` plus a missing `# Working in this repo`.
+  The mark is set aside, so the other sections are compared normally, and
+  `--adopt` now refuses with
+  `remove the byte-order mark at the start of the file first`.
+- An unstamped file at a template skill's path, such as an empty
+  `.agents/skills/delegation/SKILL.md`, is `shadowed` with a detail saying to
+  move it aside, or to rename the skill if it is the repository's own. It had
+  no detail.
+- A directory, or a file where a folder belongs, at the path of a missing
+  template file, such as a directory named `docs/branch-protection-runbook.md`,
+  is refused with `something other than a file is at this path; move it aside`,
+  as for a seed script, instead of `FileExistsError: File exists`.
+
+`--dry-run` and `--check` also end quietly when whatever reads their output
+closes it, as `--dry-run | head -1` does. They no longer print a traceback, and
+`--dry-run` exits 0 instead of 120. `--check` keeps its exit status: 0 when
+aligned, 1 on drift. A creating run and `--adopt` are unchanged: a closed pipe
+still stops them with an error, so it cannot hide a half-finished creation.
+
 ### Upgrading to 0.16.0
 
 `nextjs`: for a row whose Dependabot alert is still open, the weekly Baseline

@@ -652,8 +652,9 @@ The `nextjs` template's `next dev` block in `AGENTS.md` now matches Next.js
 `--check` does not compare and `--adopt` does not rewrite, so an existing
 repository keeps its own block. It gets the new heading from the next `next dev`
 run under an AI coding agent on Next.js 16.4 or later (`syncAgentRulesForDev` in
-`dist/server/lib/app-info-log.js` writes the block only when it detects one;
-checked in 16.4.2 on 2026-10-22), as one changed line to commit with your work. A
+`dist/server/lib/app-info-log.js` writes the block only when it detects one, and
+removes it instead when `next.config` sets `agentRules: false`; checked in 16.4.2
+on 2026-10-22), as one changed line to commit with your work. A
 repository that stays on Next.js 16.3 sees the reverse once: its `next dev`
 rewrites a block taken from this release to the level-1 heading. `--adopt` still
 restores the template's block in a repository whose `AGENTS.md` has none. There
@@ -1105,9 +1106,10 @@ The `next dev` block at the top of `AGENTS.md` is the text Next.js 16.4.0 to
 same two paragraphs under a level-1 heading. It was compared byte for byte with
 `buildAgentRulesBlock()` in `dist/server/lib/generate-agent-files.js` of the
 published `next` package on 2026-10-22 (16.4.2 was `latest`). `next dev` rewrites
-a block that differs from its own version's by a single character, so a
-repository on another Next.js release gets a one-line change to commit. Update
-the template's block from that file when a release changes it.
+a block that differs from its own version's, but only when it detects an AI
+coding agent, so a repository on 16.3.x gets a one-line change to commit the
+next time `next dev` runs under one. Update the template's block from that file
+when a release changes it.
 
 ### `python`
 

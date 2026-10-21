@@ -621,16 +621,18 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 a raw error. No file is classified, written or refused differently, and no
 generated file changes, so there is nothing to merge by hand.
 
-- An `AGENTS.md` with CRLF or CR line endings is one `differs` row,
-  `(CRLF or CR line endings; convert to LF first)`, in place of a `differs` row
-  per generated section; its `missing`, `local` and `retired` rows and the order
-  of its generated sections stay. A file that mixes LF lines with CRLF ones
-  keeps every row and gains
+- An `AGENTS.md` whose generated sections have CRLF or CR line endings is one
+  `differs` row, `(CRLF or CR line endings; convert to LF first)`, in place of
+  a `differs` row per generated section; its `missing`, `local` and `retired`
+  rows and the order of its generated sections stay. A file that mixes LF
+  lines with CRLF ones keeps every row and gains
   `(CRLF and LF line endings mixed; convert to LF first)`. A file with LF
   lines and a carriage return inside a line gains
   `(carriage return inside a line; remove it first)`, because converting line
   endings does not remove it. `--adopt` still refuses these files, with
-  `not LF-terminated UTF-8 text; update it by hand`.
+  `not LF-terminated UTF-8 text; update it by hand`. Carriage returns only in
+  repository-owned text, such as under `## Project specifics`, still leave
+  the file `same`.
 - A byte-order mark at the start of `AGENTS.md` is one `local` row,
   `(byte-order mark before the first heading; remove it first)`, in place of
   `(text before the first heading)` and, for most types, a missing
@@ -648,7 +650,8 @@ generated file changes, so there is nothing to merge by hand.
   `NotADirectoryError: Not a directory`.
 
 `--dry-run` and `--check` also end quietly when whatever reads their output
-closes it, as `--dry-run | head -1` does. They no longer print a traceback, and
+closes it, as `--dry-run | head -1` does, and an interactive dry run does so
+while it is still asking its questions. They no longer print a traceback, and
 `--dry-run` exits 0 instead of 120. `--check` keeps its exit status: 0 when
 aligned, 1 on drift. A creating run and `--adopt` are unchanged: a closed pipe
 still ends them with an error status, so it cannot hide a failed run.

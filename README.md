@@ -643,6 +643,43 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.17.0
+
+`python`: a repository with no `pyproject.toml`, `requirements*.txt` or
+`uv.lock` used to fail its first `test.yml` run inside `actions/setup-python`,
+which throws `No file ... matched` when its pip cache has nothing to hash
+([setup-python v7.0.0 source](https://github.com/actions/setup-python/blob/5fda3b95a4ea91299a34e894583c3862153e4b97/src/cache-distributions/cache-distributor.ts),
+checked 2026-10-21). The generated `test.yml` now fails one step earlier, at
+`Require a dependency manifest`, with a message that says to add a
+`pyproject.toml` or a `requirements.txt` or `requirements-dev.txt` (an empty
+`requirements-dev.txt` is enough for a project with no dependencies). The
+generated `dependabot.yml` is now Actions-only, because Dependabot's `pip`
+updater stops with `Repo must contain a requirements.txt, setup.py, setup.cfg,
+pyproject.toml, or a Pipfile.` until a manifest exists
+([dependabot-core](https://github.com/dependabot/dependabot-core/blob/a026401a0604a43d12f04dfa4a3557ac0d5bf0bb/python/lib/dependabot/python/file_fetcher.rb),
+checked 2026-10-21), as for `rust` and `swift`. `test.yml`,
+`dependabot.yml` and `README.md` belong to the repository, so `--adopt` reports
+them as `kept` and `--check` as `differs`; take the changes by hand from the
+files in `templates/` at the `v0.17.0` tag, or accept the `differs` rows. The
+`local-validation-python` skill is template-owned, and `--adopt` brings it. A
+repository that already commits a manifest needs nothing else: the new step
+would never fail there, and its `pip` entry keeps working. One that does not
+can paste the step below between the `actions/checkout` and
+`actions/setup-python` steps of `.github/workflows/test.yml`, and delete its
+`pip` entry until it commits a manifest. In `hashFiles`, list the patterns of
+the repository's own `cache-dependency-path`, then `'**/pyproject.toml'`:
+
+```yaml
+      - name: Require a dependency manifest
+        env:
+          MANIFEST_HASH: ${{ hashFiles('**/requirements*.txt', 'pyproject.toml', 'uv.lock', '**/pyproject.toml') }}
+        run: |
+          if [ -z "$MANIFEST_HASH" ]; then
+            echo "::error::No dependency manifest. Add a pyproject.toml or a requirements.txt or requirements-dev.txt (an empty requirements-dev.txt is enough for a project with no dependencies)."
+            exit 1
+          fi
+```
+
 ### Upgrading to 0.16.1
 
 `--check` and `--adopt` now name the cause in four cases that gave a symptom or
@@ -1093,15 +1130,30 @@ CI pipeline for Python projects.
   tag a release merge whose own test run failed
 - `ci.yml`: runs the test suite on every PR
 - `test.yml`: ruff format check, ruff (lint), mypy (type check), pytest;
-  installs a uv project from `uv.lock` with `uv sync --locked`, and otherwise
+  fails with a clear error until the repository has a `pyproject.toml`, a
+  `requirements*.txt` or a `uv.lock`, the files its pip cache hashes; installs
+  a uv project from `uv.lock` with `uv sync --locked`, and otherwise
   auto-detects `requirements-dev.txt`, `requirements.txt`, or `pyproject.toml`
   with its `dev` extra and `dev` dependency group
-- `dependabot.yml`: weekly pip + GitHub Actions updates; switch `pip` to `uv`
-  once the project commits a `uv.lock`, so Dependabot updates the lockfile
+- `dependabot.yml`: weekly GitHub Actions updates only; the generated
+  `local-validation-python` skill says to add a `pip` entry once a manifest is
+  committed (and `uv` instead once `uv.lock` is), since a new repository has no
+  manifest for Dependabot to read
 - `.python-version`
 - `README.md`: project starter with a preferred `uv venv` setup and a
   standard-library `venv` alternative
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
+
+Dependabot's `pip` updater stops with `Repo must contain a requirements.txt,
+setup.py, setup.cfg, pyproject.toml, or a Pipfile.` until a manifest exists
+([dependabot-core](https://github.com/dependabot/dependabot-core/blob/a026401a0604a43d12f04dfa4a3557ac0d5bf0bb/python/lib/dependabot/python/file_fetcher.rb),
+checked 2026-10-21; GitHub's [options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)
+likewise requires a manifest or lock file for each `package-ecosystem`, checked
+2026-10-21), so a new Python repo gets the Actions-only config. After
+committing a manifest, opt in deliberately by copying the `pip` entry from
+[`templates/dependabot-python.yml`](templates/dependabot-python.yml) into
+`.github/dependabot.yml`. That file is a reference snippet; the bootstrapper
+never renders it.
 
 **Upgrading to 0.8.1:** `test.yml` now runs `ruff format --check .`, so CI
 fails on unformatted code. When you `--adopt` 0.8.1 into an existing Python

@@ -12,7 +12,12 @@
 
 The bootstrapper supplies repository automation, but deliberately does not
 choose a package layout or dependency manager. Add the application or library,
-its tests, and either `pyproject.toml` or requirements files before shipping.
+its tests, and a dependency manifest: a `pyproject.toml`, or a
+`requirements.txt` or `requirements-dev.txt` (an empty `requirements-dev.txt`
+is enough for a project with no dependencies). CI fails until one exists,
+because its pip cache needs a file to hash. Dependabot starts with GitHub
+Actions updates only; once the manifest is committed, add a `pip` entry to
+`.github/dependabot.yml` (the `local-validation-python` skill says when).
 
 ## Local development
 
@@ -30,8 +35,9 @@ After adding project dependencies, use the matching `uv` command, for example
 `uv pip install -r requirements-dev.txt` for a requirements-based project.
 
 When you commit `uv.lock`, CI installs from it with `uv sync --locked`, so run
-`uv lock` after changing `pyproject.toml`. Also change `package-ecosystem: pip`
-to `uv` in `.github/dependabot.yml`, so Dependabot updates the lockfile too.
+`uv lock` after changing `pyproject.toml`. When you add the Python entry to
+`.github/dependabot.yml`, use `package-ecosystem: uv` rather than `pip` once
+`uv.lock` is committed, so Dependabot updates the lockfile too.
 
 ### Standard-library alternative
 

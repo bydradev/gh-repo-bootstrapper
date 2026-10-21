@@ -33,6 +33,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # setup-python's pip cache key hashes the files cache-dependency-path
+      # matches below, or **/pyproject.toml when it matches none, and the
+      # action throws "No file ... matched" before the install step when
+      # neither hashes a file (actions/setup-python src/cache-distributions/
+      # pip-cache.ts, cache-distributor.ts and constants.ts at the pinned
+      # commit, checked 2026-10-21). hashFiles returns an empty string when
+      # nothing matches (docs.github.com, "Evaluate expressions in workflows
+      # and actions", checked 2026-10-21). Keep these patterns the same as
+      # the cache's.
+      - name: Require a dependency manifest
+        env:
+          MANIFEST_HASH: ${{ hashFiles('**/requirements*.txt', 'pyproject.toml', 'uv.lock', '**/pyproject.toml') }}
+        run: |
+          if [ -z "$MANIFEST_HASH" ]; then
+            echo "::error::No dependency manifest. Add a pyproject.toml or a requirements.txt or requirements-dev.txt (an empty requirements-dev.txt is enough for a project with no dependencies)."
+            exit 1
+          fi
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version

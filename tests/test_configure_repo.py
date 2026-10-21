@@ -1265,5 +1265,68 @@ class PythonToolInstallTests(unittest.TestCase):
         self.assertEqual(installed, expected)
 
 
+class PythonManifestGuardTests(unittest.TestCase):
+    """A Python repository with no manifest fails with a message that names the fix.
+
+    setup-python's pip cache throws "No file ... matched" before the install
+    step when none of its files exists, so the generated suite checks first.
+    Its Dependabot config stays Actions-only until a manifest exists, because
+    the pip updater stops without one.
+    """
+
+    GUARD = "Require a dependency manifest"
+
+    def _steps(self):
+        files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        return files, yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
+
+    def test_the_guard_comes_right_before_setup_python_and_fails_without_a_manifest(self):
+        _, steps = self._steps()
+        names = [step.get("name") or str(step.get("uses")).split("@")[0] for step in steps]
+        self.assertEqual(names[:3], ["actions/checkout", self.GUARD, "actions/setup-python"])
+        guard = steps[1]
+        self.assertNotIn("if", guard)
+        self.assertNotIn("continue-on-error", guard)
+        # GitHub renders hashFiles() to "" when nothing matches, else to a hash.
+        for label, digest, code in (("no manifest", "", 1), ("a manifest", "0" * 64, 0)):
+            with self.subTest(label):
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", guard["run"]],
+                    capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "MANIFEST_HASH": digest},
+                )
+                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                if code:
+                    self.assertTrue(result.stdout.startswith("::error::No dependency manifest."), result.stdout)
+                    for fix in ("pyproject.toml", "requirements.txt", "requirements-dev.txt"):
+                        self.assertIn(fix, result.stdout)
+                else:
+                    self.assertEqual(result.stdout, "")
+
+    def test_the_guard_hashes_the_files_the_pip_cache_does(self):
+        _, steps = self._steps()
+        expression = steps[1]["env"]["MANIFEST_HASH"]
+        match = re.fullmatch(r"\$\{\{ hashFiles\((.*)\) \}\}", expression)
+        self.assertIsNotNone(match, expression)
+        hashed = set(re.findall(r"'([^']*)'", match.group(1)))
+        cache = steps[2]["with"]
+        self.assertEqual(cache["cache"], "pip")
+        # setup-python hashes cache-dependency-path, then falls back to
+        # **/pyproject.toml when that matches no file.
+        cached = {line.strip() for line in cache["cache-dependency-path"].splitlines() if line.strip()}
+        self.assertEqual(hashed, cached | {"**/pyproject.toml"})
+
+    def test_dependabot_covers_actions_only_until_a_manifest_exists(self):
+        python = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
+        simple = bootstrap.generate_files({"name": "sample", "repo_type": "simple", "postgres": False})
+        text = python[".github/dependabot.yml"]
+        self.assertEqual(text, simple[".github/dependabot.yml"])
+        self.assertEqual(
+            [update["package-ecosystem"] for update in yaml.safe_load(text)["updates"]], ["github-actions"])
+        # The pip entry stays in the repository as a reference snippet.
+        snippet = yaml.safe_load((bootstrap.TEMPLATES_DIR / "dependabot-python.yml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [update["package-ecosystem"] for update in snippet["updates"]], ["pip", "github-actions"])
+
+
 if __name__ == "__main__":
     unittest.main()

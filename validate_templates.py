@@ -1946,6 +1946,15 @@ PYTHON_SUITE_COMMANDS = ("ruff format --check .", "ruff check .", "mypy .", "pyt
 PYTHON_TOOL_PIN_RE = re.compile(r"\b(ruff|mypy|pytest)==\d+(\.\d+)+\b")
 PYTHON_TOOL_LOOP_RE = re.compile(r"^\s*for tool in ([^;\n]+); do\s*$", re.MULTILINE)
 PYTHON_UNPINNED_INSTALL_RE = re.compile(r"pip install\b[^\n]*\b(ruff|mypy|pytest)\b(?!==)")
+PYTHON_MANIFEST_GUARD_NAME = "Require a dependency manifest"
+# setup-python's pip cache hashes cache-dependency-path, then falls back to this
+# pattern, and throws "No file ... matched" when neither hashes a file
+# (actions/setup-python src/cache-distributions/pip-cache.ts and constants.ts at
+# the pinned commit, checked 2026-10-21).
+PYTHON_CACHE_BACKUP_PATH = "**/pyproject.toml"
+PYTHON_GUARD_TEST_RE = re.compile(r'\[ -z "\$(\w+)" \]')
+HASH_FILES_CALL_RE = re.compile(r"hashFiles\(([^()]*)\)")
+QUOTED_PATTERN_RE = re.compile(r"'([^']*)'")
 PLAYWRIGHT_INSTALLS = (
     ("${{ inputs.full }}", "npx playwright install --with-deps"),
     ("${{ !inputs.full }}", "npx playwright install --with-deps chromium"),
@@ -2056,6 +2065,69 @@ def _release_credentials_errors(label: str, job) -> list:
     return errors
 
 
+def _python_manifest_guard_errors(label: str, steps: list) -> list:
+    """The Python suite stops with a clear error before its pip cache can throw.
+
+    setup-python's pip cache has no file to hash in a repository with no
+    manifest and fails the job with "No file ... matched" before the install
+    step runs, so the first push to a new repository fails with a message that
+    does not say what to add. A step after the checkout and before setup-python
+    must fail with one that does when the cache would find nothing: it hashes the same
+    files (cache-dependency-path plus the action's own fallback), so a pattern
+    added to one and not the other fails here. (The runner's hashFiles does not
+    follow symbolic links unless asked and the action's does; a manifest
+    reachable only through a link to a directory outside the checkout would
+    pass the cache and fail the guard, which a runner's checkout cannot hold.)
+    Skipped when setup-python is not asked to cache, since nothing then hashes
+    a manifest.
+    """
+    where = f"[{label}] Python test.yml"
+    steps = [step for step in steps if isinstance(step, dict)]
+    setup = next(
+        (i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/setup-python@")), None
+    )
+    options = (steps[setup].get("with") or {}) if setup is not None else {}
+    if not options.get("cache"):
+        return []
+    # Before the checkout the workspace is empty and the guard fails every run.
+    checkout = next(
+        (i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")), None
+    )
+    between = steps[checkout + 1:setup] if checkout is not None and checkout < setup else []
+    guards = [step for step in between if step.get("name") == PYTHON_MANIFEST_GUARD_NAME]
+    if len(guards) != 1:
+        return [
+            f"{where} must have exactly one step {PYTHON_MANIFEST_GUARD_NAME!r} after actions/checkout and "
+            f"before setup-python, which fails with a clear error when its pip cache has no manifest to hash"
+        ]
+    guard = guards[0]
+    errors = []
+    if "if" in guard:
+        errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must run unconditionally")
+    script = "\n".join(_executable_lines(str(guard.get("run", ""))))
+    test = PYTHON_GUARD_TEST_RE.search(script)
+    if not test or not re.search(r"(?m)^\s*exit 1\s*$", script) or "::error::" not in script:
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
+            f"and then print an ::error:: message and exit 1"
+        )
+    elif not all(word in script for word in ("pyproject.toml", "requirements")):
+        errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must say to add a pyproject.toml or requirements file")
+    expected = {
+        line.strip() for line in str(options.get("cache-dependency-path", "")).splitlines() if line.strip()
+    } | {PYTHON_CACHE_BACKUP_PATH}
+    hashed = set()
+    if test:
+        for call in HASH_FILES_CALL_RE.findall(str((guard.get("env") or {}).get(test.group(1), ""))):
+            hashed |= {p for p in QUOTED_PATTERN_RE.findall(call) if not p.startswith("--")}
+    if hashed != expected:
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must hash exactly the files the pip cache does "
+            f"(its cache-dependency-path and {PYTHON_CACHE_BACKUP_PATH}), {sorted(expected)}; got {sorted(hashed)}"
+        )
+    return errors
+
+
 def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
     """Executable gates the phrase and context checks cannot see.
 
@@ -2145,6 +2217,7 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
             elif "if" in matching[0] or matching[0].get("continue-on-error", False) is not False:
                 errors.append(f"[{label}] {repo_type} suite step {command!r} must be unconditional and blocking")
     if repo_type == "python":
+        errors += _python_manifest_guard_errors(label, (test_jobs.get("test") or {}).get("steps") or [])
         install = "\n".join(
             line
             for step in (test_jobs.get("test") or {}).get("steps") or []
@@ -4195,6 +4268,82 @@ def _structure_self_tests() -> list:
                r"( *)for tool in [^\n]*\n[^\n]*\n *done\n",
                lambda m: f"{m.group(1)}# ruff==0.16.10 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
                t, count=1)), "pinned fallback loop")
+
+    # The manifest guard stops the pip cache from throwing on a repository with
+    # nothing to hash; it must exist, come first, fail the job, and hash what
+    # the cache hashes.
+    def manifest_guard(workflow):
+        return step(workflow, "test", lambda s: s.get("name") == PYTHON_MANIFEST_GUARD_NAME)
+
+    def python_setup(workflow):
+        return step(workflow, "test", lambda s: str(s.get("uses", "")).startswith("actions/setup-python@"))
+
+    def guard_env(workflow, edit):
+        env = manifest_guard(workflow)["env"]
+        for name in env:
+            env[name] = edit(env[name])
+
+    def guard_script(workflow, edit):
+        guard = manifest_guard(workflow)
+        guard["run"] = edit(guard["run"])
+
+    def move_guard_last(workflow):
+        steps = workflow["jobs"]["test"]["steps"]
+        steps.append(steps.pop(steps.index(manifest_guard(workflow))))
+
+    def drop_cache(workflow):
+        options = python_setup(workflow)["with"]
+        options.pop("cache")
+        options.pop("cache-dependency-path")
+        workflow["jobs"]["test"]["steps"].remove(manifest_guard(workflow))
+
+    no_guard = "exactly one step 'Require a dependency manifest' after actions/checkout and before setup-python"
+
+    def move_guard_first(workflow):
+        steps = workflow["jobs"]["test"]["steps"]
+        steps.insert(0, steps.pop(steps.index(manifest_guard(workflow))))
+
+    same_files = "must hash exactly the files the pip cache does"
+    expect("python suite without the manifest guard",
+           gates("python", test, lambda w: w["jobs"]["test"]["steps"].remove(manifest_guard(w))), no_guard)
+    expect("python manifest guard after setup-python", gates("python", test, move_guard_last), no_guard)
+    expect("python manifest guard before the checkout", gates("python", test, move_guard_first), no_guard)
+    expect("python manifest guard that cannot fail",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace("exit 1", "exit 0"))),
+           "then print an ::error:: message and exit 1")
+    expect("python manifest guard that only warns",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace("::error::", "::warning::"))),
+           "then print an ::error:: message and exit 1")
+    expect("python manifest guard that tests nothing",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace('[ -z "$MANIFEST_HASH" ]', "true"))),
+           "must test an empty hash")
+    expect("python manifest guard that does not say what to add",
+           gates("python", test, lambda w: guard_script(
+               w, lambda r: r.replace("pyproject.toml", "a file").replace("requirements", "a file"))),
+           "must say to add a pyproject.toml or requirements file")
+    expect("conditional python manifest guard",
+           gates("python", test, lambda w: manifest_guard(w).update({"if": "github.event_name == 'push'"})),
+           "must run unconditionally")
+    expect("python manifest guard that never runs",
+           gates("python", test, lambda w: manifest_guard(w).update({"if": False})), "never runs")
+    expect("python manifest guard allowed to fail",
+           gates("python", test, lambda w: manifest_guard(w).update({"continue-on-error": True})),
+           "continue-on-error")
+    expect("python manifest guard missing uv.lock",
+           gates("python", test, lambda w: guard_env(w, lambda v: v.replace(", 'uv.lock'", ""))), same_files)
+    expect("python manifest guard missing the pyproject.toml fallback",
+           gates("python", test, lambda w: guard_env(w, lambda v: v.replace(", '**/pyproject.toml'", ""))), same_files)
+    expect("python manifest guard hashing a file the cache does not",
+           gates("python", test, lambda w: guard_env(w, lambda v: v.replace("'uv.lock'", "'uv.lock', 'setup.py'"))),
+           same_files)
+    expect("python cache path added without the guard",
+           gates("python", test, lambda w: python_setup(w)["with"].update(
+               {"cache-dependency-path": python_setup(w)["with"]["cache-dependency-path"] + "poetry.lock\n"})),
+           same_files)
+    expect("python manifest guard that follows symbolic links",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("hashFiles(", "hashFiles('--follow-symbolic-links', "))), None)
+    expect("python setup-python without a cache needs no guard", gates("python", test, drop_cache), None)
     expect("App token with an extra permission",
            gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(
                "actions/create-github-app-token@"))["with"].update({"permission-workflows": "write"})),

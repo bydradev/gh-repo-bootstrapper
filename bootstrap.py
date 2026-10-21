@@ -1597,7 +1597,12 @@ def generate_files(cfg: dict) -> dict:
         files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
         files[".github/workflows/ci.yml"] = _load("ci.yml")
         files[".github/workflows/test.yml"] = _load("test-python.yml")
-        files[".github/dependabot.yml"] = _load("dependabot-python.yml")
+        # Like Swift and Rust: a new Python repo has no manifest yet, and the
+        # pip updater fails with "Repo must contain a requirements.txt,
+        # setup.py, setup.cfg, pyproject.toml, or a Pipfile." until one exists.
+        # The generated local-validation-python skill says when to add it;
+        # dependabot-python.yml is the reference entry, never rendered.
+        files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
         files[".python-version"] = _load(".python-version")
 
     elif repo_type == "swift":

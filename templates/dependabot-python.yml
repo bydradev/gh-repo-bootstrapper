@@ -1,3 +1,17 @@
+# NOT RENDERED BY bootstrap.py. This is a reference snippet, not a template.
+#
+# A new Python repository has no dependency manifest yet, and a `pip` entry
+# makes Dependabot stop with "Repo must contain a requirements.txt, setup.py,
+# setup.cfg, pyproject.toml, or a Pipfile." until one exists (dependabot-core
+# python/lib/dependabot/python/file_fetcher.rb, checked 2026-10-21; GitHub's
+# Dependabot options reference says the repository must contain a manifest or
+# lock file for each package manager, checked 2026-10-21). `--type python`
+# therefore renders dependabot-actions-only.yml instead.
+#
+# Once the repository has a pyproject.toml or a requirements file, copy this
+# file over .github/dependabot.yml to opt in deliberately. Referenced from the
+# README's `python` section.
+
 version: 2
 # Keep dependencies and workflow actions current; surface advisories.
 updates:

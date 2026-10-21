@@ -89,15 +89,16 @@ call in `release-please.yml`, for its current tiers:
 
 `test.yml` runs `npm run lint` as the scaffold defines it, and the lint baseline
 requires the `lint` script in `package.json` to run `eslint --max-warnings=0`
-with unused disable directives reported, which is ESLint 9's default
-(`reportUnusedDisableDirectives: "warn"`; ESLint 8, or a config that sets it to
-`"off"`, reports none). Without the flag, a warning does not fail lint locally
+with unused disable directives reported, which is the default since ESLint 9
+(`reportUnusedDisableDirectives: "warn"`). ESLint 8 reports them only when
+asked, such as with `--report-unused-disable-directives`, and a configuration
+that sets the option to `"off"` reports none. Without the flag, a warning does not fail lint locally
 or in CI, and without the reporting, an unused `eslint-disable` directive is no
 warning at all; either way a stale baseline row only surfaces at its review
 date. `create-next-app` generates a plain `eslint` script for its ESLint
 option, so check the script and the ESLint configuration before treating a green
 lint run as proof that no stale directive remains, and add the flag to the
-script in `package.json`, so that local runs and CI agree.
+script in `package.json`, the one place both local runs and CI read.
 
 ## Worktrees
 
@@ -124,4 +125,6 @@ verification copy.
   the threshold) and rules reference (`reportUnusedDisableDirectives` defaults
   to `"warn"`), eslint.org/docs/v9.x, and the ESLint v9.0.0 release post
   ("Unused disable directives cause warnings by default", so earlier versions
-  did not), eslint.org/blog/2024/04/eslint-v9.0.0-released, checked 2026-10-22.
+  did not), eslint.org/blog/2024/04/eslint-v9.0.0-released, and ESLint
+  10.13.0's `lib/config/default-config.js` (`reportUnusedDisableDirectives: 1`,
+  that is `"warn"`), checked 2026-10-22.

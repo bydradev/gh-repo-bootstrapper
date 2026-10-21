@@ -118,11 +118,15 @@ BASELINE_DOCUMENT_REQUIREMENTS = {
         # package.json. Stating it as fact ("npm run lint runs ...") promised a
         # self-cleaning baseline that nothing provided. The flag only fails CI
         # on a stale eslint-disable directive while ESLint reports unused
-        # disable directives (ESLint 9's default, "warn"; ESLint 8 and a config
-        # that sets "off" report none), so the condition is pinned with it.
+        # disable directives (the default since ESLint 9, "warn"; ESLint 8
+        # reports them only when asked, and a config that sets "off" reports
+        # none), so the condition is pinned with it. The opening paragraph
+        # points at the policy instead of restating it, and is pinned too, so
+        # reverting it to an unconditional claim fails.
+        "mostly self-cleaning when `npm run lint` meets both requirements in the policy below",
         "`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported",
         '`reportUnusedDisableDirectives: "warn"`',
-        "without both, a stale baseline row only surfaces at its review date",
+        "without either requirement, a stale baseline row only surfaces at its review date",
         "docs/advisory-baseline.md",
         "Why this is accepted",
         "Review date",
@@ -3347,16 +3351,19 @@ def run_self_tests() -> list:
     # flag, which nothing generated provides or checks; the baseline document
     # and the README must say the scaffold has to provide it, and the baseline
     # document must say what is lost without it. The flag fails a stale
-    # directive only while ESLint reports unused disable directives (ESLint 9's
-    # default; ESLint 8 and a config that sets "off" report none), so that
-    # condition is required next to it and dropping it fails.
+    # directive only while ESLint reports unused disable directives (the
+    # default since ESLint 9; ESLint 8 reports them only when asked, and a
+    # config that sets "off" reports none), so that condition is required next
+    # to it and dropping it fails. The opening paragraph is pinned as well, so
+    # restoring its old unconditional sentence fails too.
     cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
     files = bootstrap.generate_files(dict(cfg))
     result = check_baseline_documents("self-test:max-warnings requirement", "nextjs", files)
     if result:
         errors.append(f"self-test 'max-warnings requirement' unexpectedly failed: {result}")
     requirement = "`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported"
-    consequence = "without both, a stale baseline row only surfaces at its review date"
+    consequence = "without either requirement, a stale baseline row only surfaces at its review date"
+    opening = "mostly self-cleaning when `npm run lint` meets both requirements in the policy below"
     default = '`reportUnusedDisableDirectives: "warn"`'
     baseline = " ".join(files["docs/lint-baseline.md"].split())
     for name, mutated_text, named in (
@@ -3376,6 +3383,13 @@ def run_self_tests() -> list:
             "reporting default dropped",
             baseline.replace(default, "the default"),
             (default,),
+        ),
+        (
+            "opening reverted to the unconditional sentence",
+            baseline.replace(
+                opening, "mostly self-cleaning. Because `npm run lint` runs with `--max-warnings=0`,"
+            ),
+            (opening,),
         ),
     ):
         mutated = dict(files)

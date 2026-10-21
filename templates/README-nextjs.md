@@ -16,10 +16,10 @@ instructions before shipping.
 
 The scaffold's `lint` script must run `eslint --max-warnings=0`, so that any
 warning fails `npm run lint`, and ESLint must report unused disable directives,
-which ESLint 9 does by default (`reportUnusedDisableDirectives: "warn"`). The
-[lint baseline](docs/lint-baseline.md) relies on both to fail CI on a stale
-`eslint-disable` directive; without both, a stale baseline row only surfaces at
-its review date.
+which is the default since ESLint 9 (`reportUnusedDisableDirectives: "warn"`).
+The [lint baseline](docs/lint-baseline.md) relies on both to fail CI on a stale
+`eslint-disable` directive; without either, a stale baseline row only surfaces
+at its review date.
 
 ## Local development
 

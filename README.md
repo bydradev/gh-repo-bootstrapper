@@ -129,7 +129,7 @@ One assumption is about what a script does, not only its name: `lint` must run
 `eslint --max-warnings=0`, with unused disable directives reported. The
 generated `docs/lint-baseline.md` relies on both to fail CI on an unused
 `eslint-disable` directive and calls the baseline mostly self-cleaning on that
-condition; without both, a stale baseline row only surfaces at its review date.
+condition; without either, a stale baseline row only surfaces at its review date.
 Nothing the bootstrapper generates checks either: `test.yml` runs
 `npm run lint` as the scaffold defines it, `scripts/verify-baselines.mjs` does
 not read `package.json` or the ESLint configuration, and the generated
@@ -138,14 +138,18 @@ them as requirements. `create-next-app` does not set the flag: its generated
 `lint` script is `eslint` (`create-next-app` 16.4.2, `dist/index.js`, checked
 2026-10-22), and ESLint exits with an error status on warnings only when
 `--max-warnings` is given ([ESLint v9.x command-line reference](https://eslint.org/docs/v9.x/use/command-line-interface#--max-warnings),
-checked 2026-10-22). Reporting unused directives is ESLint 9's default
+checked 2026-10-22). Reporting unused directives is the default since ESLint 9
 (`linterOptions.reportUnusedDisableDirectives` defaults to `"warn"`, [ESLint v9.x
 rules reference](https://eslint.org/docs/v9.x/use/configure/rules#report-unused-eslint-disable-comments);
 "Unused disable directives cause warnings by default" in the [ESLint v9.0.0
-release post](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/), checked
-2026-10-22), so it holds for a new `create-next-app` project, but not for
-ESLint 8 or a configuration that sets the option to `"off"`. Add the flag to the
-scaffold's `lint` script and keep the reporting on.
+release post](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/); ESLint
+10.13.0's `lib/config/default-config.js` sets `reportUnusedDisableDirectives: 1`,
+that is `"warn"`; all checked 2026-10-22), so it holds for a new
+`create-next-app` project (`eslint@^9`, and its `eslint-config-next` accepts
+`eslint >=9.0.0`). ESLint 8 reports unused directives only when asked, such as
+with `--report-unused-disable-directives`, and a configuration that sets the
+option to `"off"` reports none. Add the flag to the scaffold's `lint` script and keep the
+reporting on.
 
 The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
 configuration: a project named `chromium`, which ordinary `main` pushes run
@@ -673,18 +677,18 @@ the flag, and the `lint` script of a new `create-next-app` project with the
 ESLint option, `eslint`, does not set it, so the baseline's claim that an unused
 `eslint-disable` directive fails CI held only for a scaffold that had added the
 flag. The claim also needs ESLint to report unused disable directives, which is
-ESLint 9's default but not ESLint 8's or that of a configuration that sets
-`reportUnusedDisableDirectives` to `"off"`. The generated `README.md` and
-`docs/lint-baseline.md` now say that `npm run lint` must run
+the default since ESLint 9 but not ESLint 8's, and not that of a configuration
+that sets `reportUnusedDisableDirectives` to `"off"`. The generated `README.md`
+and `docs/lint-baseline.md` now say that `npm run lint` must run
 `eslint --max-warnings=0` with unused disable directives reported, and that
-without both a stale baseline row only surfaces at its review date; the
+without either a stale baseline row only surfaces at its review date; the
 `local-validation-nextjs` skill says the same. `--adopt` brings the skill, which
 is template-owned. The README and `docs/lint-baseline.md` belong to the
 repository, so `--adopt` reports them as `kept` and `--check` as `differs`:
 merge the wording by hand from the files in `templates/` at the `v0.17.0` tag.
 The change that matters is in your own `package.json` and ESLint configuration:
 set the `lint` script to `eslint --max-warnings=0`, keeping any other arguments
-it has, and keep unused disable directives reported (ESLint 9's default;
+it has, and keep unused disable directives reported (the default since ESLint 9;
 `--report-unused-disable-directives` or `reportUnusedDisableDirectives` on
 ESLint 8), or a stale `eslint-disable` directive and its baseline row go
 unnoticed until the row's review date.

@@ -2030,13 +2030,36 @@ def _missing_lines(expected: str, actual: str) -> list:
     ]
 
 
+def _is_symlink(path: Path) -> bool:
+    """Whether `path` is a symlink; an error other than "not there" is raised.
+
+    Path.is_symlink() raises on a permission error up to Python 3.13 but
+    returns False from 3.14, which would pass a path inside a directory that
+    cannot be searched off as absent.
+    """
+    try:
+        return stat.S_ISLNK(os.lstat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+
+
 def _symlink_in_path(repo_dir: Path, rel: str, links: dict = None) -> bool:
-    """Refuse symlinks except a declared mirror at the final component."""
+    """Refuse symlinks except a declared mirror at the final component.
+
+    Raises OSError, naming the directory, when one on the way cannot be
+    searched: callers report the path as unreadable rather than guess.
+    """
     current = repo_dir
     parts = Path(rel).parts
     for index, part in enumerate(parts):
         current = current / part
-        if current.is_symlink():
+        try:
+            linked = _is_symlink(current)
+        except OSError as exc:
+            # Every earlier component answered, so the parent is the one at fault.
+            where = current.parent.relative_to(repo_dir).as_posix()
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {where}") from exc
+        if linked:
             if links and rel in links and index == len(parts) - 1:
                 continue
             return True
@@ -2322,9 +2345,9 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     problems = []
     for rel, passed in calls.items():
         called = repo_dir / rel
-        if _symlink_in_path(repo_dir, rel) or not called.is_file():
-            continue
         try:
+            if _symlink_in_path(repo_dir, rel) or not called.is_file():
+                continue
             declared = _declared_inputs(called.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError):
             declared = _UNVERIFIABLE
@@ -2500,16 +2523,19 @@ def _symlinked_skill_collisions(repo_dir: Path, files: dict, skill_paths: dict) 
     never written, and at most SYMLINKED_SKILL_READ_LIMIT bytes of it.
     """
     base = repo_dir / ".agents/skills"
-    if _symlink_in_path(repo_dir, ".agents/skills") or not base.is_dir():
-        return {}
     try:
-        entries = sorted(os.scandir(base), key=lambda e: e.name)
+        if _symlink_in_path(repo_dir, ".agents/skills") or not base.is_dir():
+            return {}
+        # On a filesystem whose directory entries carry no file type,
+        # is_symlink() asks lstat, which fails in a folder that cannot be searched.
+        entries = [entry for entry in sorted(os.scandir(base), key=lambda e: e.name)
+                   if entry.is_symlink()]
     except OSError as exc:
         return {".agents/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
     found = {}
     for entry in entries:
         rel = f".agents/skills/{entry.name}"
-        if not entry.is_symlink() or f"{rel}/SKILL.md" in files:
+        if f"{rel}/SKILL.md" in files:
             continue
         text = _read_regular_prefix(Path(entry.path) / "SKILL.md", SYMLINKED_SKILL_READ_LIMIT)
         if text is None:
@@ -2536,16 +2562,19 @@ def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
     they are not reported.
     """
     base = repo_dir / ".claude/skills"
-    if _symlink_in_path(repo_dir, ".claude/skills") or not base.is_dir():
-        return {}
     try:
-        entries = sorted(os.scandir(base), key=lambda e: e.name)
+        if _symlink_in_path(repo_dir, ".claude/skills") or not base.is_dir():
+            return {}
+        # A declared mirror is not asked about; see _symlinked_skill_collisions
+        # for what is_symlink() can raise.
+        entries = [entry for entry in sorted(os.scandir(base), key=lambda e: e.name)
+                   if f".claude/skills/{entry.name}" not in links and entry.is_symlink()]
     except OSError as exc:
         return {".claude/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
     found = {}
     for entry in entries:
         rel = f".claude/skills/{entry.name}"
-        if rel in links or not entry.is_symlink() or not _target_missing(entry.path):
+        if not _target_missing(entry.path):
             continue
         found[rel] = ("dangling", f"symlink to {os.readlink(entry.path)}, which does not exist")
     return found
@@ -2567,11 +2596,26 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         base = repo_dir / folder
         if (folder and _symlink_in_path(repo_dir, folder)) or not base.is_dir():
             continue
-        for entry in sorted(os.listdir(base)):
+        try:
+            listing = sorted(os.listdir(base))
+        except OSError as exc:
+            # Name the folder: the row is for the template, not for the folder.
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {folder or '.'}") from exc
+        for entry in listing:
             name = Path(entry.lower())
             rel = f"{folder}/{entry}" if folder else entry
-            if (name.stem == "pull_request_template" and (base / entry).is_file()
-                    and not _git_ignored(repo_dir, rel)):
+            if name.stem != "pull_request_template":
+                continue
+            try:
+                # os.stat, not Path.is_file(): the latter answers False on a
+                # permission error from Python 3.14, which would pass a template
+                # in a folder that can be listed but not searched off as absent.
+                is_file = stat.S_ISREG(os.stat(base / entry).st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as exc:
+                raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {folder or '.'}") from exc
+            if is_file and not _git_ignored(repo_dir, rel):
                 return rel
     return None
 
@@ -2591,7 +2635,9 @@ def _pr_template_state(repo_dir: Path) -> tuple | None:
     if _symlink_in_path(repo_dir, str(Path(PR_TEMPLATE).parent)):
         return ("symlink", "a symlink in this path; not compared or written")
     ignored = _git_ignored(repo_dir, PR_TEMPLATE)
-    if not ignored and path.is_symlink():
+    # The folder is no symlink (above), so this asks only about the template,
+    # and names a folder that cannot be searched, as path.is_symlink() would not.
+    if not ignored and _symlink_in_path(repo_dir, PR_TEMPLATE):
         if not path.is_file():
             return ("symlink", "a symlink to no file here; not compared or written")
         return ("own", "the repository's own pull request template is a symlink here; not compared or written")
@@ -2621,15 +2667,30 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
     other_type = every - shared - set(skill_paths) if skill_paths else set()
     extras.update(_symlinked_skill_collisions(repo_dir, files, skill_paths))
     for base in (".agents/skills", ".claude/agents", ".opencode/agents"):
-        if _symlink_in_path(repo_dir, base):
+        try:
+            if _symlink_in_path(repo_dir, base):
+                continue
+        except OSError as exc:
+            extras[base] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
             continue
         for directory, dirs, names in os.walk(repo_dir / base, followlinks=False):
-            dirs[:] = sorted(d for d in dirs if not (Path(directory) / d).is_symlink())
+            # A directory that can be listed but not searched (r without x)
+            # answers for none of its entries: report it once, and go no deeper.
+            here = Path(directory).relative_to(repo_dir).as_posix()
+            try:
+                dirs[:] = sorted(d for d in dirs if not _is_symlink(Path(directory) / d))
+            except OSError as exc:
+                dirs[:] = []
+                extras[here] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
             for name in sorted(names):
                 path = Path(directory) / name
                 rel = path.relative_to(repo_dir).as_posix()
-                if rel in files or path.is_symlink() or not path.is_file():
-                    continue
+                try:
+                    if rel in files or _is_symlink(path) or not path.is_file():
+                        continue
+                except OSError as exc:
+                    extras[here] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+                    break
                 alias = _case_alias(repo_dir, rel, files)
                 if alias:
                     extras[rel] = (
@@ -2746,7 +2807,12 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             if state is not None:
                 report[rel] = state
                 continue
-        if _symlink_in_path(repo_dir, rel):
+        try:
+            linked = _symlink_in_path(repo_dir, rel)
+        except OSError as exc:
+            report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+            continue
+        if linked:
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
         owned = read_stamp(expected, _is_yaml(rel))[0] is not None
@@ -2828,16 +2894,19 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         )
     for rel, target in links.items():
         path = repo_dir / rel
-        if _symlink_in_path(repo_dir, rel, links):
-            report[rel] = ("symlink", "a symlink in the parent path; not compared or written")
-        elif _git_ignored(repo_dir, rel):
-            report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
-        elif path.is_symlink():
-            report[rel] = ("same", None) if os.readlink(path) == target else ("differs", "wrong mirror target")
-        elif path.exists():
-            report[rel] = ("differs", "mirror path is not a symlink")
-        else:
-            report[rel] = ("missing", None)
+        try:
+            if _symlink_in_path(repo_dir, rel, links):
+                report[rel] = ("symlink", "a symlink in the parent path; not compared or written")
+            elif _git_ignored(repo_dir, rel):
+                report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
+            elif path.is_symlink():
+                report[rel] = ("same", None) if os.readlink(path) == target else ("differs", "wrong mirror target")
+            elif path.exists():
+                report[rel] = ("differs", "mirror path is not a symlink")
+            else:
+                report[rel] = ("missing", None)
+        except OSError as exc:
+            report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
     return report
 
 
@@ -2851,9 +2920,11 @@ def _retired_section_text(repo_dir: Path, rows: list) -> dict[str, list[str]]:
     shows its text first: a repository rule added there would be lost too.
     """
     retired = {heading for row_status, heading in rows if row_status == "retired"}
-    if not retired or _symlink_in_path(repo_dir, "AGENTS.md"):
+    if not retired:
         return {}
     try:
+        if _symlink_in_path(repo_dir, "AGENTS.md"):
+            return {}
         actual = (repo_dir / "AGENTS.md").read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return {}
@@ -2895,10 +2966,14 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
         elif isinstance(detail, str):
             print(f"      {detail}")
     agents = repo_dir / "AGENTS.md"
-    if not _symlink_in_path(repo_dir, "AGENTS.md") and agents.is_file():
-        size = agents.stat().st_size
-        if size > AGENTS_SIZE_WARN_BYTES:
-            print(f"  warn AGENTS.md total {size} B > {AGENTS_SIZE_WARN_BYTES} B")
+    size = 0
+    try:
+        if not _symlink_in_path(repo_dir, "AGENTS.md") and agents.is_file():
+            size = agents.stat().st_size
+    except OSError:
+        pass  # the report above already shows AGENTS.md as unreadable
+    if size > AGENTS_SIZE_WARN_BYTES:
+        print(f"  warn AGENTS.md total {size} B > {AGENTS_SIZE_WARN_BYTES} B")
     print("\nAligned." if aligned else "\nDrift found. Review it, then run --adopt to apply what can be applied.")
     return aligned
 
@@ -3645,9 +3720,9 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     deletes either way.
     """
     path = repo_dir / rel
-    if _symlink_in_path(repo_dir, rel) or not path.is_file():
-        return False
     try:
+        if _symlink_in_path(repo_dir, rel) or not path.is_file():
+            return False
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return False

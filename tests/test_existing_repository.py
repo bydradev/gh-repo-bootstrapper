@@ -3363,7 +3363,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
                 self._assert_only_the_fork_edit(rel, body, step, f"legacy/{tag}/{rel}")
 
     def test_diff_names_the_current_template_when_the_workflow_was_forked_from_it(self):
-        if not bootstrap._release_tags():
+        if not bootstrap._workflow_diff_tags():
             self.skipTest("release tags unavailable")
         for rel in (self.RELEASE, self.PR_TITLE):
             with self.subTest(rel=rel):
@@ -3381,8 +3381,9 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         body, _ = self._fork(self._released("v0.12.0", "release-please-nextjs.yml"))
         self._commit({self.RELEASE: body})
         self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[self.RELEASE][0], "local-modified")
-        rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, self.files)}
-        self.assertEqual(rows[self.RELEASE], "refused")
+        rows = {path: (action, why) for action, path, why in bootstrap.adopt_repository(self.repo, self.files)}
+        self.assertEqual(rows[self.RELEASE][0], "refused")
+        self.assertTrue(rows[self.RELEASE][1].startswith("edited locally; move the repository's own jobs"), rows)
         self.assertEqual((self.repo / self.RELEASE).read_text(encoding="utf-8"), body)
 
     def test_diff_of_an_unedited_unstamped_release_body_says_only_the_stamp_is_missing(self):
@@ -3429,6 +3430,100 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
                         self.assertEqual(report[rel], ("local-modified", None))
                     self.assertEqual(len(errors.getvalue().splitlines()), 1, errors.getvalue())
                     self.assertIn("skipped the diff against legacy template docs", errors.getvalue())
+
+    def test_adopt_tells_an_unedited_unstamped_release_copy_to_be_deleted_and_regenerated(self):
+        body = self._released("v0.12.0", "release-please-nextjs.yml")
+        self._commit({self.RELEASE: body})
+        base = f"legacy/v0.12.0/{self.RELEASE}"
+        rows = {path: (action, why) for action, path, why in bootstrap.adopt_repository(self.repo, self.files)}
+        self.assertEqual(rows[self.RELEASE], (
+            "refused",
+            f"an unstamped copy of {base}; delete the file and re-run --adopt to write the stamped version",
+        ))
+        self.assertEqual((self.repo / self.RELEASE).read_text(encoding="utf-8"), body)
+        # The advice works: the file is missing, so --adopt writes the stamped template.
+        (self.repo / self.RELEASE).unlink()
+        rows = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, self.files)}
+        self.assertEqual(rows[self.RELEASE], "wrote")
+        self.assertEqual((self.repo / self.RELEASE).read_text(encoding="utf-8"), self.files[self.RELEASE])
+
+    def test_a_run_reads_each_release_template_once_for_workflows_and_docs(self):
+        runbook = "docs/branch-protection-runbook.md"
+        fork, _ = self._fork(self._released("v0.12.0", "release-please-nextjs.yml"))
+        self._commit({
+            self.RELEASE: fork,
+            runbook: _LEGACY_FIXTURES["sources"]["v0.5.5"]["docs-branch-protection-runbook.md"] + "\nOurs.\n",
+        })
+        docs_first = {runbook: self.files[runbook], **self.files}
+        for order, files in (("workflows first", self.files), ("docs first", docs_first)):
+            with self.subTest(order), unittest.mock.patch("subprocess.run", wraps=subprocess.run) as run:
+                report = bootstrap.compare_repository(self.repo, files)
+            shown = [tuple(call.args[0]) for call in run.call_args_list if "show" in call.args[0]]
+            # Both readers ran (each diff names its base) ...
+            self.assertTrue(report[self.RELEASE][1].startswith(f"--- legacy/v0.12.0/{self.RELEASE}"), report[self.RELEASE])
+            self.assertTrue(report[runbook][1].startswith(f"--- legacy/{runbook}"), report[runbook])
+            self.assertTrue(any(args[-1].endswith(":templates/release-please-nextjs.yml") for args in shown))
+            self.assertTrue(any(args[-1].endswith(":templates/docs-branch-protection-runbook.md") for args in shown))
+            # ... and no template was read at a tag twice.
+            repeated = sorted({args[-1] for args in shown if shown.count(args) > 1})
+            self.assertEqual(repeated, [])
+
+    def test_diff_is_skipped_with_one_notice_when_the_tags_do_not_reach_the_unstamped_releases(self):
+        body, _ = self._fork(self._released("v0.12.0", "release-please-nextjs.yml"))
+        self._commit({self.RELEASE: body})
+        tags = bootstrap._release_tags()
+        # A shallow clone has the tags it has: here every one, there only a later release.
+        for label, listed, shallow in (
+            ("shallow, every tag", tags, True),
+            ("only releases after v0.8.1", ["v0.12.0", "v0.16.0"], False),
+        ):
+            with self.subTest(label), \
+                    unittest.mock.patch.object(bootstrap, "_release_tags", return_value=listed), \
+                    unittest.mock.patch.object(bootstrap, "_shallow_checkout", return_value=shallow):
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors):
+                    report = bootstrap.compare_repository(self.repo, self.files)
+                self.assertEqual(report[self.RELEASE], ("local-modified", None))
+                self.assertEqual(len(errors.getvalue().splitlines()), 1, errors.getvalue())
+                self.assertIn("shallow or incomplete clone", errors.getvalue())
+
+    def test_diff_still_works_in_a_deep_clone_missing_a_few_old_tags(self):
+        body, step = self._fork(self._released("v0.12.0", "release-please-nextjs.yml"))
+        tags = [tag for tag in bootstrap._release_tags() if tag not in ("v0.1.0", "v0.2.0", "v0.5.0")]
+        with unittest.mock.patch.object(bootstrap, "_release_tags", return_value=tags), \
+                unittest.mock.patch.object(bootstrap, "_shallow_checkout", return_value=False):
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                self._assert_only_the_fork_edit(self.RELEASE, body, step, f"legacy/v0.12.0/{self.RELEASE}")
+        self.assertEqual(errors.getvalue(), "")
+
+    def test_check_in_a_shallow_clone_at_a_later_release_prints_the_notice_and_no_diff(self):
+        # The case for a shallow clone is real: a clone at one release has that release's tag and no earlier one,
+        # so a workflow forked from v0.12.0 would otherwise be diffed against v0.16.0 and show its changes as ours.
+        checkout = Path(bootstrap.__file__).resolve().parent
+        clone = Path(self._tmp.name) / "shallow"
+        cloned = subprocess.run(
+            ["git", "-c", "advice.detachedHead=false", "clone", "-q", "--depth", "1", "--branch", "v0.16.0",
+             checkout.as_uri(), str(clone)],
+            capture_output=True, text=True, env=bootstrap._git_env(),
+        )
+        if cloned.returncode:
+            self.skipTest("release tags unavailable")
+        # Run this checkout's bootstrapper and templates in the clone's shallow history.
+        shutil.copy2(checkout / "bootstrap.py", clone / "bootstrap.py")
+        shutil.rmtree(clone / "templates")
+        shutil.copytree(checkout / "templates", clone / "templates")
+        body, _ = self._fork(self._released("v0.12.0", "release-please-nextjs.yml"))
+        self._commit({self.RELEASE: body})
+        result = subprocess.run(
+            [sys.executable, str(clone / "bootstrap.py"), "--check", str(self.repo), "--type", "nextjs",
+             "--non-interactive"],
+            capture_output=True, text=True,
+        )
+        self.assertIn(f"local-modified {self.RELEASE}\n", result.stdout)
+        self.assertNotRegex(result.stdout, r"--- (current|legacy)/")
+        self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
+        self.assertIn("shallow or incomplete clone", result.stderr)
 
 
 if __name__ == "__main__":

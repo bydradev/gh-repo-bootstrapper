@@ -585,32 +585,79 @@ def _legacy_tags() -> list[str] | None:
     return [tag for tag in tags if _tag_version(tag) <= last]
 
 
-def _no_release_tags_notice(repo: Path) -> None:
-    print(f"notice: no git release tags in {repo}; skipped the diff against legacy template docs",
-          file=sys.stderr)
+def _shallow_checkout() -> bool:
+    """True when the bootstrapper's own checkout is a shallow clone."""
+    result = subprocess.run(
+        ["git", "-C", str(TEMPLATES_DIR.parent), "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True, check=False, env=_git_env(),
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
-def _legacy_template_bodies() -> dict[str, list[str]]:
+def _workflow_diff_tags() -> list[str]:
+    """The release tags --check can diff an unstamped workflow against, or []
+    when this copy lacks the history to name the right base.
+
+    A shallow clone at one release holds that release's tag and none before it,
+    so a fork of an earlier release would be diffed against the template's
+    later changes. The tags therefore count only when they reach the unstamped
+    releases (some tag through the last of them) and the checkout is not
+    shallow. A deep clone missing a few old tags still works.
+    """
+    tags = _release_tags()
+    if not tags or not _legacy_tags() or _shallow_checkout():
+        return []
+    return tags
+
+
+class _ReleaseReads:
+    """What one run reads from the bootstrapper's release tags: each template at
+    each tag is read once, whichever of the legacy docs and the workflow diff
+    asks first, and the notice about missing tags is printed once."""
+
+    def __init__(self):
+        self._templates = {}
+        self._noticed = False
+
+    def template(self, tag: str, name: str) -> bytes | None:
+        """templates/<name> as release `tag` shipped it; None if it did not."""
+        key = (tag, name)
+        if key not in self._templates:
+            result = subprocess.run(
+                ["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"],
+                capture_output=True, check=False, env=_git_env(),
+            )
+            self._templates[key] = result.stdout if result.returncode == 0 else None
+        return self._templates[key]
+
+    def notice(self) -> None:
+        if not self._noticed:
+            self._noticed = True
+            print(
+                f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, or a shallow "
+                "or incomplete clone); skipped the diff against legacy template docs or workflows",
+                file=sys.stderr,
+            )
+
+
+def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, list[str]]:
     """Render historical owned docs; new skills and agents have no legacy copies.
 
     Without git or release tags (a copy without .git, a shallow clone) there
     is nothing to render: a one-line notice goes to stderr and the result is
-    empty, so callers skip the legacy diff instead of failing.
+    empty, so callers skip the legacy diff instead of failing. `reads` is the
+    run's shared reader, so a template another caller read is not read again.
     """
-    repo = TEMPLATES_DIR.parent
-    env = _git_env()
+    reads = _ReleaseReads() if reads is None else reads
     refs = _legacy_tags()
     if not refs:
-        _no_release_tags_notice(repo)
+        reads.notice()
         return {}
     bodies = {}
     for ref in refs:
         def source(name, ref=ref):
-            result = subprocess.run(
-                ["git", "-C", str(repo), "show", f"{ref}:templates/{name}"],
-                capture_output=True, check=False, env=env,
-            )
-            return result.stdout.decode("utf-8") if result.returncode == 0 else None
+            body = reads.template(ref, name)
+            return body.decode("utf-8") if body is not None else None
 
         for rel, names in _LEGACY_WORKFLOW_SOURCES.items():
             for name in names:
@@ -641,7 +688,14 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
 
 
-def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[str, str, str | None]]:
+# How compare_repository words a workflow that equals its diff base apart from
+# the missing stamp; _adopt_file reads the base back out of it.
+_UNSTAMPED_COPY = re.compile(r"identical to (\S+) apart from the missing ownership stamp")
+
+
+def _workflow_diff_bases(
+    rel: str, current: str, tags: list[str], reads: _ReleaseReads | None = None
+) -> list[tuple[str, str, str | None]]:
     """(label, body, other) of each body --check can diff an unstamped, locally
     modified workflow against: this render without its stamp, then every
     distinct body any of `tags` shipped, labelled with the first release that
@@ -652,23 +706,21 @@ def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[
     the last unstamped release, since a later release can only be recognised by
     its stamp; a fork of a later template still needs its own base here, or the
     template's later changes read as local edits. Without tags there is no
-    release to name, so the result is empty and the diff is skipped.
+    release to name, so the result is empty and the diff is skipped; see
+    _workflow_diff_tags for the tags that count. `reads` is the run's shared
+    reader, so a template the legacy docs read is not read again.
     """
     if not tags:
         return []
-    repo = TEMPLATES_DIR.parent
-    env = _git_env()
+    reads = _ReleaseReads() if reads is None else reads
     own = _template_source(rel, current)
     bases = {current: (f"current/{rel}", None)}
     for tag in tags:
         for name in sorted(_LEGACY_WORKFLOW_SOURCES[rel], key=lambda name: name != own):
-            result = subprocess.run(
-                ["git", "-C", str(repo), "show", f"{tag}:templates/{name}"],
-                capture_output=True, check=False, env=env,
-            )
-            if result.returncode == 0:
+            shipped = reads.template(tag, name)
+            if shipped is not None:
                 # The deploy markers v0.1.0 spliced in (see _legacy_template_bodies).
-                body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", result.stdout.decode("utf-8", errors="replace"))
+                body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", shipped.decode("utf-8", errors="replace"))
                 bases.setdefault(
                     body,
                     (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
@@ -2772,6 +2824,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     links = _links_for_files(files) if links is None else links
     legacy_bodies = None
     release_tags = None
+    reads = _ReleaseReads()
     seed_tags = {}
     for rel, expected in files.items():
         path = repo_dir / rel
@@ -2819,15 +2872,13 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             ):
                 if rel in _LEGACY_WORKFLOW_SOURCES:
                     if release_tags is None:
-                        release_tags = _release_tags() or []
+                        release_tags = _workflow_diff_tags()
                         if not release_tags:
-                            if legacy_bodies is None:  # else the docs path printed it
-                                _no_release_tags_notice(TEMPLATES_DIR.parent)
-                            legacy_bodies = {}
-                    candidates = _workflow_diff_bases(rel, read_stamp(expected, True)[1], release_tags)
+                            reads.notice()
+                    candidates = _workflow_diff_bases(rel, read_stamp(expected, True)[1], release_tags, reads)
                 else:
                     if legacy_bodies is None:
-                        legacy_bodies = _legacy_template_bodies()
+                        legacy_bodies = _legacy_template_bodies(reads)
                     candidates = [(f"legacy/{rel}", body, None) for key, bodies in legacy_bodies.items()
                                   if key.split("#")[0] == rel for body in bodies]
                 if candidates:
@@ -2839,7 +2890,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                         fromfile=label, tofile=rel,
                     ))
                     if not detail:
-                        detail = f"identical to {label} apart from the missing ownership stamp"
+                        detail = f"identical to {label} apart from the missing ownership stamp"  # see _UNSTAMPED_COPY
                         if other:
                             detail += f", but this --type renders {other}; check --type"
             report[rel] = (status, detail)
@@ -3393,6 +3444,13 @@ def _adopt_file(
         if _is_yaml(rel):
             if isinstance(detail, str) and detail.endswith("check --type"):
                 return ("refused", rel, detail)
+            unstamped = _UNSTAMPED_COPY.fullmatch(detail) if isinstance(detail, str) else None
+            if unstamped:
+                return (
+                    "refused", rel,
+                    f"an unstamped copy of {unstamped[1]}; delete the file and re-run --adopt "
+                    "to write the stamped version",
+                )
             return (
                 "refused", rel,
                 "edited locally; move the repository's own jobs or steps into a separate "

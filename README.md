@@ -491,7 +491,10 @@ from another type's template is named by its template file, such as
 `legacy/v0.12.0/templates/release-please-gated.yml`. A copy that equals its base
 apart from the missing stamp is reported as that, and as one to check `--type`
 for when the base is another type's. The diff needs the bootstrapper's git
-release tags; from a copy without them, `--check` prints a notice and skips it.
+release tags; from a copy without them, or for a workflow from a shallow clone
+or one with no tag through v0.8.1, `--check` prints a notice and skips it,
+since the few releases such a clone holds could name a base later than the one
+the workflow was forked from.
 
 ### Checking and adopting
 
@@ -630,7 +633,10 @@ removals. A copy that equals a release body from after v0.8.1 apart from the
 missing stamp used to be diffed against an older release; `--check` now says it
 is identical to that release, and to check `--type` when the release's template
 is another type's. The state (`local-modified`) is unchanged, and `--adopt`
-still refuses these files, giving that `--type` reason in the second case.
+still refuses these files: with that `--type` reason in the second case, and
+otherwise with `an unstamped copy of <base>; delete the file and re-run --adopt
+to write the stamped version`. From a shallow clone of the bootstrapper, or one
+with no tag through v0.8.1, `--check` prints a notice and skips this diff.
 
 ### Upgrading to 0.16.0
 

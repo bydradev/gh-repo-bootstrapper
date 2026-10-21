@@ -609,7 +609,9 @@ review now says to reassess the row against the alert, scope included, before
 dismissing the alert, instead of only to dismiss it citing the row. GitHub's
 auto-triage rules can reopen an alert they dismissed, for example when a
 development dependency moves to production scope, and a dev-only row's
-rationale then no longer holds. The `baseline-process` skill says the same.
+rationale then no longer holds ([Dependabot auto-triage
+rules](https://docs.github.com/en/code-security/concepts/supply-chain-security/dependabot-auto-triage-rules),
+GitHub Docs, checked 2026-10-21). The `baseline-process` skill says the same.
 `--adopt` updates unedited copies of `scripts/review-baselines.mjs` and its
 test, as the next paragraph describes; merge the one-line change into an
 edited copy and its test by hand.

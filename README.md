@@ -125,6 +125,32 @@ artefacts, not a claim that the generated repository's external scaffold
 actually provides those scripts. Changing a scaffold's scripts still requires
 checking that scaffold separately.
 
+One assumption is about what a script does, not only its name: `lint` must run
+`eslint --max-warnings=0`, with unused disable directives reported. The
+generated `docs/lint-baseline.md` relies on both to fail CI on an unused
+`eslint-disable` directive and calls the baseline mostly self-cleaning on that
+condition; without either, a stale baseline row only surfaces at its review date.
+Nothing the bootstrapper generates checks either: `test.yml` runs
+`npm run lint` as the scaffold defines it, `scripts/verify-baselines.mjs` does
+not read `package.json` or the ESLint configuration, and the generated
+`README.md`, `docs/lint-baseline.md` and `local-validation-nextjs` skill state
+them as requirements. `create-next-app` does not set the flag: its generated
+`lint` script is `eslint` (`create-next-app` 16.4.2, `dist/index.js`, checked
+2026-10-22), and ESLint exits with an error status on warnings only when
+`--max-warnings` is given ([ESLint v9.x command-line reference](https://eslint.org/docs/v9.x/use/command-line-interface#--max-warnings),
+checked 2026-10-22). Reporting unused directives is the default since ESLint 9
+(`linterOptions.reportUnusedDisableDirectives` defaults to `"warn"`, [ESLint v9.x
+rules reference](https://eslint.org/docs/v9.x/use/configure/rules#report-unused-eslint-disable-comments);
+"Unused disable directives cause warnings by default" in the [ESLint v9.0.0
+release post](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/); ESLint
+10.13.0's `lib/config/default-config.js` sets `reportUnusedDisableDirectives: 1`,
+that is `"warn"`; all checked 2026-10-22), so it holds for a new
+`create-next-app` project (`eslint@^9`, and its `eslint-config-next` accepts
+`eslint >=9.0.0`). ESLint 8 reports unused directives only when asked, such as
+with `--report-unused-disable-directives`, and a configuration that sets the
+option to `"off"` reports none. Add the flag to the scaffold's `lint` script and keep the
+reporting on.
+
 The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
 configuration: a project named `chromium`, which ordinary `main` pushes run
 alone (`--project=chromium`), and the HTML reporter enabled in CI, which
@@ -645,6 +671,36 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.17.0
 
+`nextjs`: the lint baseline no longer states as fact that `npm run lint` runs
+with `--max-warnings=0`. Nothing the bootstrapper generates provides or checks
+the flag, and the `lint` script of a new `create-next-app` project with the
+ESLint option, `eslint`, does not set it, so the baseline's claim that an unused
+`eslint-disable` directive fails CI held only for a scaffold that had added the
+flag. The claim also needs ESLint to report unused disable directives, which is
+the default since ESLint 9 but not ESLint 8's, and not that of a configuration
+that sets `reportUnusedDisableDirectives` to `"off"`. The generated `README.md`
+and `docs/lint-baseline.md` now say that `npm run lint` must run
+`eslint --max-warnings=0` with unused disable directives reported, and that
+without either a stale baseline row only surfaces at its review date; the
+`local-validation-nextjs` skill says the same. `--adopt` brings the skill, which
+is template-owned. The README and `docs/lint-baseline.md` belong to the
+repository, so `--adopt` reports them as `kept` and `--check` as `differs`:
+merge the wording by hand from the files in `templates/` at the `v0.17.0` tag.
+The change that matters is in your own `package.json` and ESLint configuration:
+add `--max-warnings=0` to the `lint` script's `eslint` command, keeping the
+targets and other arguments it has (and wide enough to cover every file
+`scripts/verify-baselines.mjs` scans, so a narrowed target such as `eslint src`
+does not leave a stale directive elsewhere unreported), and keep unused disable
+directives reported
+(the default since ESLint 9; `--report-unused-disable-directives` or
+`reportUnusedDisableDirectives` on ESLint 8), or a stale `eslint-disable`
+directive and its baseline row go unnoticed until the row's review date. Keep a
+file target such as `.` on ESLint 8 with an eslintrc configuration: only flat
+config lints the current directory when no file is given, and eslintrc then
+stops with an error
+([ESLint v9.0.0 release notes](https://eslint.org/blog/2024/04/eslint-v9.0.0-released/),
+"Running eslint with no file arguments", checked 2026-10-22).
+
 The `nextjs` template's `next dev` block in `AGENTS.md` now matches Next.js
 16.4: its heading is `## This is NOT the Next.js you know`, where 16.3 wrote
 `# This is NOT the Next.js you know`, and the two paragraphs are unchanged.
@@ -1098,8 +1154,10 @@ Options:
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
 caller contract. `test.yml` is necessarily scaffold-general: it retains that
 `full` input and adds the optional PostgreSQL service, while each generated
-application supplies its own package scripts and any application-owned
-release-triggered deployment workflow.
+application supplies its own package scripts, which must include a `lint`
+script that runs `eslint --max-warnings=0` (see
+[Next.js npm-script assumptions](#nextjs-npm-script-assumptions)), and any
+application-owned release-triggered deployment workflow.
 
 The `next dev` block at the top of `AGENTS.md` is the text Next.js 16.4.0 to
 16.4.2 writes, under `## This is NOT the Next.js you know`; 16.3.x writes the

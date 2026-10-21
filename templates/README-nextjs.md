@@ -14,6 +14,17 @@ The bootstrapper supplies repository automation but does not create or patch
 `package.json`. Add the application scaffold and its project-specific setup
 instructions before shipping.
 
+The scaffold's `lint` script must run `eslint --max-warnings=0`, so that any
+warning fails `npm run lint`, and ESLint must report unused disable directives,
+which is the default since ESLint 9 (`reportUnusedDisableDirectives: "warn"`).
+The [lint baseline](docs/lint-baseline.md) relies on both to fail CI on a stale
+`eslint-disable` directive; without either, a stale baseline row only surfaces
+at its review date. The script's file target must cover every file
+`scripts/verify-baselines.mjs` scans (the JavaScript and TypeScript files
+outside `node_modules`, `.next` and the other directories it excludes): a
+narrowed target such as `eslint src` leaves a stale directive elsewhere
+unreported.
+
 ## Local development
 
 Once the application scaffold is in place, install its locked dependencies and

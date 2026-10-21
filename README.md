@@ -155,9 +155,9 @@ confirm before creating anything.
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
 | `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs and swift only) |
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
-| `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub |
+| `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub. Piping the output to `head` or a pager is fine: the run ends quietly with exit 0 when the reader closes the pipe, and with an error status when a `--non-interactive` run's options are refused |
 | `--non-interactive` | Fail instead of prompting for missing options |
-| `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift. Needs `--type` and the type options the repository was generated with |
+| `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift (also when the reader of its output closes the pipe early). Needs `--type` and the type options the repository was generated with |
 | `--adopt PATH` | Bring an existing local repository in line without contacting GitHub (see [Existing repositories](#existing-repositories)) |
 | `--replace-generated-sections` | With `--adopt`: also replace `AGENTS.md` generated sections whose text differs from the template |
 
@@ -518,8 +518,8 @@ states:
 | `same` | matches the current render | nothing |
 | `stale` | valid stamp differs from the current render, or an unstamped non-skill body equals the current unstamped render or a recorded legacy body | overwritten, if tracked, clean, LF-terminated and UTF-8 |
 | `local-modified` | invalid or mismatched stamp, or an unrecognized unstamped non-skill body | refused |
-| `missing` | not present | written |
-| `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; use a plain single-line name when the name is ambiguous, and `git mv` a case-renamed file back |
+| `missing` | not present | written; refused when something other than a file is at the path, such as a directory, or a file where a folder belongs |
+| `shadowed` | an unstamped `.agents/skills/<template-name>/SKILL.md`, a repository skill whose frontmatter `name` is a template skill name, or a repository skill whose name cannot be read unambiguously as a plain or quoted single-line scalar, or a path that differs only in case from a generated one and is the same file on a case-insensitive filesystem, or a symlinked skill folder whose `SKILL.md` name is a template skill name | refused; move an unstamped file aside, or rename the skill if it is the repository's own; use a plain single-line name when the name is ambiguous; and `git mv` a case-renamed file back |
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>` and git tracks it with no uncommitted change; any other symlink, and one git does not track, is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git tracks it with no uncommitted or staged change; refused when git does not track it, outside a git repository, and inside a repository git cannot read. Deleting a skill's files also removes the folders this leaves empty and then, in the same run, the `.claude/skills` mirror that pointed at the folder (see `dangling`); a folder it cannot remove is refused and keeps its mirror |
@@ -567,11 +567,20 @@ inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence, a fence indented four or more columns, an HTML
 block such as a `<!-- -->` comment or `<details>`, a
 generated heading that appears more than once, or a generated heading that
-falls inside a code block). The `next dev`-managed block and everything from
-`## Project specifics` on are the repository's own and are not compared,
-except that an unedited guidance paragraph from an older template there is
-`retired`. The block must stay at the top of the file: a moved block is `local`,
-and a missing one is `missing`. Only a `## Project specifics` heading
+falls inside a code block). A file with CRLF or CR line
+endings, which `--adopt` refuses, gets one `differs` row naming them in place of
+a `differs` row per section, and keeps its `missing`, `local` and `retired`
+rows and the order of its generated sections. A file that mixes LF lines with
+CRLF ones keeps every row and gains
+`(CRLF and LF line endings mixed; convert to LF first)`. A file with LF lines
+and a carriage return inside a line keeps every row too and gains
+`(carriage return inside a line; remove it first)`, since converting the line
+endings leaves it. A leading byte-order mark is one `local` row. Convert or
+remove it, then re-run. The `next dev`-managed block and everything from
+`## Project specifics` on are the repository's own and are not compared, except
+that an unedited guidance paragraph from an older template there is `retired`.
+The block must stay at the top of the file: a moved block is `local`, and a
+missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
@@ -635,6 +644,49 @@ writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.16.1
+
+`--check` and `--adopt` now name the cause in four cases that gave a symptom or
+a raw error. No file is classified, written or refused differently, and no
+generated file changes, so there is nothing to merge by hand.
+
+- An `AGENTS.md` with CRLF or CR line endings throughout, no line ending in a
+  bare LF, is one `differs` row,
+  `(CRLF or CR line endings; convert to LF first)`, in place of a `differs` row
+  per generated section; its `missing`, `local` and `retired`
+  rows and the order of its generated sections stay. A file that mixes LF
+  lines with CRLF ones keeps every row and gains
+  `(CRLF and LF line endings mixed; convert to LF first)`. A file with LF
+  lines and a carriage return inside a line gains
+  `(carriage return inside a line; remove it first)`, because converting line
+  endings does not remove it. `--adopt` still refuses these files, with
+  `not LF-terminated UTF-8 text; update it by hand`. Carriage returns only in
+  repository-owned text, such as under `## Project specifics`, still leave
+  the file `same`.
+- A byte-order mark at the start of `AGENTS.md` is one `local` row,
+  `(byte-order mark before the first heading; remove it first)`, in place of
+  `(text before the first heading)` and, for most types, a missing
+  `# Working in this repo`. The mark is set aside, so the other sections are
+  compared normally, and `--adopt` now refuses with
+  `remove the byte-order mark at the start of the file first`.
+- An unstamped file at a template skill's path, such as an empty
+  `.agents/skills/delegation/SKILL.md`, is `shadowed` with a detail saying to
+  move it aside, or to rename the skill if it is the repository's own. It had
+  no detail.
+- A directory, or a file where a folder belongs, at the path of a missing
+  template file, such as a directory named `docs/branch-protection-runbook.md`,
+  is refused with `something other than a file is at this path; move it aside`,
+  as for a seed script, instead of `FileExistsError: File exists` or
+  `NotADirectoryError: Not a directory`.
+
+`--dry-run` and `--check` also end quietly when whatever reads their output
+closes it, as `--dry-run | head -1` does. They no longer print a traceback, and
+a `--dry-run` that ended with one (exit 120, or 1 when the reader left during
+its questions) now exits 0. A `--non-interactive` dry run whose options are
+refused still fails. An interactive dry run whose reader leaves while it
+is still asking exits 0 without reading the remaining answers, since nobody
+saw the questions. `--check` keeps its exit status: 0 when aligned, 1 on
+drift. A creating run and `--adopt` are unchanged: a closed pipe still ends
+them with an error status, so it cannot hide a failed run.
 
 The diff `--check` prints for an unstamped, locally modified
 `pr-title-check.yml`, `release-please.yml` or `baseline-review.yml` now picks

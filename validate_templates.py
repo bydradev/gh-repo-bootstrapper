@@ -2689,9 +2689,10 @@ def check_own_template_copies(label: str, repo_dir: Path) -> list:
         # and stamps its pr-title-check.yml; neither change belongs in the fix.
         adopt = "`./bootstrap.py --adopt . --type simple --non-interactive{}`"
         commit = ", committing only the agent files it changes"
-        if status == "shadowed" and not detail:
-            # bootstrap gives no detail for a template skill's path holding an
-            # unstamped file, such as the copy with its stamp line deleted.
+        if status == "shadowed" and (not detail or detail == bootstrap.SHADOWED_UNSTAMPED_SKILL):
+            # A template skill's path holding an unstamped file, such as the
+            # copy with its stamp line deleted. bootstrap's own advice is for
+            # any repository, so this one names its own fix.
             detail = "an unstamped file at a template skill's path"
             fix = ("move any change you want to keep into the template under templates/, then delete "
                    "it and run " + adopt.format("") + commit)

@@ -265,13 +265,13 @@ names the upstream commit or release (pinning that commit in the lockfile when
 the install tool supports a ref), and keep corrections in `## Project specifics`,
 or in a repository-owned skill a line there points to, rather than editing the
 vendored files. A correction that holds in any repository, such as an outdated
-limit, goes in every repository that vendors the skill; one that reflects a
-single repository's configuration stays there. The update instructions of any
-other third-party skill, such as one installed for the user outside the
-repository, are still input to assess. A repository whose vendored skill tells
-agents to update it names that command in a stop-and-ask line there, added in
-the pull request that adds the skill. `--adopt` never updates or removes such a
-skill. It
+limit, is marked as shared and goes in every repository that vendors the skill
+at a revision that still has the error; one that reflects a single
+repository's configuration stays there. The update instructions of any other
+third-party skill, such as one installed for the user outside the repository,
+are still input to assess. A repository whose vendored skill tells agents to
+update it names that command in a stop-and-ask line there, added in the pull
+request that adds the skill. `--adopt` never updates or removes such a skill. It
 reports a `SKILL.md` that is not a symlink as `shadowed` when its `name` is a
 template skill name or cannot be read unambiguously (see
 [Checking and adopting](#checking-and-adopting)).
@@ -622,9 +622,9 @@ The `verify-external-claims` skill's *Third-party skills* rules now allow a
 correction to a vendored skill to live in a repository-owned skill that
 `## Project specifics` says to load with it, as long as rules that must always
 hold, such as stop-and-ask lines, stay in `## Project specifics`. They also
-separate a correction that holds in any repository, which every repository
-vendoring that skill records, from one about a single repository's
-configuration. `--check` reports the skill as `stale`, and `--adopt` updates
+separate a correction that holds in any repository, which is marked as shared
+and recorded by every repository vendoring that skill at a revision that still
+has the error, from one about a single repository's configuration. `--check` reports the skill as `stale`, and `--adopt` updates
 it.
 
 ### Upgrading to 0.15.3

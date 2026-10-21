@@ -3,7 +3,7 @@ name: verify-external-claims
 description: >-
   Use before asserting what a platform, API, dependency, or tool can or cannot do, contradicting the user or repository docs, relying on version-sensitive behaviour (limits, defaults, pricing, deprecations), using external documentation or services, adding, updating, or following a third-party skill, or writing such a claim into a commit, PR, or document. Covers verifying against current primary sources and citing source and date, and keeping vendored skills reviewed.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=0bf933b49c2c201f0c0e9236d6f2615c2f08a1deec6c1bf03eebee825acebeab -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=28fb9b04eecb3f2279572f91f16dc4f3a9273dcaa12c02f0e479474adfeeacc5 -->
 
 # Verifying external claims
 
@@ -91,9 +91,10 @@ vendored skills.
 - Tell apart a correction that holds in any repository, such as an outdated
   limit or a command that does not do what the skill says, from one that only
   reflects this repository's configuration or decisions. Every repository that
-  vendors the skill from the same upstream records the first kind, so say in
-  the pull request that it is one and tell the operator, who can see the other
-  repositories; the second kind stays in this one.
+  vendors the skill at a revision that still has the error records the first
+  kind, so mark it as shared where you record it, say so in the pull request,
+  and tell the operator, who can see the other repositories; tell them too
+  when a refresh removes one. The second kind stays in this one.
 - When adding or refreshing a vendored skill that tells agents to update
   skills on their own, add a stop-and-ask line naming that command to
   `## Project specifics` in the same pull request, so the rule holds even when

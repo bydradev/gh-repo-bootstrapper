@@ -284,7 +284,11 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("but the rules below cover only vendored skills.", _skill_path("verify-external-claims")),
     ("remove it once a refresh brings in the upstream fix.", _skill_path("verify-external-claims")),
     (
-        "Every repository that vendors the skill from the same upstream records the first kind",
+        "Every repository that vendors the skill at a revision that still has the error records the first kind",
+        _skill_path("verify-external-claims"),
+    ),
+    (
+        "or in a repository-owned skill that a line there says to load with the vendored skill",
         _skill_path("verify-external-claims"),
     ),
     ("add a stop-and-ask line naming that command", _skill_path("verify-external-claims")),

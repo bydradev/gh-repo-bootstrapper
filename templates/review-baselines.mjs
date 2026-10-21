@@ -389,7 +389,7 @@ async function main() {
       );
     if (result.rowsWithOpenAlerts.length)
       lines.push(
-        `- Advisory-baseline rows whose Dependabot alert is still open (dismiss it, citing the row):\n  - ${result.rowsWithOpenAlerts.join("\n  - ")}`,
+        `- Advisory-baseline rows whose Dependabot alert is still open (reassess the row against the alert, scope included, before dismissing the alert citing the row):\n  - ${result.rowsWithOpenAlerts.join("\n  - ")}`,
       );
     if (!result.undocumentedDismissals.length && !result.rowsWithOpenAlerts.length)
       lines.push(

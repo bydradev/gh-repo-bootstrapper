@@ -8,9 +8,10 @@ downgrade it, or change its options for a file. It is deliberately separate from
 [`docs/advisory-baseline.md`](advisory-baseline.md), which records accepted third-party dependency
 security advisories.
 
-This baseline is mostly self-cleaning. ESLint reports an unused `eslint-disable` directive when the
-code it covered is removed or refactored. Because `npm run lint` runs with `--max-warnings=0`, that
-warning fails CI and requires removing both the stale directive and its row below. TypeScript
+This baseline is mostly self-cleaning when `npm run lint` meets both requirements in the policy
+below. ESLint then reports an unused `eslint-disable` directive when the code it covered is removed
+or refactored, and that warning fails CI and requires removing both the stale directive and its row
+below; without either requirement, a stale baseline row only surfaces at its review date. TypeScript
 likewise fails on an unused `@ts-expect-error`, so prefer it to `@ts-ignore`. Nothing reports an
 unused `@ts-ignore`, `@ts-nocheck`, or `eslint` configuration comment; those rows stay accurate
 only through their review dates. Dependency advisories do not self-clean either; their review triggers belong in `docs/advisory-baseline.md`. Each accepted
@@ -20,7 +21,13 @@ weekly review only and never gates a pull request. The review cadence is six mon
 
 ## Policy: the baseline is zero
 
-`npm run lint` runs `eslint --max-warnings=0`. A clean run reports `0 problems` and exits 0. Any
+`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported, which is
+the default since ESLint 9 (`reportUnusedDisableDirectives: "warn"`). ESLint 8 reports them only when
+asked, such as with `--report-unused-disable-directives`, and a configuration that sets the option to
+`"off"` reports none. The bootstrapper does not create `package.json`, so the application scaffold
+provides the `lint` script and must include the flag and keep the reporting on; without the flag a
+warning does not fail CI. Its file target must also cover every file `scripts/verify-baselines.mjs` scans: each `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts` and `.cts` file outside `.git`, `node_modules`, `.next`, `upstream`, `coverage`, `playwright-report` and `test-results`. A narrowed target such as `eslint src` meets the two requirements above and still leaves an unused directive in `scripts/` unreported, while its row keeps passing the baseline check.
+A clean run reports no diagnostics (npm still prints its own script banner) and exits 0. Any
 warning or error is new work to investigate; do not hide it in a growing baseline.
 
 When a warning appears:

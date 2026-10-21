@@ -113,6 +113,20 @@ OWN_WORKFLOWS_DIR = Path(__file__).parent / ".github" / "workflows"
 BASELINE_DOCUMENT_REQUIREMENTS = {
     "docs/lint-baseline.md": (
         "self-cleaning",
+        # The max-warnings gate is a requirement on the application scaffold,
+        # not something the bootstrapper generates or checks: it writes no
+        # package.json. Stating it as fact ("npm run lint runs ...") promised a
+        # self-cleaning baseline that nothing provided. The flag only fails CI
+        # on a stale eslint-disable directive while ESLint reports unused
+        # disable directives (the default since ESLint 9, "warn"; ESLint 8
+        # reports them only when asked, and a config that sets "off" reports
+        # none), so the condition is pinned with it. The opening paragraph
+        # points at the policy instead of restating it, and is pinned too, so
+        # reverting it to an unconditional claim fails.
+        "mostly self-cleaning when `npm run lint` meets both requirements in the policy below",
+        "`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported",
+        '`reportUnusedDisableDirectives: "warn"`',
+        "without either requirement, a stale baseline row only surfaces at its review date",
         "docs/advisory-baseline.md",
         "Why this is accepted",
         "Review date",
@@ -146,6 +160,10 @@ README_REQUIREMENTS = {
         "## Start here",
         "## Local development",
         "## Verification",
+        # The scaffold's lint script is the only place the flag can live, and
+        # the flag fails a stale directive only while ESLint reports them.
+        "must run `eslint --max-warnings=0`",
+        "ESLint must report unused disable directives",
     ),
     "python": (
         "## Local development",
@@ -367,6 +385,8 @@ AGENTS_TYPE_REQUIREMENTS = {
             "--trace=retain-on-failure",
             "stop a manually started `next dev`",
             "reported as `flaky`, not failed",
+            "requires the `lint` script in `package.json` to run `eslint --max-warnings=0` "
+            "with unused disable directives reported",
             LOCAL_VALIDATION_ROUTING,
         )
     ),
@@ -3325,6 +3345,78 @@ def run_self_tests() -> list:
     result = check_baseline_documents("self-test:stale lint parser", "nextjs", files)
     if not any("scripts/verify-baselines.mjs is missing 'parseLintRows'" in e for e in result):
         errors.append(f"self-test 'stale lint parser' did not fail as expected: {result}")
+
+    # Case 26b: the max-warnings gate is a requirement on the scaffold, not a
+    # fact about it. The old wording stated that `npm run lint` runs with the
+    # flag, which nothing generated provides or checks; the baseline document
+    # and the README must say the scaffold has to provide it, and the baseline
+    # document must say what is lost without it. The flag fails a stale
+    # directive only while ESLint reports unused disable directives (the
+    # default since ESLint 9; ESLint 8 reports them only when asked, and a
+    # config that sets "off" reports none), so that condition is required next
+    # to it and dropping it fails. The opening paragraph is pinned as well, so
+    # restoring its old unconditional sentence fails too.
+    cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
+    files = bootstrap.generate_files(dict(cfg))
+    result = check_baseline_documents("self-test:max-warnings requirement", "nextjs", files)
+    if result:
+        errors.append(f"self-test 'max-warnings requirement' unexpectedly failed: {result}")
+    requirement = "`npm run lint` must run `eslint --max-warnings=0` with unused disable directives reported"
+    consequence = "without either requirement, a stale baseline row only surfaces at its review date"
+    opening = "mostly self-cleaning when `npm run lint` meets both requirements in the policy below"
+    default = '`reportUnusedDisableDirectives: "warn"`'
+    baseline = " ".join(files["docs/lint-baseline.md"].split())
+    for name, mutated_text, named in (
+        (
+            "stated as fact",
+            baseline.replace(requirement, "`npm run lint` runs `eslint --max-warnings=0`").replace(
+                consequence, "a stale baseline row is reported"
+            ),
+            (requirement, consequence),
+        ),
+        (
+            "reporting condition dropped",
+            baseline.replace(" with unused disable directives reported", ""),
+            (requirement,),
+        ),
+        (
+            "reporting default dropped",
+            baseline.replace(default, "the default"),
+            (default,),
+        ),
+        (
+            "opening reverted to the unconditional sentence",
+            baseline.replace(
+                opening, "mostly self-cleaning. Because `npm run lint` runs with `--max-warnings=0`,"
+            ),
+            (opening,),
+        ),
+    ):
+        mutated = dict(files)
+        mutated["docs/lint-baseline.md"] = mutated_text
+        result = check_baseline_documents(f"self-test:max-warnings {name}", "nextjs", mutated)
+        for phrase in named:
+            if not any(repr(phrase) in e for e in result):
+                errors.append(f"self-test 'max-warnings {name}' did not name {phrase!r}: {result}")
+    for name, old, new_text, phrase in (
+        (
+            "readme requirement",
+            "must run `eslint --max-warnings=0`",
+            "runs `eslint --max-warnings=0`",
+            "must run `eslint --max-warnings=0`",
+        ),
+        (
+            "readme reporting condition",
+            "ESLint must report unused disable directives",
+            "ESLint reports unused disable directives",
+            "ESLint must report unused disable directives",
+        ),
+    ):
+        mutated = dict(files)
+        mutated[bootstrap.README] = files[bootstrap.README].replace(old, new_text)
+        result = check_readme(f"self-test:{name} max-warnings", cfg, mutated)
+        if not any(repr(phrase) in e for e in result):
+            errors.append(f"self-test '{name} max-warnings' did not fail as expected: {result}")
 
     # Case 27: the regression that shipped. release-please-gated.yml passes
     # `full` to test.yml; a called workflow that doesn't declare it fails at

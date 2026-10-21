@@ -2586,7 +2586,12 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         base = repo_dir / folder
         if (folder and _symlink_in_path(repo_dir, folder)) or not base.is_dir():
             continue
-        for entry in sorted(os.listdir(base)):
+        try:
+            listing = sorted(os.listdir(base))
+        except OSError as exc:
+            # Name the folder: the row is for the template, not for the folder.
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {folder or '.'}") from exc
+        for entry in listing:
             name = Path(entry.lower())
             rel = f"{folder}/{entry}" if folder else entry
             if (name.stem == "pull_request_template" and (base / entry).is_file()

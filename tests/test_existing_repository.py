@@ -3459,6 +3459,26 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
             self.assertFalse(bootstrap.print_repository_report(
                 self.repo, cfg, bootstrap.compare_repository(self.repo, self.files)))
 
+    # R1-01: with no template in .github, the search for the repository's own
+    # lists docs, and the row for the generated template has to name that folder.
+    def test_unsearchable_docs_folder_is_named_when_the_pull_request_template_is_absent(self):
+        rel = ".github/pull_request_template.md"
+        _git(self.repo, "rm", "-q", rel)
+        _git(self.repo, "commit", "-q", "-m", "drop the template")
+        self._chmod("docs", 0o000)
+        status, detail = self._differing()[rel]
+        self.assertEqual((status, detail), ("unreadable", "PermissionError: Permission denied: docs"))
+        result = self._cli("--check")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn(f"unreadable {rel}\n      PermissionError: Permission denied: docs\n", result.stdout)
+        result = self._cli("--adopt")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        line = next(line for line in result.stdout.splitlines() if line.startswith(f"  refused  {rel}"))
+        self.assertTrue(line.endswith("PermissionError: Permission denied: docs"), line)
+        self.assertFalse((self.repo / rel).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

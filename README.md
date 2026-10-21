@@ -125,6 +125,20 @@ artefacts, not a claim that the generated repository's external scaffold
 actually provides those scripts. Changing a scaffold's scripts still requires
 checking that scaffold separately.
 
+One assumption is about what a script does, not only its name: `lint` must run
+`eslint --max-warnings=0`. The generated `docs/lint-baseline.md` relies on the
+flag to fail CI on an unused `eslint-disable` directive and calls the baseline
+mostly self-cleaning on that condition; without it, a stale baseline row only
+surfaces at its review date. Nothing the bootstrapper generates checks the
+flag: `test.yml` runs `npm run lint` as the scaffold defines it,
+`scripts/verify-baselines.mjs` does not read `package.json`, and the generated
+`README.md`, `docs/lint-baseline.md` and `local-validation-nextjs` skill state
+it as a requirement. `create-next-app` does not set it: its generated `lint`
+script is `eslint` (`create-next-app` 16.4.2, `dist/index.js`, checked
+2026-10-22), and ESLint exits with an error status on warnings only when
+`--max-warnings` is given ([ESLint v9.x command-line reference](https://eslint.org/docs/v9.x/use/command-line-interface#--max-warnings),
+checked 2026-10-22). Add the flag to the scaffold's `lint` script.
+
 The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
 configuration: a project named `chromium`, which ordinary `main` pushes run
 alone (`--project=chromium`), and the HTML reporter enabled in CI, which
@@ -643,6 +657,24 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.17.0
+
+`nextjs`: the lint baseline no longer states as fact that `npm run lint` runs
+with `--max-warnings=0`. Nothing the bootstrapper generates provides or checks
+the flag, and the `lint` script of a new `create-next-app` project with the
+ESLint option, `eslint`, does not set it, so the baseline's claim that an unused `eslint-disable` directive
+fails CI held only for a scaffold that had added the flag. The generated
+`README.md` and `docs/lint-baseline.md` now say that `npm run lint` must run
+`eslint --max-warnings=0` and that without it a stale baseline row only
+surfaces at its review date, and the `local-validation-nextjs` skill says the
+same. `--adopt` brings the skill, which is template-owned. The README and
+`docs/lint-baseline.md` belong to the repository, so `--adopt` reports them
+as `kept` and `--check` as `differs`: merge the wording by hand from the files
+in `templates/` at the `v0.17.0` tag. The change that matters is in your own
+`package.json`: set the `lint` script to `eslint --max-warnings=0`, keeping any
+other arguments it has, or a stale `eslint-disable` directive and its baseline
+row go unnoticed until the row's review date.
+
 ### Upgrading to 0.16.1
 
 `--check` and `--adopt` now name the cause in four cases that gave a symptom or
@@ -1081,8 +1113,10 @@ Options:
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
 caller contract. `test.yml` is necessarily scaffold-general: it retains that
 `full` input and adds the optional PostgreSQL service, while each generated
-application supplies its own package scripts and any application-owned
-release-triggered deployment workflow.
+application supplies its own package scripts, which must include a `lint`
+script that runs `eslint --max-warnings=0` (see
+[Next.js npm-script assumptions](#nextjs-npm-script-assumptions)), and any
+application-owned release-triggered deployment workflow.
 
 ### `python`
 

@@ -113,6 +113,12 @@ OWN_WORKFLOWS_DIR = Path(__file__).parent / ".github" / "workflows"
 BASELINE_DOCUMENT_REQUIREMENTS = {
     "docs/lint-baseline.md": (
         "self-cleaning",
+        # The max-warnings gate is a requirement on the application scaffold,
+        # not something the bootstrapper generates or checks: it writes no
+        # package.json. Stating it as fact ("npm run lint runs ...") promised a
+        # self-cleaning baseline that nothing provided.
+        "`npm run lint` must run `eslint --max-warnings=0`",
+        "a stale baseline row only surfaces at its review date",
         "docs/advisory-baseline.md",
         "Why this is accepted",
         "Review date",
@@ -146,6 +152,8 @@ README_REQUIREMENTS = {
         "## Start here",
         "## Local development",
         "## Verification",
+        # The scaffold's lint script is the only place the flag can live.
+        "must run `eslint --max-warnings=0`",
     ),
     "python": (
         "## Local development",
@@ -367,6 +375,7 @@ AGENTS_TYPE_REQUIREMENTS = {
             "--trace=retain-on-failure",
             "stop a manually started `next dev`",
             "reported as `flaky`, not failed",
+            "requires the `lint` script in `package.json` to run `eslint --max-warnings=0`",
             LOCAL_VALIDATION_ROUTING,
         )
     ),
@@ -3325,6 +3334,41 @@ def run_self_tests() -> list:
     result = check_baseline_documents("self-test:stale lint parser", "nextjs", files)
     if not any("scripts/verify-baselines.mjs is missing 'parseLintRows'" in e for e in result):
         errors.append(f"self-test 'stale lint parser' did not fail as expected: {result}")
+
+    # Case 26b: the max-warnings gate is a requirement on the scaffold, not a
+    # fact about it. The old wording stated that `npm run lint` runs with the
+    # flag, which nothing generated provides or checks; the baseline document
+    # and the README must say the scaffold has to provide it, and the baseline
+    # document must say what is lost without it.
+    cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs")
+    files = bootstrap.generate_files(dict(cfg))
+    result = check_baseline_documents("self-test:max-warnings requirement", "nextjs", files)
+    if result:
+        errors.append(f"self-test 'max-warnings requirement' unexpectedly failed: {result}")
+    stated_as_fact = dict(files)
+    stated_as_fact["docs/lint-baseline.md"] = " ".join(files["docs/lint-baseline.md"].split()).replace(
+        "`npm run lint` must run `eslint --max-warnings=0`",
+        "`npm run lint` runs `eslint --max-warnings=0`",
+    ).replace(
+        "a stale baseline row only surfaces at its review date",
+        "a stale baseline row is reported",
+    )
+    result = check_baseline_documents("self-test:max-warnings stated as fact", "nextjs", stated_as_fact)
+    for phrase in (
+        "`npm run lint` must run `eslint --max-warnings=0`",
+        "a stale baseline row only surfaces at its review date",
+    ):
+        if not any(repr(phrase) in e for e in result):
+            errors.append(
+                f"self-test 'max-warnings stated as fact' did not name {phrase!r}: {result}"
+            )
+    no_requirement = dict(files)
+    no_requirement[bootstrap.README] = files[bootstrap.README].replace(
+        "must run `eslint --max-warnings=0`", "runs `eslint --max-warnings=0`"
+    )
+    result = check_readme("self-test:readme max-warnings", cfg, no_requirement)
+    if not any("must run `eslint --max-warnings=0`" in e for e in result):
+        errors.append(f"self-test 'readme max-warnings' did not fail as expected: {result}")
 
     # Case 27: the regression that shipped. release-please-gated.yml passes
     # `full` to test.yml; a called workflow that doesn't declare it fails at

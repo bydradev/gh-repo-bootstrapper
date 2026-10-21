@@ -43,6 +43,7 @@ jobs:
       # and actions", checked 2026-10-21). Keep these patterns the same as
       # the cache's.
       - name: Require a dependency manifest
+        timeout-minutes: 1
         env:
           MANIFEST_HASH: ${{ hashFiles('**/requirements*.txt', 'pyproject.toml', 'uv.lock', '**/pyproject.toml') }}
         run: |

@@ -2104,6 +2104,9 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     errors = []
     if "if" in guard:
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must run unconditionally")
+    timeout = guard.get("timeout-minutes")
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} needs a positive integer timeout-minutes")
     script = "\n".join(_executable_lines(str(guard.get("run", ""))))
     test = PYTHON_GUARD_TEST_RE.search(script)
     if not test or not re.search(r"(?m)^\s*exit 1\s*$", script) or "::error::" not in script:
@@ -4326,6 +4329,12 @@ def _structure_self_tests() -> list:
            "must run unconditionally")
     expect("python manifest guard that never runs",
            gates("python", test, lambda w: manifest_guard(w).update({"if": False})), "never runs")
+    expect("python manifest guard without a timeout",
+           gates("python", test, lambda w: manifest_guard(w).pop("timeout-minutes", None)),
+           "needs a positive integer timeout-minutes")
+    expect("python manifest guard with a zero timeout",
+           gates("python", test, lambda w: manifest_guard(w).update({"timeout-minutes": 0})),
+           "needs a positive integer timeout-minutes")
     expect("python manifest guard allowed to fail",
            gates("python", test, lambda w: manifest_guard(w).update({"continue-on-error": True})),
            "continue-on-error")

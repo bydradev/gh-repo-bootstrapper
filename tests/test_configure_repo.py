@@ -1285,6 +1285,7 @@ class PythonManifestGuardTests(unittest.TestCase):
         names = [step.get("name") or str(step.get("uses")).split("@")[0] for step in steps]
         self.assertEqual(names[:3], ["actions/checkout", self.GUARD, "actions/setup-python"])
         guard = steps[1]
+        self.assertEqual(guard.get("timeout-minutes"), 1)
         self.assertNotIn("if", guard)
         self.assertNotIn("continue-on-error", guard)
         # GitHub renders hashFiles() to "" when nothing matches, else to a hash.

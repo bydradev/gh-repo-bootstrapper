@@ -671,6 +671,7 @@ the repository's own `cache-dependency-path`, then `'**/pyproject.toml'`:
 
 ```yaml
       - name: Require a dependency manifest
+        timeout-minutes: 1
         env:
           MANIFEST_HASH: ${{ hashFiles('**/requirements*.txt', 'pyproject.toml', 'uv.lock', '**/pyproject.toml') }}
         run: |

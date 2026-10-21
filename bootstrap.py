@@ -85,6 +85,19 @@ NEXTJS_BASELINE_SCRIPTS = (
     "scripts/review-baselines.mjs",
     "scripts/review-baselines.test.mjs",
 )
+# Repository-owned scripts every release copies verbatim from templates/. A
+# repository can edit them, so --adopt never overwrites an edited one, but a copy
+# whose bytes equal one a release shipped (SEED_DIGESTS) was never edited, and
+# --adopt brings it up to date. Each group changes together: a script, its test,
+# and baseline-table.mjs, which every script imports. A stale file in several
+# groups changes only when every group holding it can, so an edited script never
+# meets a newer baseline-table.mjs it was not written against.
+SEED_GROUPS = (
+    (NEXTJS_ENFORCED_AUDIT_SCRIPT, "scripts/audit-production.test.mjs", "scripts/baseline-table.mjs"),
+    ("scripts/verify-baselines.mjs", "scripts/verify-baselines.test.mjs", "scripts/baseline-table.mjs"),
+    ("scripts/review-baselines.mjs", "scripts/review-baselines.test.mjs", "scripts/baseline-table.mjs"),
+)
+SEED_FILES = frozenset(rel for group in SEED_GROUPS for rel in group)
 NEXTJS_BASELINE_REVIEW_WORKFLOW = ".github/workflows/baseline-review.yml"
 SCREENSHOT_REVIEW = "docs/screenshot-review.md"
 CURRENT_WORK = "docs/current-work.md"
@@ -489,13 +502,64 @@ _LEGACY_WORKFLOW_SOURCES = {
 }
 
 
+# Rebuilt by compute_seed_digests() from every vX.Y.Z release tag; regenerate it
+# with `python3 validate_templates.py --regenerate-seed-digests` when a change
+# to a seed template makes validate_templates.py report it stale.
+SEED_DIGESTS: dict[str, dict[str, str]] = {
+    "scripts/audit-production.mjs": {
+        "80c308a5f93fbbb8e7810a8406eef42c785cd2f182fef7dae612f0e31fc91255": "v0.5.1",
+        "6a4c5ee1fb795fd3360ab6580926d8aaf8a1d21d281d9de99593544737986b24": "v0.10.0",
+    },
+    "scripts/audit-production.test.mjs": {
+        "019c796aabe288cf71669e851eb41d34918db2bca638fcf0f03df87eba23fd7c": "v0.10.0",
+        "fa8a87c34913abe4f505e81fe24cd8b4dd9e7865c3b2f9cae18fa86b9b6d50e7": "v0.11.0",
+    },
+    "scripts/baseline-table.mjs": {
+        "98a4aaa4d016f6d0cc79868f126b35623ffe2a176fe01e69fc1cdf1855a8f67b": "v0.10.0",
+    },
+    "scripts/review-baselines.mjs": {
+        "709adb3bb6d3d4521aa1543e19f998ad93826cfe05e6cd614f8af3d4e51da7d7": "v0.3.1",
+        "d6a3f6160927b30c158c38b8a653ace4108af46cff1d8e13f473e5c67c7a5cee": "v0.5.1",
+        "33d6088c3180e8eb0c8de16b962437d983c07b625f273d02999bf24bdf42cb69": "v0.5.4",
+        "66a626d6ed20a9abfef999fc9e99f6db84a2e930aef1e91ccae9e270ab24c916": "v0.12.0",
+        "db70d489679943de39fe20570eb06ba6ed2a6896ffe7f0b3508e3644a5d67c36": "v0.15.2",
+    },
+    "scripts/review-baselines.test.mjs": {
+        "3a4fbf739ae1d41d5bc67a2d0ed85f51c48de99d521585a56b841bd5da9aa501": "v0.3.1",
+        "fa6ed40826f62262174bb15a1d5fc25bd4c47730a566f846948d680d56bdd520": "v0.5.1",
+        "e135d16a89e3aba900555a57846cf03217b361d3e9752a1f15193eece1b877b3": "v0.10.0",
+        "52db61fbe37d392383cba8f83067a7b01560b349e1e7eab030fdf40cff0051d1": "v0.11.0",
+        "9ebc1e4c4b41e2fc962f9214827c13d2a92ddbf74237fb6f1cd2f5353faa8dc1": "v0.12.0",
+        "a17bf394a4374ea6f27a4af7f52deabe09b02f1c72f7cdf102e87e5ff4f37270": "v0.15.2",
+    },
+    "scripts/verify-baselines.mjs": {
+        "1da3a761aae451f78d4ec7a352908d89b330532478c5aa0751d6d42bcc2f1674": "v0.5.0",
+        "c33704c06347e6778a62e54268ea4afc5302bb0835f60d3113fbeab811ec74d4": "v0.5.1",
+        "d65d7c4698ff6c3397e8c857f16673fbd68493e97dccbb796027d71960730261": "v0.5.2",
+        "f8ae3f667230941f89f11ba998d82efef5b6e2c39254304d88930fc43e612f65": "v0.5.4",
+        "d8ad8997e2bebcde6885d1d7a0c15e5d84aa2e9f0474618495647559323f6512": "v0.10.0",
+        "edc493fbd287549687b8adb3e476a29e57c6795546f869560d670c575d083d87": "v0.11.0",
+        "d9f52c7074254799aea314cab30ef57d3f9278b1cf916b4c928ee8c5933b1796": "v0.12.0",
+    },
+    "scripts/verify-baselines.test.mjs": {
+        "68e499e3998138de6da611bb90a379801960862e0290fb9f27734a46856841a4": "v0.5.0",
+        "1774252577e69e90534b3a6d4d7aa6c497b8c7c6292b3d325cf8cc9dba6f8b81": "v0.5.1",
+        "973d9b6d9a3bcdc5cc8686ac631efbaada92c32ea4518ca7c05fa19b5daf5a31": "v0.5.2",
+        "c5990fe02e2b221b74a3de26886276343d54d8e0fe4338c55e48647110777d8a": "v0.5.4",
+        "3e5dda40b0885c0bcf29affb3e668e82b3cac96c7fc6183bdb04def61e1b83b5": "v0.8.0",
+        "d3d262e1b1f1aeb8ff477e3701c3a3626d206d6ceb91b5b9378a0b2bd6468139": "v0.10.0",
+        "fd654e9c2a3bb66946c28d388d84fda8544ba3652162533c4047abfe2752fb7f": "v0.11.0",
+        "a896e264cb2810665ba2ed4e299011f35a3fb3ec3c7c695fd36ef8573edf9f3b": "v0.12.0",
+    },
+}
+
+
 def _tag_version(tag: str) -> tuple:
     return tuple(int(part) for part in tag[1:].split("."))
 
 
-def _legacy_tags() -> list[str] | None:
-    """Release tags that can have shipped unstamped template-owned files, oldest
-    first; None when git cannot list them."""
+def _release_tags() -> list[str] | None:
+    """Every vX.Y.Z release tag, oldest first; None when git cannot list them."""
     env = _git_env()
     try:
         result = subprocess.run(
@@ -505,9 +569,17 @@ def _legacy_tags() -> list[str] | None:
     except (OSError, subprocess.CalledProcessError):
         return None
     tags = [tag for tag in result.stdout.splitlines() if re.fullmatch(r"v\d+\.\d+\.\d+", tag)]
-    versions = {tag: tuple(int(part) for part in tag[1:].split(".")) for tag in tags}
+    return sorted(tags, key=_tag_version)
+
+
+def _legacy_tags() -> list[str] | None:
+    """Release tags that can have shipped unstamped template-owned files, oldest
+    first; None when git cannot list them."""
+    tags = _release_tags()
+    if tags is None:
+        return None
     last = max(LEGACY_LAST_TAG, LEGACY_WORKFLOWS_LAST_TAG)
-    return sorted((tag for tag in tags if versions[tag] <= last), key=versions.__getitem__)
+    return [tag for tag in tags if _tag_version(tag) <= last]
 
 
 def _legacy_template_bodies() -> dict[str, list[str]]:
@@ -568,6 +640,53 @@ def compute_legacy_digests() -> dict:
         path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in bodies)
         for path, bodies in _legacy_template_bodies().items()
     }
+
+
+def _checkout_version():
+    """The release this checkout's .release-please-manifest.json records, as
+    _tag_version gives it, or None when the manifest names no X.Y.Z version."""
+    try:
+        manifest = json.loads((TEMPLATES_DIR.parent / ".release-please-manifest.json").read_text(encoding="utf-8"))
+        version = manifest.get(".")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        return None
+    return _tag_version("v" + version)
+
+
+def compute_seed_digests() -> dict:
+    """Rebuild SEED_DIGESTS from every release tag: for each seed file, the
+    digest of each copy a release shipped, mapped to the newest release that
+    shipped it. The current template's copy is left out, since a file equal to
+    it is `same`. A tag newer than the release the checkout's manifest records,
+    as in an older checkout that fetched later tags, is a later release, so it
+    is left out too. Without git or release tags the result is empty."""
+    tags = _release_tags()
+    if not tags:
+        return {}
+    known = _checkout_version()
+    if known is not None:
+        tags = [tag for tag in tags if _tag_version(tag) <= known]
+    env = _git_env()
+    table = {}
+    for rel in sorted(SEED_FILES):
+        name = Path(rel).name
+        current = _digest(_load(name))
+        for tag in tags:
+            result = subprocess.run(
+                ["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"],
+                capture_output=True, check=False, env=env,
+            )
+            if result.returncode != 0:
+                continue
+            try:
+                digest = _digest(result.stdout.decode("utf-8"))
+            except UnicodeDecodeError:
+                continue
+            if digest != current:
+                table.setdefault(rel, {})[digest] = tag
+    return table
 
 
 def _die(msg: str) -> NoReturn:
@@ -2554,11 +2673,63 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
 TYPE_MISMATCH = "(--type)"
 
 
+SEED_EDITED = "matches no released copy, so --adopt keeps it; merge template changes by hand"
+
+
+def _seed_holds(report: dict, blocked=frozenset()) -> dict:
+    """The files holding back each stale or missing seed script --adopt keeps.
+
+    A stale seed is brought up to date, and a missing one created, only when
+    every other file of each group holding it is the same as the render,
+    stale, or missing, and no stale or missing file of those groups is held
+    back. blocked names files that hold their groups back like an edited
+    file: ones --adopt cannot write, and up-to-date ones that are untracked
+    or uncommitted. Each seed held back maps to the files at the root of its
+    hold.
+    """
+    def status(rel):
+        return report[rel][0] if rel in report else None
+
+    pending = {rel for rel in SEED_FILES if status(rel) in ("stale", "missing")}
+    roots = {rel: set() for rel in pending}
+    for group in SEED_GROUPS:
+        unfit = {rel for rel in group if rel in blocked or status(rel) not in ("same", "stale", "missing")}
+        for rel in pending.intersection(group):
+            roots[rel] |= unfit - {rel}
+    changed = True
+    while changed:
+        changed = False
+        for group in SEED_GROUPS:
+            members = pending.intersection(group)
+            held = set().union(*(roots[rel] for rel in members))
+            for rel in members:
+                extra = held - {rel} - roots[rel]
+                if extra:
+                    roots[rel] |= extra
+                    changed = True
+    return {rel: sorted(found) for rel, found in roots.items() if found}
+
+
+def _seed_stale_detail(tag: str, roots) -> str:
+    detail = f"unchanged since gh-repo-bootstrapper {tag} shipped it"
+    if not roots:
+        return detail + "; --adopt brings it up to date"
+    return detail + "; --adopt keeps it, since " + _seed_hold_reason(roots)
+
+
+def _seed_hold_reason(roots) -> str:
+    return (
+        "it changes only together with " + ", ".join(roots)
+        + ", which --adopt leaves as it is; update them together by hand"
+    )
+
+
 def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
     """Per-file status of an existing repository against the rendered files."""
     report = {}
     links = _links_for_files(files) if links is None else links
     legacy_bodies = None
+    seed_tags = {}
     for rel, expected in files.items():
         path = repo_dir / rel
         if rel == PR_TEMPLATE:
@@ -2617,6 +2788,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             report[rel] = (status, detail)
         elif actual == expected:
             report[rel] = ("same", None)
+        elif rel in SEED_FILES:
+            seed_tags[rel] = SEED_DIGESTS.get(rel, {}).get(_digest(actual))
+            report[rel] = ("stale", None) if seed_tags[rel] else ("differs", SEED_EDITED)
         elif rel == "AGENTS.md":
             rows = compare_agents(expected, actual)
             aligned = all(row_status == "same" for row_status, _ in rows)
@@ -2628,6 +2802,13 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             report[rel] = ("differs", "does not import AGENTS.md (no `@AGENTS.md` line)")
         else:
             report[rel] = ("differs", None)
+    holds = _seed_holds(report)
+    for rel, tag in seed_tags.items():
+        if tag:
+            report[rel] = ("stale", _seed_stale_detail(tag, holds.get(rel)))
+    for rel in SEED_FILES:
+        if rel in holds and report[rel][0] == "missing":
+            report[rel] = ("missing", "--adopt does not create it, since " + _seed_hold_reason(holds[rel]))
     report.update(_extra_owned_files(repo_dir, files))
     report.update(_dangling_mirrors(repo_dir, links))
     mismatch = sorted(rel for rel, (status, _) in report.items() if status == "other-type")
@@ -2912,7 +3093,8 @@ def adopt_repository(
     """Bring an existing local repository in line without touching GitHub.
 
     Writes missing generated files and mirrors, upgrades stale template-owned
-    files, and deletes digest-valid orphaned template-owned files. Locally
+    files and unchanged copies of the repository-owned seed scripts (see
+    _seed_actions), and deletes digest-valid orphaned template-owned files. Locally
     modified or shadowed owned files and ignored paths are refused. Other
     existing files are kept, except that AGENTS.md is rebuilt while keeping
     `## Project specifics` and the `next dev` block. That rewrite needs the
@@ -2944,12 +3126,15 @@ def adopt_repository(
         # A wrong --type or a missing --screenshots would delete the template
         # skills this configuration does not render as orphans.
         return [("refused", TYPE_MISMATCH, report[TYPE_MISMATCH][1] + "; nothing was changed")]
+    seeds = _seed_actions(repo_dir, report, files)
     for rel, (status, detail) in sorted(report.items()):
         try:
             if status == "dangling":
                 action = _adopt_dangling_mirror(repo_dir, rel)
             elif rel in mirrors:
                 action = _adopt_link(repo_dir, rel, status, detail, mirrors[rel])
+            elif rel in seeds:
+                action = seeds[rel] or _adopt_seed(repo_dir, rel, files[rel])
             else:
                 action = _adopt_file(repo_dir, rel, status, detail, files.get(rel), replace_generated, confirm)
         except OSError as exc:
@@ -2957,6 +3142,122 @@ def adopt_repository(
         if action:
             actions.append(action)
     return actions
+
+
+def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
+    """The --adopt action for each seed script the report finds stale, missing or edited.
+
+    An edited seed is kept. A stale or missing one is written only together
+    with its groups (see _seed_holds), so before anything is written each
+    stale seed is checked as the write checks it, each missing one for
+    something in the way of creating it, an ignore rule, or a change git
+    still has for it (such as a staged deletion), and each up-to-date file
+    of their groups for being untracked or uncommitted; one that fails
+    holds its groups back, so every file of a group that changes is tracked
+    and clean, or absent from both disk and git. Only a write that fails
+    partway (a full disk, an interrupted run) can still leave a group half
+    updated: nothing is rolled back. A stale seed mapped to None is written
+    by _adopt_seed; a missing one absent from the result, by _adopt_file.
+    """
+    def status(rel):
+        return report.get(rel, (None,))[0]
+
+    actions = {}
+    pending = sorted(rel for rel in SEED_FILES if status(rel) in ("stale", "missing"))
+    for rel in SEED_FILES:
+        if report.get(rel) == ("differs", SEED_EDITED):
+            actions[rel] = ("kept", rel, "matches no released copy; not overwritten, so merge template changes by hand")
+        elif status(rel) == "missing" and not _path_is_free(repo_dir, rel):
+            actions[rel] = ("refused", rel, "something other than a file is at this path; move it aside")
+        elif status(rel) == "missing" and _git_ignored(repo_dir, rel):
+            # git status would not show a new copy, so a commit could take the
+            # rest of its group without it.
+            actions[rel] = ("refused", rel, "ignored by git; update the ignore rules before adopting")
+        elif status(rel) == "stale":
+            try:
+                refusal = _seed_refusal(repo_dir, rel, files[rel])
+            except OSError as exc:
+                refusal = f"{type(exc).__name__}: {exc.strerror or exc}"
+            if refusal:
+                actions[rel] = ("refused", rel, refusal)
+    blocked = {rel for rel, action in actions.items() if action[0] == "refused"}
+    touched = set().union(*(group for group in SEED_GROUPS if set(group).intersection(pending)))
+    for rel in sorted(touched):
+        if status(rel) == "same" and _git_file_state(repo_dir, rel) != "clean":
+            # Up to date on disk, but untracked or not what git has committed
+            # and staged, so a commit could pair another copy with its group.
+            blocked.add(rel)
+            actions[rel] = ("kept", rel, "up to date, but untracked or with uncommitted changes, so the files that "
+                            "change with it wait; commit it, then re-run --adopt")
+        elif status(rel) == "missing" and rel not in actions and _git_file_state(repo_dir, rel) == "dirty":
+            # Absent on disk, but git still tracks or stages it: recreating it
+            # untracked would leave that change, such as a staged deletion, to
+            # be committed beside the rest of its group.
+            blocked.add(rel)
+            actions[rel] = ("kept", rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
+                            "it and the files that change with it wait; commit or undo that change, then re-run --adopt")
+    holds = _seed_holds(report, frozenset(blocked))
+    for rel in pending:
+        if rel in holds and rel not in actions:
+            what = "unchanged since an earlier release" if status(rel) == "stale" else "not created"
+            actions[rel] = ("kept", rel, f"{what}, but " + _seed_hold_reason(holds[rel]))
+        elif status(rel) == "stale":
+            actions.setdefault(rel, None)
+    return actions
+
+
+def _path_is_free(repo_dir: Path, rel: str) -> bool:
+    """True when nothing is at rel and every folder on the way is a directory
+    or absent, so a missing file can be created there."""
+    path = repo_dir
+    for part in Path(rel).parts:
+        path = path / part
+        if not os.path.lexists(path):
+            return True
+        if not stat.S_ISDIR(os.lstat(path).st_mode):
+            return False
+    return False
+
+
+def _seed_tag(rel: str, raw: bytes):
+    """The release that shipped these exact bytes of a seed script, or None."""
+    text = _decode_for_rewrite(raw)
+    return None if text is None else SEED_DIGESTS.get(rel, {}).get(_digest(text))
+
+
+def _seed_refusal(repo_dir: Path, rel: str, expected: str):
+    """Why --adopt cannot bring a stale seed script up to date, or None."""
+    if not _ANCHORED_WRITES:
+        return "this platform cannot write without following symlinks"
+    if _git_ignored(repo_dir, rel):
+        return "ignored by git"
+    if not _git_file_is_clean(repo_dir, rel):
+        return "needs the file tracked by git with no uncommitted changes"
+    parent = _open_parent(repo_dir, rel, create=False)
+    try:
+        raw = _read_anchored(parent, Path(rel).name)[0]
+    finally:
+        os.close(parent)
+    if raw != expected.encode("utf-8") and _seed_tag(rel, raw) is None:
+        return "edited locally since the scan; not overwritten"
+    return None
+
+
+def _adopt_seed(repo_dir: Path, rel: str, expected: str):
+    """Replace a seed script that is still an earlier release's exact copy."""
+    name = Path(rel).name
+    parent = _open_parent(repo_dir, rel, create=False)
+    try:
+        raw, identity = _read_anchored(parent, name)
+        if raw == expected.encode("utf-8"):
+            return None
+        tag = _seed_tag(rel, raw)
+        if tag is None:
+            return ("refused", rel, "edited locally since the scan; not overwritten")
+        _replace_anchored(parent, name, expected, identity)
+    finally:
+        os.close(parent)
+    return ("updated", rel, f"unchanged since gh-repo-bootstrapper {tag} shipped it; brought up to date")
 
 
 def _adopt_dangling_mirror(repo_dir: Path, rel: str):

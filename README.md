@@ -60,7 +60,8 @@ anything installed beyond a base Python interpreter.
   through a `${{ }}` expression in its script
 - no generated file describing the retired provider-deploy or production e2e
   lanes
-- the bootstrapper's own runbook copy and its legacy-digest table
+- the bootstrapper's own runbook copy, and its legacy-digest and
+  seed-script digest tables against the git release tags
 - the bootstrapper's own agent files (the general skills and their
   `.claude/skills` links, both reviewer agents, `CLAUDE.md`, and `AGENTS.md`
   above `## Project specifics`), which must match its `--type simple` render.
@@ -373,8 +374,11 @@ changes:
 `docs/lint-baseline.md`, `docs/advisory-baseline.md` and
 `docs/current-work.md` aren't in this set. Each repository edits them, so they
 keep the plain `kept` behaviour, as do scripts, configs and the other workflows: `ci.yml` and
-`test.yml` hold each repository's own test lanes. `.github/pull_request_template.md`
-isn't in the set either: it is the repository's to edit once written, and
+`test.yml` hold each repository's own test lanes. The `nextjs` baseline scripts
+are the repository's too, but `--adopt` brings a copy the repository never
+edited up to date (see [Checking and adopting](#checking-and-adopting)).
+`.github/pull_request_template.md` isn't in the set either: it is the
+repository's to edit once written, and
 [Repository types](#repository-types) says when `--adopt` writes it.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
@@ -479,7 +483,9 @@ The diff needs the bootstrapper's git release tags; from a copy without them,
 ### Checking and adopting
 
 `--check PATH --type TYPE` renders the current templates for that type and
-reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`.
+reports each file as `same`, `differs`, `missing`, `symlink`, or `unreadable`,
+and an unedited `nextjs` baseline script from an earlier release as `stale`
+(see below).
 It reports `.github/pull_request_template.md` as `own` when the repository
 already has a pull request template of its own, which `--adopt` keeps, and as
 `ignored` when git ignores that path and the repository has no other template
@@ -544,7 +550,8 @@ as `.worktrees/app/align` renders as `app`.
 
 `--adopt PATH --type TYPE` writes every missing file. It overwrites an
 existing file only when it's a `stale` template-owned file (see the table
-above), with one more exception that preserves repository-owned content:
+above) or an unedited `nextjs` baseline script (below), with one more
+exception that preserves repository-owned content:
 `AGENTS.md` is rebuilt from the template, keeping `## Project specifics` (and
 everything after it, less any `retired` guidance paragraph) and the
 `next dev`-managed block. The rebuild is refused
@@ -553,6 +560,23 @@ first. A generated section whose text differs may be an older template or a
 local edit, and the script cannot tell which, so it is replaced only with
 `--replace-generated-sections`, which lists those sections and asks before
 writing (`--non-interactive` skips the prompt).
+
+The `nextjs` baseline scripts, `scripts/audit-production.mjs`,
+`scripts/verify-baselines.mjs` and `scripts/review-baselines.mjs` with their
+`.test.mjs` files and `scripts/baseline-table.mjs`, belong to the repository,
+so a copy that matches no release, such as an edited one, is reported as
+`differs` and kept. A copy whose bytes equal one a release shipped was never
+edited: `--check` reports it as `stale`, naming that release, and `--adopt`
+replaces it with the current template if git tracks it with no uncommitted
+changes. Each script changes only together with its test and
+`scripts/baseline-table.mjs`, which all three scripts import, so `--adopt`
+neither updates an unedited copy nor creates a missing one while another file
+of its group is edited, untracked or has uncommitted changes, cannot be
+written (such as a folder at a missing file's path), or is kept for the same
+reason, and names the file that holds it back. A missing file that git ignores
+or still has a change for, such as a staged deletion, is not recreated and
+holds its group the same way. Merge the template's changes into that group by hand, or
+commit the file and re-run `--adopt`.
 
 For an existing `.gitignore`, missing entries are listed, not written; a
 missing `.gitignore` is created like any other file. Whether an added rule
@@ -577,6 +601,18 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.16.0
+
+`nextjs`: `--adopt` now brings a baseline script under `scripts/` up to date
+when the repository never edited it, together with the rest of its group (see
+[Checking and adopting](#checking-and-adopting)). A repository that still has
+the `scripts/review-baselines.mjs` and `scripts/review-baselines.test.mjs`
+copies 0.15.2 shipped gets the 0.15.3 change below from `--adopt`, without
+copying them by hand. An edited copy is still `differs`, and its change is
+still merged by hand. A missing baseline script is no longer created while
+the rest of its group is held back, so `--adopt` no longer pairs a current
+test with an older script.
 
 ### Upgrading to 0.15.3
 

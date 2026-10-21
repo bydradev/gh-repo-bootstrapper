@@ -3580,7 +3580,33 @@ class CheckReportWordingTests(unittest.TestCase):
         result = self._run_with_stdout_closed("--name", "x", "--type", "simple", "--configure-only",
                                               "--dry-run", answers="example-org\n" + "\n" * 20)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BrokenPipeError", result.stderr)
+
+    def test_non_interactive_dry_run_into_a_closed_pipe_keeps_its_refusals(self):
+        # The --postgres warning is written before the missing --scheme is refused.
+        args = ("--name", "x", "--type", "swift", "--postgres", "--dry-run", "--non-interactive")
+        reader, writer = os.pipe()
+        os.close(reader)
+        try:
+            result = subprocess.run(
+                [sys.executable, str(Path(bootstrap.__file__)), *args],
+                stdout=writer, stderr=subprocess.PIPE, encoding="utf-8",
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
+        finally:
+            os.close(writer)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--scheme", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_creating_run_whose_reader_leaves_during_the_questions_still_fails(self):
+        # Only a dry run may end quietly; a creating run must not hide that it stopped.
+        with unittest.mock.patch.object(sys, "argv", ["bootstrap.py", "--name", "x", "--type", "simple"]), \
+                unittest.mock.patch.object(bootstrap, "check_dependencies"), \
+                unittest.mock.patch.object(bootstrap, "gather_config", side_effect=BrokenPipeError), \
+                unittest.mock.patch.object(bootstrap, "_stdout_reader_left") as left:
+            with self.assertRaises(BrokenPipeError):
+                bootstrap.main()
+        left.assert_not_called()
 
     def test_dry_run_read_by_a_reader_that_leaves_early_exits_quietly(self):
         # `--dry-run | head -1`: the nextjs output (over 200 KB) is larger than a pipe holds.

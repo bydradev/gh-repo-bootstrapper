@@ -4141,7 +4141,9 @@ def main():
         if not args.dry_run or args.configure_only:
             raise  # a creating or configuring run must not end quietly
         _stdout_reader_left()  # a dry run writes nothing, so leaving during its questions loses nothing
-        return
+        if not args.non_interactive:
+            return  # the remaining questions were never seen, so there are no answers to check
+        cfg = gather_config(args)  # asks nothing, so its refusals still decide the exit status
 
     # --- configure-only: apply GitHub config to an existing repo ---
     if cfg["configure_only"]:

@@ -155,7 +155,7 @@ confirm before creating anything.
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
 | `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs and swift only) |
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
-| `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub. Piping the output to `head` or a pager is fine: the run ends quietly with exit 0 when the reader closes the pipe |
+| `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub. Piping the output to `head` or a pager is fine: the run ends quietly with exit 0 when the reader closes the pipe, and with an error status when a `--non-interactive` run's options are refused |
 | `--non-interactive` | Fail instead of prompting for missing options |
 | `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift (also when the reader of its output closes the pipe early). Needs `--type` and the type options the repository was generated with |
 | `--adopt PATH` | Bring an existing local repository in line without contacting GitHub (see [Existing repositories](#existing-repositories)) |
@@ -621,9 +621,10 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 a raw error. No file is classified, written or refused differently, and no
 generated file changes, so there is nothing to merge by hand.
 
-- An `AGENTS.md` whose generated sections have CRLF or CR line endings is one
-  `differs` row, `(CRLF or CR line endings; convert to LF first)`, in place of
-  a `differs` row per generated section; its `missing`, `local` and `retired`
+- An `AGENTS.md` with CRLF or CR line endings throughout, no line ending in a
+  bare LF, is one `differs` row,
+  `(CRLF or CR line endings; convert to LF first)`, in place of a `differs` row
+  per generated section; its `missing`, `local` and `retired`
   rows and the order of its generated sections stay. A file that mixes LF
   lines with CRLF ones keeps every row and gains
   `(CRLF and LF line endings mixed; convert to LF first)`. A file with LF
@@ -650,11 +651,14 @@ generated file changes, so there is nothing to merge by hand.
   `NotADirectoryError: Not a directory`.
 
 `--dry-run` and `--check` also end quietly when whatever reads their output
-closes it, as `--dry-run | head -1` does, and an interactive dry run does so
-while it is still asking its questions. They no longer print a traceback, and
-`--dry-run` exits 0 instead of 120. `--check` keeps its exit status: 0 when
-aligned, 1 on drift. A creating run and `--adopt` are unchanged: a closed pipe
-still ends them with an error status, so it cannot hide a failed run.
+closes it, as `--dry-run | head -1` does. They no longer print a traceback, and
+a `--dry-run` that ended with one (exit 120, or 1 when the reader left during
+its questions) now exits 0. A `--non-interactive` dry run whose options are
+refused still fails. An interactive dry run whose reader leaves while it
+is still asking exits 0 without reading the remaining answers, since nobody
+saw the questions. `--check` keeps its exit status: 0 when aligned, 1 on
+drift. A creating run and `--adopt` are unchanged: a closed pipe still ends
+them with an error status, so it cannot hide a failed run.
 
 ### Upgrading to 0.16.0
 

@@ -2047,6 +2047,10 @@ def compare_agents(expected: str, actual: str) -> list:
             rows.append(("same", heading))
         else:
             rows.append(("differs", heading))
+            if len(found) > 1:
+                # A rebuild keeps one copy of the section, so the text written
+                # under the other copies would be dropped.
+                rows.append(("local", f"(duplicate generated heading: {heading})"))
             known = set(_subheadings(body))
             rows += [
                 ("local", f"{heading} › {sub}")
@@ -2118,13 +2122,36 @@ def _missing_lines(expected: str, actual: str) -> list:
     ]
 
 
+def _is_symlink(path: Path) -> bool:
+    """Whether `path` is a symlink; an error other than "not there" is raised.
+
+    Path.is_symlink() raises on a permission error up to Python 3.13 but
+    returns False from 3.14, which would pass a path inside a directory that
+    cannot be searched off as absent.
+    """
+    try:
+        return stat.S_ISLNK(os.lstat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+
+
 def _symlink_in_path(repo_dir: Path, rel: str, links: dict = None) -> bool:
-    """Refuse symlinks except a declared mirror at the final component."""
+    """Refuse symlinks except a declared mirror at the final component.
+
+    Raises OSError, naming the directory, when one on the way cannot be
+    searched: callers report the path as unreadable rather than guess.
+    """
     current = repo_dir
     parts = Path(rel).parts
     for index, part in enumerate(parts):
         current = current / part
-        if current.is_symlink():
+        try:
+            linked = _is_symlink(current)
+        except OSError as exc:
+            # Every earlier component answered, so the parent is the one at fault.
+            where = current.parent.relative_to(repo_dir).as_posix()
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {where}") from exc
+        if linked:
             if links and rel in links and index == len(parts) - 1:
                 continue
             return True
@@ -2155,16 +2182,27 @@ def _indent(line: str) -> int:
 _UNVERIFIABLE = object()
 
 
-# The only flow collections the reader admits: `{}`, `[]`, or a list of plain words.
-_FLOW_VALUE_RE = re.compile(r"\{\s*\}|\[\s*(?:[A-Za-z0-9_./-]+(?:\s*,\s*[A-Za-z0-9_./-]+)*)?\s*\]")
+# An item of a flow sequence: a plain word, or a quoted string with no escape
+# and no quote of its own, which YAML 1.2.2 (sections 7.3.1 and 7.3.2, checked
+# 2026-10-21) reads as the text between its quotes.
+_FLOW_ITEM = r"""[A-Za-z0-9_./-]+|"[^"\\]*"|'[^']*'"""
+
+# The only flow collections the reader admits: `{}`, `[]`, or a list of those items.
+_FLOW_VALUE_RE = re.compile(rf"\{{\s*\}}|\[\s*(?:(?:{_FLOW_ITEM})(?:\s*,\s*(?:{_FLOW_ITEM}))*)?\s*\]")
+
+
+def _flow_items(value: str) -> list:
+    """The strings in a flow sequence _value() admitted, without their quotes."""
+    return [item[1:-1] if item[0] in "\"'" else item for item in re.findall(_FLOW_ITEM, value[1:-1])]
 
 
 def _value(text: str) -> str | None:
     """A single-line value without its comment, or None outside the modelled subset.
 
     Admitted: plain scalars, quoted scalars without escapes, and the flow
-    collections _FLOW_VALUE_RE describes. Anchors, aliases, tags, escapes,
-    other flow collections and indicator-led plain scalars are refused.
+    collections _FLOW_VALUE_RE describes (plain words and quoted strings
+    without escapes or quotes inside). Anchors, aliases, tags, escapes, other
+    flow collections and indicator-led plain scalars are refused.
     """
     text = text.strip()
     if not text or text.startswith("#"):
@@ -2213,20 +2251,32 @@ def _structural_lines(text: str) -> list | None:
     bootstrap.py has no YAML parser, so this models only block mappings and
     sequences, single-line scalars and flow collections, and block scalars,
     whose text it skips. Anything else (a quoted scalar or flow collection
-    spanning lines, anchors, aliases, tags, a plain scalar continued on the
-    next line, tabs, other whitespace than space and line breaks, characters
-    YAML forbids, several documents) returns None,
+    spanning lines, a quoted item with an escape or a quote inside, anchors,
+    aliases, tags, a plain scalar continued on the next line, tabs, other
+    whitespace than space and line breaks, characters YAML forbids, several
+    documents) returns None,
     so callers refuse instead of guessing. Sequence entries are rows with key
     None.
 
     The guarantee covers workflows GitHub can load: for those, the rows are
     right or the result is None. A file GitHub rejects as invalid YAML already
-    fails every run, so it is out of scope.
+    fails every run, so it is out of scope. _scan_rows() also says which line.
     """
-    if any(_outside_subset_char(char) for char in text):
-        return None
-    rows, block, content, blank = [], None, None, 0
-    for line in text.splitlines():
+    return _scan_rows(text)[0]
+
+
+def _scan_rows(text: str) -> tuple:
+    """(rows, None) as _structural_lines() reads them, or (None, n) where n is
+    the 1-based number of the first line outside the subset."""
+    lines = text.splitlines()
+    # `stop` is the number of the first line found outside the subset. The
+    # lines from one holding a character the reader does not model are not read.
+    stop = next((i for i, char in enumerate(text) if _outside_subset_char(char)), None)
+    if stop is not None:
+        stop = len((text[:stop] + "x").splitlines())
+        lines = lines[: stop - 1]
+    rows, numbers, block, content, blank = [], [], None, None, 0
+    for number, line in enumerate(lines, 1):
         if not line.strip():
             if block is not None and content is None:
                 blank = max(blank, len(line.rstrip("\r")))
@@ -2236,22 +2286,24 @@ def _structural_lines(text: str) -> list | None:
             if indent > block:
                 # Content keeps the first content line's indentation or more,
                 # and no leading blank line may be indented deeper than it.
-                if content is not None and indent < content:
-                    return None
-                if content is None and blank > indent:
-                    return None
+                if (content is not None and indent < content) or (content is None and blank > indent):
+                    stop = number
+                    break
                 content = indent if content is None else content
                 continue
             block = None
         body = line[indent:]
         if body.startswith("\t") or body.startswith("#"):
             if body.startswith("\t"):
-                return None
+                stop = number
+                break
             continue
         if indent == 0 and body.rstrip() in ("---", "..."):
-            return None
+            stop = number
+            break
         while body == "-" or body.startswith("- "):
             rows.append((indent, None, None))
+            numbers.append(number)
             rest = body[1:]
             indent += 1 + len(rest) - len(rest.lstrip(" "))
             body = rest.lstrip(" ")
@@ -2262,26 +2314,32 @@ def _structural_lines(text: str) -> list | None:
             # A sequence entry that is a scalar, not a mapping.
             value = _value(body)
             if value is None or not rows or rows[-1][1] is not None:
-                return None
+                stop = number
+                break
             continue
         key = key_match.group(1)
         if key[0] not in "\"'" and not (key == "on" and indent == 0) and _IMPLICIT_KEY_RE.fullmatch(key):
-            return None  # a YAML 1.1 parser reads it as a boolean, null or number
+            stop = number  # a YAML 1.1 parser reads it as a boolean, null or number
+            break
         key = key[1:-1] if key[0] in "\"'" else key
         raw = body[key_match.end():]
         if re.fullmatch(r"[ \t]*[|>][-+]?(?:[ \t]+#.*)?[ \t]*", raw):
             rows.append((indent, key, "|"))
+            numbers.append(number)
             block, content, blank = indent, None, 0
             continue
         value = _value(raw)
         if value is None:
-            return None
+            stop = number
+            break
         rows.append((indent, key, value))
+        numbers.append(number)
     # A scalar value cannot have deeper children; such a file is outside the subset.
-    for (indent, key, value), (next_indent, _, _) in zip(rows, rows[1:]):
+    for k, ((indent, key, value), (next_indent, _, _)) in enumerate(zip(rows, rows[1:])):
         if key is not None and value and next_indent > indent:
-            return None
-    return rows
+            stop = numbers[k + 1] if stop is None else min(stop, numbers[k + 1])
+            break
+    return (rows, None) if stop is None else (None, stop)
 
 
 def _children(rows: list, start: int):
@@ -2328,7 +2386,7 @@ def _declared_inputs(text: str):
     if value:
         # A scalar names one event exactly; only a flow list names several.
         if value.startswith("["):
-            events = [event.strip() for event in value[1:-1].split(",") if event.strip()]
+            events = _flow_items(value)
         elif value.startswith("{"):
             events = []
         else:
@@ -2394,6 +2452,21 @@ def _passed_inputs(text: str) -> dict | None:
     return calls
 
 
+def _outside_subset_note(text: str | None) -> str:
+    """Names the first line of `text` that _scan_rows() refuses, as a suffix for
+    a message; empty when it names none (or there is no text)."""
+    number = None if text is None else _scan_rows(text)[1]
+    if number is None:
+        return ""
+    # Split as the stamp does, so a character Python reads as a line break but
+    # YAML does not (such as U+0085) stays in the line shown.
+    shown = re.split(r"\r\n?|\n", text)[number - 1].strip(" ")
+    if len(shown) > 80:
+        shown = shown[:77] + "..."
+    # repr() keeps a control character in the file from reaching the terminal.
+    return f" (line {number} is outside the YAML subset: {shown!r})"
+
+
 def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     """Problems with `workflow`'s calls to the repository's own reusable workflows.
 
@@ -2402,22 +2475,28 @@ def _undeclared_inputs(repo_dir: Path, workflow: str) -> list:
     a newer release workflow passes. A called file that does not exist yet is
     written by --adopt from the same render, so it is not checked. Files are
     read with _structural_lines(); anything outside its subset is reported as
-    unverifiable rather than guessed.
+    unverifiable, naming the first line outside it when there is one, rather
+    than guessed.
     """
     calls = _passed_inputs(workflow)
     if calls is None:
-        return ["cannot verify the inputs this workflow passes; check them by hand"]
+        return ["cannot verify the inputs this workflow passes; check them by hand"
+                + _outside_subset_note(workflow)]
     problems = []
     for rel, passed in calls.items():
         called = repo_dir / rel
-        if _symlink_in_path(repo_dir, rel) or not called.is_file():
-            continue
+        text = None
         try:
-            declared = _declared_inputs(called.read_text(encoding="utf-8"))
+            if _symlink_in_path(repo_dir, rel) or not called.is_file():
+                continue
+            text = called.read_text(encoding="utf-8")
+            declared = _declared_inputs(text)
         except (OSError, UnicodeDecodeError):
             declared = _UNVERIFIABLE
         if declared is _UNVERIFIABLE:
-            problems.append(f"cannot verify the inputs {rel} declares; check them by hand")
+            problems.append(
+                f"cannot verify the inputs {rel} declares; check them by hand" + _outside_subset_note(text)
+            )
             continue
         missing = [name for name in passed if declared is None or name not in declared]
         if missing:
@@ -2588,16 +2667,19 @@ def _symlinked_skill_collisions(repo_dir: Path, files: dict, skill_paths: dict) 
     never written, and at most SYMLINKED_SKILL_READ_LIMIT bytes of it.
     """
     base = repo_dir / ".agents/skills"
-    if _symlink_in_path(repo_dir, ".agents/skills") or not base.is_dir():
-        return {}
     try:
-        entries = sorted(os.scandir(base), key=lambda e: e.name)
+        if _symlink_in_path(repo_dir, ".agents/skills") or not base.is_dir():
+            return {}
+        # On a filesystem whose directory entries carry no file type,
+        # is_symlink() asks lstat, which fails in a folder that cannot be searched.
+        entries = [entry for entry in sorted(os.scandir(base), key=lambda e: e.name)
+                   if entry.is_symlink()]
     except OSError as exc:
         return {".agents/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
     found = {}
     for entry in entries:
         rel = f".agents/skills/{entry.name}"
-        if not entry.is_symlink() or f"{rel}/SKILL.md" in files:
+        if f"{rel}/SKILL.md" in files:
             continue
         text = _read_regular_prefix(Path(entry.path) / "SKILL.md", SYMLINKED_SKILL_READ_LIMIT)
         if text is None:
@@ -2624,16 +2706,19 @@ def _dangling_mirrors(repo_dir: Path, links: dict) -> dict:
     they are not reported.
     """
     base = repo_dir / ".claude/skills"
-    if _symlink_in_path(repo_dir, ".claude/skills") or not base.is_dir():
-        return {}
     try:
-        entries = sorted(os.scandir(base), key=lambda e: e.name)
+        if _symlink_in_path(repo_dir, ".claude/skills") or not base.is_dir():
+            return {}
+        # A declared mirror is not asked about; see _symlinked_skill_collisions
+        # for what is_symlink() can raise.
+        entries = [entry for entry in sorted(os.scandir(base), key=lambda e: e.name)
+                   if f".claude/skills/{entry.name}" not in links and entry.is_symlink()]
     except OSError as exc:
         return {".claude/skills": ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")}
     found = {}
     for entry in entries:
         rel = f".claude/skills/{entry.name}"
-        if rel in links or not entry.is_symlink() or not _target_missing(entry.path):
+        if not _target_missing(entry.path):
             continue
         found[rel] = ("dangling", f"symlink to {os.readlink(entry.path)}, which does not exist")
     return found
@@ -2655,11 +2740,26 @@ def _own_pr_template(repo_dir: Path) -> str | None:
         base = repo_dir / folder
         if (folder and _symlink_in_path(repo_dir, folder)) or not base.is_dir():
             continue
-        for entry in sorted(os.listdir(base)):
+        try:
+            listing = sorted(os.listdir(base))
+        except OSError as exc:
+            # Name the folder: the row is for the template, not for the folder.
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {folder or '.'}") from exc
+        for entry in listing:
             name = Path(entry.lower())
             rel = f"{folder}/{entry}" if folder else entry
-            if (name.stem == "pull_request_template" and (base / entry).is_file()
-                    and not _git_ignored(repo_dir, rel)):
+            if name.stem != "pull_request_template":
+                continue
+            try:
+                # os.stat, not Path.is_file(): the latter answers False on a
+                # permission error from Python 3.14, which would pass a template
+                # in a folder that can be listed but not searched off as absent.
+                is_file = stat.S_ISREG(os.stat(base / entry).st_mode)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as exc:
+                raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {folder or '.'}") from exc
+            if is_file and not _git_ignored(repo_dir, rel):
                 return rel
     return None
 
@@ -2679,7 +2779,9 @@ def _pr_template_state(repo_dir: Path) -> tuple | None:
     if _symlink_in_path(repo_dir, str(Path(PR_TEMPLATE).parent)):
         return ("symlink", "a symlink in this path; not compared or written")
     ignored = _git_ignored(repo_dir, PR_TEMPLATE)
-    if not ignored and path.is_symlink():
+    # The folder is no symlink (above), so this asks only about the template,
+    # and names a folder that cannot be searched, as path.is_symlink() would not.
+    if not ignored and _symlink_in_path(repo_dir, PR_TEMPLATE):
         if not path.is_file():
             return ("symlink", "a symlink to no file here; not compared or written")
         return ("own", "the repository's own pull request template is a symlink here; not compared or written")
@@ -2709,15 +2811,30 @@ def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
     other_type = every - shared - set(skill_paths) if skill_paths else set()
     extras.update(_symlinked_skill_collisions(repo_dir, files, skill_paths))
     for base in (".agents/skills", ".claude/agents", ".opencode/agents"):
-        if _symlink_in_path(repo_dir, base):
+        try:
+            if _symlink_in_path(repo_dir, base):
+                continue
+        except OSError as exc:
+            extras[base] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
             continue
         for directory, dirs, names in os.walk(repo_dir / base, followlinks=False):
-            dirs[:] = sorted(d for d in dirs if not (Path(directory) / d).is_symlink())
+            # A directory that can be listed but not searched (r without x)
+            # answers for none of its entries: report it once, and go no deeper.
+            here = Path(directory).relative_to(repo_dir).as_posix()
+            try:
+                dirs[:] = sorted(d for d in dirs if not _is_symlink(Path(directory) / d))
+            except OSError as exc:
+                dirs[:] = []
+                extras[here] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
             for name in sorted(names):
                 path = Path(directory) / name
                 rel = path.relative_to(repo_dir).as_posix()
-                if rel in files or path.is_symlink() or not path.is_file():
-                    continue
+                try:
+                    if rel in files or _is_symlink(path) or not path.is_file():
+                        continue
+                except OSError as exc:
+                    extras[here] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+                    break
                 alias = _case_alias(repo_dir, rel, files)
                 if alias:
                     extras[rel] = (
@@ -2836,7 +2953,12 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             if state is not None:
                 report[rel] = state
                 continue
-        if _symlink_in_path(repo_dir, rel):
+        try:
+            linked = _symlink_in_path(repo_dir, rel)
+        except OSError as exc:
+            report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+            continue
+        if linked:
             report[rel] = ("symlink", "a symlink in this path; not compared or written")
             continue
         owned = read_stamp(expected, _is_yaml(rel))[0] is not None
@@ -2930,16 +3052,19 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
         )
     for rel, target in links.items():
         path = repo_dir / rel
-        if _symlink_in_path(repo_dir, rel, links):
-            report[rel] = ("symlink", "a symlink in the parent path; not compared or written")
-        elif _git_ignored(repo_dir, rel):
-            report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
-        elif path.is_symlink():
-            report[rel] = ("same", None) if os.readlink(path) == target else ("differs", "wrong mirror target")
-        elif path.exists():
-            report[rel] = ("differs", "mirror path is not a symlink")
-        else:
-            report[rel] = ("missing", None)
+        try:
+            if _symlink_in_path(repo_dir, rel, links):
+                report[rel] = ("symlink", "a symlink in the parent path; not compared or written")
+            elif _git_ignored(repo_dir, rel):
+                report[rel] = ("ignored", "ignored by git; update the ignore rules before adopting")
+            elif path.is_symlink():
+                report[rel] = ("same", None) if os.readlink(path) == target else ("differs", "wrong mirror target")
+            elif path.exists():
+                report[rel] = ("differs", "mirror path is not a symlink")
+            else:
+                report[rel] = ("missing", None)
+        except OSError as exc:
+            report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
     return report
 
 
@@ -2953,9 +3078,11 @@ def _retired_section_text(repo_dir: Path, rows: list) -> dict[str, list[str]]:
     shows its text first: a repository rule added there would be lost too.
     """
     retired = {heading for row_status, heading in rows if row_status == "retired"}
-    if not retired or _symlink_in_path(repo_dir, "AGENTS.md"):
+    if not retired:
         return {}
     try:
+        if _symlink_in_path(repo_dir, "AGENTS.md"):
+            return {}
         actual = (repo_dir / "AGENTS.md").read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return {}
@@ -2997,10 +3124,14 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
         elif isinstance(detail, str):
             print(f"      {detail}")
     agents = repo_dir / "AGENTS.md"
-    if not _symlink_in_path(repo_dir, "AGENTS.md") and agents.is_file():
-        size = agents.stat().st_size
-        if size > AGENTS_SIZE_WARN_BYTES:
-            print(f"  warn AGENTS.md total {size} B > {AGENTS_SIZE_WARN_BYTES} B")
+    size = 0
+    try:
+        if not _symlink_in_path(repo_dir, "AGENTS.md") and agents.is_file():
+            size = agents.stat().st_size
+    except OSError:
+        pass  # the report above already shows AGENTS.md as unreadable
+    if size > AGENTS_SIZE_WARN_BYTES:
+        print(f"  warn AGENTS.md total {size} B > {AGENTS_SIZE_WARN_BYTES} B")
     print("\nAligned." if aligned else "\nDrift found. Review it, then run --adopt to apply what can be applied.")
     return aligned
 
@@ -3105,13 +3236,22 @@ def _remove_empty_dirs(repo_dir: Path, created: list) -> None:
     """Best-effort removal of directories this run created, deepest first."""
     for rel_dir in reversed(created):
         try:
-            parent = _open_parent(repo_dir, rel_dir, create=False)
-            try:
-                os.rmdir(Path(rel_dir).name, dir_fd=parent)
-            finally:
-                os.close(parent)
+            _rmdir_anchored(repo_dir, rel_dir)
         except OSError:
             pass
+
+
+def _rmdir_anchored(repo_dir: Path, rel_dir: str) -> None:
+    """Remove the empty directory rel_dir, reached without following a symlink.
+
+    Only an empty directory goes: one that still holds anything, or is a
+    symlink, raises OSError and is left as it is.
+    """
+    parent = _open_parent(repo_dir, rel_dir, create=False)
+    try:
+        os.rmdir(Path(rel_dir).name, dir_fd=parent)
+    finally:
+        os.close(parent)
 
 
 def _read_anchored(parent: int, name: str) -> tuple:
@@ -3202,7 +3342,8 @@ def adopt_repository(
 
     Writes missing generated files and mirrors, upgrades stale template-owned
     files and unchanged copies of the repository-owned seed scripts (see
-    _seed_actions), and deletes digest-valid orphaned template-owned files. Locally
+    _seed_actions), and deletes digest-valid orphaned template-owned files that git
+    tracks with no uncommitted change. Locally
     modified or shadowed owned files and ignored paths are refused. Other
     existing files are kept, except that AGENTS.md is rebuilt while keeping
     `## Project specifics` and the `next dev` block. That rewrite needs the
@@ -3249,7 +3390,63 @@ def adopt_repository(
             action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
         if action:
             actions.append(action)
+    actions.extend(_adopt_emptied_skills(repo_dir, actions, report, mirrors))
     return actions
+
+
+# What rmdir reports for a folder that holds something (a non-empty directory
+# can also fail as EEXIST), that is gone already, or that a symlink or a file
+# has replaced. None of those is an emptied folder this run failed to remove.
+_NOT_OURS_TO_REMOVE = {errno.ENOTEMPTY, errno.EEXIST, errno.ENOENT, errno.ENOTDIR, errno.ELOOP}
+
+
+def _adopt_emptied_skills(repo_dir: Path, actions: list, report: dict, mirrors: dict) -> list:
+    """Clear what deleting orphaned skill files left behind: emptied folders,
+    then the `.claude/skills` mirrors that point at a folder that is gone.
+
+    A folder that still holds anything is left without a row, as is one that
+    is gone already or is no longer a plain directory (a symlink put there
+    mid-run). A folder that should be empty but cannot be removed, such as
+    one in a read-only parent, is refused: its mirror then stays live, and a
+    later run has no deleted file left to retry from.
+
+    The mirrors were judged before the deletion, while their folder still
+    existed, so they are looked at again, and only ones the scan did not
+    already report are added.
+    """
+    folders = sorted({
+        folder.as_posix()
+        for action, rel, _ in actions
+        if action == "deleted" and rel.startswith(".agents/skills/")
+        for folder in Path(rel).parents
+        if len(folder.parts) > 2
+    })
+    if not folders:
+        return []
+    rows = []
+    for folder in reversed(folders):
+        try:
+            _rmdir_anchored(repo_dir, folder)
+        except OSError as exc:
+            if exc.errno not in _NOT_OURS_TO_REMOVE:
+                rows.append((
+                    "refused", folder,
+                    f"{type(exc).__name__}: {exc.strerror or exc}; "
+                    "folder left in place, so the .claude/skills mirror of its skill stays; "
+                    "remove the emptied folders by hand, then re-run --adopt to delete the mirror",
+                ))
+    try:
+        dangling = _dangling_mirrors(repo_dir, mirrors)
+    except OSError as exc:
+        return rows + [("refused", ".claude/skills", f"{type(exc).__name__}: {exc.strerror or exc}")]
+    for rel, (status, _) in sorted(dangling.items()):
+        if status != "dangling" or rel in report:
+            continue
+        try:
+            rows.append(_adopt_dangling_mirror(repo_dir, rel))
+        except OSError as exc:
+            rows.append(("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}"))
+    return rows
 
 
 def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
@@ -3380,7 +3577,8 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
     name = Path(rel).name
     if _git_ignored(repo_dir, rel):
         return ("refused", rel, "ignored by git; not deleted")
-    if _git_file_state(repo_dir, rel) == "dirty":
+    state = _git_file_state(repo_dir, rel)
+    if state not in ("clean", "untracked"):
         return ("refused", rel, "dangling mirror has uncommitted or staged changes; not deleted")
     parent = _open_parent(repo_dir, rel, create=False)
     try:
@@ -3392,6 +3590,9 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
             return ("refused", rel, f"symlink to {target} is not a skill mirror; remove it by hand")
         if not _target_missing(repo_dir / ".agents/skills" / name):
             return ("refused", rel, "its skill folder exists or cannot be checked; not deleted")
+        if state == "untracked":
+            # Judged after the shape, so "commit it" is only advised for a real mirror.
+            return ("refused", rel, "dangling mirror is not tracked by git; not deleted")
         after = os.stat(name, dir_fd=parent, follow_symlinks=False)
         if (after.st_dev, after.st_ino) != (before.st_dev, before.st_ino):
             return ("refused", rel, "changed while --adopt was running")
@@ -3482,7 +3683,11 @@ def _adopt_file(
             if status == "orphaned":
                 if _git_ignored(repo_dir, rel):
                     return ("refused", rel, "ignored by git; not deleted")
-                if _git_file_state(repo_dir, rel) == "dirty":
+                state = _git_file_state(repo_dir, rel)
+                if state == "untracked":
+                    # Nothing committed to recover it from, also outside a git repository.
+                    return ("refused", rel, "orphaned file is not tracked by git; not deleted")
+                if state != "clean":
                     return ("refused", rel, "orphaned file has uncommitted or staged changes; not deleted")
                 try:
                     current = raw.decode("utf-8")
@@ -3680,9 +3885,9 @@ def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
     deletes either way.
     """
     path = repo_dir / rel
-    if _symlink_in_path(repo_dir, rel) or not path.is_file():
-        return False
     try:
+        if _symlink_in_path(repo_dir, rel) or not path.is_file():
+            return False
         text = path.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return False

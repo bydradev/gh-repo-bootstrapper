@@ -25,7 +25,9 @@ anything installed beyond a base Python interpreter.
   declaring `on: workflow_call`
 - workflow token scopes: every generated workflow declaring `permissions:`
   explicitly, with `ci.yml` and `test.yml` pinned to exactly `contents: read`
-  and no write scope outside `release-please.yml`
+  and no write scope outside `release-please.yml`, whose release job declares
+  exactly `contents: read` and `pull-requests: read` in the types with a gated
+  release (for the untested-merge guard) and no block of its own in `simple`
 - rendered Release Please config *values*, not just that the JSON parses
 - the branch-protection payload, the runbook (its pinned rules, and no
   incident run IDs, SHAs or timestamps), and the Next.js lint/advisory
@@ -45,8 +47,9 @@ anything installed beyond a base Python interpreter.
   browser installs tied to their `full` conditions; the release job waiting for
   `test` with no condition of its own; its release steps skipped, with a
   warning, only while the Release Please App credentials are missing; the
-  release App token limited to contents and pull requests; and pinned fallback
-  versions of the Python CI tools
+  release App token limited to contents and pull requests, with the
+  untested-merge guard reading with the workflow token instead; and pinned
+  fallback versions of the Python CI tools
 - the word `secrets` in every generated workflow and in this repository's own
   only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
   because some generated repositories run workflow validators that refuse it
@@ -642,6 +645,28 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.17.0
+
+In `nextjs`, `python`, `rust` and `swift`, the untested-merge guard in
+`release-please.yml` now reads with the workflow's `GITHUB_TOKEN` instead of
+the Release Please App token. It only lists pull requests and compares commits,
+which need the Pull requests and Contents repository permissions at read
+([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
+[Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
+checked 2026-10-21), so the App token, which can write contents and pull
+requests, now goes only to `release-please-action`. The `release-please` job
+gains `permissions:` with `contents: read` and `pull-requests: read`; a
+job-level block replaces the workflow's `contents: read`, so both are listed
+([Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idpermissions),
+checked 2026-10-21). The workflow's own block, the App's permissions and the
+repository settings do not change. `release-please.yml` is template-owned, so
+`--adopt` brings the change to existing repositories, keeping each one's action
+pins, and `--check` reports an older copy as `stale`. A repository whose
+release workflow is `local-modified` keeps its own and can make the same two
+edits by hand: add that `permissions:` block to the `release-please` job, and
+set the guard step's `GH_TOKEN` to `${{ github.token }}`. `simple` has no guard
+and is unchanged.
 
 ### Upgrading to 0.16.1
 
@@ -1245,7 +1270,15 @@ the rest.
 ## GitHub App for Release Please
 
 Release Please runs via a GitHub App rather than the default `GITHUB_TOKEN` so
-it can open PRs that trigger other workflows. You will need to supply:
+it can open PRs that trigger other workflows. In every type but `simple`, the
+untested-merge guard before it only lists pull requests and compares commits,
+which need the Pull requests and Contents repository permissions at read
+([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
+[Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
+checked 2026-10-21), so it reads with the workflow's `GITHUB_TOKEN` and the App
+token goes only to `release-please-action`. The release job declares
+`contents: read` and `pull-requests: read` for it; a job-level block replaces
+the workflow's, so both are listed. You will need to supply:
 
 - `RELEASE_PLEASE_CLIENT_ID`: set as a GitHub variable
 - `RELEASE_PLEASE_APP_KEY`: set as a GitHub secret

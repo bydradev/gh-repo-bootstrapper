@@ -63,10 +63,8 @@ A green pull request therefore does not mean the browser suite passed; run
 The generated `.prettierignore` keeps Prettier off the three workflows the
 bootstrapper owns: `pr-title-check.yml`, `release-please.yml` and
 `baseline-review.yml`. They must stay verbatim, because a reformatted copy
-counts as a local edit and `--adopt` stops replacing it. It also lists
-`release-please-config.json`, which this repository owns and may edit; the
-bootstrapper compares it with the template, so a Prettier rewrite alone shows
-as drift. `ci.yml` and `test.yml` belong to this repository and stay formatted.
+counts as a local edit and `--adopt` stops replacing it. `ci.yml` and
+`test.yml` belong to this repository and stay formatted.
 
 ## Deployment
 

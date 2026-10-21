@@ -145,14 +145,9 @@ NEXTJS_BASELINE_REQUIRED_FILES = {
 # Prettier can format the same text differently from one release to the next
 # (patch releases included: "Install", Prettier docs, checked 2026-10-21). The
 # three template-owned workflows must stay verbatim: reformatting one would
-# make it `local-modified`. release-please-config.json is the repository's own
-# and may be edited, but the bootstrapper writes it and `--check` compares it
-# with the template, so a Prettier rewrite alone would show as drift. ci.yml
-# and test.yml are the repository's own, so they stay formatted.
-NEXTJS_PRETTIERIGNORE_REQUIRED = (
-    *bootstrap.TEMPLATE_OWNED_WORKFLOWS,
-    "release-please-config.json",
-)
+# make it `local-modified`. ci.yml and test.yml are the repository's own, so
+# they stay formatted.
+NEXTJS_PRETTIERIGNORE_REQUIRED = bootstrap.TEMPLATE_OWNED_WORKFLOWS
 NEXTJS_PRETTIERIGNORE_FORBIDDEN = (
     ".github/workflows/ci.yml",
     ".github/workflows/test.yml",
@@ -1485,8 +1480,8 @@ def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
         for path in NEXTJS_PRETTIERIGNORE_REQUIRED:
             if path not in ignored:
                 errors.append(
-                    f"[{label}] .prettierignore must list {path}, which the template writes "
-                    "and a Prettier rewrite would put out of step with it"
+                    f"[{label}] .prettierignore must list {path}, which is template-owned "
+                    "and must stay verbatim"
                 )
         for path in NEXTJS_PRETTIERIGNORE_FORBIDDEN:
             if path in ignored:
@@ -3256,12 +3251,20 @@ def run_self_tests() -> list:
     if not any("generated Release Please manifest" in e for e in result):
         errors.append(f"self-test 'manifest formatting' did not fail as expected: {result}")
 
-    # Case 17b: the template-owned workflows must stay verbatim, and
-    # release-please-config.json is written by the template and compared by
-    # `--check`, so Prettier (which `format:check` runs over the whole tree)
-    # must not touch them. Dropping any entry, or leaving it only in a
-    # comment, must fail; ci.yml and test.yml are the repository's own and
-    # must stay formatted.
+    # Case 17b: the template-owned workflows must stay verbatim, so Prettier
+    # (which `format:check` runs over the whole tree) must not touch them.
+    # Dropping any entry, or leaving it only in a comment, must fail; ci.yml
+    # and test.yml are the repository's own and must stay formatted.
+    # Exactly the three workflows: the repository owns release-please-config.json.
+    if set(NEXTJS_PRETTIERIGNORE_REQUIRED) != {
+        ".github/workflows/pr-title-check.yml",
+        ".github/workflows/release-please.yml",
+        ".github/workflows/baseline-review.yml",
+    }:
+        errors.append(
+            "self-test 'prettierignore baseline' expects exactly the three template-owned workflows, "
+            f"got {sorted(NEXTJS_PRETTIERIGNORE_REQUIRED)}"
+        )
     files = bootstrap.generate_files(next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs"))
     result = check_baseline_documents("self-test:prettierignore baseline", "nextjs", files)
     if any("prettierignore" in e for e in result):

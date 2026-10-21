@@ -8,9 +8,10 @@
 # lock file for each package manager, checked 2026-10-21). `--type python`
 # therefore renders dependabot-actions-only.yml instead.
 #
-# Once the repository has a pyproject.toml or a requirements file, copy this
-# file over .github/dependabot.yml to opt in deliberately. Referenced from the
-# README's `python` section.
+# Once the repository has a pyproject.toml or a requirements file, copy the
+# `pip` entry below into .github/dependabot.yml to opt in deliberately; the
+# generated local-validation-python skill carries the same entry. Referenced
+# from the README's `python` section.
 
 version: 2
 # Keep dependencies and workflow actions current; surface advisories.

@@ -2089,6 +2089,14 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     options = (steps[setup].get("with") or {}) if setup is not None else {}
     if not options.get("cache"):
         return []
+    # The expected hash below models pip's cache with an explicit path; with
+    # no path pip hashes **/requirements.txt, and other managers have no
+    # **/pyproject.toml fallback, so either change needs this rule updated.
+    if options.get("cache") != "pip" or not str(options.get("cache-dependency-path", "")).strip():
+        return [
+            f"{where} setup-python must use cache: pip with an explicit cache-dependency-path, "
+            f"or update the {PYTHON_MANIFEST_GUARD_NAME!r} rule for the new cache"
+        ]
     # Before the checkout the workspace is empty and the guard fails every run.
     checkout = next(
         (i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@")), None
@@ -4349,6 +4357,11 @@ def _structure_self_tests() -> list:
            gates("python", test, lambda w: python_setup(w)["with"].update(
                {"cache-dependency-path": python_setup(w)["with"]["cache-dependency-path"] + "poetry.lock\n"})),
            same_files)
+    other_cache = "must use cache: pip with an explicit cache-dependency-path"
+    expect("python cache without an explicit path",
+           gates("python", test, lambda w: python_setup(w)["with"].pop("cache-dependency-path")), other_cache)
+    expect("python cache for another package manager",
+           gates("python", test, lambda w: python_setup(w)["with"].update({"cache": "poetry"})), other_cache)
     expect("python manifest guard that follows symbolic links",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("hashFiles(", "hashFiles('--follow-symbolic-links', "))), None)

@@ -1327,6 +1327,12 @@ class PythonManifestGuardTests(unittest.TestCase):
         snippet = yaml.safe_load((bootstrap.TEMPLATES_DIR / "dependabot-python.yml").read_text(encoding="utf-8"))
         self.assertEqual(
             [update["package-ecosystem"] for update in snippet["updates"]], ["pip", "github-actions"])
+        # The generated skill carries the same pip entry, so a new repository
+        # keeps the major holds and the group when it opts in.
+        skill = python[".agents/skills/local-validation-python/SKILL.md"]
+        block = re.search(r"```yaml\n(  - package-ecosystem: pip\n.*?)```", skill, re.S)
+        self.assertIsNotNone(block, "skill has no pip entry")
+        self.assertEqual(yaml.safe_load(block.group(1))[0], snippet["updates"][0])
 
 
 if __name__ == "__main__":

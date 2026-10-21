@@ -1151,7 +1151,9 @@ setup.py, setup.cfg, pyproject.toml, or a Pipfile.` until a manifest exists
 checked 2026-10-21; GitHub's [options reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)
 likewise requires a manifest or lock file for each `package-ecosystem`, checked
 2026-10-21), so a new Python repo gets the Actions-only config. After
-committing a manifest, opt in deliberately by copying the `pip` entry from
+committing a manifest, opt in deliberately by copying the `pip` entry, with its
+semver-major holds on `ruff`, `mypy` and `pytest` and its `dev-dependencies`
+group, from the generated `local-validation-python` skill or
 [`templates/dependabot-python.yml`](templates/dependabot-python.yml) into
 `.github/dependabot.yml`. That file is a reference snippet; the bootstrapper
 never renders it.

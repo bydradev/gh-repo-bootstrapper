@@ -49,9 +49,35 @@ such as Poetry's `[tool.poetry.group.dev.dependencies]`; add a
 
 As generated, `.github/dependabot.yml` covers GitHub Actions only: a new
 repository has no manifest, and a `pip` entry would fail on every run until one
-exists. Once the manifest is committed, add a `pip` ecosystem entry if the file
-has none, with the same `cooldown` as the Actions entry. Use `uv` rather than
-`pip` once `uv.lock` is committed, so Dependabot updates the lockfile too.
+exists. Once the manifest is committed, add this entry under `updates:` if the
+file has none. It holds the core tools at their current major, since a major
+bump needs deliberate adoption, and groups their updates. Use
+`package-ecosystem: uv` rather than `pip` once `uv.lock` is committed, so
+Dependabot updates the lockfile too.
+
+```yaml
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: ruff
+        update-types: ["version-update:semver-major"]
+      - dependency-name: mypy
+        update-types: ["version-update:semver-major"]
+      - dependency-name: pytest
+        update-types: ["version-update:semver-major"]
+    groups:
+      dev-dependencies:
+        patterns:
+          - ruff
+          - mypy
+          - pytest
+          - pytest-*
+```
 
 ## Worktrees
 

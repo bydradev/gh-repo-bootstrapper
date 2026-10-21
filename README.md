@@ -538,8 +538,9 @@ sections in a different order), and anything `local`:
 repository text outside `## Project specifics`, including a subsection added
 inside a generated section, or structure it does not parse (setext headings,
 an unclosed code fence, a fence indented four or more columns, an HTML
-block such as a `<!-- -->` comment or `<details>`, or a
-generated heading that falls inside a code block). The `next dev`-managed block and everything from
+block such as a `<!-- -->` comment or `<details>`, a
+generated heading that appears more than once, or a generated heading that
+falls inside a code block). The `next dev`-managed block and everything from
 `## Project specifics` on are the repository's own and are not compared,
 except that an unedited guidance paragraph from an older template there is
 `retired`. The block must stay at the top of the file: a moved block is `local`,
@@ -627,6 +628,14 @@ removed, such as one in a read-only directory, is reported as `refused` and
 `--adopt` exits 1; its mirror stays. An empty folder and mirror left by an
 earlier run or by such a refusal stay as they are: delete the empty folder by
 hand, and the mirror then shows as `dangling`, which `--adopt` deletes.
+
+`--check` now reports a second copy of a generated `AGENTS.md` heading as
+`local`, for example `(duplicate generated heading: ## Commits)`, next to the
+`differs` row it already printed. Before, a rebuild with
+`--adopt --replace-generated-sections` dropped the text under the extra copy.
+`--adopt` now refuses the rebuild even with that flag, and leaves the file as
+it is. Remove the extra copy, or move its text under `## Project specifics`,
+then re-run `--adopt`.
 
 ### Upgrading to 0.16.0
 

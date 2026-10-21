@@ -386,12 +386,15 @@ repository's to edit once written, and
 [Repository types](#repository-types) says when `--adopt` writes it.
 
 A `nextjs` repository's `.prettierignore` lists the three template-owned
-workflows and `release-please-config.json`, so a scaffold whose `format:check`
-is `prettier --check .` cannot fail on what the template writes. Prettier can
-format the same text differently between releases (patch releases included;
+workflows, which must stay verbatim, so a scaffold whose `format:check` is
+`prettier --check .` cannot fail on them. Prettier can format the same text
+differently between releases (patch releases included;
 [Install](https://prettier.io/docs/install), Prettier docs, checked
-2026-10-21), and a reformatted workflow would be `local-modified`. `ci.yml`
-and `test.yml` stay formatted.
+2026-10-21), and a reformatted workflow would be `local-modified`. It lists
+`release-please-config.json` too. That file is the repository's own and stays
+editable, but the bootstrapper writes it and `--check` compares it with the
+template, so a Prettier rewrite alone would show as `differs`. `ci.yml` and
+`test.yml` stay formatted.
 
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
 no longer cancels the pending run of a release merge (unless 100 runs are
@@ -654,14 +657,16 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 ### Upgrading to 0.17.0
 
 `nextjs`: the generated `.prettierignore` now lists
-`.github/workflows/pr-title-check.yml`, `.github/workflows/release-please.yml`,
-`.github/workflows/baseline-review.yml` and `release-please-config.json`, so
-Prettier no longer checks files the template writes and the repository must not
-edit. Before, a scaffold whose `format:check` is `prettier --check .` covered
-them, and a Prettier release that formats YAML or JSON differently from the
-template text would have failed it; reformatting a template-owned workflow to
-pass would make it `local-modified`, which `--adopt` never overwrites. Prettier
-can format the same text differently between releases, patch releases included
+`.github/workflows/pr-title-check.yml`, `.github/workflows/release-please.yml`
+and `.github/workflows/baseline-review.yml`, which are template-owned and must
+stay verbatim, and `release-please-config.json`, which the repository owns and
+may edit. Before, a scaffold whose `format:check` is `prettier --check .`
+covered all four, and a Prettier release that formats YAML or JSON differently
+from the template text would have failed it. Reformatting a template-owned
+workflow to pass would make it `local-modified`, which `--adopt` never
+overwrites; a Prettier rewrite of `release-please-config.json` alone would show
+as `differs` in `--check`, which compares it with the template. Prettier can
+format the same text differently between releases, patch releases included
 ([Install](https://prettier.io/docs/install), Prettier docs, checked
 2026-10-21). `.prettierignore` belongs to the repository, so `--adopt` keeps it
 and `--check` reports it as `differs`: add the four paths to it by hand, one per
@@ -1091,8 +1096,7 @@ Full CI pipeline for Next.js applications.
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
 - `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore` (which keeps Prettier off
-  `pr-title-check.yml`, `release-please.yml`, `baseline-review.yml` and
-  `release-please-config.json`, the files the template writes)
+  the three template-owned workflows and `release-please-config.json`)
 - `docs/lint-baseline.md`: policy and an empty table for our own inline lint/type suppressions
 - `docs/advisory-baseline.md`: policy and an empty table for accepted dependency advisories
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks

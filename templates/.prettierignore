@@ -3,7 +3,8 @@ node_modules/
 package-lock.json
 # Release Please manages this generated version manifest.
 .release-please-manifest.json
-# Written by the template and kept verbatim so template updates apply cleanly.
+# Template-owned workflows stay verbatim, or they count as local edits.
+# release-please-config.json is the repository's own; a rewrite alone shows as --check drift.
 .github/workflows/pr-title-check.yml
 .github/workflows/release-please.yml
 .github/workflows/baseline-review.yml

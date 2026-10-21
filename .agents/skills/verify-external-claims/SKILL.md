@@ -3,7 +3,7 @@ name: verify-external-claims
 description: >-
   Use before asserting what a platform, API, dependency, or tool can or cannot do, contradicting the user or repository docs, relying on version-sensitive behaviour (limits, defaults, pricing, deprecations), using external documentation or services, adding, updating, or following a third-party skill, or writing such a claim into a commit, PR, or document. Covers verifying against current primary sources and citing source and date, and keeping vendored skills reviewed.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=248fe9e95f5888cc23016cdc17e82b420e17646d7933d016411ff43890c055c1 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=0bf933b49c2c201f0c0e9236d6f2615c2f08a1deec6c1bf03eebee825acebeab -->
 
 # Verifying external claims
 
@@ -83,8 +83,17 @@ vendored skills.
 - Do not hand-edit vendored files: a hand edit no longer matches the
   lockfile's hash, and a later refresh may overwrite it or, when upstream has
   not changed, leave it in place unnoticed. Record a correction in
-  `## Project specifics`, with its source and date, and remove it once a
-  refresh brings in the upstream fix.
+  `## Project specifics`, or in a repository-owned skill that a line there
+  says to load with the vendored skill, with its source and date, and remove
+  it once a refresh brings in the upstream fix. Rules that must hold whether
+  or not the vendored skill is loaded, such as stop-and-ask lines, stay in
+  `## Project specifics`.
+- Tell apart a correction that holds in any repository, such as an outdated
+  limit or a command that does not do what the skill says, from one that only
+  reflects this repository's configuration or decisions. Every repository that
+  vendors the skill from the same upstream records the first kind, so say in
+  the pull request that it is one and tell the operator, who can see the other
+  repositories; the second kind stays in this one.
 - When adding or refreshing a vendored skill that tells agents to update
   skills on their own, add a stop-and-ask line naming that command to
   `## Project specifics` in the same pull request, so the rule holds even when

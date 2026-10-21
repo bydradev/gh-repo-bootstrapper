@@ -1994,7 +1994,7 @@ PYTHON_MANIFEST_GUARD_NAME = "Require a dependency manifest"
 # (actions/setup-python src/cache-distributions/pip-cache.ts and constants.ts at
 # the pinned commit, checked 2026-10-21).
 PYTHON_CACHE_BACKUP_PATH = "**/pyproject.toml"
-PYTHON_GUARD_TEST_RE = re.compile(r'\[ -z "\$(\w+)" \]')
+PYTHON_GUARD_TEST_RE = re.compile(r'^\s*if \[ -z "\$(\w+)" \]; then\s*$')
 # The guard's env value must be the bare call and nothing else. `||` yields its
 # first truthy operand (actions/runner
 # src/Sdk/DTExpressions2/Expressions2/Sdk/Operators/Or.cs, checked 2026-10-22),
@@ -2004,6 +2004,9 @@ PYTHON_GUARD_TEST_RE = re.compile(r'\[ -z "\$(\w+)" \]')
 # Any other operator, call or text around the call can do the same.
 HASH_FILES_VALUE_RE = re.compile(r"\$\{\{\s*hashFiles\(([^()]*)\)\s*\}\}")
 QUOTED_PATTERN_RE = re.compile(r"'([^']*)'")
+# Every hashFiles argument must be a quoted literal: a variable or other
+# expression could hash a file the pip cache does not.
+HASH_FILES_ARGS_RE = re.compile(r"\s*'[^']*'(?:\s*,\s*'[^']*')*\s*")
 PLAYWRIGHT_INSTALLS = (
     ("${{ inputs.full }}", "npx playwright install --with-deps"),
     ("${{ !inputs.full }}", "npx playwright install --with-deps chromium"),
@@ -2128,17 +2131,24 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     follow symbolic links unless asked and the action's does; a manifest
     reachable only through a link to a directory outside the checkout would
     pass the cache and fail the guard, which a runner's checkout cannot hold.)
-    Skipped when setup-python is not asked to cache, since nothing then hashes
-    a manifest.
+    Skipped when no setup-python step is asked to cache, since nothing then
+    hashes a manifest.
     """
     where = f"[{label}] Python test.yml"
     steps = [step for step in steps if isinstance(step, dict)]
+    # The step that asks to cache is the one whose pip cache can throw; an
+    # earlier setup-python step without a cache does not take its place.
     setup = next(
-        (i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/setup-python@")), None
+        (
+            i for i, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("actions/setup-python@")
+            and isinstance(step.get("with"), dict) and step["with"].get("cache")
+        ),
+        None,
     )
-    options = (steps[setup].get("with") or {}) if setup is not None else {}
-    if not options.get("cache"):
+    if setup is None:
         return []
+    options = steps[setup]["with"]
     # The expected hash below models pip's cache with an explicit path; with
     # no path pip hashes **/requirements.txt, and other managers have no
     # **/pyproject.toml fallback, so either change needs this rule updated.
@@ -2167,12 +2177,26 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     timeout = guard.get("timeout-minutes")
     if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} needs a positive integer timeout-minutes")
-    script = "\n".join(_executable_lines(str(guard.get("run", ""))))
-    test = PYTHON_GUARD_TEST_RE.search(script)
-    if not test or not re.search(r"(?m)^\s*exit 1\s*$", script) or "::error::" not in script:
+    lines = _executable_lines(str(guard.get("run", "")))
+    script = "\n".join(lines)
+    # The failure belongs inside `if [ -z "$VAR" ]; then ... fi`: an exit 1 below
+    # the fi fails every run, including those with a manifest.
+    start = next((i for i, line in enumerate(lines) if PYTHON_GUARD_TEST_RE.match(line)), None)
+    end = None
+    if start is not None:
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() == "fi"), None)
+    test = PYTHON_GUARD_TEST_RE.match(lines[start]) if end is not None else None
+    branch = "\n".join(lines[start + 1:end]) if test else ""
+    outside = lines[:start] + lines[end + 1:] if test else []
+    if not test or not re.search(r"(?m)^\s*exit 1\s*$", branch) or "::error::" not in branch:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
-            f"and then print an ::error:: message and exit 1"
+            f"in an if block and then print an ::error:: message and exit 1 inside it"
+        )
+    elif any(re.match(r"\s*exit\b", line) for line in outside):
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must not exit outside the empty-hash test, "
+            f"which would fail runs that have a manifest"
         )
     elif not all(word in script for word in ("pyproject.toml", "requirements")):
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must say to add a pyproject.toml or requirements file")
@@ -2191,6 +2215,13 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
                 "${{ hashFiles(<patterns>) }} and nothing else, because an operator, a second call, a "
                 "fallback such as `|| 'missing'` or text around the call can keep an empty hash from "
                 f"being empty, so the guard never fires; got {value!r}"
+            )
+        elif not HASH_FILES_ARGS_RE.fullmatch(call.group(1)):
+            bare = False
+            errors.append(
+                f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} env {test.group(1)} must pass hashFiles only "
+                f"quoted literal patterns, because a variable or other expression can hash a file the pip "
+                f"cache does not; got {call.group(1)!r}"
             )
         else:
             # The runner reads `--follow-symbolic-links` as an option only in
@@ -4658,10 +4689,31 @@ def _structure_self_tests() -> list:
     # A `|` block scalar ends in a newline, so its value is no longer the bare call.
     expect("python manifest guard hash with a trailing newline",
            gates("python", test, lambda w: guard_env(w, lambda v: v + "\n")), bare_call)
+    expect("python manifest guard hash with a non-literal argument",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("'**/pyproject.toml')", "'**/pyproject.toml', vars.EXTRA_PATTERN)"))),
+           "only quoted literal patterns")
+    expect("python manifest guard with its exit 1 below the test",
+           gates("python", test, lambda w: guard_script(
+               w, lambda r: r.replace("  exit 1\nfi", "fi\nexit 1"))),
+           "then print an ::error:: message and exit 1")
+    expect("python manifest guard with a second exit outside the test",
+           gates("python", test, lambda w: guard_script(w, lambda r: r + "exit 1\n")),
+           "must not exit outside the empty-hash test")
     expect("python manifest guard hash without spaces inside the braces",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("${{ ", "${{").replace(" }}", "}}"))), None)
     expect("python setup-python without a cache needs no guard", gates("python", test, drop_cache), None)
+
+    def uncached_setup_first(workflow):
+        # A step without a cache before the cached one must not stand in for it.
+        steps = workflow["jobs"]["test"]["steps"]
+        steps.remove(manifest_guard(workflow))
+        steps.insert(steps.index(python_setup(workflow)),
+                     {"uses": python_setup(workflow)["uses"], "with": {"python-version": "3.11"}})
+
+    expect("python uncached setup-python before the cached one, no guard",
+           gates("python", test, uncached_setup_first), no_guard)
     expect("App token with an extra permission",
            gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(
                "actions/create-github-app-token@"))["with"].update({"permission-workflows": "write"})),

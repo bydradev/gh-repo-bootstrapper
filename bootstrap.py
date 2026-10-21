@@ -2815,7 +2815,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                     if release_tags is None:
                         release_tags = _release_tags() or []
                         if not release_tags:
-                            _no_release_tags_notice(TEMPLATES_DIR.parent)
+                            if legacy_bodies is None:  # else the docs path printed it
+                                _no_release_tags_notice(TEMPLATES_DIR.parent)
+                            legacy_bodies = {}
                     candidates = _workflow_diff_bases(rel, read_stamp(expected, True)[1], release_tags)
                 else:
                     if legacy_bodies is None:
@@ -2829,7 +2831,7 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                     detail = "".join(difflib.unified_diff(
                         nearest.splitlines(keepends=True), actual.splitlines(keepends=True),
                         fromfile=label, tofile=rel,
-                    ))
+                    )) or f"identical to {label} apart from the missing ownership stamp"
             report[rel] = (status, detail)
         elif actual == expected:
             report[rel] = ("same", None)

@@ -3363,6 +3363,8 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
                 self._assert_only_the_fork_edit(rel, body, step, f"legacy/{tag}/{rel}")
 
     def test_diff_names_the_current_template_when_the_workflow_was_forked_from_it(self):
+        if not bootstrap._release_tags():
+            self.skipTest("release tags unavailable")
         for rel in (self.RELEASE, self.PR_TITLE):
             with self.subTest(rel=rel):
                 body, step = self._fork(bootstrap.read_stamp(self.files[rel], True)[1])
@@ -3383,18 +3385,31 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         self.assertEqual(rows[self.RELEASE], "refused")
         self.assertEqual((self.repo / self.RELEASE).read_text(encoding="utf-8"), body)
 
+    def test_diff_of_an_unedited_unstamped_release_body_says_only_the_stamp_is_missing(self):
+        body = self._released("v0.12.0", "release-please-nextjs.yml")
+        self._commit({self.RELEASE: body})
+        status, detail = bootstrap.compare_repository(self.repo, self.files)[self.RELEASE]
+        self.assertEqual(status, "local-modified")
+        self.assertEqual(detail, f"identical to legacy/v0.12.0/{self.RELEASE} apart from the missing ownership stamp")
+
     def test_diff_is_skipped_with_one_notice_when_git_cannot_list_release_tags(self):
+        runbook = "docs/branch-protection-runbook.md"
         bodies = {rel: bootstrap.read_stamp(self.files[rel], True)[1] + "# ours\n" for rel in (self.RELEASE, self.PR_TITLE)}
+        bodies[runbook] = _LEGACY_FIXTURES["sources"]["v0.5.5"]["docs-branch-protection-runbook.md"] + "\nOurs.\n"
         self._commit(bodies)
+        workflows_first = self.files
+        docs_first = {runbook: self.files[runbook], **self.files}
         for tags in (None, []):
-            with self.subTest(tags=tags), unittest.mock.patch.object(bootstrap, "_release_tags", return_value=tags):
-                errors = io.StringIO()
-                with contextlib.redirect_stderr(errors):
-                    report = bootstrap.compare_repository(self.repo, self.files)
-                for rel in bodies:
-                    self.assertEqual(report[rel], ("local-modified", None))
-                self.assertEqual(len(errors.getvalue().splitlines()), 1, errors.getvalue())
-                self.assertIn("skipped the diff against legacy template docs", errors.getvalue())
+            for order, files in (("workflows first", workflows_first), ("docs first", docs_first)):
+                with self.subTest(tags=tags, order=order), \
+                        unittest.mock.patch.object(bootstrap, "_release_tags", return_value=tags):
+                    errors = io.StringIO()
+                    with contextlib.redirect_stderr(errors):
+                        report = bootstrap.compare_repository(self.repo, files)
+                    for rel in bodies:
+                        self.assertEqual(report[rel], ("local-modified", None))
+                    self.assertEqual(len(errors.getvalue().splitlines()), 1, errors.getvalue())
+                    self.assertIn("skipped the diff against legacy template docs", errors.getvalue())
 
 
 if __name__ == "__main__":

@@ -3307,5 +3307,141 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("refused  AGENTS.md", result.stdout)
 
 
+# A-01: a directory the user cannot search made --check and --adopt crash.
+@unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores file permissions")
+class AdoptUnreadableDirectoryTests(unittest.TestCase):
+    SKILL_DIR = ".agents/skills/verify-external-claims"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render()
+        _git(self.repo, "init", "-q")
+        bootstrap.adopt_repository(self.repo, self.files)
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+
+    def _chmod(self, rel, mode):
+        path = self.repo if rel == "." else self.repo / rel
+        path.chmod(mode)
+        # Runs before the temporary directory is removed (cleanups run last in, first out).
+        self.addCleanup(path.chmod, 0o755)
+
+    def _write(self, rel, text):
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def _differing(self):
+        report = bootstrap.compare_repository(self.repo, self.files)
+        return {rel: row for rel, row in report.items() if row[0] != "same"}
+
+    def _cli(self, flag):
+        return subprocess.run(
+            [sys.executable, str(Path(bootstrap.__file__)), flag, str(self.repo), "--type", "python"],
+            capture_output=True, text=True,
+        )
+
+    def test_check_reports_an_unsearchable_skill_folder_instead_of_crashing(self):
+        rel = f"{self.SKILL_DIR}/SKILL.md"
+        for mode in (0o000, 0o444):  # no access at all; listable but not searchable
+            with self.subTest(mode=oct(mode)):
+                self._chmod(self.SKILL_DIR, mode)
+                differing = self._differing()
+                self.assertEqual(list(differing), [rel])
+                status, detail = differing[rel]
+                self.assertEqual(status, "unreadable")
+                self.assertIn(f"Permission denied: {self.SKILL_DIR}", detail)
+                result = self._cli("--check")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertIn(f"unreadable {rel}", result.stdout)
+                self.assertIn(f"Permission denied: {self.SKILL_DIR}", result.stdout)
+                self._chmod(self.SKILL_DIR, 0o755)
+
+    def test_adopt_refuses_only_the_unsearchable_path_and_does_the_rest(self):
+        rel = f"{self.SKILL_DIR}/SKILL.md"
+        (self.repo / "CLAUDE.md").unlink()
+        self._chmod(self.SKILL_DIR, 0o000)
+        result = self._cli("--adopt")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        refused = [line.split()[1] for line in result.stdout.splitlines() if line.startswith("  refused")]
+        self.assertEqual(refused, [rel])
+        self.assertIn("wrote    CLAUDE.md", result.stdout)
+        self.assertTrue((self.repo / "CLAUDE.md").is_file())
+        # Nothing else was touched, and the folder's mode is as it was left.
+        self.assertEqual(list(self._differing()), [rel])
+        self.assertEqual((self.repo / self.SKILL_DIR).stat().st_mode & 0o777, 0o000)
+
+    def test_unsearchable_repository_owned_folder_is_reported_once(self):
+        # One folder holds a subfolder as well, which is looked at first.
+        own = {".agents/skills/my-skill": ("SKILL.md", "notes.md", "references/more.md"),
+               ".agents/skills/plain-skill": ("SKILL.md", "notes.md")}
+        for folder, names in own.items():
+            for name in names:
+                text = f"---\nname: {Path(folder).name}\n---\n" if name == "SKILL.md" else "Text.\n"
+                self._write(f"{folder}/{name}", text)
+            self._chmod(folder, 0o444)
+        differing = self._differing()
+        self.assertEqual(set(differing), set(own))
+        for folder in own:
+            status, detail = differing[folder]
+            self.assertEqual(status, "unreadable")
+            self.assertIn("Permission denied", detail)
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual(sorted((action, rel) for action, rel, _ in actions), [("refused", folder) for folder in sorted(own)])
+
+    def test_unreadable_github_folder_covers_the_pull_request_template_and_called_workflows(self):
+        self._chmod(".github", 0o000)
+        differing = self._differing()
+        github = {rel for rel in self.files if rel.startswith(".github/")}
+        self.assertEqual(set(differing), github)
+        self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
+        for rel, (_, detail) in differing.items():
+            self.assertIn("Permission denied: .github", detail, rel)
+        workflow = bootstrap.read_stamp(self.files[".github/workflows/release-please.yml"], True)[1]
+        self.assertEqual(
+            bootstrap._undeclared_inputs(self.repo, workflow),
+            ["cannot verify the inputs .github/workflows/test.yml declares; check them by hand"],
+        )
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual({action for action, _, _ in actions}, {"refused"})
+        self.assertEqual({rel for _, rel, _ in actions}, github)
+
+    def test_unsearchable_claude_folder_covers_the_skill_mirrors(self):
+        self._chmod(".claude", 0o000)
+        links = bootstrap._links_for_files(self.files)
+        differing = self._differing()
+        self.assertEqual({differing[rel][0] for rel in links}, {"unreadable"})
+        self.assertEqual({status for status, _ in differing.values()}, {"unreadable"})
+        self.assertTrue({".claude/skills", ".claude/agents"} <= set(differing))
+        actions = bootstrap.adopt_repository(self.repo, self.files)
+        self.assertEqual({action for action, _, _ in actions}, {"refused"})
+        self.assertEqual({rel for _, rel, _ in actions}, set(differing))
+
+    def test_screenshot_detection_treats_an_unsearchable_path_as_not_the_templates(self):
+        for rel in bootstrap.SCREENSHOT_FILES:
+            with self.subTest(rel=rel):
+                parent = Path(rel).parent.as_posix()
+                (self.repo / parent).mkdir(parents=True, exist_ok=True)
+                self._chmod(parent, 0o000)
+                self.assertFalse(bootstrap._template_screenshot_file(self.repo, rel, "nextjs"))
+                self._chmod(parent, 0o755)
+
+    def test_unsearchable_repository_root_does_not_crash_the_report(self):
+        report = {"AGENTS.md": ("unreadable", "PermissionError: Permission denied")}
+        cfg = {"repo_type": "python"}
+        self._chmod(".", 0o444)
+        self.assertEqual(bootstrap._retired_section_text(self.repo, [("retired", "## Old")]), {})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(bootstrap.print_repository_report(self.repo, cfg, report))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(bootstrap.print_repository_report(
+                self.repo, cfg, bootstrap.compare_repository(self.repo, self.files)))
+
+
 if __name__ == "__main__":
     unittest.main()

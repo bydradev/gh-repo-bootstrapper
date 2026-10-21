@@ -508,6 +508,15 @@ states:
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git reports no uncommitted or staged change to it; refused inside a repository git cannot read |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
+A path is `unreadable` when the user running the command cannot read the file
+or cannot search a directory above it, such as a skill folder owned by another
+user in a shared or mounted checkout. The detail names the directory, `--check`
+still reports every other file and exits 1, and `--adopt` refuses that path and
+goes on with the others. A repository-owned folder under `.agents/skills`,
+`.claude/agents` or `.opencode/agents` that can be listed but not searched is
+reported as `unreadable` itself, since the scan for orphaned template files
+cannot look inside it.
+
 When a repository's `AGENTS.md` is over 20,000 B in total, `--check` also
 prints `warn AGENTS.md total <n> B > 20000 B`. It's a warning only and doesn't
 change the exit code; shorten `## Project specifics` by moving reference
@@ -605,6 +614,17 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.16.1
+
+`--check` and `--adopt` no longer stop with a `PermissionError` traceback when
+a directory in the repository cannot be searched by the user running them, such
+as a skill folder owned by another user in a shared or container-mounted
+checkout. The files below it are reported as `unreadable` with the directory
+named, `--check` exits 1 as for any drift, and `--adopt` refuses those paths
+and carries on with the rest. Run the command as a user that can search the
+directory, or fix its permissions, to compare those files. Nothing else
+changes.
 
 ### Upgrading to 0.16.0
 

@@ -643,6 +643,22 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.17.0
+
+The `nextjs` template's `next dev` block in `AGENTS.md` now matches Next.js
+16.4: its heading is `## This is NOT the Next.js you know`, where 16.3 wrote
+`# This is NOT the Next.js you know`, and the two paragraphs are unchanged.
+`--adopt` brings nothing here: the block is inside the `next dev` markers, which
+`--check` does not compare and `--adopt` does not rewrite, so an existing
+repository keeps its own block. It gets the new heading from the next `next dev`
+run under an AI coding agent on Next.js 16.4 or later (`syncAgentRulesForDev` in
+`dist/server/lib/app-info-log.js` writes the block only when it detects one;
+checked in 16.4.2 on 2026-10-22), as one changed line to commit with your work. A
+repository that stays on Next.js 16.3 sees the reverse once: its `next dev`
+rewrites a block taken from this release to the level-1 heading. `--adopt` still
+restores the template's block in a repository whose `AGENTS.md` has none. There
+is nothing to merge by hand.
+
 ### Upgrading to 0.16.1
 
 `--check` and `--adopt` now name the cause in four cases that gave a symptom or
@@ -1083,6 +1099,15 @@ caller contract. `test.yml` is necessarily scaffold-general: it retains that
 `full` input and adds the optional PostgreSQL service, while each generated
 application supplies its own package scripts and any application-owned
 release-triggered deployment workflow.
+
+The `next dev` block at the top of `AGENTS.md` is the text Next.js 16.4.0 to
+16.4.2 writes, under `## This is NOT the Next.js you know`; 16.3.x writes the
+same two paragraphs under a level-1 heading. It was compared byte for byte with
+`buildAgentRulesBlock()` in `dist/server/lib/generate-agent-files.js` of the
+published `next` package on 2026-10-22 (16.4.2 was `latest`). `next dev` rewrites
+a block that differs from its own version's by a single character, so a
+repository on another Next.js release gets a one-line change to commit. Update
+the template's block from that file when a release changes it.
 
 ### `python`
 

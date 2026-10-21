@@ -621,13 +621,16 @@ The diff `--check` prints for an unstamped, locally modified
 `pr-title-check.yml`, `release-please.yml` or `baseline-review.yml` now picks
 its base from the body of every release and from today's template, not only
 the releases through v0.8.1, and names it in the header, such as
-`legacy/v0.12.0/.github/workflows/release-please.yml` or
-`current/.github/workflows/release-please.yml`. A workflow forked from a later
-template used to show that template's own later changes, such as
+`legacy/v0.12.0/.github/workflows/release-please.yml`,
+`current/.github/workflows/release-please.yml` or, for another type's template,
+`legacy/v0.12.0/templates/release-please-gated.yml`. A workflow forked from a
+later template used to show that template's own later changes, such as
 `queue: max` or the credentials check, as the repository's own additions and
-removals. A copy that equals its base apart from the missing stamp is now
-reported as identical to that release rather than as an empty diff. The state
-(`local-modified`) and the `--adopt` refusal are unchanged.
+removals. A copy that equals a release body from after v0.8.1 apart from the
+missing stamp used to be diffed against an older release; `--check` now says it
+is identical to that release, and to check `--type` when the release's template
+is another type's. The state (`local-modified`) is unchanged, and `--adopt`
+still refuses these files, giving that `--type` reason in the second case.
 
 ### Upgrading to 0.16.0
 

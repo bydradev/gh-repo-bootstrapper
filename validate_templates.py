@@ -2512,6 +2512,22 @@ def check_release_please_config(label: str, cfg: dict, files: dict) -> list:
             f"[{label}] release-please-config.json must set "
             f"include-component-in-tag: false (single-package repos tag vX.Y.Z)"
         )
+    # A new repository starts at 0.1.0. Without this option release-please
+    # proposes 1.0.0 for the first breaking change; with it, 0.2.0. A
+    # package-level value wins over the top-level one, so it must not turn the
+    # option off either.
+    if config.get("bump-minor-pre-major") is not True:
+        errors.append(
+            f"[{label}] release-please-config.json must set "
+            f"bump-minor-pre-major: true at the top level (a breaking change "
+            f"on 0.x bumps the minor; without it release-please proposes 1.0.0)"
+        )
+    if package.get("bump-minor-pre-major", True) is not True:
+        errors.append(
+            f"[{label}] release-please-config.json package '.' overrides "
+            f"bump-minor-pre-major to {package['bump-minor-pre-major']!r}; "
+            f"the generated config must not turn it off"
+        )
 
     manifest_source = files.get(".release-please-manifest.json")
     if manifest_source is None:
@@ -3534,6 +3550,35 @@ def run_self_tests() -> list:
     )
     if not any("no '.' package entry" in e for e in result):
         errors.append(f"self-test 'packageless config' did not fail as expected: {result}")
+
+    # Case 33b: bump-minor-pre-major is as invisible to a parse-only check as
+    # the values above. Without it the first breaking change on a new 0.1.0
+    # repository proposes 1.0.0, so dropping the key, setting it false or
+    # turning it off for the package must each fail, for every type.
+    for _, cfg in configurations():
+        rendered = json.loads(bootstrap.generate_files(dict(cfg))["release-please-config.json"])
+        for what, mutate, expected in (
+            ("dropped", lambda c: c.pop("bump-minor-pre-major", None), "must set bump-minor-pre-major"),
+            ("false", lambda c: c.__setitem__("bump-minor-pre-major", False),
+             "must set bump-minor-pre-major"),
+            ("package override", lambda c: c["packages"]["."].__setitem__("bump-minor-pre-major", False),
+             "overrides bump-minor-pre-major"),
+        ):
+            mutated = json.loads(json.dumps(rendered))
+            mutate(mutated)
+            files = bootstrap.generate_files(dict(cfg))
+            files["release-please-config.json"] = json.dumps(mutated, indent=2) + "\n"
+            result = check_release_please_config(f"self-test:bump-minor-pre-major {what}", cfg, files)
+            if not any(expected in e for e in result):
+                errors.append(
+                    f"self-test 'bump-minor-pre-major {what}' did not fail as expected for "
+                    f"{cfg['repo_type']}: {result}"
+                )
+        # The unmutated render must pass.
+        files = bootstrap.generate_files(dict(cfg))
+        result = check_release_please_config("self-test:bump-minor-pre-major intact", cfg, files)
+        if result:
+            errors.append(f"self-test 'bump-minor-pre-major intact' failed for {cfg['repo_type']}: {result}")
 
     # Case 34: a mutation test for the SHA-pinning gate itself — regressing one
     # pinned `uses:` back to a tag must fail, not pass silently. This is the

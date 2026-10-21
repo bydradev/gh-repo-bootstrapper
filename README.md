@@ -643,6 +643,26 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.17.0
+
+Every type's generated `release-please-config.json` now sets
+`"bump-minor-pre-major": true`, beside `include-component-in-tag`. While a
+repository is below 1.0.0, a breaking change (`feat!`, `chore!` or a
+`BREAKING CHANGE:` footer) now proposes the next minor, such as 0.17.0 from
+0.16.0. Without the option Release Please proposes 1.0.0, and a new repository
+is seeded at 0.1.0. The option has no effect at 1.0.0 or above. This
+repository's own config already sets it
+([manifest releaser documentation](https://github.com/googleapis/release-please/blob/main/docs/manifest-releaser.md),
+release-please 17.6.0 `versioning-strategies/default.js`, which
+release-please-action v5.0.0 locks, checked 2026-10-21).
+
+`release-please-config.json` belongs to the repository, so `--adopt` keeps it,
+and a repository generated before 0.17.0 takes the change by hand. One that
+means to stay below 1.0.0 adds `"bump-minor-pre-major": true,` at the top level
+of the file, beside `include-component-in-tag`. One that wants 1.0.0 from its
+next breaking change leaves it out. Either way `--check` reports the file as
+`differs`, and exits 1, until the file matches the template.
+
 ### Upgrading to 0.16.1
 
 `--check` and `--adopt` now name the cause in four cases that gave a symptom or
@@ -1023,6 +1043,15 @@ Every type gets a type-specific `README.md` starter, `AGENTS.md` and
 `.gitignore`, `release-please-config.json`, and
 `.release-please-manifest.json` seeded at `0.1.0`. The per-type lists below
 highlight the additional files and README guidance for that type.
+
+`release-please-config.json` sets `bump-minor-pre-major`, so while a repository
+is below 1.0.0 a breaking change (`feat!`, `chore!` or a `BREAKING CHANGE:`
+footer) proposes the next minor, 0.2.0 from the seeded 0.1.0, and not 1.0.0,
+which Release Please proposes without the option. To release 1.0.0 on purpose,
+merge a commit with a `Release-As: 1.0.0` footer, or remove the line before
+the breaking change merges. The repository owns the file, so `--adopt` writes
+it only when it is missing and keeps an existing one (see
+[Upgrading to 0.17.0](#upgrading-to-0170)).
 
 The pull request template belongs to the repository. `--adopt` writes it only
 when the repository has no template of its own where GitHub reads one, in

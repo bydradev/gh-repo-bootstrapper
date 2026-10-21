@@ -486,9 +486,12 @@ one any release shipped or today's template, so a workflow forked from a later
 template doesn't show that template's own later changes as the repository's.
 A workflow's diff header names its base, such as
 `legacy/v0.11.0/.github/workflows/release-please.yml` (the first release that
-shipped the body) or `current/.github/workflows/release-please.yml`. The diff
-needs the bootstrapper's git release tags; from a copy without them, `--check`
-prints a notice and skips it.
+shipped the body) or `current/.github/workflows/release-please.yml`; a body
+from another type's template is named by its template file, such as
+`legacy/v0.12.0/templates/release-please-gated.yml`. A copy that equals its base
+apart from the missing stamp is reported as that, and as one to check `--type`
+for when the base is another type's. The diff needs the bootstrapper's git
+release tags; from a copy without them, `--check` prints a notice and skips it.
 
 ### Checking and adopting
 
@@ -622,7 +625,9 @@ the releases through v0.8.1, and names it in the header, such as
 `current/.github/workflows/release-please.yml`. A workflow forked from a later
 template used to show that template's own later changes, such as
 `queue: max` or the credentials check, as the repository's own additions and
-removals. The state (`local-modified`) and the `--adopt` refusal are unchanged.
+removals. A copy that equals its base apart from the missing stamp is now
+reported as identical to that release rather than as an empty diff. The state
+(`local-modified`) and the `--adopt` refusal are unchanged.
 
 ### Upgrading to 0.16.0
 

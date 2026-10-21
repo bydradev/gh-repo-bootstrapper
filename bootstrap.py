@@ -641,10 +641,12 @@ def _legacy_template_bodies() -> dict[str, list[str]]:
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
 
 
-def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[str, str]]:
-    """(label, body) of each body --check can diff an unstamped, locally modified
-    workflow against: this render without its stamp, then every distinct body
-    any of `tags` shipped, labelled with the first release that did.
+def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[str, str, str | None]]:
+    """(label, body, other) of each body --check can diff an unstamped, locally
+    modified workflow against: this render without its stamp, then every
+    distinct body any of `tags` shipped, labelled with the first release that
+    did. `other` is the template this render uses when the body came from
+    another type's template, which the label then names; otherwise None.
 
     The diff only. LEGACY_TEMPLATE_DIGESTS and _legacy_template_bodies stop at
     the last unstamped release, since a later release can only be recognised by
@@ -656,9 +658,10 @@ def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[
         return []
     repo = TEMPLATES_DIR.parent
     env = _git_env()
-    bases = {current: f"current/{rel}"}
+    own = _template_source(rel, current)
+    bases = {current: (f"current/{rel}", None)}
     for tag in tags:
-        for name in _LEGACY_WORKFLOW_SOURCES[rel]:
+        for name in sorted(_LEGACY_WORKFLOW_SOURCES[rel], key=lambda name: name != own):
             result = subprocess.run(
                 ["git", "-C", str(repo), "show", f"{tag}:templates/{name}"],
                 capture_output=True, check=False, env=env,
@@ -666,8 +669,11 @@ def _workflow_diff_bases(rel: str, current: str, tags: list[str]) -> list[tuple[
             if result.returncode == 0:
                 # The deploy markers v0.1.0 spliced in (see _legacy_template_bodies).
                 body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", result.stdout.decode("utf-8", errors="replace"))
-                bases.setdefault(body, f"legacy/{tag}/{rel}")
-    return [(label, body) for body, label in bases.items()]
+                bases.setdefault(
+                    body,
+                    (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
+                )
+    return [(label, body, other) for body, (label, other) in bases.items()]
 
 
 def compute_legacy_digests() -> dict:
@@ -2822,16 +2828,20 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                 else:
                     if legacy_bodies is None:
                         legacy_bodies = _legacy_template_bodies()
-                    candidates = [(f"legacy/{rel}", body) for key, bodies in legacy_bodies.items()
+                    candidates = [(f"legacy/{rel}", body, None) for key, bodies in legacy_bodies.items()
                                   if key.split("#")[0] == rel for body in bodies]
                 if candidates:
-                    label, nearest = max(candidates, key=lambda base: difflib.SequenceMatcher(
+                    label, nearest, other = max(candidates, key=lambda base: difflib.SequenceMatcher(
                         None, base[1].splitlines(), actual.splitlines(), autojunk=False
                     ).ratio())
                     detail = "".join(difflib.unified_diff(
                         nearest.splitlines(keepends=True), actual.splitlines(keepends=True),
                         fromfile=label, tofile=rel,
-                    )) or f"identical to {label} apart from the missing ownership stamp"
+                    ))
+                    if not detail:
+                        detail = f"identical to {label} apart from the missing ownership stamp"
+                        if other:
+                            detail += f", but this --type renders {other}; check --type"
             report[rel] = (status, detail)
         elif actual == expected:
             report[rel] = ("same", None)

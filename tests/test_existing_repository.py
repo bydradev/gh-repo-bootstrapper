@@ -3392,6 +3392,25 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         self.assertEqual(status, "local-modified")
         self.assertEqual(detail, f"identical to legacy/v0.12.0/{self.RELEASE} apart from the missing ownership stamp")
 
+    def test_diff_names_another_types_template_and_points_at_the_type(self):
+        # A gated release workflow after v0.8.1, checked under --type simple: replacing it would drop the test gate.
+        self.files = _render("simple")
+        gated = self._released("v0.12.0", "release-please-gated.yml")
+        label = "legacy/v0.12.0/templates/release-please-gated.yml"
+        self._commit({self.RELEASE: gated})
+        status, detail = bootstrap.compare_repository(self.repo, self.files)[self.RELEASE]
+        self.assertEqual(status, "local-modified")
+        self.assertEqual(
+            detail,
+            f"identical to {label} apart from the missing ownership stamp, "
+            "but this --type renders release-please-simple.yml; check --type",
+        )
+        rows = {path: (action, why) for action, path, why in bootstrap.adopt_repository(self.repo, self.files)}
+        self.assertEqual(rows[self.RELEASE], ("refused", detail))
+        self.assertEqual((self.repo / self.RELEASE).read_text(encoding="utf-8"), gated)
+        body, step = self._fork(gated)
+        self._assert_only_the_fork_edit(self.RELEASE, body, step, label)
+
     def test_diff_is_skipped_with_one_notice_when_git_cannot_list_release_tags(self):
         runbook = "docs/branch-protection-runbook.md"
         bodies = {rel: bootstrap.read_stamp(self.files[rel], True)[1] + "# ours\n" for rel in (self.RELEASE, self.PR_TITLE)}

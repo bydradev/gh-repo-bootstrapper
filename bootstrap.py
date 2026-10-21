@@ -1903,7 +1903,8 @@ NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
 # --adopt rewrites only LF-terminated text (_decode_for_rewrite), and a leading
 # byte-order mark hides the first heading; --check says so in one row each.
 CARRIAGE_RETURNS = "(CRLF or CR line endings; convert to LF first)"
-STRAY_CARRIAGE_RETURN = "(carriage return in a file with LF line endings; remove it first)"
+MIXED_LINE_ENDINGS = "(CRLF and LF line endings mixed; convert to LF first)"
+STRAY_CARRIAGE_RETURN = "(carriage return inside a line; remove it first)"
 BYTE_ORDER_MARK = "(byte-order mark before the first heading; remove it first)"
 
 
@@ -2743,27 +2744,36 @@ def _seed_hold_reason(roots) -> str:
 
 
 def _carriage_return_rows(rows: list, text: str) -> list:
-    """compare_agents' rows for an AGENTS.md holding carriage returns, plus one row naming them.
+    """compare_agents' rows for an AGENTS.md holding carriage returns, plus the row naming them.
 
     --adopt refuses such a file whatever its sections hold, so the report says
     why. When no line ends in a bare LF, the file has CRLF or CR line endings
     and every section differs from the LF template, which says nothing about
     its text: the per-section `differs` and `same` rows give way to one row,
     while the `missing`, `local` and `retired` rows, which stay true, remain,
-    as does the order of the generated sections. Otherwise the file ends its
-    lines with LF and a carriage return elsewhere (inside a line, or on a few
-    CRLF lines) makes only the sections holding it differ, so every row stays
-    and one row says to remove it.
+    as does the order of the generated sections. A file with a bare LF line is
+    not that case, whatever its other lines end in: only the sections holding a
+    carriage return differ because of it, so every row stays and the rows
+    added name the cause. CRLF lines among LF ones are mixed endings, which
+    converting to LF fixes; a carriage return not followed by an LF is a stray
+    character that conversion leaves, so it is named on its own.
     """
     crlf_or_cr = re.search(r"(?<!\r)\n", text) is None
     marks = [row for row in rows if row[1] == BYTE_ORDER_MARK]
     rest = [row for row in rows if row[1] != BYTE_ORDER_MARK]
     if crlf_or_cr:
+        named = [("differs", CARRIAGE_RETURNS)]
         rest = [
             (status, heading) for status, heading in rest
             if status in ("missing", "local", "retired") or (status == "differs" and heading.startswith("("))
         ]
-    return marks + [("differs", CARRIAGE_RETURNS if crlf_or_cr else STRAY_CARRIAGE_RETURN)] + rest
+    else:
+        named = []
+        if "\r\n" in text:
+            named.append(("differs", MIXED_LINE_ENDINGS))
+        if re.search(r"\r(?!\n)", text):
+            named.append(("differs", STRAY_CARRIAGE_RETURN))
+    return marks + named + rest
 
 
 def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:

@@ -3310,7 +3310,8 @@ class CommandLineTests(unittest.TestCase):
 # Row 1.6: findings A-12 (four refusals that did not name their cause) and A-15 (broken pipe).
 class CheckReportWordingTests(unittest.TestCase):
     CRLF_ROW = "(CRLF or CR line endings; convert to LF first)"
-    STRAY_ROW = "(carriage return in a file with LF line endings; remove it first)"
+    MIXED_ROW = "(CRLF and LF line endings mixed; convert to LF first)"
+    STRAY_ROW = "(carriage return inside a line; remove it first)"
     BOM_ROW = "(byte-order mark before the first heading; remove it first)"
     SHADOWED = (
         "an unstamped file at a template skill's path; move it aside so --adopt can write the "
@@ -3425,33 +3426,42 @@ class CheckReportWordingTests(unittest.TestCase):
             [("local", self.BOM_ROW), ("differs", self.CRLF_ROW), ("missing", bootstrap.PROJECT_SPECIFICS)],
         )
 
-    def test_stray_carriage_return_keeps_the_section_rows_and_adds_one_row(self):
-        # A CR inside a line is not a line ending: a CRLF-to-LF converter leaves it, so the report must not
-        # claim line endings, and the section it sits in must still be named.
+    def test_a_file_with_a_bare_lf_line_keeps_the_section_rows_and_names_the_carriage_return(self):
+        # Only a file whose every line ends in CRLF or CR gets the collapse. With a bare LF line the sections that
+        # hold no carriage return still compare, and a stray carriage return is not one a CRLF-to-LF converter removes.
         text = self.files["AGENTS.md"]
         self.assertIn("Check status and read", text)
         stray = text.replace("Check status and read", "Check status\rand read", 1)
         mixed = text.replace("\n", "\r\n", 5)  # a few CRLF lines among LF ones
-        for label, content in {"inside a line": stray, "a few CRLF lines": mixed}.items():
+        mostly_crlf = text.replace("\n", "\r\n")[:-2] + "\n"  # CRLF everywhere but the last line
+        both = mixed.replace("Check status and read", "Check status\rand read", 1)
+        cases = {
+            "a carriage return inside a line": (stray, [self.STRAY_ROW]),
+            "a few CRLF lines among LF ones": (mixed, [self.MIXED_ROW]),
+            "CRLF lines and one bare LF line": (mostly_crlf, [self.MIXED_ROW]),
+            "both": (both, [self.MIXED_ROW, self.STRAY_ROW]),
+        }
+        for label, (content, named) in cases.items():
             with self.subTest(label):
                 (self.repo / "AGENTS.md").write_bytes(content.encode())
                 self._commit(label)
                 rows = bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1]
-                self.assertEqual(rows[0], ("differs", self.STRAY_ROW))
+                self.assertEqual(rows[: len(named)], [("differs", row) for row in named])
                 self.assertNotIn(("differs", self.CRLF_ROW), rows)
-                self.assertIn(("differs", "## Development workflow"), rows)
+                self.assertTrue(any(row[0] == "differs" and row[1].startswith("## ") for row in rows))
                 checked, adopted = self._check_and_adopt()
-                self.assertIn(f"differs  {self.STRAY_ROW}\n", checked)
-                self.assertIn("differs  ## Development workflow\n", checked)
+                for row in named:
+                    self.assertIn(f"differs  {row}\n", checked)
                 self.assertNotIn("CRLF or CR", checked)
                 self.assertIn(
                     "refused  AGENTS.md" + self.DASH + "not LF-terminated UTF-8 text; update it by hand", adopted)
-        # Converting CRLF to LF leaves the stray character, and the row stays until it is removed.
-        (self.repo / "AGENTS.md").write_bytes(stray.replace("\r\n", "\n").encode())
+        # Converting CRLF to LF clears the mixed endings and leaves the stray character, which is named until removed.
+        (self.repo / "AGENTS.md").write_bytes(both.replace("\r\n", "\n").encode())
         self._commit("converted")
-        self.assertEqual(
-            bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1][0], ("differs", self.STRAY_ROW))
-        (self.repo / "AGENTS.md").write_bytes(stray.replace("\r", " ").encode())
+        rows = bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"][1]
+        self.assertEqual(rows[0], ("differs", self.STRAY_ROW))
+        self.assertNotIn(("differs", self.MIXED_ROW), rows)
+        (self.repo / "AGENTS.md").write_bytes(both.replace("\r\n", "\n").replace("\r", " ").encode())
         self._commit("removed")
         self.assertEqual(bootstrap.compare_repository(self.repo, self.files)["AGENTS.md"], ("same", None))
 

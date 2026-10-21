@@ -542,15 +542,16 @@ block such as a `<!-- -->` comment or `<details>`, or a
 generated heading that falls inside a code block). A file with CRLF or CR line
 endings, which `--adopt` refuses, gets one `differs` row naming them in place of
 a `differs` row per section, and keeps its `missing`, `local` and `retired`
-rows. A carriage return in a file that otherwise ends its lines with LF, such as
-one inside a line, keeps every row and adds one `differs` row saying to remove
-it, since converting the line endings leaves it. A leading byte-order mark is
-one `local` row. Convert or remove it, then re-run. The `next dev`-managed
-block and everything from `## Project specifics` on are the repository's own
-and are not compared, except that an unedited guidance paragraph from an older
-template there is `retired`. The block must stay at the top of the file: a
-moved block is `local`, and a missing one is `missing`. Only a
-`## Project specifics` heading
+rows and the order of its generated sections. A file that mixes LF lines with
+CRLF ones keeps every row and gains `(CRLF and LF line endings mixed; convert
+to LF first)`. A file with LF lines and a carriage return inside a line keeps
+every row too and gains `(carriage return inside a line; remove it first)`,
+since converting the line endings leaves it. A leading byte-order mark is one
+`local` row. Convert or remove it, then re-run. The `next dev`-managed block and
+everything from `## Project specifics` on are the repository's own and are not
+compared, except that an unedited guidance paragraph from an older template
+there is `retired`. The block must stay at the top of the file: a moved block is
+`local`, and a missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
@@ -621,17 +622,18 @@ generated file changes, so there is nothing to merge by hand.
 
 - An `AGENTS.md` with CRLF or CR line endings is one `differs` row,
   `(CRLF or CR line endings; convert to LF first)`, in place of a `differs` row
-  per generated section; its `missing`, `local` and `retired` rows stay. A
-  carriage return in an `AGENTS.md` that otherwise ends its lines with LF, such
-  as one inside a line, keeps every row and adds
-  `(carriage return in a file with LF line endings; remove it first)`, because
-  converting line endings does not remove it. `--adopt` still refuses both
-  files, with `not LF-terminated UTF-8 text; update it by hand`.
+  per generated section; its `missing`, `local` and `retired` rows and the order
+  of its generated sections stay. A file that mixes LF lines with CRLF ones
+  keeps every row and gains `(CRLF and LF line endings mixed; convert to LF
+  first)`. A file with LF lines and a carriage return inside a line gains
+  `(carriage return inside a line; remove it first)`, because converting line
+  endings does not remove it. `--adopt` still refuses these files, with
+  `not LF-terminated UTF-8 text; update it by hand`.
 - A byte-order mark at the start of `AGENTS.md` is one `local` row,
   `(byte-order mark before the first heading; remove it first)`, in place of
-  `(text before the first heading)` plus a missing `# Working in this repo`.
-  The mark is set aside, so the other sections are compared normally, and
-  `--adopt` now refuses with
+  `(text before the first heading)` and, for most types, a missing
+  `# Working in this repo`. The mark is set aside, so the other sections are
+  compared normally, and `--adopt` now refuses with
   `remove the byte-order mark at the start of the file first`.
 - An unstamped file at a template skill's path, such as an empty
   `.agents/skills/delegation/SKILL.md`, is `shadowed` with a detail saying to
@@ -640,13 +642,14 @@ generated file changes, so there is nothing to merge by hand.
 - A directory, or a file where a folder belongs, at the path of a missing
   template file, such as a directory named `docs/branch-protection-runbook.md`,
   is refused with `something other than a file is at this path; move it aside`,
-  as for a seed script, instead of `FileExistsError: File exists`.
+  as for a seed script, instead of `FileExistsError: File exists` or
+  `NotADirectoryError: Not a directory`.
 
 `--dry-run` and `--check` also end quietly when whatever reads their output
 closes it, as `--dry-run | head -1` does. They no longer print a traceback, and
 `--dry-run` exits 0 instead of 120. `--check` keeps its exit status: 0 when
 aligned, 1 on drift. A creating run and `--adopt` are unchanged: a closed pipe
-still stops them with an error, so it cannot hide a half-finished creation.
+still ends them with an error status, so it cannot hide a failed run.
 
 ### Upgrading to 0.16.0
 

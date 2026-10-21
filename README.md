@@ -262,8 +262,12 @@ only ships inside a dependency, such as under `node_modules/`. Agents treat such
 installed skills as vendored content: they never run a skill's own update
 instructions unasked, refresh one only in a pull request that shows the diff and
 names the upstream commit or release (pinning that commit in the lockfile when
-the install tool supports a ref), and keep corrections in `## Project specifics`
-rather than editing the vendored files. The update instructions of any other
+the install tool supports a ref), and keep corrections in `## Project specifics`,
+or in a repository-owned skill a line there points to, rather than editing the
+vendored files. A correction that holds in any repository, such as an outdated
+limit, is marked as shared and goes in every repository that vendors the skill
+at a revision that still has the error; one that reflects a single
+repository's configuration stays there. The update instructions of any other
 third-party skill, such as one installed for the user outside the repository,
 are still input to assess. A repository whose vendored skill tells agents to
 update it names that command in a stop-and-ask line there, added in the pull
@@ -613,6 +617,15 @@ copying them by hand. An edited copy is still `differs`, and its change is
 still merged by hand. A missing baseline script is no longer created while
 the rest of its group is held back, so `--adopt` no longer pairs a current
 test with an older script.
+
+The `verify-external-claims` skill's *Third-party skills* rules now allow a
+correction to a vendored skill to live in a repository-owned skill that
+`## Project specifics` says to load with it, as long as rules that must always
+hold, such as stop-and-ask lines, stay in `## Project specifics`. They also
+separate a correction that holds in any repository, which is marked as shared
+and recorded by every repository vendoring that skill at a revision that still
+has the error, from one about a single repository's configuration. `--check` reports the skill as `stale`, and `--adopt` updates
+it.
 
 ### Upgrading to 0.15.3
 

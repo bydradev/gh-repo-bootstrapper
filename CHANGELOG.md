@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.1...v0.17.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* check the pr body as github wraps it for the squash commit ([#151](https://github.com/bydradev/gh-repo-bootstrapper/issues/151)) ([f43daf9](https://github.com/bydradev/gh-repo-bootstrapper/commit/f43daf9b2f93c28aa67a90666903a9fbae231ca4))
+
 ## [0.17.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.0...v0.17.1) (2026-10-22)
 
 

@@ -128,7 +128,8 @@ class ValidatorWiringTests(unittest.TestCase):
             return files
 
         out = io.StringIO()
-        # Every check that reads a rendered file still runs; only the slow run-once ones are stubbed.
+        # Every per-configuration check still runs, check_runbook among them; the slow
+        # run-once checks are stubbed, though the self-tests and own copies render too.
         with contextlib.ExitStack() as stack:
             _stub(stack, SLOW)
             stack.enter_context(patch.object(validate_templates.bootstrap, "generate_files", side_effect=rewrapped))

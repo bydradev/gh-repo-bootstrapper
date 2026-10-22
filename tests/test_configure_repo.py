@@ -897,9 +897,20 @@ def _bash4():
     bash = shutil.which("bash")
     if bash is None:
         raise unittest.SkipTest("bash is not on PATH")
-    major = subprocess.run([bash, "-c", 'echo "${BASH_VERSINFO[0]}"'], capture_output=True, text=True).stdout.strip()
+    # The install step runs with another cwd, where a relative PATH entry
+    # would name a different file.
+    bash = os.path.abspath(bash)
+    # Only PATH, so a BASH_ENV file cannot print before the version.
+    major = subprocess.run(
+        [bash, "-c", 'echo "${BASH_VERSINFO[0]}"'],
+        capture_output=True, text=True, env={"PATH": os.environ.get("PATH", os.defpath)},
+    ).stdout.strip()
     if not major.isdigit() or int(major) < 4:
-        raise unittest.SkipTest(f"the install step needs bash 4 or newer for mapfile; {bash} is bash {major or '?'}")
+        reason = f"the install step needs bash 4 or newer for mapfile; {bash} is bash {major or '?'}"
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            # The workflow runs on ubuntu-latest, whose bash is newer.
+            raise AssertionError(reason)
+        raise unittest.SkipTest(reason)
     return bash
 
 
@@ -914,14 +925,49 @@ class Bash4Tests(unittest.TestCase):
 
     def test_a_bash_older_than_4_skips_with_the_reason(self):
         fake = self._fake_bash(3)
-        with patch.dict(os.environ, {"PATH": str(fake.parent)}), self.assertRaises(unittest.SkipTest) as skipped:
-            _bash4()
+        with patch.dict(os.environ, {"PATH": str(fake.parent), "GITHUB_ACTIONS": ""}):
+            with self.assertRaises(unittest.SkipTest) as skipped:
+                _bash4()
         self.assertIn(f"{fake} is bash 3", str(skipped.exception))
+
+    def test_an_old_bash_fails_in_github_actions(self):
+        fake = self._fake_bash(3)
+        with patch.dict(os.environ, {"PATH": str(fake.parent), "GITHUB_ACTIONS": "true"}):
+            try:
+                _bash4()
+            except AssertionError as failed:
+                self.assertIn(f"{fake} is bash 3", str(failed))
+            except unittest.SkipTest:
+                self.fail("an old bash skipped in GitHub Actions")
+            else:
+                self.fail("an old bash was accepted")
+
+    def test_bash_env_does_not_reach_the_version_probe(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        noisy = Path(tmp.name) / "env.sh"
+        noisy.write_text("echo hi\n")
+        bash = _bash4()  # skips here when the bash on PATH is too old anyway
+        with patch.dict(os.environ, {"BASH_ENV": str(noisy)}):
+            try:
+                self.assertEqual(_bash4(), bash)
+            except unittest.SkipTest as skipped:
+                self.fail(f"BASH_ENV reached the probe: {skipped}")
 
     def test_the_first_bash_on_path_is_used(self):
         fake = self._fake_bash(5)
         with patch.dict(os.environ, {"PATH": f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}"}):
             self.assertEqual(_bash4(), str(fake))
+
+    def test_a_relative_path_entry_gives_an_absolute_bash(self):
+        fake = self._fake_bash(5)
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        os.chdir(fake.parent.parent)
+        with patch.dict(os.environ, {"PATH": f"{fake.parent.name}{os.pathsep}{os.environ.get('PATH', '')}"}):
+            bash = _bash4()
+        self.assertTrue(os.path.isabs(bash), bash)
+        self.assertTrue(os.path.samefile(bash, fake))
 
 
 class PythonToolInstallTests(unittest.TestCase):

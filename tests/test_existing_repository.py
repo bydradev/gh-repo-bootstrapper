@@ -362,13 +362,17 @@ def _git(repo: Path, *args):
     )
 
 
-def _skip_without_tags(test):
+def _skip_without_tags(test, detail=""):
     """Skip a test that reads this checkout's release tags when there are none,
     except in GitHub Actions: validate.yml fetches every tag, so a missing
-    one there is a failure, not a quiet skip."""
+    one there is a failure, not a quiet skip. detail says what went wrong."""
+    detail = f" ({detail.strip()})" if detail.strip() else ""
     if os.environ.get("GITHUB_ACTIONS") == "true":
-        test.fail("release tags unavailable; validate.yml checks out with fetch-depth: 0 to have them")
-    test.skipTest("release tags unavailable")
+        test.fail(
+            f"release tags unavailable{detail}; validate.yml checks out with fetch-depth: 0 to have them, "
+            "and a fork's own run needs this repository's tags pushed to it"
+        )
+    test.skipTest(f"release tags unavailable{detail}")
 
 
 class ExistingRepositoryTests(unittest.TestCase):
@@ -1603,7 +1607,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            _skip_without_tags(self)
+            _skip_without_tags(self, released.stderr)
         self._write(rel, released.stdout)
         self._commit_all()
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
@@ -1634,7 +1638,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            _skip_without_tags(self)
+            _skip_without_tags(self, released.stderr)
         old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
         old_bumped = released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", "@" + "b" * 40 + " # v98.0.0", 1)
         self._write(rel, old_bumped)
@@ -1668,7 +1672,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            _skip_without_tags(self)
+            _skip_without_tags(self, released.stderr)
         template_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
         old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
         for body, reported in (
@@ -1727,7 +1731,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            _skip_without_tags(self)
+            _skip_without_tags(self, released.stderr)
         default = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", released.stdout)
         files = _render("nextjs")
         rel = ".github/workflows/release-please.yml"
@@ -1926,7 +1930,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     ["git", "-C", str(tools), "show", f"v0.8.0:templates/{name}"], capture_output=True, text=True,
                 )
                 if released.returncode:
-                    _skip_without_tags(self)
+                    _skip_without_tags(self, released.stderr)
                 files = _render(repo_type)
                 self._write(rel, released.stdout)
                 self._commit_all()
@@ -1979,7 +1983,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     ["git", "-C", str(tools), "show", f"v0.11.1:templates/{name}"], capture_output=True, text=True,
                 )
                 if released.returncode:
-                    _skip_without_tags(self)
+                    _skip_without_tags(self, released.stderr)
                 self.assertNotIn("id: credentials", released.stdout)
                 pin = re.search(r"create-github-app-token(@\S+ # \S+)", released.stdout)[1]
                 shipped = bootstrap.stamp(released.stdout.replace(pin, older, 1), True, template=name)
@@ -3704,7 +3708,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         )
         if result.returncode or not bootstrap._workflow_diff_tags():
             # No tag to read, or a shallow checkout: --check skips the workflow diff there.
-            _skip_without_tags(self)
+            _skip_without_tags(self, result.stderr or "the tags stop short of the unstamped releases, or the checkout is shallow")
         return result.stdout
 
     @staticmethod
@@ -3743,7 +3747,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
 
     def test_diff_names_the_current_template_when_the_workflow_was_forked_from_it(self):
         if not bootstrap._workflow_diff_tags():
-            _skip_without_tags(self)
+            _skip_without_tags(self, "the tags stop short of the unstamped releases, or the checkout is shallow")
         for rel in (self.RELEASE, self.PR_TITLE):
             with self.subTest(rel=rel):
                 body, step = self._fork(bootstrap.read_stamp(self.files[rel], True)[1])
@@ -3887,7 +3891,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
             capture_output=True, text=True, env=bootstrap._git_env(),
         )
         if cloned.returncode:
-            _skip_without_tags(self)
+            _skip_without_tags(self, cloned.stderr)
         # Run this checkout's bootstrapper and templates in the clone's shallow history.
         shutil.copy2(checkout / "bootstrap.py", clone / "bootstrap.py")
         shutil.rmtree(clone / "templates")

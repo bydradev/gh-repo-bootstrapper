@@ -266,9 +266,34 @@ class UserVisibleLineTests(unittest.TestCase):
         # Lines after a wrapped one keep their own numbers.
         self.assertFails("feat: x", f"Prose.\n\n{'w ' * 50}\n\nf(g(x))\n\nUser-visible: yes",
                          "cannot parse line 5 of the body, so it")
+        self.assertFails("feat: x", f"Prose.\r\n\r\n{long}\r\n\r\nUser-visible: yes", wrapped)
+        self.assertFails("docs: x", f"Prose.\n\nBEGIN_NESTED_COMMIT\nfix: y\n{long}\nEND_NESTED_COMMIT\n\n"
+                         "User-visible: yes", "cannot parse line 5 of the body once GitHub wraps it")
+        # A line that starts that way is named as such, wrapped or not.
+        self.assertFails("feat: x", "Prose.\n\nf(g(x)) is called " + "word " * 15 + "\n\nUser-visible: yes",
+                         "cannot parse line 3 of the body, so it")
         # A commit override is read as the body holds it, unwrapped.
         self.assertPasses("docs: x", f"BEGIN_COMMIT_OVERRIDE\nfix: y\n\n{long}\nEND_COMMIT_OVERRIDE\n\n"
                           "User-visible: yes")
+
+    def test_fences_github_leaves_alone_are_found_at_any_indent(self):
+        long = "    " + "w " * 35 + "f(x, " + "y " * 34 + "z)"
+        for fence in ("```\n{}\n```", "~~~py\n{}\n~~~~", "````\n{}\n```\n````", "```\n{}",
+                      "- Item:\n\n    ```py\n    {}\n    ```"):
+            with self.subTest(fence=fence):
+                self.assertPasses("feat: x", "Prose.\n\n" + fence.format(long) + "\n\nUser-visible: yes")
+
+    def test_trailing_whitespace_adds_no_wrapped_line(self):
+        # A hard break of two spaces after a part of exactly 72 characters.
+        self.assertPasses("docs: x", "Prose.\n\n" + "w " * 10 + "x" * 72 + "  \nfix: y\nmore prose.\n\n"
+                          "User-visible: no")
+
+    def test_a_wrap_can_make_a_change_release(self):
+        # GitHub's wrap puts the token at the start of a line.
+        line = "w " * 33 + "the BREAKING CHANGE: marker is described here and more words follow"
+        self.assertReleases("docs: x", f"Prose.\n\n{line}", "the body has a breaking-change note")
+        # On either reading of a fenced line.
+        self.assertReleases("docs: x", f"Prose.\n\n```\n{line}\n```", "the body has a breaking-change note")
 
     def test_an_entry_scope_release_please_cannot_parse_fails_when_it_drops_a_change(self):
         # Release Please drops the entry whole, with the change it carries.

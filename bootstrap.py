@@ -2398,7 +2398,9 @@ def _only(entries: list, name: str):
 def _has_postgres_service(text: str):
     """Whether any job in a workflow has a Postgres service container: one
     named `postgres`, as the --postgres block names it, or one whose image is
-    `postgres`. None when the file is outside _structural_lines()'s subset."""
+    `postgres`. None when the file is outside _structural_lines()'s subset, or
+    when no such container is found but one the reader cannot see into might
+    be one: a flow mapping, a block scalar or an expression."""
     rows = _structural_lines(text)
     if rows is None:
         return None
@@ -2406,32 +2408,33 @@ def _has_postgres_service(text: str):
     jobs = _only(root, "jobs")
     if jobs is None:
         return False
-    if jobs is _UNVERIFIABLE:
+    if jobs is _UNVERIFIABLE or jobs[1]:
         return None
     entries = _children(rows, jobs[0])
     if entries is _UNVERIFIABLE:
         return None
-    for k, _, _ in entries:
-        job = _children(rows, k)
+    unsure = False
+    for k, _, value in entries:
+        job = _UNVERIFIABLE if value else _children(rows, k)
         services = _UNVERIFIABLE if job is _UNVERIFIABLE else _only(job, "services")
-        if services is _UNVERIFIABLE:
-            return None
         if services is None:
             continue
-        containers = _children(rows, services[0])
+        containers = _UNVERIFIABLE if services is _UNVERIFIABLE or services[1] else _children(rows, services[0])
         if containers is _UNVERIFIABLE:
-            return None
-        for c, name, _ in containers:
+            unsure = True
+            continue
+        for c, name, container in containers:
             if name == "postgres":
                 return True
-            fields = _children(rows, c)
-            image = None if fields is _UNVERIFIABLE else _only(fields, "image")
-            if image is _UNVERIFIABLE:
-                return None
-            value = (image[1] or "").strip("\"'") if image else ""
+            fields = _UNVERIFIABLE if container else _children(rows, c)
+            image = _UNVERIFIABLE if fields is _UNVERIFIABLE else _only(fields, "image")
+            if image is None:
+                continue
+            value = "|" if image is _UNVERIFIABLE else (image[1] or "").strip("\"'")
             if re.fullmatch(r"(?:[^\s/]+/)*postgres(?:[:@]\S*)?", value):
                 return True
-    return False
+            unsure = unsure or value == "|" or "${{" in value
+    return None if unsure else False
 
 
 def _postgres_hint(expected: str, actual: str) -> str:

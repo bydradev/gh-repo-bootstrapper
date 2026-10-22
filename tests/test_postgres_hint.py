@@ -66,6 +66,27 @@ class PostgresServiceTests(unittest.TestCase):
             "Postgres service: cannot read this file to tell; compare it with the render by hand",
         )
 
+    def test_an_image_the_reader_cannot_see_into_is_not_guessed(self):
+        # Valid YAML the reader admits but does not read inside: the image may
+        # still be postgres, so the answer is "cannot tell", not "no".
+        cases = {
+            "block scalar image": "    services:\n      db:\n        image: >-\n          postgres:16\n",
+            "literal image": "    services:\n      db:\n        image: |\n          postgres:16\n",
+            "expression image": "    services:\n      db:\n        image: ${{ matrix.db }}\n",
+            "flow container": "    services:\n      db: {image: postgres}\n",
+            "flow services": "    services: {db: {image: postgres}}\n",
+        }
+        for label, services in cases.items():
+            with self.subTest(label):
+                self.assertIsNone(bootstrap._has_postgres_service(_workflow(services)))
+        self.assertIsNone(bootstrap._has_postgres_service(
+            "on: push\njobs:\n  build: {runs-on: ubuntu-latest}\n"))
+
+    def test_a_postgres_service_found_outranks_one_it_cannot_read(self):
+        services = ("    services:\n      cache:\n        image: ${{ matrix.cache }}\n"
+                    "      postgres:\n        image: postgres:16\n")
+        self.assertIs(bootstrap._has_postgres_service(_workflow(services)), True)
+
     def test_hint_for_each_combination(self):
         with_pg, without = _render(postgres=True)[TEST_YML], _render(postgres=False)[TEST_YML]
         cases = {

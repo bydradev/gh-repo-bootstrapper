@@ -273,7 +273,12 @@ screenshot-review process when it has one.
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
 doesn't scan `.agents/` but does follow symlinked skill folders. Codex,
-OpenCode and Antigravity read `.agents/skills` directly. The generated
+OpenCode and Antigravity read `.agents/skills` directly. OpenCode also scans
+`.claude/skills`, so it finds each skill twice and logs a `duplicate skill
+name` warning for each one; both copies are the same file, so the warning is
+harmless (`skill/index.ts` in
+[OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3),
+checked 2026-10-22). The generated
 `.gitignore` ignores `.agents/*` and `.opencode/*` but re-includes
 `!.agents/skills/` and `!.opencode/agents/`, so these files are committed.
 
@@ -338,11 +343,16 @@ a redirect only when it sits directly on one command, so an allowed `git log`
 still writes in `git diff && git log > notes` (`tool/shell.ts`,
 `session/tools.ts` and `agent/agent.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
-current npm release, checked 2026-10-16).
+current npm release, checked 2026-10-16). It denies both `bash` and `shell`:
+OpenCode v1.19.3 keeps `bash` as the shell tool's permission key and says it
+will be renamed with OpenCode 2.0 (`tool/shell/id.ts`), and the current
+[permissions documentation](https://opencode.ai/docs/permissions/) names only
+`shell` (both checked 2026-10-22). Each version ignores the key it does not
+use.
 OpenCode's free-tier models on its own provider currently refuse an agent
 whose shell is denied, with "OpenCode's free tier can only be used from within
-OpenCode" ([OpenCode issue 50627](https://github.com/anomalyco/opencode/issues/50627),
-open on 2026-10-16), so run this reviewer with another model. `bash: ask` or a
+OpenCode" ([OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723),
+open on 2026-10-22), so run this reviewer with another model. `bash: ask` or a
 narrow allow rule avoids that error, but a command that yields no pattern,
 such as a bare `> file`, skips the shell check, so either would let the
 reviewer write.
@@ -679,6 +689,15 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.17.1
+
+The OpenCode reviewer, `.opencode/agents/fresh-eyes-reviewer.md`, now denies
+`shell` beside `bash`, so it still has no shell once OpenCode renames the
+permission key, and the `fresh-eyes-review` skill cites
+[OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723)
+instead of 50627, which was closed on 2026-10-20 as its duplicate. Both files
+are template-owned: `--check` reports them `stale` and `--adopt` updates them.
 
 ### Upgrading to 0.17.0
 

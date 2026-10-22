@@ -468,10 +468,15 @@ CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
 # permission keys placed before `permission`'s own (ConfigAgentV1.normalize in
 # packages/core/src/v1/config/agent.ts), so `tools: {bash: false, "*": true}`
 # would end with `"*": allow` and reopen the shell.
+# The shell's key is `bash` in OpenCode v1.19.3, which says it will be renamed
+# with OpenCode 2.0 (packages/opencode/src/tool/shell/id.ts), and `shell` in
+# opencode.ai/docs/permissions (both checked 2026-10-22); both permission
+# schemas accept any key, so the reviewer denies both.
 OPENCODE_REVIEWER_PERMISSIONS = {
     "edit": "",
     "task": " so it cannot launch a writer",
     "bash": " so it has no shell, whose rules cannot reliably stop a redirect",
+    "shell": " so it has no shell once OpenCode renames the bash key",
 }
 OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
 # OpenCode reads frontmatter with gray-matter and js-yaml 3, which differ from
@@ -482,7 +487,9 @@ OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
 # then exactly these lines. The description starts with a letter, so neither
 # parser reads it as a number, and must read back as its own text, so no tag,
 # quote, anchor, flow mapping or comment changes it.
-OPENCODE_REVIEWER_FRONTMATTER = ("mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny")
+OPENCODE_REVIEWER_FRONTMATTER = (
+    "mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny", "  shell: deny",
+)
 OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [A-Za-z][ -9;-~]*")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
@@ -4423,6 +4430,8 @@ def _structure_self_tests() -> list:
          "must say"),
         ("opencode task allowed", OPENCODE_REVIEWER, "task: deny", "task: allow", "permission.task: deny"),
         ("opencode shell open", OPENCODE_REVIEWER, "bash: deny", "bash: allow", "permission.bash: deny"),
+        ("opencode renamed shell open", OPENCODE_REVIEWER, "shell: deny", "shell: allow", "permission.shell: deny"),
+        ("opencode renamed shell missing", OPENCODE_REVIEWER, "\n  shell: deny", "", "permission.shell: deny"),
         ("opencode shell allow rule", OPENCODE_REVIEWER, "bash: deny",
          'bash:\n    "*": deny\n    "git diff *": allow', "permission.bash: deny"),
         ("opencode later wildcard allow", OPENCODE_REVIEWER, "bash: deny", 'bash: deny\n  "*": allow',

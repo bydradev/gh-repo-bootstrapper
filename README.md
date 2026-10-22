@@ -414,6 +414,14 @@ edited up to date (see [Checking and adopting](#checking-and-adopting)).
 repository's to edit once written, and
 [Repository types](#repository-types) says when `--adopt` writes it.
 
+A `nextjs` repository's `.prettierignore` lists the three template-owned
+workflows, which must stay verbatim, so a scaffold whose `format:check` is
+`prettier --check .` cannot fail on them. Prettier can format the same text
+differently between releases (patch releases included;
+[Install](https://prettier.io/docs/install), Prettier docs, checked
+2026-10-21), and a reformatted workflow would be `local-modified`. `ci.yml`
+and `test.yml` stay formatted.
+
 The template's `release-please.yml` sets `concurrency.queue: max`, so a push
 no longer cancels the pending run of a release merge (unless 100 runs are
 already waiting; then re-run the cancelled one). actionlint 1.7.12 does not
@@ -673,6 +681,25 @@ writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.17.0
+
+`nextjs`: the generated `.prettierignore` now lists
+`.github/workflows/pr-title-check.yml`, `.github/workflows/release-please.yml`
+and `.github/workflows/baseline-review.yml`, which are template-owned and must
+stay verbatim. Before, a scaffold whose `format:check` is `prettier --check .`
+covered all three, and a Prettier release that formats YAML differently from
+the template text would have failed it. Reformatting a template-owned workflow
+to pass would make it `local-modified`, which `--adopt` never overwrites.
+Prettier can format the same text differently between releases, patch releases
+included ([Install](https://prettier.io/docs/install), Prettier docs, checked
+2026-10-21). `.prettierignore` belongs to the repository, so `--adopt` keeps it
+and `--check` reports it as `differs`: add the three paths to it by hand, one
+per line. `--check` compares the file byte for byte, so it goes on reporting
+`.prettierignore` (and `README.md`, which also changed) as `differs` and exiting
+1 afterwards, as for other repository-owned files that differ from the template;
+the row clears only when the file matches the template, comment included.
+`ci.yml` and `test.yml` belong to the repository and stay formatted. The
+generated `README.md` of a new repository says the same; an existing one keeps
+its own.
 
 Every type's generated `release-please-config.json` now sets
 `"bump-minor-pre-major": true`, beside `include-component-in-tag`. While a
@@ -1201,7 +1228,8 @@ Full CI pipeline for Next.js applications.
 - `test.yml`: reusable suite (enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e)
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
-- `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore`
+- `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore` (which keeps Prettier off
+  the three template-owned workflows)
 - `docs/lint-baseline.md`: policy and an empty table for our own inline lint/type suppressions
 - `docs/advisory-baseline.md`: policy and an empty table for accepted dependency advisories
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks

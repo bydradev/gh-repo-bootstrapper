@@ -77,7 +77,7 @@ class Session(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        self.dir = Path(tmp.name)
+        self.dir = Path(tmp.name).resolve()
         cwd = os.getcwd()
         os.chdir(self.dir)
         self.addCleanup(os.chdir, cwd)

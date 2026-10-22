@@ -71,6 +71,12 @@ A green pull request therefore does not mean the browser suite passed; run
 
 `npm run lint:fix` and `npm run format` fix lint and formatting.
 
+The generated `.prettierignore` keeps Prettier off the three workflows the
+bootstrapper owns: `pr-title-check.yml`, `release-please.yml` and
+`baseline-review.yml`. They must stay verbatim, because a reformatted copy
+counts as a local edit and `--adopt` stops replacing it. `ci.yml` and
+`test.yml` belong to this repository and stay formatted.
+
 ## Deployment
 
 Deployment is application-owned. The generated `release-please.yml` only tests

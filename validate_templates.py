@@ -155,6 +155,18 @@ NEXTJS_BASELINE_REQUIRED_FILES = {
     "AGENTS.md",
 }
 
+# A nextjs repository's `format:check` runs Prettier over the whole tree, and
+# Prettier can format the same text differently from one release to the next
+# (patch releases included: "Install", Prettier docs, checked 2026-10-21). The
+# three template-owned workflows must stay verbatim: reformatting one would
+# make it `local-modified`. ci.yml and test.yml are the repository's own, so
+# they stay formatted.
+NEXTJS_PRETTIERIGNORE_REQUIRED = bootstrap.TEMPLATE_OWNED_WORKFLOWS
+NEXTJS_PRETTIERIGNORE_FORBIDDEN = (
+    ".github/workflows/ci.yml",
+    ".github/workflows/test.yml",
+)
+
 README_REQUIREMENTS = {
     "nextjs": (
         "## Start here",
@@ -1478,6 +1490,25 @@ def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
             errors.append(
                 f"[{label}] .prettierignore must ignore the generated Release Please manifest"
             )
+        # Entries count only as whole lines: a path in a comment, or inside a
+        # longer pattern, does not keep Prettier away from the file.
+        ignored = {
+            line.strip()
+            for line in prettierignore.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        for path in NEXTJS_PRETTIERIGNORE_REQUIRED:
+            if path not in ignored:
+                errors.append(
+                    f"[{label}] .prettierignore must list {path}, which is template-owned "
+                    "and must stay verbatim"
+                )
+        for path in NEXTJS_PRETTIERIGNORE_FORBIDDEN:
+            if path in ignored:
+                errors.append(
+                    f"[{label}] .prettierignore must not list {path}, "
+                    "which the repository owns and keeps formatted"
+                )
 
         # Item 11: the lint baseline now carries a review-date column and an
         # honest "Why this is accepted" header. The verifier must parse that
@@ -3292,6 +3323,41 @@ def run_self_tests() -> list:
     result = check_baseline_documents("self-test:manifest formatting", "nextjs", files)
     if not any("generated Release Please manifest" in e for e in result):
         errors.append(f"self-test 'manifest formatting' did not fail as expected: {result}")
+
+    # Case 17b: the template-owned workflows must stay verbatim, so Prettier
+    # (which `format:check` runs over the whole tree) must not touch them.
+    # Dropping any entry, or leaving it only in a comment, must fail; ci.yml
+    # and test.yml are the repository's own and must stay formatted.
+    # Exactly the three workflows: the repository owns release-please-config.json.
+    if set(NEXTJS_PRETTIERIGNORE_REQUIRED) != {
+        ".github/workflows/pr-title-check.yml",
+        ".github/workflows/release-please.yml",
+        ".github/workflows/baseline-review.yml",
+    }:
+        errors.append(
+            "self-test 'prettierignore baseline' expects exactly the three template-owned workflows, "
+            f"got {sorted(NEXTJS_PRETTIERIGNORE_REQUIRED)}"
+        )
+    files = bootstrap.generate_files(next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs"))
+    result = check_baseline_documents("self-test:prettierignore baseline", "nextjs", files)
+    if any("prettierignore" in e for e in result):
+        errors.append(f"self-test 'prettierignore baseline' failed on the unmodified render: {result}")
+    for path in NEXTJS_PRETTIERIGNORE_REQUIRED:
+        mutated = dict(files)
+        mutated[".prettierignore"] = files[".prettierignore"].replace(path + "\n", "", 1)
+        result = check_baseline_documents("self-test:prettierignore dropped", "nextjs", mutated)
+        if not any(f".prettierignore must list {path}" in e for e in result):
+            errors.append(f"self-test 'prettierignore dropped' ({path}) did not fail as expected: {result}")
+        mutated[".prettierignore"] = files[".prettierignore"].replace(path + "\n", "# " + path + "\n", 1)
+        result = check_baseline_documents("self-test:prettierignore commented", "nextjs", mutated)
+        if not any(f".prettierignore must list {path}" in e for e in result):
+            errors.append(f"self-test 'prettierignore commented' ({path}) did not fail as expected: {result}")
+    for path in NEXTJS_PRETTIERIGNORE_FORBIDDEN:
+        mutated = dict(files)
+        mutated[".prettierignore"] = files[".prettierignore"] + path + "\n"
+        result = check_baseline_documents("self-test:prettierignore owned", "nextjs", mutated)
+        if not any(f".prettierignore must not list {path}" in e for e in result):
+            errors.append(f"self-test 'prettierignore owned' ({path}) did not fail as expected: {result}")
 
     # Case 18: the ruled protection configuration must not drift back to
     # strict True — the failure mode the operator ruled against.

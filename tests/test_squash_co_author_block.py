@@ -78,8 +78,8 @@ class SquashCoAuthorBlockTests(unittest.TestCase):
         self.assertFails("chore: x", "Release-As: 1.0.0\n\nFix: also y\n\nUser-visible: yes", override)
 
     def test_the_block_making_a_release_fails_either_answer(self):
-        # An empty BREAKING CHANGE: footer has no note until the block's
-        # lines become its text (release-please 17.6.0, checked 2026-10-22).
+        # An empty BREAKING CHANGE: footer gives no note until the block
+        # follows it (release-please 17.6.0, checked 2026-10-22).
         for body in ("Prose.\n\nUser-visible: {}\nBREAKING CHANGE:", "Prose.\n\nBREAKING CHANGE:\n\nUser-visible: {}"):
             for answer in ("yes", "no"):
                 with self.subTest(body=body, answer=answer):

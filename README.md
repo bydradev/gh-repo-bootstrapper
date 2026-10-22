@@ -643,9 +643,9 @@ missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block.
 Everything from the first such heading on is the repository's, so a generated
 heading that appears only after it, as under a second, early copy of the
-heading, is `local` and `--adopt` refuses the rebuild. Only the template's last
-sections count, those after the last generated section still above the
-heading, so a repository's own section that shares the name of an earlier
+heading, is `local` and `--adopt` refuses the rebuild. Only the sections the
+template places after the last generated section the file still has above the
+heading count, so a repository's own section that shares the name of an earlier
 generated one stays `missing`. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,

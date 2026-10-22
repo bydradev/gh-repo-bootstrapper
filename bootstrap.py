@@ -2014,7 +2014,8 @@ STRAY_CARRIAGE_RETURN = "(carriage return inside a line; remove it first)"
 # as when a second, early copy of that heading sits among the generated
 # sections. Everything from the first copy on is the repository's, so a
 # rebuild would add the section again above it and keep the old one below.
-# Only the template's last sections count (see compare_agents).
+# Only the sections the template places after the last one the file still
+# has above it count (see compare_agents).
 AFTER_PROJECT_SPECIFICS = f"(generated heading after {PROJECT_SPECIFICS}: "
 BYTE_ORDER_MARK = "(byte-order mark before the first heading; remove it first)"
 
@@ -2065,18 +2066,21 @@ def compare_agents(expected: str, actual: str) -> list:
         else:
             rows.append(("missing", "(`next dev` block)"))
     fenced = {line.strip() for _, line, in_fence in _markdown_lines(act_generated) if in_fence}
-    # Generated sections swallowed by an early `## Project specifics`: the
-    # template's last sections, after the last one still above it, that the
-    # file has below it. A repository's own section that shares a generated
-    # name, under its one heading after the generated sections, is not one.
+    # Generated sections swallowed by an early `## Project specifics`: those
+    # the template places after the generated section the file has last above
+    # it, missing above it and present below it. A repository's own section
+    # that shares a generated name, under its one heading after the generated
+    # sections, is not one.
     swallowed = set()
     if act_owned:
         owned_headings = {heading for heading, _ in _agents_sections(act_owned)[1]}
-        for heading, _ in reversed(exp_sections):
-            if heading in actual_by_heading:
-                break
-            if heading in owned_headings:
-                swallowed.add(heading)
+        order = {heading: index for index, (heading, _) in enumerate(exp_sections)}
+        placed = [order[heading] for heading, _ in act_sections if heading in order]
+        cut = placed[-1] if placed else -1
+        swallowed = {
+            heading for heading, _ in exp_sections[cut + 1:]
+            if heading not in actual_by_heading and heading in owned_headings
+        }
     for heading, body in exp_sections:
         found = actual_by_heading.get(heading)
         if not found and heading in fenced:

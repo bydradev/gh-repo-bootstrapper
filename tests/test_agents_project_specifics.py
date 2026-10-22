@@ -162,6 +162,22 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
         agents = self.expected + "\n## Skills\n\nOur own skills list.\n"
         self.assertEqual({status for status, _ in self._rows(agents)}, {"same"})
 
+    def test_an_early_duplicate_after_a_reordered_section_is_refused(self):
+        # The template's last section moved up: the cut-off is the last
+        # generated section above the early heading in the file, not the
+        # template's last section.
+        _, sections = bootstrap._agents_sections(self.generated)
+        last = sections[-1][0]
+        start = self.generated.index(f"\n{last}\n") + 1
+        moved = self.generated[start:]
+        rest = self.generated[:start]
+        at = rest.index("\n## Development workflow\n") + 1
+        rest = rest[:at] + moved + rest[at:]
+        branches = rest.index("\n## Branches\n") + 1
+        agents = rest[:branches] + EARLY + rest[branches:] + self.owned + LATE
+        expected = [h for h in self._headings_from("## Branches") if h != last]
+        self._assert_refused(agents, expected)
+
     def test_a_repository_section_sharing_an_earlier_generated_name_stays_missing(self):
         # The file lacks the generated ## Branches but has its own under its
         # one, late ## Project specifics: --adopt adds the generated section

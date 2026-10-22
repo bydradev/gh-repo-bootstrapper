@@ -2196,13 +2196,13 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     if not test or not re.search(r"(?m)^\s*exit 1\s*$", branch) or "::error::" not in branch:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
-            f"in an if block, with the `if ...; then` and `fi` lines each on a line of their own, "
-            f"and then print an ::error:: message and exit 1 inside it"
+            f"in an if block, with `if ...; then`, `exit 1` and `fi` each alone on a line (no trailing "
+            f"comment or `;`), and then print an ::error:: message and exit 1 inside it"
         )
     elif any(re.match(r"\s*(?:else|elif)\b", line) for line in lines[start + 1:end]):
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must not branch with else or elif inside the "
-            f"empty-hash test, which would move the failure to runs that have a manifest"
+            f"empty-hash test, since a branch there can fail runs that have a manifest"
         )
     elif any(re.search(r"(?:^|[;&|({])\s*exit\b", line) for line in outside):
         errors.append(
@@ -4723,7 +4723,7 @@ def _structure_self_tests() -> list:
 
     expect("python manifest guard with then on its own line",
            gates("python", test, lambda w: guard_script(w, then_on_its_own_line)),
-           "`fi` lines each on a line of their own")
+           "each alone on a line")
     # An unrecognised layout is one problem, so it must not also read as a hash mismatch.
     expect("python manifest guard with then on its own line, no hash error",
            [e for e in gates("python", test, lambda w: guard_script(w, then_on_its_own_line))

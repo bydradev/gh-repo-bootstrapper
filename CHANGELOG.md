@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.17.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.16.1...v0.17.0) (2026-10-22)
+
+
+### Features
+
+* set bump-minor-pre-major in generated release please configs ([#144](https://github.com/bydradev/gh-repo-bootstrapper/issues/144)) ([83700ae](https://github.com/bydradev/gh-repo-bootstrapper/commit/83700ae3b7511044fc436e0f0b05dc21853bb4c4))
+
+
+### Bug Fixes
+
+* keep template-owned workflows out of prettier in next.js repositories ([#142](https://github.com/bydradev/gh-repo-bootstrapper/issues/142)) ([232776a](https://github.com/bydradev/gh-repo-bootstrapper/commit/232776a90433befcfef74cb02bbfedbed0be3ba8))
+* make the lint baseline's max-warnings gate a scaffold requirement ([#143](https://github.com/bydradev/gh-repo-bootstrapper/issues/143)) ([8e2a43f](https://github.com/bydradev/gh-repo-bootstrapper/commit/8e2a43fbb78132e8fc42609ac28d8dcea64b630a))
+* require a dependency manifest before setup-python in the python test lane ([#147](https://github.com/bydradev/gh-repo-bootstrapper/issues/147)) ([8361a08](https://github.com/bydradev/gh-repo-bootstrapper/commit/8361a08d91b20284c86679c98dc1371841a6ea6a))
+* run the release guard with the workflow token ([#145](https://github.com/bydradev/gh-repo-bootstrapper/issues/145)) ([2b9d978](https://github.com/bydradev/gh-repo-bootstrapper/commit/2b9d978184a6738e59f718ddd31c1d0c54454053))
+* track the next.js 16.4 heading in the agent block ([#146](https://github.com/bydradev/gh-repo-bootstrapper/issues/146)) ([995ad96](https://github.com/bydradev/gh-repo-bootstrapper/commit/995ad96ea21af6592ed35b736c761dc67a968446))
+
 ## [0.16.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.16.0...v0.16.1) (2026-10-21)
 
 

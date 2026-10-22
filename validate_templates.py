@@ -2541,9 +2541,10 @@ def _dependabot_interval_errors(where: str, text: str) -> list:
     return errors
 
 
-def _step_fact_errors(label: str, repo_type: str, files: dict) -> list:
+def _step_fact_errors(label: str, repo_type: str, files: dict, load=bootstrap._load) -> list:
     """The setup inputs, install and lint commands, service image and update
-    schedule each type's README and --help describe."""
+    schedule each type's README and --help describe. `load` reads the
+    reference Dependabot entries from templates/."""
     errors = []
     postgres = _postgres_image()
     for path in _workflow_paths(files):
@@ -2589,7 +2590,7 @@ def _step_fact_errors(label: str, repo_type: str, files: dict) -> list:
         errors += _dependabot_interval_errors(f"[{label}] .github/dependabot.yml", files[".github/dependabot.yml"])
     if repo_type in DEPENDABOT_REFERENCES:
         reference = DEPENDABOT_REFERENCES[repo_type]
-        errors += _dependabot_interval_errors(f"[{label}] templates/{reference}", bootstrap._load(reference))
+        errors += _dependabot_interval_errors(f"[{label}] templates/{reference}", load(reference))
     return errors
 
 
@@ -5109,7 +5110,10 @@ def _structure_self_tests() -> list:
            "must read node-version-file: .nvmrc")
     expect("npm install in place of npm ci",
            gates("nextjs", test, text=lambda t: t.replace("- run: npm ci", "- run: npm install", 1)),
-           "must install with `npm ci`")
+           "must install with `npm ci` exactly once")
+    expect("npm install beside npm ci",
+           gates("nextjs", test, text=lambda t: t.replace("- run: npm ci\n", "- run: npm ci\n      - run: npm i left-pad\n", 1)),
+           "must install with `npm ci`, not 'npm i left-pad'")
     expect("swift-format lint without --strict",
            gates("swift", test, text=lambda t: t.replace(SWIFT_FORMAT_LINT, "xcrun swift-format lint --recursive .")),
            "must run 'xcrun swift-format lint --recursive --strict .' once")
@@ -5121,9 +5125,10 @@ def _structure_self_tests() -> list:
            gates("rust", ".github/dependabot.yml", text=lambda t: t.replace("interval: weekly", "interval: monthly")),
            "github-actions updates must run weekly")
     expect("reference Dependabot entry updates monthly",
-           _dependabot_interval_errors("templates/dependabot-python.yml", bootstrap._load(
-               "dependabot-python.yml").replace("interval: weekly", "interval: monthly", 1)),
-           "pip updates must run weekly")
+           _step_fact_errors("self-test:gates", "python", bootstrap.generate_files(
+               dict(next(c for _, c in configurations() if c["repo_type"] == "python"))),
+               load=lambda name: bootstrap._load(name).replace("interval: weekly", "interval: monthly", 1)),
+           "templates/dependabot-python.yml pip updates must run weekly")
 
     # 0.12.0's release workflows cited the "Using secrets in GitHub Actions"
     # page in a comment, and generated repositories whose workflow validators

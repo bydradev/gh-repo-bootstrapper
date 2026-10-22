@@ -909,9 +909,9 @@ class PythonToolInstallTests(unittest.TestCase):
         work = Path(tmp.name) / "project"
         work.mkdir()
         cases = {
-            "nothing installed": ("", "", 0, ["install ruff==0.16.10", "install mypy==2.4.0", "install pytest==9.1.1"]),
+            "nothing installed": ("", "", 0, ["install ruff==0.17.1", "install mypy==2.4.0", "install pytest==9.1.1"]),
             "the project pins ruff and pytest": ("ruff pytest", "", 0, ["install mypy==2.4.0"]),
-            "an install fails": ("", "1", 1, ["install ruff==0.16.10"]),
+            "an install fails": ("", "1", 1, ["install ruff==0.17.1"]),
         }
         for label, (installed, fail, code, installs) in cases.items():
             with self.subTest(label):
@@ -957,41 +957,41 @@ class PythonToolInstallTests(unittest.TestCase):
         build = "[build-system]\nrequires = [\"poetry-core\"]\nbuild-backend = \"poetry.core.masonry.api\"\n"
         cases = {
             "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
-                        ["pip install uv==0.12.24", "uv sync --locked --group dev",
-                         "uv pip install ruff==0.16.10"]),
+                        ["pip install uv==0.13.5", "uv sync --locked --group dev",
+                         "uv pip install ruff==0.17.1"]),
             "uv.lock with a dev extra": ({"pyproject.toml": project + extra, "uv.lock": ""},
-                                         ["pip install uv==0.12.24", "uv sync --locked --extra dev",
-                                          "uv pip install ruff==0.16.10"]),
+                                         ["pip install uv==0.13.5", "uv sync --locked --extra dev",
+                                          "uv pip install ruff==0.17.1"]),
             "requirements-dev.txt": ({"requirements-dev.txt": "", "pyproject.toml": project + group},
-                                     ["pip install -r requirements-dev.txt", "pip install ruff==0.16.10"]),
+                                     ["pip install -r requirements-dev.txt", "pip install ruff==0.17.1"]),
             "a dev dependency group": ({"pyproject.toml": project + group},
                                        ["pip install --upgrade pip>=25.1", "pip install -e . --group dev",
-                                        "pip install ruff==0.16.10"]),
+                                        "pip install ruff==0.17.1"]),
             "a dev extra and group": ({"pyproject.toml": project + extra + group},
                                       ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev",
-                                       "pip install ruff==0.16.10"]),
-            "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.16.10"]),
-            "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.16.10"]),
+                                       "pip install ruff==0.17.1"]),
+            "a dev extra": ({"pyproject.toml": project + extra}, ["pip install -e .[dev]", "pip install ruff==0.17.1"]),
+            "no dev dependencies": ({"pyproject.toml": project}, ["pip install -e .", "pip install ruff==0.17.1"]),
             "a dev group in a scripts repository": ({"pyproject.toml": group},
-                                                    ["pip install pytest", "pip install ruff==0.16.10"]),
+                                                    ["pip install pytest", "pip install ruff==0.17.1"]),
             "a build backend without [project]": ({"pyproject.toml": build},
-                                                  ["pip install -e .", "pip install ruff==0.16.10"]),
+                                                  ["pip install -e .", "pip install ruff==0.17.1"]),
             "tool settings only": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
-                                   ["pip install ruff==0.16.10"]),
+                                   ["pip install ruff==0.17.1"]),
             "tool settings and setup.py": ({"pyproject.toml": "[tool.ruff]\nline-length = 100\n", "setup.py": ""},
-                                           ["pip install -e .", "pip install ruff==0.16.10"]),
+                                           ["pip install -e .", "pip install ruff==0.17.1"]),
             "a uv init --no-package app with a dev group": ({"pyproject.toml": app + group},
-                                               ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+                                               ["pip install idna>=3 six pytest", "pip install ruff==0.17.1"]),
             "a uv init --no-package app with a dev extra": ({"pyproject.toml": app + extra},
-                                               ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+                                               ["pip install idna>=3 six pytest", "pip install ruff==0.17.1"]),
             "an app with [tool.uv] package = true": ({"pyproject.toml": app + "[tool.uv]\npackage = true\n"},
-                                                     ["pip install -e .", "pip install ruff==0.16.10"]),
+                                                     ["pip install -e .", "pip install ruff==0.17.1"]),
             "a package with [tool.uv] package = false": ({"pyproject.toml": project + "[tool.uv]\npackage = false\n"},
-                                                         ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+                                                         ["pip install idna>=3 six", "pip install ruff==0.17.1"]),
             "an app whose dev extra names itself": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"Sample[test,lint]\", \"mypy\"]\n"
                                          "test = [\"pytest\", \"sample[lint]\"]\nlint = [\"ruff\"]\n"},
-                ["pip install idna>=3 six mypy ruff pytest", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 six mypy ruff pytest", "pip install ruff==0.17.1"]),
             "markers, a cycle and extra markers": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\n"
                                          "dev = [\"sample[test]; python_version >= '3'\", \"skip; python_version < '3'\","
@@ -999,7 +999,7 @@ class PythonToolInstallTests(unittest.TestCase):
                                          "test = [\"sample[dev]\", \"pytest; extra == 'test'\", \"nope; extra == 'dev'\","
                                          " \"url @ https://example.com/pkg;a.whl ; python_version >= '3'\"]\n"},
                 ["pip install idna>=3 six helper at pytest url @ https://example.com/pkg;a.whl",
-                 "pip install ruff==0.16.10"]),
+                 "pip install ruff==0.17.1"]),
             "a self-reference its own version does not satisfy": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\ndev = [\"sample[test]>=2\"]\ntest = [\"pytest\"]\n"},
                 "excludes this project's own version"),
@@ -1008,40 +1008,40 @@ class PythonToolInstallTests(unittest.TestCase):
                 "requires-python '<3' excludes Python"),
             "a dependency marked for the dev extra": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra == 'dev'\"") + extra},
-                ["pip install idna>=3 helper six pytest", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 helper six pytest", "pip install ruff==0.17.1"]),
             "a dependency marked for an extra not requested": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra == 'docs'\"") + extra},
-                ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 six pytest", "pip install ruff==0.17.1"]),
             "an app with no dependencies": ({"pyproject.toml": "[project]\nname = \"sample\"\nversion = \"0.1.0\"\n"},
-                                            ["pip install ruff==0.16.10"]),
-            "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.16.10"]),
+                                            ["pip install ruff==0.17.1"]),
+            "only setup.py": ({"setup.py": ""}, ["pip install -e .", "pip install ruff==0.17.1"]),
             # pip installs a directory only with a pyproject.toml or setup.py.
-            "only setup.cfg": ({"setup.cfg": ""}, ["pip install ruff==0.16.10"]),
+            "only setup.cfg": ({"setup.cfg": ""}, ["pip install ruff==0.17.1"]),
             "setup.cfg metadata with tool settings": (
                 {"setup.cfg": "[metadata]\nname = sample\n", "pyproject.toml": "[tool.ruff]\nline-length = 100\n"},
-                ["pip install -e .", "pip install ruff==0.16.10"]),
+                ["pip install -e .", "pip install ruff==0.17.1"]),
             "a flake8-only setup.cfg next to an app": (
                 {"setup.cfg": "[flake8]\nmax-line-length = 100\n", "pyproject.toml": app},
-                ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 six", "pip install ruff==0.17.1"]),
             "a dev group that includes a group and names the app's extra": (
                 {"pyproject.toml": app + "[project.optional-dependencies]\ntest = [\"helper\"]\n"
                                          "[dependency-groups]\ndev = [{include-group = \"Lint\"}, \"sample[test]\"]\n"
                                          "lint = [\"ruff\"]\n"},
-                ["pip install idna>=3 six helper ruff", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 six helper ruff", "pip install ruff==0.17.1"]),
             "a dev group that includes a missing group": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"missing\"}]\n"},
                 "includes 'missing', which is not defined"),
             "an app with its own platform.py and requires-python": (
                 {"pyproject.toml": app.replace("[project]\n", "[project]\nrequires-python = \">=3.11\"\n"),
                  "platform.py": "raise SystemExit('the project platform.py was imported')\n"},
-                ["pip install idna>=3 six", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 six", "pip install ruff==0.17.1"]),
             "a package with a Dev extra and DEV group": (
                 {"pyproject.toml": project + "[project.optional-dependencies]\nDev = [\"pytest\"]\n"
                                              "[dependency-groups]\nDEV = [\"pytest\"]\n"},
                 ["pip install --upgrade pip>=25.1", "pip install -e .[dev] --group dev",
-                 "pip install ruff==0.16.10"]),
+                 "pip install ruff==0.17.1"]),
             "an app with a Dev group": ({"pyproject.toml": app + "[dependency-groups]\nDev = [\"pytest\"]\n"},
-                                        ["pip install idna>=3 six pytest", "pip install ruff==0.16.10"]),
+                                        ["pip install idna>=3 six pytest", "pip install ruff==0.17.1"]),
             "a dev group that is a string": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = \"pytest\"\n"},
                 "dependency group 'dev' is not a list"),
@@ -1049,10 +1049,10 @@ class PythonToolInstallTests(unittest.TestCase):
             # marker that holds without the extra keeps the dependency.
             "a dependency excluded from the dev extra": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"") + extra},
-                ["pip install idna>=3 helper six pytest", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 helper six pytest", "pip install ruff==0.17.1"]),
             "a dependency excluded from an extra not requested": (
                 {"pyproject.toml": app.replace("\"idna>=3\"", "\"idna>=3\", \"helper; extra != 'dev'\"")},
-                ["pip install idna>=3 helper six", "pip install ruff==0.16.10"]),
+                ["pip install idna>=3 helper six", "pip install ruff==0.17.1"]),
             "a malformed requirement in an extra not installed": (
                 {"pyproject.toml": app + extra + "docs = [\"not a req ???\"]\n"},
                 "'not a req ???' in project.optional-dependencies.docs is not a valid requirement"),
@@ -1070,7 +1070,7 @@ class PythonToolInstallTests(unittest.TestCase):
                 "duplicate extra name 'DEV'"),
             "an indented setup.cfg [metadata] next to an app": (
                 {"setup.cfg": "  [metadata]\n  name = sample\n", "pyproject.toml": app},
-                ["pip install -e .", "pip install ruff==0.16.10"]),
+                ["pip install -e .", "pip install ruff==0.17.1"]),
             "a dev group include with an extra key": (
                 {"pyproject.toml": app + "[dependency-groups]\ndev = [{include-group = \"lint\", typo = \"x\"}]\n"
                                          "lint = [\"ruff\"]\n"},
@@ -1205,7 +1205,7 @@ class PythonToolInstallTests(unittest.TestCase):
         script, tmp, venv, pip = self._real_pip()
         wheels = Path(tmp.name) / "wheels"
         wheels.mkdir()
-        for name, pinned in (("devdep", "1.0"), ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")):
+        for name, pinned in (("devdep", "1.0"), ("ruff", "0.17.1"), ("mypy", "2.4.0"), ("pytest", "9.1.1")):
             self._write_wheel(wheels, name, pinned)
         self._write_wheel(wheels, "appdep", "1.0")
         group = "[dependency-groups]\ndev = [\"devdep==1.0\"]\n"
@@ -1237,7 +1237,7 @@ class PythonToolInstallTests(unittest.TestCase):
         wheels.mkdir()
         candidates = ("always", "baseonly", "withdev", "devonly", "neverdev")
         for name, pinned in [(name, "1.0") for name in candidates] + [
-                ("ruff", "0.16.10"), ("mypy", "2.4.0"), ("pytest", "9.1.1")]:
+                ("ruff", "0.17.1"), ("mypy", "2.4.0"), ("pytest", "9.1.1")]:
             self._write_wheel(wheels, name, pinned)
         dependencies = ["always", "baseonly; extra != 'dev'", "withdev; extra == 'dev'"]
         dev = ["devonly", "neverdev; extra != 'dev'"]

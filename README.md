@@ -702,6 +702,24 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.18.0
+
+`nextjs`: the `local-validation-nextjs` skill gains an *Agent browser checks*
+section. Where `@playwright/test` is installed, it sends agents to the
+Playwright CLI that package ships (`npx --no-install playwright cli`) and to
+the skill file in `node_modules` that matches the installed version, rather
+than a vendored or linked copy, which would drift from the installed version
+or break in a checkout without `node_modules`. It asks for Playwright's
+Chromium, a local server with fixture or test data only, `--debug=cli` to
+inspect a failing test, and no `init-agents` or `init-skills`, and it keeps
+the CLI's output out of commits and pull requests. The template `.gitignore`
+adds `.playwright-cli/` and `.playwright-mcp/`, where the CLI and the MCP
+server write a session.
+
+`--check` reports the skill as `stale` and `--adopt` updates it. For an
+existing `.gitignore`, `--check` and `--adopt` list the two missing entries
+without writing them, so add them by hand in the adoption pull request.
+
 ### Upgrading to 0.17.2
 
 The user-visible step in `pr-title-check.yml` now reads the body as GitHub's

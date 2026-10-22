@@ -399,6 +399,9 @@ AGENTS_TYPE_REQUIREMENTS = {
             "reported as `flaky`, not failed",
             "requires the `lint` script in `package.json` to run `eslint --max-warnings=0` "
             "with unused disable directives reported",
+            "the CLI it ships, `npx --no-install playwright cli`",
+            "Pass `--browser=chromium` to `open`",
+            "Do not run `npx playwright init-agents` or `init-skills`",
             LOCAL_VALIDATION_ROUTING,
         )
     ),
@@ -503,6 +506,9 @@ PROJECT_SPECIFICS_HEADING = "## Project specifics"
 NEXTJS_AGENT_RULES_END = "<!-- END:nextjs-agent-rules -->"
 APP_ROUTER_HEADING = "# This project uses the App Router"
 WORKTREE_GITIGNORE_ENTRIES = (".worktrees/", ".claude/worktrees/", "*.xcresult/")
+# Where the Playwright CLI and MCP server write an agent's browser session,
+# which local-validation-nextjs says .gitignore excludes.
+AGENT_BROWSER_GITIGNORE_ENTRIES = (".playwright-cli/", ".playwright-mcp/")
 
 SCREENSHOT_HEADINGS = (
     "# Screenshot review guidance",
@@ -1166,6 +1172,10 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] .gitignore is missing {entry!r}")
     if repo_type == "rust" and "/target/" not in gitignore.splitlines():
         errors.append(f"[{label}] Rust .gitignore is missing Cargo build output '/target/'")
+    if repo_type == "nextjs":
+        for entry in AGENT_BROWSER_GITIGNORE_ENTRIES:
+            if entry not in gitignore.splitlines():
+                errors.append(f"[{label}] Next.js .gitignore is missing agent browser output {entry!r}")
     if bootstrap.CURRENT_WORK not in files:
         errors.append(f"[{label}] missing {bootstrap.CURRENT_WORK}, where AGENTS.md sends dated status")
     return errors
@@ -4207,6 +4217,11 @@ def run_self_tests() -> list:
         result = check_workspace_guidance(f"self-test:{repo_type} gitignore", repo_type, unignored)
         if not any("'.worktrees/'" in e for e in result):
             errors.append(f"self-test '{repo_type} worktree ignore' did not fail as expected: {result}")
+        if repo_type == "nextjs":
+            unignored[".gitignore"] = files[".gitignore"].replace(".playwright-cli/\n", "", 1)
+            result = check_workspace_guidance(f"self-test:{repo_type} browser ignore", repo_type, unignored)
+            if not any("'.playwright-cli/'" in e for e in result):
+                errors.append(f"self-test '{repo_type} browser ignore' did not fail as expected: {result}")
         no_status = {rel: body for rel, body in files.items() if rel != bootstrap.CURRENT_WORK}
         result = check_workspace_guidance(f"self-test:{repo_type} current work", repo_type, no_status)
         if not any(bootstrap.CURRENT_WORK in e for e in result):

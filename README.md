@@ -707,12 +707,13 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 ### Upgrading to 0.18.1
 
 A copy of the bootstrapper with no `.git` of its own, kept inside another
-repository that has `vX.Y.Z` tags, read that repository's tags as releases.
-None of them holds a bootstrapper template, so `--check` diffed an unstamped,
-locally modified workflow against the current template alone, as if it were
-the release the workflow was forked from, and skipped the legacy docs diff
-without saying so. Both now print the missing-tags notice, once per run, and
-skip the diff. No file is classified or written differently.
+repository that has `vX.Y.Z` tags, some of them v0.8.1 or earlier, read that
+repository's tags as releases. None of them holds a bootstrapper template, so
+`--check` diffed an unstamped, locally modified workflow against the current
+template alone, as if it were the release the workflow was forked from, and
+skipped the legacy docs diff without saying so. Both now print the missing-tags
+notice, once per run, and skip the diff. No file is classified or written
+differently.
 
 ### Upgrading to 0.18.0
 

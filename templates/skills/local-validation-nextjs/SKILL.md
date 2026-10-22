@@ -83,10 +83,12 @@ To look at a running page yourself when `@playwright/test` is installed, use
 the CLI it ships, `npx --no-install playwright cli`. Read its commands in
 `node_modules/playwright-core/lib/tools/skills/playwright-cli/SKILL.md`,
 which matches the installed version; `--help` prints that path only under
-Claude Code or Copilot CLI. Do not install `@playwright/cli`, and do not copy
-or link that skill into `.agents/skills`: a fresh checkout has no
-`node_modules`, and `--adopt` deletes a `.claude/skills` link to a skill
-folder that is missing.
+Claude Code or Copilot CLI. Older versions, such as 1.60, ship no such skill:
+when the file is missing or `npx --no-install playwright cli --help` fails,
+report that instead of installing or upgrading a package to follow this
+section. Do not install `@playwright/cli`, and do not copy or link that skill
+into `.agents/skills`: a fresh checkout has no `node_modules`, and `--adopt`
+deletes a `.claude/skills` link to a skill folder that is missing.
 
 - Name a session of your own with `-s=<name>` on `open` and every later
   command. Without it, every agent in the checkout shares the `default`
@@ -169,7 +171,8 @@ verification copy.
   drove the paused test, output landed in `.playwright-cli/` but a
   `screenshot --filename=` file in the working directory, a second `open`
   restarted the `default` session, and `--help` printed the skill path only
-  with `CLAUDECODE` or `COPILOT_CLI` set; and
+  with `CLAUDECODE` or `COPILOT_CLI` set; `playwright-core` 1.58.2 and
+  1.60.0, which have no `lib/tools/skills/`, and 1.62.0, which has it; and
   `playwright-core` 1.64.0's
   `lib/tools/skills/playwright-cli/SKILL.md` (`gh --attach`) and
   `playwright` 1.64.0's `lib/agents/playwright-test-healer.agent.md`

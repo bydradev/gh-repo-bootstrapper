@@ -559,9 +559,10 @@ release tags; from a copy without them, or for a workflow from a shallow clone
 or one with no tag through v0.8.1, `--check` prints a notice and skips it,
 since the few releases such a clone holds could name a base later than the one
 the workflow was forked from. Each release read is a `git show` that may take
-up to 10 seconds; if one takes longer (git waiting on a credential prompt, a
-filter or fsmonitor), `--check` prints a notice naming it, reads no more
-releases and skips the diff.
+up to 10 seconds; if one takes longer (in a partial clone, git fetching a
+missing object from a remote that does not answer or waits on a credential
+prompt), `--check` stops that git and the fetch it started, prints a notice
+naming the read, reads no more releases and skips the diff.
 
 ### Checking and adopting
 
@@ -708,12 +709,14 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 ### Upgrading to 0.18.1
 
 `--check` and `--adopt` no longer wait forever on a `git show` of a release
-that does not answer, such as one waiting on a credential prompt to fetch a
-missing object in a partial clone, or on a hung filter or fsmonitor. Each
-read of a release now gives up after 10 seconds: a one-line notice names the
-read, no more releases are read, and the diff against earlier releases is
-skipped, as it is without release tags. No file is classified or written
-differently.
+that does not answer, such as one in a partial clone fetching a missing
+object from a remote that does not answer or waits on a credential prompt.
+Each read of a release now gives up after 10 seconds and stops the fetch it
+started: a one-line notice names the read, no more releases are read, and the
+diff against earlier releases is skipped, as it is without release tags. No
+file is classified or written differently. `validate_templates.py` fails the
+`LEGACY_TEMPLATE_DIGESTS` check, and `--regenerate-legacy-digests` exits 1,
+instead of rebuilding the table from the releases read before.
 
 ### Upgrading to 0.18.0
 

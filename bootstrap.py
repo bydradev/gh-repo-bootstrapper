@@ -2210,8 +2210,11 @@ _UNVERIFIABLE = object()
 
 # An item of a flow sequence: a plain word, or a quoted string with no escape
 # and no quote of its own, which YAML 1.2.2 (sections 7.3.1 and 7.3.2, checked
-# 2026-10-21) reads as the text between its quotes.
-_FLOW_ITEM = r"""[A-Za-z0-9_./-]+|"[^"\\]*"|'[^']*'"""
+# 2026-10-21) reads as the text between its quotes. A plain word starts with
+# "-" only when a character it allows follows: a lone "-" is a block sequence
+# entry's indicator, which YAML 1.2.2 forbids there (section 7.3.3, a plain
+# scalar's first character; checked 2026-10-22), and PyYAML rejects `[- , "a"]`.
+_FLOW_ITEM = r"""(?:[A-Za-z0-9_./]|-(?=[A-Za-z0-9_./-]))[A-Za-z0-9_./-]*|"[^"\\]*"|'[^']*'"""
 
 # The only flow collections the reader admits: `{}`, `[]`, or a list of those items.
 _FLOW_VALUE_RE = re.compile(rf"\{{\s*\}}|\[\s*(?:(?:{_FLOW_ITEM})(?:\s*,\s*(?:{_FLOW_ITEM}))*)?\s*\]")

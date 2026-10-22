@@ -702,6 +702,15 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.18.1
+
+The YAML reader `--adopt` uses on a repository's own `test.yml` now refuses
+a flow sequence with a lone `-` item, such as `[- , "a"]` or `[a, -]`, which
+YAML does not allow, instead of reading the `-` as an item. Such a file is
+reported as outside the subset it reads, with the line's number, as other
+YAML it does not model is. Flow items that start with `-`, such as `-a`, and
+a quoted `"-"` are read as before.
+
 ### Upgrading to 0.18.0
 
 `nextjs`: the `local-validation-nextjs` skill gains an *Agent browser checks*

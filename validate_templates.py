@@ -2220,7 +2220,8 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     inside = lines[start + 1:end] if test else []
     outside = lines[:start] + lines[end + 1:] if test else []
     exit_at = next((i for i, line in enumerate(inside) if re.match(r"\s*exit 1\s*$", line)), None)
-    error_at = next((i for i, line in enumerate(inside) if "::error::" in line), None)
+    # An echo of the ::error:: command: a comment or another command that mentions it prints nothing.
+    error_at = next((i for i, line in enumerate(inside) if re.match(r'\s*echo "::error::', line)), None)
     # What is left once the test, the diagnostic and the exit are set aside.
     others = [line.strip() for line in outside if line.strip()] + [
         line.strip() for i, line in enumerate(inside) if line.strip() and i not in (error_at, exit_at)
@@ -4814,6 +4815,9 @@ def _structure_self_tests() -> list:
     expect("python manifest guard with an exit 0 before the diagnostic",
            gates("python", test, lambda w: guard_script(w, lambda r: r.replace("  echo ", "  exit 0\n  echo ", 1))),
            "nothing else")
+    expect("python manifest guard with a comment in place of the diagnostic",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace('echo "::error::', "true # ::error::"))),
+           "then print an ::error:: message and exit 1")
     expect("python manifest guard with a command before the test",
            gates("python", test, lambda w: guard_script(w, lambda r: "set +e\n" + r)), "nothing else")
     expect("python manifest guard with an else branch",

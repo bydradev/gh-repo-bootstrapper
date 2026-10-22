@@ -4176,7 +4176,7 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
                 result = self._cli("--check")
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
-                self.assertIn(f"unreadable {rel}", result.stdout)
+                self.assertIn(f"{'unreadable':<{bootstrap.REPORT_STATUS_WIDTH}} {rel}", result.stdout)
                 self.assertIn(f"Permission denied: {self.SKILL_DIR}", result.stdout)
                 self._chmod(self.SKILL_DIR, 0o755)
 
@@ -4309,7 +4309,7 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
         result = self._cli("--check")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)
-        self.assertIn(f"unreadable {rel}\n      PermissionError: Permission denied: docs\n", result.stdout)
+        self.assertIn(f"{'unreadable':<{bootstrap.REPORT_STATUS_WIDTH}} {rel}\n      PermissionError: Permission denied: docs\n", result.stdout)
         result = self._cli("--adopt")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)

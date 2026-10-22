@@ -714,10 +714,11 @@ title with a list of its commits for more ("Configuring commit squashing for
 pull requests" and "Pull request merges", GitHub Docs, read
 2026-10-22). A merge through the web interface then commits a message the
 check never read, and Release Please may release it differently. After the
-first `--adopt`, run `--configure-only` once (see
-[What the script configures](#what-the-script-configures)), or pick the pull
-request title and description as the default message under *Allow squash
-merging* in the repository's general settings.
+first `--adopt`, run `--configure-only` once, which also applies the other
+repository settings listed in
+[What the script configures](#what-the-script-configures), or pick only the
+pull request title and description as the default message under *Allow
+squash merging* in the repository's general settings.
 
 ### Upgrading to 0.18.0
 

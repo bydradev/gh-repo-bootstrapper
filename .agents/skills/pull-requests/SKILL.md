@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=3aa1f47e4a1f9ab5986994d690ca5a649a124e312565320d456698da93acd2cb -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=6becb4b0ce04f31226ddc5345175158b913f12c42b95446fcbef788f7d8f7788 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -37,8 +37,11 @@ merge-ready:
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please
-  cannot parse it and drops the commit, which the check also reports. Give an
-  extra entry's scope text and no parenthesis inside it, for the same reason.
+  cannot parse it and drops the commit, which the check also reports. GitHub
+  rewraps a body line over 72 characters for the squash commit, which can
+  start a line that way, and the check reads the wrapped lines: break a long
+  line yourself so none does. Give an extra entry's scope text and no
+  parenthesis inside it, for the same reason.
   Keep a `<details>` tag out of the scope and code spans of a released title
   or entry and out of breaking-change notes, including the subject of a
   change marked `!` that has no note of its own: the changelog keeps it as

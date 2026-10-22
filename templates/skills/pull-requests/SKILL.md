@@ -36,8 +36,11 @@ merge-ready:
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please
-  cannot parse it and drops the commit, which the check also reports. Give an
-  extra entry's scope text and no parenthesis inside it, for the same reason.
+  cannot parse it and drops the commit, which the check also reports. GitHub
+  rewraps a body line over 72 characters for the squash commit, which can
+  start a line that way, and the check reads the wrapped lines: break a long
+  line yourself so none does. Give an extra entry's scope text and no
+  parenthesis inside it, for the same reason.
   Keep a `<details>` tag out of the scope and code spans of a released title
   or entry and out of breaking-change notes, including the subject of a
   change marked `!` that has no note of its own: the changelog keeps it as

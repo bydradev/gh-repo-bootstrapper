@@ -603,7 +603,13 @@ material into a repository-owned skill.
 Pass the same
 type options the repository was generated with (`--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift), or the workflows
-they shape report as drift. `--screenshots` is the exception: a `nextjs` or
+they shape report as drift. A Next.js repository's `test.yml` is its own, so
+once it is edited it reports `differs` whichever `--postgres` is passed; the
+row then adds a line saying whether the file and the render each have a
+Postgres service (one named `postgres`, or one whose image is `postgres`),
+such as `Postgres service: in the render (--postgres), not in this file`.
+When the file uses YAML the script does not read, the line says it cannot
+tell. `--screenshots` is the exception: a `nextjs` or
 `swift` repository that already has the template's copy of
 `.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
 treated as using it, and the report says so, so `--adopt` keeps and updates
@@ -703,6 +709,13 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.19.0
+
+`nextjs`: when the repository's own `test.yml` differs from the render,
+`--check` adds a line under its row saying whether the file and the render
+each have a Postgres service, so a `--postgres` that does not match the
+repository shows. The check still only reads; nothing else changes.
 
 ### Upgrading to 0.18.1
 

@@ -469,9 +469,10 @@ CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
 # packages/core/src/v1/config/agent.ts), so `tools: {bash: false, "*": true}`
 # would end with `"*": allow` and reopen the shell.
 # The shell's key is `bash` in OpenCode v1.19.3, which says it will be renamed
-# with OpenCode 2.0 (packages/opencode/src/tool/shell/id.ts), and `shell` in
-# opencode.ai/docs/permissions (both checked 2026-10-22); both permission
-# schemas accept any key, so the reviewer denies both.
+# (packages/opencode/src/tool/shell/id.ts) and accepts any key, and `shell` in
+# opencode.ai/docs/permissions; OpenCode V2 maps this format's `bash` to its
+# `shell` action (dev.opencode.ai/v2/docs/migrate-v1, all checked 2026-10-22).
+# So the reviewer denies both.
 OPENCODE_REVIEWER_PERMISSIONS = {
     "edit": "",
     "task": " so it cannot launch a writer",

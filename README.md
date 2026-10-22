@@ -275,8 +275,10 @@ Each skill is mirrored as a relative symlink,
 doesn't scan `.agents/` but does follow symlinked skill folders. Codex,
 OpenCode and Antigravity read `.agents/skills` directly. OpenCode also scans
 `.claude/skills`, so it finds each skill twice and logs a `duplicate skill
-name` warning for each one; both copies are the same file, so the warning is
-harmless (`skill/index.ts` in
+name` warning for each one. Both copies are the same file, so the skill's text
+is the same, but OpenCode loads them concurrently and lists the copy it kept,
+by path, in its system prompt, so that path can differ between sessions and
+cost a prompt cache miss (`skill/index.ts` and `session/system.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3),
 checked 2026-10-22). The generated
 `.gitignore` ignores `.agents/*` and `.opencode/*` but re-includes
@@ -343,13 +345,14 @@ a redirect only when it sits directly on one command, so an allowed `git log`
 still writes in `git diff && git log > notes` (`tool/shell.ts`,
 `session/tools.ts` and `agent/agent.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
-current npm release, checked 2026-10-16). It denies both `bash` and `shell`:
-OpenCode v1.19.3 keeps `bash` as the shell tool's permission key and says it
-will be renamed with OpenCode 2.0 (`tool/shell/id.ts`), and the current
-[permissions documentation](https://opencode.ai/docs/permissions/) names only
-`shell` (both checked 2026-10-22). v1.19.3 accepts and ignores the `shell`
-key, and a release that renames the key either ignores `bash` or still honours
-it, so the reviewer has no shell either way.
+current npm release, checked 2026-10-16). It denies both `bash` and `shell`.
+OpenCode v1.19.3 keeps `bash` as the shell tool's permission key, says it will
+be renamed (`tool/shell/id.ts`), and accepts and ignores a `shell` key. The
+[permissions page](https://opencode.ai/docs/permissions/) for this agent
+format names only `shell`. OpenCode V2 reads this format and maps its `bash`
+to V2's `shell` action
+([Migrate from V1](https://dev.opencode.ai/v2/docs/migrate-v1/)). All three
+were checked 2026-10-22; under either key name, the reviewer has no shell.
 OpenCode's free-tier models on its own provider currently refuse an agent
 whose shell is denied, with "OpenCode's free tier can only be used from within
 OpenCode" ([OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723),

@@ -711,14 +711,15 @@ the skill file in `node_modules` that matches the installed version, rather
 than a vendored or linked copy, which would drift from the installed version
 or break in a checkout without `node_modules`. It asks for Playwright's
 Chromium, a local server with fixture or test data only, `--debug=cli` to
-inspect a failing test, and no `init-agents` or `init-skills`, and it keeps
-the CLI's output out of commits and pull requests. The template `.gitignore`
-adds `.playwright-cli/` and `.playwright-mcp/`, where the CLI and the MCP
-server write a session.
+inspect a failing test, and no `init-agents`, `init-skills` or
+`cli install`, and it keeps the CLI's output out of commits. `--check`
+reports the skill as `stale` and `--adopt` updates it.
 
-`--check` reports the skill as `stale` and `--adopt` updates it. For an
-existing `.gitignore`, `--check` and `--adopt` list the two missing entries
-without writing them, so add them by hand in the adoption pull request.
+Every type: the template `.gitignore`, which all types share, adds
+`.playwright-cli/` and `.playwright-mcp/`, where the Playwright CLI and MCP
+server write a session. For an existing `.gitignore`, `--check` reports it as
+`differs` with the two missing entries and `--adopt` lists them without
+writing them, so add them by hand in the adoption pull request.
 
 ### Upgrading to 0.17.2
 

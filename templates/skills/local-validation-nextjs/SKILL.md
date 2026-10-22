@@ -87,7 +87,8 @@ or link that skill into `.agents/skills`: a fresh checkout has no
 `node_modules`, and `--adopt` deletes a `.claude/skills` link to a skill
 folder that is missing.
 
-- Pass `--browser=chromium` to `open`. The default is the branded Chrome
+- Pass `--browser=chromium` to `open`, which `--help` does not list but the
+  CLI accepts as Playwright's own Chromium. The default is the branded Chrome
   channel, which the E2E setup does not install, and where Chrome is installed
   it tests a different browser than the suite does.
 - Open only a local server started from this repository with its fixture or
@@ -98,16 +99,17 @@ folder that is missing.
   It pauses the test and prints `playwright-cli attach <name>`; run that
   through `npx --no-install playwright cli`, then pass `-s=<name>` to later
   commands. The page uses the suite's own servers and sign-in, so no
-  credentials are needed.
+  credentials are needed. Stop the run when you are done: it keeps the
+  suite's server, and any `next dev` lock, alive.
 - The CLI writes snapshots, console logs, screenshots, and traces to
-  `.playwright-cli/`, which `.gitignore` excludes. They are temporary
-  diagnostics under the screenshot rules in `AGENTS.md`: never commit them or
-  attach them to a pull request or issue, whatever the skill says about
-  `gh --attach`.
-- Do not run `npx playwright init-agents` or `init-skills`. The healer agent
-  that `init-agents` writes marks failing tests `test.fixme()` and is told not
-  to ask questions, and both write agent, skill, or MCP files outside this
-  repository's layout.
+  `.playwright-cli/`, which `.gitignore` excludes because they can hold
+  session data. Never commit them. Attach a screenshot to a pull request or
+  issue only as the screenshot rules in `AGENTS.md` allow, after their privacy
+  review, never because the skill suggests `gh --attach`.
+- Do not run `npx playwright init-agents`, `init-skills`, or
+  `playwright cli install`. The healer agent that `init-agents` writes marks
+  failing tests `test.fixme()` and is told not to ask questions, and all three
+  write agent, skill, or MCP files outside this repository's layout.
 
 ## CI validation tiers
 
@@ -152,9 +154,14 @@ verification copy.
 - Playwright CLI: `@playwright/test` 1.64.0's `playwright cli --help`,
   `cli open --help` (`--browser`, `--persistent`, `--profile`), `cli attach
   --help` (`--cdp`, `--extension`), and `playwright test --help`
-  (`--debug` modes `inspector` and `cli`); a run on 2026-10-22 where `open`
-  without `--browser` looked for Google Chrome and output landed in
-  `.playwright-cli/`; and `playwright-core` 1.64.0's
+  (`--debug` modes `inspector` and `cli`); `playwright-core` 1.64.0's
+  `resolveBrowserParam` (`chromium` maps to Playwright's Chromium build) and
+  `initWorkspace` (`cli install` copies the skill), and `playwright` 1.64.0's
+  `lib/mcp/test/browserBackend.js` (the printed `attach <name>` and the
+  session name for `-s`); runs on 2026-10-22 where `open` without `--browser`
+  looked for Google Chrome, `--debug=cli` printed the attach command, `-s`
+  drove the paused test, and output landed in `.playwright-cli/`; and
+  `playwright-core` 1.64.0's
   `lib/tools/skills/playwright-cli/SKILL.md` (`gh --attach`) and
   `playwright` 1.64.0's `lib/agents/playwright-test-healer.agent.md`
   (`test.fixme()`), checked 2026-10-22.

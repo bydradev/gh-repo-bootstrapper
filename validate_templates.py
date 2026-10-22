@@ -2582,9 +2582,11 @@ def _step_fact_errors(label: str, repo_type: str, files: dict, load=bootstrap._l
                     )
     if repo_type == "swift":
         test_jobs = (yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}).get("jobs") or {}
-        test_steps = (test_jobs.get("test") or {}).get("steps") or []
-        lint = [s for s in test_steps if isinstance(s, dict) and str(s.get("run", "")).strip() == SWIFT_FORMAT_LINT]
-        if len(lint) != 1 or "if" in lint[0]:
+        suite = test_jobs.get("test") or {}
+        lint = [s for s in suite.get("steps") or []
+                if isinstance(s, dict) and str(s.get("run", "")).strip() == SWIFT_FORMAT_LINT]
+        # The job's own `if:` counts too: ci.yml calls it with full: false.
+        if len(lint) != 1 or "if" in lint[0] or "if" in suite:
             errors.append(f"[{label}] swift test.yml job 'test' must run {SWIFT_FORMAT_LINT!r} once, unconditionally")
     if ".github/dependabot.yml" in files:
         errors += _dependabot_interval_errors(f"[{label}] .github/dependabot.yml", files[".github/dependabot.yml"])
@@ -5116,6 +5118,9 @@ def _structure_self_tests() -> list:
            "must install with `npm ci`, not 'npm i left-pad'")
     expect("swift-format lint without --strict",
            gates("swift", test, text=lambda t: t.replace(SWIFT_FORMAT_LINT, "xcrun swift-format lint --recursive .")),
+           "must run 'xcrun swift-format lint --recursive --strict .' once")
+    expect("swift suite job that runs only on full runs",
+           gates("swift", test, lambda w: w["jobs"]["test"].update({"if": "${{ inputs.full }}"})),
            "must run 'xcrun swift-format lint --recursive --strict .' once")
     expect("postgres service on a clean render", gates("nextjs", postgres=True), None)
     expect("postgres service on another version than --postgres names",

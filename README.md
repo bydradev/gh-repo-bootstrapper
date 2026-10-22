@@ -689,9 +689,9 @@ changes, LF line endings, and UTF-8 text, so the result can be reviewed with
 `git diff` and reverted. An index entry marked `skip-worktree` or
 `assume-unchanged` counts as uncommitted, because `git status` hides its
 edits. When git cannot read the repository at all, for example when its
-ownership check (`safe.directory`) refuses it or `.git` cannot be read, this
-refusal and the others that need a clean file name git's reason and the
-repository instead. It replaces the file atomically with a new one, keeping its
+ownership check (`safe.directory`) refuses it or `.git` or its index cannot be
+read, this refusal and the others that need a clean file name git's reason and
+the repository instead. It replaces the file atomically with a new one, keeping its
 permission bits, so a hard link elsewhere keeps its old content; a
 new file is written in full before it appears, and never replaces one created
 meanwhile. Every write walks from `PATH` one directory at a time without
@@ -711,12 +711,12 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 file then looked uncommitted, so a stale file was refused with `needs the
 file tracked by git with no uncommitted changes` (and an orphaned file or a
 seed script with a similar reason) when git's ownership check
-(`safe.directory`) or an unreadable `.git` was the cause. These refusals now
-say `git cannot read`, the repository and git's own message. A folder that
-cannot be listed while the pull request template's exact spelling is checked
-is reported as `unreadable` with the folder's name, as other unreadable
-folders are, instead of a bare `Permission denied`. No file is classified,
-written or refused differently.
+(`safe.directory`), an unreadable `.git` or an index git could not open was
+the cause. These refusals now say `git cannot read`, the repository and git's
+own message. A folder that cannot be listed while the pull request template's
+exact spelling is checked is reported as `unreadable` with the folder's name,
+as other unreadable folders are, instead of a bare `Permission denied`. No
+file is classified, written or refused differently.
 
 ### Upgrading to 0.18.0
 

@@ -37,7 +37,9 @@ class GitRefusalTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.repo = Path(self._tmp.name) / "sample"
+        # Resolved: main() resolves PATH, and a temporary directory can sit behind a
+        # symlink (/var on macOS).
+        self.repo = Path(self._tmp.name).resolve() / "sample"
         self.repo.mkdir()
         self.files = bootstrap.generate_files(
             {"name": "sample", "repo_type": "python", "postgres": False, "scheme": "App", "screenshots": False}
@@ -97,6 +99,18 @@ class GitRefusalTests(unittest.TestCase):
         self.assertIn(f"git cannot read the repository at {self.repo} (", row)
         self.assertNotIn("uncommitted", row)
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores file permissions")
+    def test_an_unreadable_index_is_named_with_the_repository(self):
+        # git finds the work tree but cannot open its index, as after a
+        # `sudo git add` left it owned by another user.
+        index = self.repo / ".git" / "index"
+        index.chmod(0o000)
+        self.addCleanup(index.chmod, 0o644)
+        row = self._refusal(self._adopt())
+        self.assertIn(f"git cannot read the repository at {self.repo} (", row)
+        self.assertIn("index", row)
+        self.assertNotIn("uncommitted", row)
+
     def test_an_uncommitted_change_keeps_its_own_reason(self):
         _git(self.repo, "rm", "-q", "--cached", SKILL)  # a staged deletion; the file stays on disk
         row = self._refusal(self._adopt())
@@ -105,16 +119,16 @@ class GitRefusalTests(unittest.TestCase):
 
     def test_git_that_cannot_be_run_is_named(self):
         with unittest.mock.patch.object(bootstrap.subprocess, "run", side_effect=FileNotFoundError(2, "No such file")):
-            reason = bootstrap._unclean_reason(self.repo, "fallback")
+            reason = bootstrap._unclean_reason(self.repo, SKILL, "fallback")
         self.assertIn("git could not be run (No such file)", reason)
         self.assertIn(str(self.repo), reason)
 
     def test_no_repository_keeps_the_file_reason(self):
-        outside = Path(self._tmp.name) / "plain"
+        outside = Path(self._tmp.name).resolve() / "plain"
         outside.mkdir()
         if bootstrap._has_git_marker(outside):
             self.skipTest("the temporary directory is inside a git repository")
-        self.assertEqual(bootstrap._unclean_reason(outside, "fallback"), "fallback")
+        self.assertEqual(bootstrap._unclean_reason(outside, SKILL, "fallback"), "fallback")
 
 
 class UnlistableDirectoryTests(unittest.TestCase):
@@ -123,7 +137,9 @@ class UnlistableDirectoryTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.repo = Path(self._tmp.name) / "sample"
+        # Resolved: main() resolves PATH, and a temporary directory can sit behind a
+        # symlink (/var on macOS).
+        self.repo = Path(self._tmp.name).resolve() / "sample"
         (self.repo / ".github").mkdir(parents=True)
         (self.repo / ".github" / "pull_request_template.md").write_text("x\n")
 

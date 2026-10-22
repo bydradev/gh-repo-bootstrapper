@@ -3257,39 +3257,49 @@ def _git_file_state(repo_dir: Path, rel: str) -> str:
     return "dirty" if lines else "clean"
 
 
-def _git_unreadable(repo_dir: Path) -> str | None:
+def _git_unreadable(repo_dir: Path, rel: str) -> str | None:
     """Why git cannot read the repository that holds repo_dir, or None.
 
     None too when git reads it, or when no .git is above it: the file's own
     state is then the reason to give. Otherwise _git_file_state reports every
     file as dirty, and a refusal that says so would name the wrong cause, so
-    this names git's own (its ownership check, an unreadable .git) and where.
+    this names git's own (its ownership check, an unreadable .git or index)
+    and where. It asks what _git_file_state asks about rel, so a failure there
+    that git explains, such as an index it cannot open, is named too.
     """
     path = Path(os.path.abspath(repo_dir))
     top = next((directory for directory in (path, *path.parents) if os.path.lexists(directory / ".git")), None)
     if top is None:
         return None
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_dir), "rev-parse", "--is-inside-work-tree"],
-            capture_output=True, text=True, env=_git_env(),
-        )
-    except OSError as exc:
-        return f"git could not be run ({exc.strerror or exc}), so the state of the repository at {top} is unknown"
-    if result.returncode == 0 and result.stdout.strip() == "true":
-        return None
-    cause = next((line.strip() for line in result.stderr.splitlines() if line.strip()), "")
-    cause = re.sub(r"^(?:fatal|error): ", "", cause) or (
-        "not a work tree" if result.returncode == 0 else f"exit status {result.returncode}"
+    commands = (
+        ("rev-parse", "--is-inside-work-tree"),
+        ("status", "--porcelain", "--untracked-files=all", "--", rel),
+        ("ls-files", "-v", "--", rel),
     )
-    where = "this repository" if str(top) in cause else f"the repository at {top}"
-    return f"git cannot read {where} ({cause})"
+    for args in commands:
+        try:
+            result = subprocess.run(
+                ["git", "--literal-pathspecs", "-C", str(repo_dir), *args],
+                capture_output=True, text=True, env=_git_env(),
+            )
+        except OSError as exc:
+            return f"git could not be run ({exc.strerror or exc}), so the state of the repository at {top} is unknown"
+        inside = args[0] != "rev-parse" or result.stdout.strip() == "true"
+        if result.returncode == 0 and inside:
+            continue
+        cause = next((line.strip() for line in result.stderr.splitlines() if line.strip()), "")
+        cause = re.sub(r"^(?:fatal|error): ", "", cause) or (
+            "not a work tree" if result.returncode == 0 else f"exit status {result.returncode}"
+        )
+        where = "this repository" if str(top) in cause else f"the repository at {top}"
+        return f"git cannot read {where} ({cause})"
+    return None
 
 
-def _unclean_reason(repo_dir: Path, reason: str) -> str:
+def _unclean_reason(repo_dir: Path, rel: str, reason: str) -> str:
     """`reason` for a file that is not tracked and clean, unless git cannot read
-    the repository at all, which is then the reason to fix."""
-    unreadable = _git_unreadable(repo_dir)
+    the repository or its index at all, which is then the reason to fix."""
+    unreadable = _git_unreadable(repo_dir, rel)
     return f"{unreadable}; fix that, then re-run --adopt" if unreadable else reason
 
 
@@ -3605,7 +3615,7 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             # and staged, so a commit could pair another copy with its group.
             blocked.add(rel)
             actions[rel] = ("kept", rel, _unclean_reason(
-                repo_dir, "up to date, but untracked or with uncommitted changes, so the files that "
+                repo_dir, rel, "up to date, but untracked or with uncommitted changes, so the files that "
                 "change with it wait; commit it, then re-run --adopt"))
         elif status(rel) == "missing" and rel not in actions and _git_file_state(repo_dir, rel) == "dirty":
             # Absent on disk, but git still tracks or stages it: recreating it
@@ -3613,7 +3623,7 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             # be committed beside the rest of its group.
             blocked.add(rel)
             actions[rel] = ("kept", rel, _unclean_reason(
-                repo_dir, "missing, but git has an uncommitted change to it, such as a deletion, so "
+                repo_dir, rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
                 "it and the files that change with it wait; commit or undo that change, then re-run --adopt"))
     holds = _seed_holds(report, frozenset(blocked))
     for rel in pending:
@@ -3651,7 +3661,7 @@ def _seed_refusal(repo_dir: Path, rel: str, expected: str):
     if _git_ignored(repo_dir, rel):
         return "ignored by git"
     if not _git_file_is_clean(repo_dir, rel):
-        return _unclean_reason(repo_dir, "needs the file tracked by git with no uncommitted changes")
+        return _unclean_reason(repo_dir, rel, "needs the file tracked by git with no uncommitted changes")
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         raw = _read_anchored(parent, Path(rel).name)[0]
@@ -3694,7 +3704,7 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
     state = _git_file_state(repo_dir, rel)
     if state not in ("clean", "untracked"):
         return ("refused", rel, _unclean_reason(
-            repo_dir, "dangling mirror has uncommitted or staged changes; not deleted"))
+            repo_dir, rel, "dangling mirror has uncommitted or staged changes; not deleted"))
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         before = os.stat(name, dir_fd=parent, follow_symlinks=False)
@@ -3792,7 +3802,7 @@ def _adopt_file(
     if status in ("stale", "orphaned"):
         if status == "stale" and not _git_file_is_clean(repo_dir, rel):
             return ("refused", rel, _unclean_reason(
-                repo_dir, "needs the file tracked by git with no uncommitted changes"))
+                repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
         parent = _open_parent(repo_dir, rel, create=False)
         try:
             raw, identity = _read_anchored(parent, name)
@@ -3805,7 +3815,7 @@ def _adopt_file(
                     return ("refused", rel, "orphaned file is not tracked by git; not deleted")
                 if state != "clean":
                     return ("refused", rel, _unclean_reason(
-                        repo_dir, "orphaned file has uncommitted or staged changes; not deleted"))
+                        repo_dir, rel, "orphaned file has uncommitted or staged changes; not deleted"))
                 try:
                     current = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -3877,7 +3887,8 @@ def _adopt_file(
     if rel != "AGENTS.md":
         return ("kept", rel, "differs from the template; not overwritten")
     if not _git_file_is_clean(repo_dir, rel):
-        return ("refused", rel, _unclean_reason(repo_dir, "needs the file tracked by git with no uncommitted changes"))
+        return ("refused", rel, _unclean_reason(
+            repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         raw, identity = _read_anchored(parent, name)

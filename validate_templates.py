@@ -2138,16 +2138,20 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     steps = [step for step in steps if isinstance(step, dict)]
     # The step that asks to cache is the one whose pip cache can throw; an
     # earlier setup-python step without a cache does not take its place.
-    setup = next(
-        (
-            i for i, step in enumerate(steps)
-            if str(step.get("uses", "")).startswith("actions/setup-python@")
-            and isinstance(step.get("with"), dict) and step["with"].get("cache")
-        ),
-        None,
-    )
-    if setup is None:
+    cached = [
+        i for i, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+        and isinstance(step.get("with"), dict) and step["with"].get("cache")
+    ]
+    if not cached:
         return []
+    # The rule models one pip cache; a second cached step hashes files of its own.
+    if len(cached) > 1:
+        return [
+            f"{where} must have one setup-python step that asks to cache, or update the "
+            f"{PYTHON_MANIFEST_GUARD_NAME!r} rule for the others"
+        ]
+    setup = cached[0]
     options = steps[setup]["with"]
     # The expected hash below models pip's cache with an explicit path; with
     # no path pip hashes **/requirements.txt, and other managers have no
@@ -2180,7 +2184,8 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     lines = _executable_lines(str(guard.get("run", "")))
     script = "\n".join(lines)
     # The failure belongs inside `if [ -z "$VAR" ]; then ... fi`: an exit 1 below
-    # the fi fails every run, including those with a manifest.
+    # the fi, or in an else, fails every run, including those with a manifest.
+    # This is a static complement to PythonManifestGuardTests, which runs the script.
     start = next((i for i, line in enumerate(lines) if PYTHON_GUARD_TEST_RE.match(line)), None)
     end = None
     if start is not None:
@@ -2191,12 +2196,18 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     if not test or not re.search(r"(?m)^\s*exit 1\s*$", branch) or "::error::" not in branch:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
-            f"in an if block and then print an ::error:: message and exit 1 inside it"
+            f"in an if block, with the `if ...; then` and `fi` lines each on a line of their own, "
+            f"and then print an ::error:: message and exit 1 inside it"
         )
-    elif any(re.match(r"\s*exit\b", line) for line in outside):
+    elif any(re.match(r"\s*(?:else|elif)\b", line) for line in lines[start + 1:end]):
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must not branch with else or elif inside the "
+            f"empty-hash test, which would move the failure to runs that have a manifest"
+        )
+    elif any(re.search(r"(?:^|[;&|({])\s*exit\b", line) for line in outside):
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must not exit outside the empty-hash test, "
-            f"which would fail runs that have a manifest"
+            f"where it would end or fail runs that have a manifest"
         )
     elif not all(word in script for word in ("pyproject.toml", "requirements")):
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must say to add a pyproject.toml or requirements file")
@@ -2204,7 +2215,7 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         line.strip() for line in str(options.get("cache-dependency-path", "")).splitlines() if line.strip()
     } | {PYTHON_CACHE_BACKUP_PATH}
     hashed = set()
-    bare = True
+    bare = test is not None
     if test:
         value = (guard.get("env") or {}).get(test.group(1), "")
         call = HASH_FILES_VALUE_RE.fullmatch(str(value))
@@ -4700,6 +4711,23 @@ def _structure_self_tests() -> list:
     expect("python manifest guard with a second exit outside the test",
            gates("python", test, lambda w: guard_script(w, lambda r: r + "exit 1\n")),
            "must not exit outside the empty-hash test")
+    expect("python manifest guard with an exit after the test on a compound line",
+           gates("python", test, lambda w: guard_script(w, lambda r: r + "echo done; exit 1\n")),
+           "must not exit outside the empty-hash test")
+    expect("python manifest guard with an else branch",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace("fi\n", "else\n  exit 1\nfi\n"))),
+           "must not branch with else or elif")
+
+    def then_on_its_own_line(run):
+        return run.replace("; then\n", "\nthen\n")
+
+    expect("python manifest guard with then on its own line",
+           gates("python", test, lambda w: guard_script(w, then_on_its_own_line)),
+           "`fi` lines each on a line of their own")
+    # An unrecognised layout is one problem, so it must not also read as a hash mismatch.
+    expect("python manifest guard with then on its own line, no hash error",
+           [e for e in gates("python", test, lambda w: guard_script(w, then_on_its_own_line))
+            if "must hash exactly" in e], None)
     expect("python manifest guard hash without spaces inside the braces",
            gates("python", test, lambda w: guard_env(
                w, lambda v: v.replace("${{ ", "${{").replace(" }}", "}}"))), None)
@@ -4714,6 +4742,15 @@ def _structure_self_tests() -> list:
 
     expect("python uncached setup-python before the cached one, no guard",
            gates("python", test, uncached_setup_first), no_guard)
+
+    def second_cached_setup(workflow):
+        steps = workflow["jobs"]["test"]["steps"]
+        first = python_setup(workflow)
+        steps.insert(steps.index(first) + 1,
+                     {**first, "with": {**first["with"], "cache-dependency-path": "poetry.lock"}})
+
+    expect("python second setup-python step that asks to cache",
+           gates("python", test, second_cached_setup), "one setup-python step that asks to cache")
     expect("App token with an extra permission",
            gates("python", release, lambda w: step(w, "release-please", lambda s: str(s.get("uses", "")).startswith(
                "actions/create-github-app-token@"))["with"].update({"permission-workflows": "write"})),

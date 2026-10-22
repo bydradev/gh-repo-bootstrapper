@@ -2431,7 +2431,7 @@ def _has_postgres_service(text: str):
             if image is None:
                 continue
             value = "|" if image is _UNVERIFIABLE else (image[1] or "").strip("\"'")
-            if re.fullmatch(r"(?:[^\s/]+/)*postgres(?:[:@]\S*)?", value):
+            if re.fullmatch(r"(?:[^\s/]+/)*postgres(?:[:@].*)?", value):
                 return True
             unsure = unsure or value == "|" or "${{" in value
     return None if unsure else False

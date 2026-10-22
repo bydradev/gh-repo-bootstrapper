@@ -603,13 +603,7 @@ material into a repository-owned skill.
 Pass the same
 type options the repository was generated with (`--postgres` for Next.js,
 `--scheme`, `--destination`, and `--xcodegen` for Swift), or the workflows
-they shape report as drift. A Next.js repository's `test.yml` is its own, so
-once it is edited it reports `differs` whichever `--postgres` is passed; the
-row then adds a line saying whether the file and the render each have a
-Postgres service (one named `postgres`, or one whose image is `postgres`),
-such as `Postgres service: in the render (--postgres), not in this file`.
-When the file uses YAML the script does not read, or gives a service's
-image as a block scalar or an expression, the line says it cannot tell. `--screenshots` is the exception: a `nextjs` or
+they shape report as drift. `--screenshots` is the exception: a `nextjs` or
 `swift` repository that already has the template's copy of
 `.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
 treated as using it, and the report says so, so `--adopt` keeps and updates
@@ -620,7 +614,15 @@ shipped. A repository's own `docs/screenshot-review.md`, such as its own
 screenshot-review process, does not count, even one that shows the stamp in
 an example further down. Without the template's skill it is left alone; next
 to the template's skill it is reported as `local-modified`, as before, so
-move it to another path first. Pass the same
+move it to another path first. A Next.js repository's `test.yml` is its own,
+so `--check` reports it as `differs`, not `stale`, whether the repository
+edited it or it was generated with the other `--postgres`; under that row a
+line says whether the file and the render each have a Postgres service (one
+named `postgres`, or one whose image is `postgres`), such as "Postgres
+service: in the render (--postgres), not in this file; drop --postgres if
+the repository does not use it". When the file uses YAML the script does not
+read, or gives a service's image as a block scalar or an expression, the line
+says it cannot tell. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type
 (for example `local-validation-nextjs` under `--type simple`), or a stamped
 `screenshot-review` skill this configuration does not generate, `--check`

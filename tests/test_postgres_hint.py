@@ -48,6 +48,7 @@ class PostgresServiceTests(unittest.TestCase):
             "quoted image": ("    services:\n      db:\n        image: \"postgres:17-alpine\"\n", True),
             "registry path": ("    services:\n      db:\n        image: docker.io/library/postgres:16\n", True),
             "digest": ("    services:\n      db:\n        image: postgres@sha256:abc\n", True),
+            "tag from an expression": ("    services:\n      db:\n        image: postgres:${{ matrix.pg }}\n", True),
             "another database": ("    services:\n      db:\n        image: mysql:8\n", False),
             "an image named like it": ("    services:\n      db:\n        image: postgres-exporter:1\n", False),
             "no services": ("", False),
@@ -75,6 +76,7 @@ class PostgresServiceTests(unittest.TestCase):
             "expression image": "    services:\n      db:\n        image: ${{ matrix.db }}\n",
             "flow container": "    services:\n      db: {image: postgres}\n",
             "flow services": "    services: {db: {image: postgres}}\n",
+            "services from an expression": "    services: ${{ fromJSON(inputs.services) }}\n",
         }
         for label, services in cases.items():
             with self.subTest(label):

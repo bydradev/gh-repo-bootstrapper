@@ -2230,7 +2230,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                          "--type", "nextjs"], capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode, 1, result.stdout)
-                    row = "shadowed" if flag == "--check" else "refused "
+                    row = f"{'shadowed':<{bootstrap.REPORT_STATUS_WIDTH}}" if flag == "--check" else "refused "
                     self.assertIn(f"{row} {rel}", result.stdout)
                     self.assertEqual((self.repo / rel).read_bytes(), original)
 
@@ -3528,7 +3528,7 @@ class CheckReportWordingTests(unittest.TestCase):
                 self._commit(label)
                 self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[rel], ("shadowed", self.SHADOWED))
                 checked, adopted = self._check_and_adopt()
-                self.assertIn(f"shadowed {rel}\n      {self.SHADOWED}\n", checked)
+                self.assertIn(f"{'shadowed':<{bootstrap.REPORT_STATUS_WIDTH}} {rel}\n      {self.SHADOWED}\n", checked)
                 self.assertIn(f"refused  {rel}{self.DASH}{self.SHADOWED}\n", adopted)
                 self.assertEqual((self.repo / rel).read_text(), text)
 

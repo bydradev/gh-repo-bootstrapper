@@ -582,6 +582,7 @@ states:
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>` and git tracks it with no uncommitted change; any other symlink, and one git does not track, is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git tracks it with no uncommitted or staged change; refused when git does not track it, outside a git repository, and inside a repository git cannot read. Deleting a skill's files also removes the folders this leaves empty and then, in the same run, the `.claude/skills` mirror that pointed at the folder (see `dangling`); a folder it cannot remove is refused and keeps its mirror |
+| `other-type` | a stamped template skill that another `--type`, or `--screenshots`, generates, such as `local-validation-nextjs` under `--type simple`; a `(--type)` row lists them all | refused before anything changes, along with every other file; re-run with the `--type`, and `--screenshots` where it applies, that the repository was generated with |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
 A path is `unreadable` when the user running the command cannot read the file
@@ -617,8 +618,9 @@ move it to another path first. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type
 (for example `local-validation-nextjs` under `--type simple`), or a stamped
 `screenshot-review` skill this configuration does not generate, `--check`
-reports `(--type)` and `--adopt` refuses before changing anything, since it
-would otherwise delete those skills. For `AGENTS.md` it reports per section: a
+reports each such skill as `other-type` and adds a `(--type)` row naming them,
+and `--adopt` refuses before changing anything, since it would otherwise
+delete those skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local`:
 repository text outside `## Project specifics`, including a subsection added
@@ -701,6 +703,13 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.18.1
+
+The `--check` report widens its state column to fit `local-modified`, its
+longest state, so every path starts in the same column; a script that reads
+the report by fixed position needs the new width. The README's state table
+gains the `other-type` row the report already printed.
 
 ### Upgrading to 0.18.0
 

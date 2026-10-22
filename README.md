@@ -710,10 +710,11 @@ Playwright CLI that package ships (`npx --no-install playwright cli`) and to
 the skill file in `node_modules` that matches the installed version, rather
 than a vendored or linked copy, which would drift from the installed version
 or break in a checkout without `node_modules`. It asks for Playwright's
-Chromium, a local server with fixture or test data only, `--debug=cli` to
-inspect a failing test, and no `init-agents`, `init-skills` or
-`cli install`, and it keeps the CLI's output out of commits. `--check`
-reports the skill as `stale` and `--adopt` updates it.
+Chromium, a session name of each agent's own, a local server with fixture or
+test data only, `--debug=cli` to inspect a failing test, and no
+`init-agents`, `init-skills` or `cli install`, and it keeps the CLI's output
+in its ignored folder and out of commits. `--check` reports the skill as
+`stale` and `--adopt` updates it.
 
 Every type: the template `.gitignore`, which all types share, adds
 `.playwright-cli/` and `.playwright-mcp/`, where the Playwright CLI and MCP

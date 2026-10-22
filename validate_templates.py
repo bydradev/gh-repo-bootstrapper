@@ -401,6 +401,7 @@ AGENTS_TYPE_REQUIREMENTS = {
             "with unused disable directives reported",
             "the CLI it ships, `npx --no-install playwright cli`",
             "Pass `--browser=chromium` to `open`",
+            "Name a session of your own with `-s=<name>`",
             "Do not run `npx playwright init-agents`, `init-skills`, or",
             "Open only a local server started from this repository",
             "Never commit them.",

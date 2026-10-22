@@ -80,13 +80,17 @@ count instead of treating a green run as proof nothing failed.
 ## Agent browser checks
 
 To look at a running page yourself when `@playwright/test` is installed, use
-the CLI it ships, `npx --no-install playwright cli`. Its `--help` names its
-skill file under `node_modules`, which matches the installed version; read
-that file for the commands. Do not install `@playwright/cli`, and do not copy
+the CLI it ships, `npx --no-install playwright cli`. Read its commands in
+`node_modules/playwright-core/lib/tools/skills/playwright-cli/SKILL.md`,
+which matches the installed version; `--help` prints that path only under
+Claude Code or Copilot CLI. Do not install `@playwright/cli`, and do not copy
 or link that skill into `.agents/skills`: a fresh checkout has no
 `node_modules`, and `--adopt` deletes a `.claude/skills` link to a skill
 folder that is missing.
 
+- Name a session of your own with `-s=<name>` on `open` and every later
+  command. Without it, every agent in the checkout shares the `default`
+  session, and a second `open` replaces the browser another agent is using.
 - Pass `--browser=chromium` to `open`, which `--help` does not list but the
   CLI accepts as Playwright's own Chromium. The default is the branded Chrome
   channel, which the E2E setup does not install, and where Chrome is installed
@@ -103,7 +107,9 @@ folder that is missing.
   suite's server, and any `next dev` lock, alive.
 - The CLI writes snapshots, console logs, screenshots, and traces to
   `.playwright-cli/`, which `.gitignore` excludes because they can hold
-  session data. Never commit them. Attach a screenshot to a pull request or
+  session data. Leave out `--filename`, or start it with `.playwright-cli/`:
+  a named file is written relative to the repository root, outside that
+  folder. Never commit them. Attach a screenshot to a pull request or
   issue only as the screenshot rules in `AGENTS.md` allow, after their privacy
   review, never because the skill suggests `gh --attach`.
 - Do not run `npx playwright init-agents`, `init-skills`, or
@@ -160,7 +166,10 @@ verification copy.
   `lib/mcp/test/browserBackend.js` (the printed `attach <name>` and the
   session name for `-s`); runs on 2026-10-22 where `open` without `--browser`
   looked for Google Chrome, `--debug=cli` printed the attach command, `-s`
-  drove the paused test, and output landed in `.playwright-cli/`; and
+  drove the paused test, output landed in `.playwright-cli/` but a
+  `screenshot --filename=` file in the working directory, a second `open`
+  restarted the `default` session, and `--help` printed the skill path only
+  with `CLAUDECODE` or `COPILOT_CLI` set; and
   `playwright-core` 1.64.0's
   `lib/tools/skills/playwright-cli/SKILL.md` (`gh --attach`) and
   `playwright` 1.64.0's `lib/agents/playwright-test-healer.agent.md`

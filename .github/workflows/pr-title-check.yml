@@ -114,6 +114,45 @@ jobs:
           # A tag node-html-parser reads as an element when Release Please
           # parses its release pull request's body.
           DETAILS = re.compile(r"<details(?:[\s/>]|$)", re.IGNORECASE)
+          # A code fence's opening or closing line.
+          FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+
+
+          def squashed(body, fences):
+              # The body as the default squash commit holds it, and for each of
+              # its lines the body line it comes from, or that line's negative
+              # when GitHub rewrapped it. GitHub refills a body line longer than
+              # 72 characters into lines of at most 72: it splits the line at
+              # whitespace, drops its indent, and gives a word too long to fit
+              # a line of its own after the line so far, blank when nothing came
+              # before it. A long line in a code fence it leaves as written.
+              # Modelled on the squash commits of this repository's pull
+              # requests on 2026-10-22, which this reproduces whole. The one
+              # long fenced line there was also indented four spaces, so with
+              # fences false this reads the rule as one for indented lines.
+              lines, origin, fence = [], [], None
+              for number, line in enumerate(body.split("\n"), 1):
+                  mark = FENCE.match(line)
+                  if fences and fence:
+                      if mark and mark[1][0] == fence[0] and len(mark[1]) >= len(fence) and not mark[2].strip():
+                          fence = None
+                  elif fences and mark:
+                      fence = mark[1]
+                  elif len(line) > 72 and (fences or not line.startswith("    ")):
+                      parts, kept = [], ""
+                      for word in re.split(r"\s+", line):
+                          if len(kept) + 1 + len(word) > 72:
+                              parts.append(kept)
+                              kept = word
+                          else:
+                              kept = f"{kept} {word}" if kept else word
+                      parts.append(kept)
+                      lines += [part.rstrip() for part in parts]
+                      origin += [-number] * len(parts)
+                      continue
+                  lines.append(line)
+                  origin.append(number)
+              return "\n".join(lines), origin
 
 
           def messages(text):
@@ -260,24 +299,29 @@ jobs:
               return made + [(commit_releases(header, body, found, title, origin), version, details(header, body, found))]
 
 
-          def line_of(source, shift, text, offset, number):
-              # Which body line holds line `number` of a message.
+          def line_of(source, place, text, offset, number):
+              # Which body line holds line `number` of a message, and whether
+              # GitHub rewrapped it.
               if offset < 0:
-                  return "a line of the body"  # a nested commit block split this message
-              first = source.count("\n", 0, offset + len(text) - len(text.lstrip()))
-              return f"line {first + number + shift + 1} of the body"
+                  return "a line of the body", False  # a nested commit block split this message
+              line = place(source.count("\n", 0, offset + len(text) - len(text.lstrip())) + number)
+              return f"line {abs(line)} of the body", line < 0
 
 
-          def releases(title, body):
+          def releases(title, body, fences):
               # Why Release Please releases the change, or None; the first
               # problem that makes it drop a change or stop with an error; and
-              # whether it cannot parse the title.
+              # whether it cannot parse the title. It reads the override as the
+              # pull request body holds it, or else the squash commit.
               override = body.split("BEGIN_COMMIT_OVERRIDE")[1:2]
               override = override[0].split("END_COMMIT_OVERRIDE")[0].strip() if override else ""
               origin = "the commit override" if override else "the body"
-              source = override or f"{title}\n\n{body}"
-              # The body line number of the source's first line, less one.
-              shift = body[:body.find(override, body.find("BEGIN_COMMIT_OVERRIDE"))].count("\n") if override else -2
+              if override:
+                  shift = body[:body.find(override, body.find("BEGIN_COMMIT_OVERRIDE"))].count("\n")
+                  source, place = override, lambda line: line + shift + 1
+              else:
+                  squash, numbers = squashed(body, fences)
+                  source, place = f"{title}\n\n{squash}", lambda line: numbers[line - 2]
               found, problem, title_lost, version = None, None, False, None
               for index, (text, offset) in enumerate(messages(source)):
                   lines = text.strip().split("\n")
@@ -291,7 +335,7 @@ jobs:
                           again = f"{scoped[1]}(scope){scoped[2]}{scoped[3]}{scoped[4]}"
                           if any(why for why, _, _ in commits(HEADER.fullmatch(again), [again, *lines[1:]], False, origin)):
                               problem = (
-                                  f"Release Please cannot parse {line_of(source, shift, text, offset, 0)}, so it "
+                                  f"Release Please cannot parse {line_of(source, place, text, offset, 0)[0]}, so it "
                                   "would drop a change from the changelog: an entry's scope needs text between "
                                   "its parentheses and no other parenthesis inside them."
                               )
@@ -321,11 +365,18 @@ jobs:
                               "no note replaces it. Write the tag without its angle brackets."
                           )
                   elif reason and problem is None:
+                      where, wrapped = line_of(source, place, text, offset, broken)
                       problem = (
-                          f"Release Please cannot parse {line_of(source, shift, text, offset, broken)}, so it would "
-                          "drop a change from the changelog: a line that starts with a word and an opening "
-                          "parenthesis, such as f(g(x)) or f(x, must close it before any other parenthesis. Indent "
-                          "that line or put a space before its first parenthesis."
+                          f"Release Please cannot parse {where}, so it would drop a change from the changelog: "
+                          "a line that starts with a word and an opening parenthesis, such as f(g(x)) or f(x, must "
+                          "close it before any other parenthesis. Indent that line or put a space before its first "
+                          "parenthesis."
+                      ) if not wrapped else (
+                          f"Release Please cannot parse {where} once GitHub wraps it at 72 characters for the "
+                          "squash commit, so it would drop a change from the changelog: the wrap starts a line "
+                          "with a word and an opening parenthesis, such as f(x, that the line does not close. "
+                          "Break that line yourself into lines of at most 72 characters, which GitHub leaves as "
+                          "written, so that none starts that way."
                       )
               return found, problem, title_lost
 
@@ -343,7 +394,10 @@ jobs:
               f"change reaches users through a release ({TYPES}), or User-visible: no when it "
               "does not (docs, chore, refactor, test, build or ci)."
           )
-          reason, problem, title_lost = releases(title.strip(), body)
+          # Whether GitHub leaves a long line alone for a code fence or for
+          # its indent, a problem on either reading counts.
+          reason, problem, title_lost = releases(title.strip(), body, True)
+          problem = problem or releases(title.strip(), body, False)[1]
           if answers - {"yes", "no"}:
               fail(f"A User-visible line must answer yes or no. {how}")
           if answers == {"yes", "no"}:

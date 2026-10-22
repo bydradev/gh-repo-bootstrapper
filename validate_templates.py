@@ -2180,6 +2180,12 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
             f"{where} must have exactly one step {PYTHON_MANIFEST_GUARD_NAME!r} after actions/checkout and "
             f"before setup-python, which fails with a clear error when its pip cache has no manifest to hash"
         ]
+    # Skipped on a pull request run, the checkout leaves the guard an empty workspace.
+    if "if" in steps[checkout]:
+        return [
+            f"{where} actions/checkout must run unconditionally, since the manifest guard hashes the "
+            f"workspace it creates"
+        ]
     # A step between them could change the files the two steps inspect.
     if steps[setup - 1] is not guards[0]:
         return [
@@ -2215,6 +2221,10 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     outside = lines[:start] + lines[end + 1:] if test else []
     exit_at = next((i for i, line in enumerate(inside) if re.match(r"\s*exit 1\s*$", line)), None)
     error_at = next((i for i, line in enumerate(inside) if "::error::" in line), None)
+    # What is left once the test, the diagnostic and the exit are set aside.
+    others = [line.strip() for line in outside if line.strip()] + [
+        line.strip() for i, line in enumerate(inside) if line.strip() and i not in (error_at, exit_at)
+    ]
     if not test:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
@@ -2242,6 +2252,12 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must not exit outside the empty-hash test, "
             f"where it would end or fail runs that have a manifest"
+        )
+    elif others:
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must contain only the empty-hash test, the ::error:: "
+            f"line and exit 1, nothing else, since another command can end the step before the message "
+            f"or fail it for runs that have a manifest; got {others}"
         )
     elif not all(word in script for word in ("pyproject.toml", "requirements")):
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must say to add a pyproject.toml or requirements file")
@@ -4550,8 +4566,9 @@ def _structure_self_tests() -> list:
            gates("rust", test, lambda w: w["jobs"]["test"]["steps"].extend(
                [dict(step(w, "test", lambda s: "cargo test" in str(s.get("run", ""))), **{"if": "github.event_name == 'push'"})] * 2)),
            "must run exactly once")
+    # The checkout is not the vehicle here: the manifest guard rule needs it unconditional.
     expect("a whitespace string is truthy",
-           gates("python", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("actions/checkout@"))
+           gates("python", test, lambda w: step(w, "test", lambda s: s.get("name") == "Install dependencies")
                  .update({"if": "${{ ' ' }}"})), None)
     for falsy in ("${{false}}", "${{  false  }}", "${{ null }}", "${{ '' }}", "${{ -0 }}",
                   "${{ 0.0 }}", "${{ 0e0 }}", "${{ 0x0 }}"):
@@ -4794,6 +4811,11 @@ def _structure_self_tests() -> list:
     expect("python manifest guard allowed to fail, with no key error",
            [e for e in gates("python", test, lambda w: manifest_guard(w).update({"continue-on-error": True}))
             if "may only set" in e], None)
+    expect("python manifest guard with an exit 0 before the diagnostic",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace("  echo ", "  exit 0\n  echo ", 1))),
+           "nothing else")
+    expect("python manifest guard with a command before the test",
+           gates("python", test, lambda w: guard_script(w, lambda r: "set +e\n" + r)), "nothing else")
     expect("python manifest guard with an else branch",
            gates("python", test, lambda w: guard_script(w, lambda r: r.replace("fi\n", "else\n  exit 1\nfi\n"))),
            "must not branch with else or elif")
@@ -4822,6 +4844,14 @@ def _structure_self_tests() -> list:
 
     expect("python uncached setup-python before the cached one, no guard",
            gates("python", test, uncached_setup_first), no_guard)
+
+    def conditional_checkout(workflow):
+        step_ = next(s for s in workflow["jobs"]["test"]["steps"]
+                     if str(s.get("uses", "")).startswith("actions/checkout@"))
+        step_["if"] = "github.event_name == 'push'"
+
+    expect("python conditional checkout before the manifest guard",
+           gates("python", test, conditional_checkout), "actions/checkout must run unconditionally")
 
     def step_between_guard_and_setup(workflow):
         steps = workflow["jobs"]["test"]["steps"]

@@ -643,7 +643,10 @@ missing one is `missing`. Only a `## Project specifics` heading
 indented by at most three spaces counts; deeper indentation is a code block.
 Everything from the first such heading on is the repository's, so a generated
 heading that appears only after it, as under a second, early copy of the
-heading, is `local` and `--adopt` refuses the rebuild. For
+heading, is `local` and `--adopt` refuses the rebuild. Only the template's last
+sections count, those after the last generated section still above the
+heading, so a repository's own section that shares the name of an earlier
+generated one stays `missing`. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
@@ -717,7 +720,10 @@ on belongs to the repository, so `--adopt` used to report those sections as
 the file. It now refuses the rebuild, with or without
 `--replace-generated-sections`, and leaves the file as it is, byte for byte.
 Keep one `## Project specifics` heading, after every generated section, then
-re-run `--adopt`.
+re-run `--adopt`. A repository's own section that shares the name of the
+template's last generated section, such as `## Skills`, under its one
+`## Project specifics` heading, reads the same way while the generated part
+lacks that section; rename it to adopt.
 
 ### Upgrading to 0.18.0
 

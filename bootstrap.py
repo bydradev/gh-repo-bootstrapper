@@ -2014,6 +2014,7 @@ STRAY_CARRIAGE_RETURN = "(carriage return inside a line; remove it first)"
 # as when a second, early copy of that heading sits among the generated
 # sections. Everything from the first copy on is the repository's, so a
 # rebuild would add the section again above it and keep the old one below.
+# Only the template's last sections count (see compare_agents).
 AFTER_PROJECT_SPECIFICS = f"(generated heading after {PROJECT_SPECIFICS}: "
 BYTE_ORDER_MARK = "(byte-order mark before the first heading; remove it first)"
 
@@ -2064,14 +2065,25 @@ def compare_agents(expected: str, actual: str) -> list:
         else:
             rows.append(("missing", "(`next dev` block)"))
     fenced = {line.strip() for _, line, in_fence in _markdown_lines(act_generated) if in_fence}
-    owned_headings = {heading for heading, _ in _agents_sections(act_owned)[1]} if act_owned else set()
+    # Generated sections swallowed by an early `## Project specifics`: the
+    # template's last sections, after the last one still above it, that the
+    # file has below it. A repository's own section that shares a generated
+    # name, under its one heading after the generated sections, is not one.
+    swallowed = set()
+    if act_owned:
+        owned_headings = {heading for heading, _ in _agents_sections(act_owned)[1]}
+        for heading, _ in reversed(exp_sections):
+            if heading in actual_by_heading:
+                break
+            if heading in owned_headings:
+                swallowed.add(heading)
     for heading, body in exp_sections:
         found = actual_by_heading.get(heading)
         if not found and heading in fenced:
             # The heading is there but the scan placed it inside code, so its
             # section's text would not be compared and a rebuild could drop it.
             rows.append(("local", f"(generated heading read as code: {heading})"))
-        elif not found and heading in owned_headings:
+        elif not found and heading in swallowed:
             rows.append(("local", f"{AFTER_PROJECT_SPECIFICS}{heading})"))
         elif not found:
             rows.append(("missing", heading))
@@ -3185,7 +3197,8 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
                     if heading == NEXTJS_BLOCK_MOVED:
                         hint = "  → move it back to the top of the file"
                     elif heading.startswith(AFTER_PROJECT_SPECIFICS):
-                        hint = f"  → keep one {PROJECT_SPECIFICS} heading, after every generated section"
+                        hint = (f"  → keep one {PROJECT_SPECIFICS} heading, after every generated section, "
+                                "or rename the repository's own section")
                     elif heading == BYTE_ORDER_MARK:
                         hint = ""
                     print(f"      {row_status:<8} {heading}{hint}")
@@ -3853,10 +3866,12 @@ def _adopt_file(
         if BYTE_ORDER_MARK in local:
             return ("refused", rel, "remove the byte-order mark at the start of the file first")
         after = [heading for heading in local if heading.startswith(AFTER_PROJECT_SPECIFICS)]
+        structure = [heading for heading in local if heading.startswith("(") and heading not in after]
         if after:
-            return ("refused", rel, f"keep one {PROJECT_SPECIFICS} heading, after every generated section, "
-                    "first; a rebuild would otherwise add these sections again above it: " + "; ".join(after))
-        structure = [heading for heading in local if heading.startswith("(")]
+            also = f"; also fix this structure first: {'; '.join(structure)}" if structure else ""
+            return ("refused", rel, f"keep one {PROJECT_SPECIFICS} heading, after every generated section, or "
+                    "rename a section of the repository's own that shares a generated name, first; a rebuild would "
+                    "otherwise add these sections again above it: " + "; ".join(after) + also)
         if structure:
             return ("refused", rel, "fix this structure, or move it under ## Project specifics, first: "
                     + "; ".join(structure))

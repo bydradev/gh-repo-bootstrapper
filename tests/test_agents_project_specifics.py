@@ -16,6 +16,12 @@ EARLY = "## Project specifics\n\nAn early rule, kept as written.\n\n"
 LATE = "\n## Project specifics\n\nA second copy at the end.\n"
 
 
+def _files(repo_type):
+    return bootstrap.generate_files(
+        {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App", "screenshots": False}
+    )
+
+
 def _git(repo: Path, *args):
     subprocess.run(
         ["git", "-C", str(repo), *args], check=True, capture_output=True,
@@ -25,14 +31,14 @@ def _git(repo: Path, *args):
 
 
 class EarlyProjectSpecificsTests(unittest.TestCase):
+    repo_type = "python"
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.repo = Path(self._tmp.name) / "sample"
         self.repo.mkdir()
-        self.files = bootstrap.generate_files(
-            {"name": "sample", "repo_type": "python", "postgres": False, "scheme": "App", "screenshots": False}
-        )
+        self.files = _files(self.repo_type)
         self.expected = self.files["AGENTS.md"]
         self.generated, self.owned = bootstrap._split_project_specifics(self.expected)
 
@@ -57,6 +63,10 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
     def _rows(self, agents):
         return bootstrap.compare_agents(self.expected, agents)
 
+    def _adopt_agents(self, **kwargs):
+        actions = bootstrap.adopt_repository(self.repo, self.files, confirm=lambda _: True, **kwargs)
+        return next(a for a in actions if a[1] == "AGENTS.md")
+
     def _assert_refused(self, agents, after):
         rows = self._rows(agents)
         local = [heading for status, heading in rows if status == "local"]
@@ -72,7 +82,8 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
                 action, _, detail = next(a for a in actions if a[1] == "AGENTS.md")
                 self.assertEqual(action, "refused")
                 self.assertTrue(detail.startswith(
-                    "keep one ## Project specifics heading, after every generated section, first"
+                    "keep one ## Project specifics heading, after every generated section, or rename a section"
+                    " of the repository's own that shares a generated name, first; "
                 ), detail)
                 self.assertIn(f"(generated heading after ## Project specifics: {after[0]})", detail)
                 self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
@@ -88,9 +99,10 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
     def test_a_single_project_specifics_among_the_generated_sections_is_refused(self):
         self._assert_refused(self._early("## Skills", late=False), self._headings_from("## Skills"))
 
-    def test_rebuild_from_main_would_have_split_the_file(self):
-        # What the refusal prevents: the sections after the early heading
-        # come back above it and stay below it too.
+    def test_rebuild_agents_alone_still_splits_the_file(self):
+        # What the refusal guards against: rebuild_agents itself is unchanged,
+        # so the sections after the early heading would come back above it and
+        # stay below it too.
         rebuilt = bootstrap.rebuild_agents(self.expected, self._early("## Branches"))
         self.assertEqual(rebuilt.count("\n## Branches\n"), 2)
 
@@ -104,7 +116,8 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
         self.assertFalse(aligned)
         self.assertIn(
             "      local    (generated heading after ## Project specifics: ## Skills)"
-            "  → keep one ## Project specifics heading, after every generated section\n",
+            "  → keep one ## Project specifics heading, after every generated section,"
+            " or rename the repository's own section\n",
             output.getvalue(),
         )
         self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
@@ -141,10 +154,60 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
         agents = self.expected + "\n## Skills\n\nOur own skills list.\n"
         self.assertEqual({status for status, _ in self._rows(agents)}, {"same"})
 
+    def test_a_repository_section_sharing_an_earlier_generated_name_stays_missing(self):
+        # The file lacks the generated ## Branches but has its own under its
+        # one, late ## Project specifics: --adopt adds the generated section
+        # and keeps the repository's, as before.
+        start = self.generated.index("## Branches\n")
+        end = self.generated.index("## Commits\n")
+        own = "\n## Branches\n\nOur own branch rules.\n"
+        agents = self.generated[:start] + self.generated[end:] + self.owned + own
+        rows = self._rows(agents)
+        self.assertIn(("missing", "## Branches"), rows)
+        self.assertFalse([row for row in rows if "after ## Project specifics" in row[1]], rows)
+        self._commit(agents)
+        self.assertEqual(self._adopt_agents()[0], "updated")
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), self.expected + own)
+
+    def test_a_section_another_type_lacks_is_missing_not_after_project_specifics(self):
+        # A simple repository's AGENTS.md with its own ## Tooling, compared as
+        # python, which generates ## Tooling before ## Skills.
+        simple = _files("simple")["AGENTS.md"] + "\n## Tooling\n\nOur own commands.\n"
+        rows = self._rows(simple)
+        self.assertIn(("missing", "## Tooling"), rows)
+        self.assertFalse([row for row in rows if "after ## Project specifics" in row[1]], rows)
+
+    def test_other_structure_rows_are_named_in_the_refusal_too(self):
+        # An HTML comment hides an early heading from a reader, not from the
+        # line scan, which also reports the HTML block.
+        at = self.generated.index("\n## Branches\n") + 1
+        agents = self.generated[:at] + "<!--\n## Project specifics\n-->\n\n" + self.generated[at:] + self.owned
+        local = [heading for status, heading in self._rows(agents) if status == "local"]
+        structure = [heading for heading in local if not heading.startswith(bootstrap.AFTER_PROJECT_SPECIFICS)]
+        self.assertTrue(structure, local)
+        self._commit(agents)
+        action, _, detail = self._adopt_agents()
+        self.assertEqual(action, "refused")
+        self.assertIn("(generated heading after ## Project specifics: ## Branches)", detail)
+        self.assertIn(f"; also fix this structure first: {'; '.join(structure)}", detail)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), agents)
+
     def test_a_heading_inside_a_fence_after_project_specifics_is_not_flagged(self):
         at = self.generated.index("\n## Skills\n") + 1
         agents = (self.generated[:at] + "```md\n## Project specifics\n```\n\n" + self.generated[at:] + self.owned)
         self.assertFalse([row for row in self._rows(agents) if "after ## Project specifics" in row[1]])
+
+
+class NextjsEarlyProjectSpecificsTests(EarlyProjectSpecificsTests):
+    """The same cases with the `next dev` block and the App Router headings."""
+
+    repo_type = "nextjs"
+
+    def test_an_early_duplicate_before_every_generated_section_is_refused(self):
+        # The first sections sit in the `next dev` block, which a heading above
+        # it would move (refused on its own); the first one after it.
+        self._assert_refused(self._early("# This project uses the App Router"),
+                             self._headings_from("# This project uses the App Router"))
 
 
 if __name__ == "__main__":

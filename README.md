@@ -702,6 +702,23 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+The user-visible step in `pr-title-check.yml` judges a pull request's title
+and body, so it agrees with Release Please only when the squash commit is made
+of them. `bootstrap.py` sets that squash default (the pull request title as
+the commit title, its body as the message) when it creates a repository and
+with `--configure-only`; `--adopt` never contacts GitHub, so it leaves the
+setting as it is. A repository `bootstrap.py` did not create, and that never
+ran `--configure-only`, usually still has GitHub's default: the commit's own
+title and message for a pull request of one commit, and the pull request
+title with a list of its commits for more ("Configuring commit squashing for
+pull requests" and "Pull request merges", GitHub Docs, read
+2026-10-22). A merge through the web interface then commits a message the
+check never read, and Release Please may release it differently. After the
+first `--adopt`, run `--configure-only` once (see
+[What the script configures](#what-the-script-configures)), or pick the pull
+request title and description as the default message under *Allow squash
+merging* in the repository's general settings.
+
 ### Upgrading to 0.18.0
 
 `nextjs`: the `local-validation-nextjs` skill gains an *Agent browser checks*

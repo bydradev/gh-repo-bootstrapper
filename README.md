@@ -343,6 +343,10 @@ the project, such as a diff saved to a scratch directory. It sets
 `external_directory: ask` for that, since OpenCode V2 allows those reads
 without asking by default, where V1 asks
 ([Migrate from V1](https://dev.opencode.ai/v2/docs/migrate-v1/), checked
+2026-10-22). On V1 the agent's rule comes after OpenCode's defaults and the
+user's own configuration, so the reviewer also asks for the directories those
+allow, such as OpenCode's temporary directory, except its tool output
+directory (`agent/agent.ts` and `permission/index.ts` in v1.19.3, checked
 2026-10-22). It gets no shell
 because OpenCode's shell rules see each command in a line separately and keep
 a redirect only when it sits directly on one command, so an allowed `git log`
@@ -702,8 +706,10 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 The OpenCode reviewer, `.opencode/agents/fresh-eyes-reviewer.md`, now denies
 `shell` beside `bash`, so it still has no shell once OpenCode renames the
-permission key, and sets `external_directory: ask`, so OpenCode V2 asks
-before it reads outside the project, as V1 already did. The `fresh-eyes-review`
+permission key, and sets `external_directory: ask`, so it asks before reading
+outside the project on OpenCode V2, which allows that by default. On V1 it now
+also asks for directories that OpenCode's defaults or your own `opencode.json`
+allow, such as OpenCode's temporary directory. The `fresh-eyes-review`
 skill cites
 [OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723)
 instead of 50627, which was closed on 2026-10-20 as its duplicate. Both files

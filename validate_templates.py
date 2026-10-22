@@ -2200,7 +2200,8 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
             f"in an if block, with `if ...; then`, `exit 1` and `fi` each alone on a line (no trailing "
-            f"comment or `;`), and then print an ::error:: message and exit 1 inside it"
+            f"comment or `;`), and then print an ::error:: message and exit 1 inside it, "
+            f"the ::error:: line first"
         )
     elif any(re.match(r"\s*(?:else|elif)\b", line) for line in inside):
         errors.append(
@@ -2214,7 +2215,9 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         )
     elif not all(word in script for word in ("pyproject.toml", "requirements")):
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must say to add a pyproject.toml or requirements file")
-    # In order, because the glob applies a `!` pattern to the matches before it.
+    # In order, because the glob applies a `!` pattern to the matches before it
+    # (actions/toolkit packages/glob src/internal-pattern-helper.ts `match`, checked
+    # 2026-10-22).
     expected = [
         line.strip() for line in str(options.get("cache-dependency-path", "")).splitlines() if line.strip()
     ] + [PYTHON_CACHE_BACKUP_PATH]

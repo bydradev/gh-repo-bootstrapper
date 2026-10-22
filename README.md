@@ -793,7 +793,8 @@ would never fail there, and its `pip` entry keeps working. One that does not
 can paste the step below between the `actions/checkout` and
 `actions/setup-python` steps of `.github/workflows/test.yml`, and delete its
 `pip` entry until it commits a manifest. In `hashFiles`, list the patterns of
-the repository's own `cache-dependency-path`, then `'**/pyproject.toml'`:
+the repository's own `cache-dependency-path` in the same order, then
+`'**/pyproject.toml'`:
 
 ```yaml
       - name: Require a dependency manifest

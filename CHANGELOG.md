@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.2...v0.18.0) (2026-10-22)
+
+
+### Features
+
+* point nextjs agents at the playwright cli for browser checks ([#153](https://github.com/bydradev/gh-repo-bootstrapper/issues/153)) ([e2078d9](https://github.com/bydradev/gh-repo-bootstrapper/commit/e2078d928a4f31175dd111a9c900937c076957d0))
+
 ## [0.17.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.1...v0.17.2) (2026-10-22)
 
 

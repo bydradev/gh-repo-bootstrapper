@@ -887,6 +887,43 @@ class ReleaseCredentialsGuardTests(unittest.TestCase):
                         self.assertEqual(result.stdout, self.WARNING + "\n")
 
 
+def _bash4():
+    """The bash on the caller's PATH, when it is 4 or newer, or skip the test.
+
+    The generated install step uses mapfile, which bash 4 added. Its workflow
+    runs on ubuntu-latest, but macOS ships bash 3.2 as /bin/bash, so a local
+    run needs a newer bash (Homebrew's, say) first on PATH.
+    """
+    bash = shutil.which("bash")
+    if bash is None:
+        raise unittest.SkipTest("bash is not on PATH")
+    major = subprocess.run([bash, "-c", 'echo "${BASH_VERSINFO[0]}"'], capture_output=True, text=True).stdout.strip()
+    if not major.isdigit() or int(major) < 4:
+        raise unittest.SkipTest(f"the install step needs bash 4 or newer for mapfile; {bash} is bash {major or '?'}")
+    return bash
+
+
+class Bash4Tests(unittest.TestCase):
+    def _fake_bash(self, major):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        fake = Path(tmp.name) / "bash"
+        fake.write_text(f"#!/bin/sh\necho {major}\n")
+        fake.chmod(0o755)
+        return fake
+
+    def test_a_bash_older_than_4_skips_with_the_reason(self):
+        fake = self._fake_bash(3)
+        with patch.dict(os.environ, {"PATH": str(fake.parent)}), self.assertRaises(unittest.SkipTest) as skipped:
+            _bash4()
+        self.assertIn(f"{fake} is bash 3", str(skipped.exception))
+
+    def test_the_first_bash_on_path_is_used(self):
+        fake = self._fake_bash(5)
+        with patch.dict(os.environ, {"PATH": f"{fake.parent}{os.pathsep}{os.environ.get('PATH', '')}"}):
+            self.assertEqual(_bash4(), str(fake))
+
+
 class PythonToolInstallTests(unittest.TestCase):
     """The generated Python suite installs pinned tools only when the project has none."""
 
@@ -926,6 +963,7 @@ class PythonToolInstallTests(unittest.TestCase):
                 self.assertEqual(log.read_text().splitlines(), installs)
 
     def test_installs_the_dependency_set_the_project_declares(self):
+        bash = _bash4()
         files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
         steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
         script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
@@ -1095,7 +1133,7 @@ class PythonToolInstallTests(unittest.TestCase):
                     (work / name).write_text(content)
                 log.write_text("")
                 result = subprocess.run(
-                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                    [bash, "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
                     cwd=work, capture_output=True, text=True,
                     env={"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log),
                          "GITHUB_PATH": str(Path(tmp.name) / "github-path")},
@@ -1128,6 +1166,7 @@ class PythonToolInstallTests(unittest.TestCase):
 
     def _real_pip(self):
         """(install step script, temporary directory, pip argv) with pip 25.1+."""
+        _bash4()  # before the slow venv: _run_step needs it
         files = bootstrap.generate_files({"name": "sample", "repo_type": "python", "postgres": False})
         steps = yaml.safe_load(files[".github/workflows/test.yml"])["jobs"]["test"]["steps"]
         script = next(step["run"] for step in steps if step.get("name") == "Install dependencies")
@@ -1154,7 +1193,7 @@ class PythonToolInstallTests(unittest.TestCase):
 
     def _run_step(self, script, work, tmp, venv, wheels):
         return subprocess.run(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+            [_bash4(), "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
             cwd=work, capture_output=True, text=True,
             env={"PATH": f"{venv / 'bin'}:/usr/bin:/bin", "HOME": tmp.name,
                  "PIP_NO_INDEX": "1", "PIP_FIND_LINKS": str(wheels),

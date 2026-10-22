@@ -358,8 +358,17 @@ def _git(repo: Path, *args):
         capture_output=True,
         env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
-             "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+             "PATH": os.environ.get("PATH", os.defpath)},
     )
+
+
+def _skip_without_tags(test):
+    """Skip a test that reads this checkout's release tags when there are none,
+    except in GitHub Actions: validate.yml fetches every tag, so a missing
+    one there is a failure, not a quiet skip."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        test.fail("release tags unavailable; validate.yml checks out with fetch-depth: 0 to have them")
+    test.skipTest("release tags unavailable")
 
 
 class ExistingRepositoryTests(unittest.TestCase):
@@ -1594,7 +1603,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         self._write(rel, released.stdout)
         self._commit_all()
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
@@ -1625,7 +1634,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
         old_bumped = released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", "@" + "b" * 40 + " # v98.0.0", 1)
         self._write(rel, old_bumped)
@@ -1659,7 +1668,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         template_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
         old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
         for body, reported in (
@@ -1718,7 +1727,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         default = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", released.stdout)
         files = _render("nextjs")
         rel = ".github/workflows/release-please.yml"
@@ -1917,7 +1926,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     ["git", "-C", str(tools), "show", f"v0.8.0:templates/{name}"], capture_output=True, text=True,
                 )
                 if released.returncode:
-                    self.skipTest("release tags unavailable")
+                    _skip_without_tags(self)
                 files = _render(repo_type)
                 self._write(rel, released.stdout)
                 self._commit_all()
@@ -1970,7 +1979,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     ["git", "-C", str(tools), "show", f"v0.11.1:templates/{name}"], capture_output=True, text=True,
                 )
                 if released.returncode:
-                    self.skipTest("release tags unavailable")
+                    _skip_without_tags(self)
                 self.assertNotIn("id: credentials", released.stdout)
                 pin = re.search(r"create-github-app-token(@\S+ # \S+)", released.stdout)[1]
                 shipped = bootstrap.stamp(released.stdout.replace(pin, older, 1), True, template=name)
@@ -2865,8 +2874,13 @@ class ExistingRepositoryTests(unittest.TestCase):
     def test_create_and_push_clones_to_an_absolute_path(self):
         # A relative --name starting with "-" must not reach gh as a flag.
         files = _render()
+        # Reached through a symbolic link, as macOS reaches its temporary
+        # directory (/var is a link to /private/var): the working directory
+        # the clone path is built from is the resolved one.
+        link = Path(self._tmp.name) / "link"
+        link.symlink_to(self.repo, target_is_directory=True)
         cwd = os.getcwd()
-        os.chdir(self.repo)
+        os.chdir(link)
         self.addCleanup(os.chdir, cwd)
         cfg = {"name": "app", "repo_type": "python", "owner": "owner",
                "private": True, "repo_dir": Path("-x/app")}
@@ -2874,7 +2888,8 @@ class ExistingRepositoryTests(unittest.TestCase):
         with unittest.mock.patch.object(bootstrap, "_run", lambda command, **kwargs: calls.append(command)):
             bootstrap.create_and_push(cfg, files)
         clone = next(command for command in calls if command[:3] == ["gh", "repo", "clone"])
-        self.assertEqual(clone[4], str(self.repo / "-x/app"))
+        self.assertTrue(Path(clone[4]).is_absolute(), clone)
+        self.assertEqual(Path(clone[4]).resolve(), (link / "-x/app").resolve())
 
     def test_create_and_push_refuses_before_creating_without_anchored_symlinks(self):
         files = _render()
@@ -3689,7 +3704,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         )
         if result.returncode or not bootstrap._workflow_diff_tags():
             # No tag to read, or a shallow checkout: --check skips the workflow diff there.
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         return result.stdout
 
     @staticmethod
@@ -3728,7 +3743,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
 
     def test_diff_names_the_current_template_when_the_workflow_was_forked_from_it(self):
         if not bootstrap._workflow_diff_tags():
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         for rel in (self.RELEASE, self.PR_TITLE):
             with self.subTest(rel=rel):
                 body, step = self._fork(bootstrap.read_stamp(self.files[rel], True)[1])
@@ -3872,7 +3887,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
             capture_output=True, text=True, env=bootstrap._git_env(),
         )
         if cloned.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self)
         # Run this checkout's bootstrapper and templates in the clone's shallow history.
         shutil.copy2(checkout / "bootstrap.py", clone / "bootstrap.py")
         shutil.rmtree(clone / "templates")

@@ -1994,7 +1994,7 @@ PYTHON_MANIFEST_GUARD_NAME = "Require a dependency manifest"
 # (actions/setup-python src/cache-distributions/pip-cache.ts and constants.ts at
 # the pinned commit, checked 2026-10-21).
 PYTHON_CACHE_BACKUP_PATH = "**/pyproject.toml"
-PYTHON_GUARD_TEST_RE = re.compile(r'^\s*if \[ -z "\$(\w+)" \]; then\s*$')
+PYTHON_GUARD_TEST_RE = re.compile(r'^\s*if \[ -z "\$([A-Za-z_][A-Za-z0-9_]*)" \]; then\s*$')
 # The guard's env value must be the bare call and nothing else. `||` yields its
 # first truthy operand (actions/runner
 # src/Sdk/DTExpressions2/Expressions2/Sdk/Operators/Or.cs, checked 2026-10-22),
@@ -2191,15 +2191,18 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     if start is not None:
         end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() == "fi"), None)
     test = PYTHON_GUARD_TEST_RE.match(lines[start]) if end is not None else None
-    branch = "\n".join(lines[start + 1:end]) if test else ""
+    inside = lines[start + 1:end] if test else []
     outside = lines[:start] + lines[end + 1:] if test else []
-    if not test or not re.search(r"(?m)^\s*exit 1\s*$", branch) or "::error::" not in branch:
+    exit_at = next((i for i, line in enumerate(inside) if re.match(r"\s*exit 1\s*$", line)), None)
+    error_at = next((i for i, line in enumerate(inside) if "::error::" in line), None)
+    # The diagnostic comes first: an exit 1 before it ends the step without the message.
+    if not test or exit_at is None or error_at is None or error_at > exit_at:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
             f"in an if block, with `if ...; then`, `exit 1` and `fi` each alone on a line (no trailing "
             f"comment or `;`), and then print an ::error:: message and exit 1 inside it"
         )
-    elif any(re.match(r"\s*(?:else|elif)\b", line) for line in lines[start + 1:end]):
+    elif any(re.match(r"\s*(?:else|elif)\b", line) for line in inside):
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must not branch with else or elif inside the "
             f"empty-hash test, since a branch there can fail runs that have a manifest"
@@ -2211,10 +2214,11 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         )
     elif not all(word in script for word in ("pyproject.toml", "requirements")):
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must say to add a pyproject.toml or requirements file")
-    expected = {
+    # In order, because the glob applies a `!` pattern to the matches before it.
+    expected = [
         line.strip() for line in str(options.get("cache-dependency-path", "")).splitlines() if line.strip()
-    } | {PYTHON_CACHE_BACKUP_PATH}
-    hashed = set()
+    ] + [PYTHON_CACHE_BACKUP_PATH]
+    hashed = []
     bare = test is not None
     if test:
         value = (guard.get("env") or {}).get(test.group(1), "")
@@ -2243,11 +2247,11 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
             patterns = QUOTED_PATTERN_RE.findall(call.group(1))
             if patterns and patterns[0].lower() == "--follow-symbolic-links":
                 patterns = patterns[1:]
-            hashed = set(patterns)
+            hashed = patterns
     if bare and hashed != expected:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must hash exactly the files the pip cache does "
-            f"(its cache-dependency-path and {PYTHON_CACHE_BACKUP_PATH}), {sorted(expected)}; got {sorted(hashed)}"
+            f"(its cache-dependency-path and {PYTHON_CACHE_BACKUP_PATH}), in that order, {expected}; got {hashed}"
         )
     return errors
 
@@ -4662,6 +4666,10 @@ def _structure_self_tests() -> list:
     expect("python manifest guard allowed to fail",
            gates("python", test, lambda w: manifest_guard(w).update({"continue-on-error": True})),
            "continue-on-error")
+    expect("python manifest guard hash with the patterns in another order",
+           gates("python", test, lambda w: guard_env(
+               w, lambda v: v.replace("'**/requirements*.txt', 'pyproject.toml'", "'pyproject.toml', '**/requirements*.txt'"))),
+           same_files)
     expect("python manifest guard missing uv.lock",
            gates("python", test, lambda w: guard_env(w, lambda v: v.replace(", 'uv.lock'", ""))), same_files)
     expect("python manifest guard missing the pyproject.toml fallback",
@@ -4714,6 +4722,24 @@ def _structure_self_tests() -> list:
     expect("python manifest guard with an exit after the test on a compound line",
            gates("python", test, lambda w: guard_script(w, lambda r: r + "echo done; exit 1\n")),
            "must not exit outside the empty-hash test")
+    def exit_before_error(run):
+        lines = run.splitlines(keepends=True)
+        i = next(n for n, line in enumerate(lines) if "::error::" in line)
+        j = next(n for n, line in enumerate(lines) if line.strip() == "exit 1")
+        lines[i], lines[j] = lines[j], lines[i]
+        return "".join(lines)
+
+    expect("python manifest guard with its exit 1 before the error message",
+           gates("python", test, lambda w: guard_script(w, exit_before_error)),
+           "then print an ::error:: message and exit 1")
+    def digit_variable(workflow):
+        guard = manifest_guard(workflow)
+        guard["run"] = guard["run"].replace("MANIFEST_HASH", "1ABC")
+        guard["env"] = {"1ABC": guard["env"]["MANIFEST_HASH"]}
+
+    # Bash reads $1ABC as $1 followed by ABC, so the test would never see the variable.
+    expect("python manifest guard variable that is not a shell identifier",
+           gates("python", test, digit_variable), "must test an empty hash")
     expect("python manifest guard with an else branch",
            gates("python", test, lambda w: guard_script(w, lambda r: r.replace("fi\n", "else\n  exit 1\nfi\n"))),
            "must not branch with else or elif")

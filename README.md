@@ -339,7 +339,11 @@ default allows them, so a connected server's write tools stay available to it.
 It reviews the diff and validation results the implementer or person hands
 it, asks for the diff when it has none, and reads files with OpenCode's read
 tools, which ask before reading most paths outside
-the project, such as a diff saved to a scratch directory. It gets no shell
+the project, such as a diff saved to a scratch directory. It sets
+`external_directory: ask` for that, since OpenCode V2 allows those reads
+without asking by default, where V1 asks
+([Migrate from V1](https://dev.opencode.ai/v2/docs/migrate-v1/), checked
+2026-10-22). It gets no shell
 because OpenCode's shell rules see each command in a line separately and keep
 a redirect only when it sits directly on one command, so an allowed `git log`
 still writes in `git diff && git log > notes` (`tool/shell.ts`,
@@ -698,7 +702,9 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 The OpenCode reviewer, `.opencode/agents/fresh-eyes-reviewer.md`, now denies
 `shell` beside `bash`, so it still has no shell once OpenCode renames the
-permission key, and the `fresh-eyes-review` skill cites
+permission key, and sets `external_directory: ask`, so OpenCode V2 asks
+before it reads outside the project, as V1 already did. The `fresh-eyes-review`
+skill cites
 [OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723)
 instead of 50627, which was closed on 2026-10-20 as its duplicate. Both files
 are template-owned: `--check` reports them `stale` and `--adopt` updates them.

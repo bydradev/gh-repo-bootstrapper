@@ -5,6 +5,7 @@ import io
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -113,6 +114,34 @@ class GitShowTimeoutTests(unittest.TestCase):
         self._compare()
         pids = [int(line) for line in self.pids.read_text().split()]
         self.assertEqual(len(pids), 1)
+        deadline = time.monotonic() + 5
+        while not _gone(pids[0]) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(_gone(pids[0]), f"the hung git's child {pids[0]} is still running")
+
+    def test_ctrl_c_during_a_hung_read_stops_the_fetch_too(self):
+        # A terminal's Ctrl-C signals its foreground process group: here the
+        # harness's own, which git's process group is not part of.
+        prelude = (
+            "import sys; import bootstrap; from pathlib import Path; "
+            "bootstrap.GIT_SHOW_TIMEOUT = 60; "
+            "bootstrap.compare_repository(Path(sys.argv[1]), bootstrap.generate_files({'name': 'sample', "
+            "'repo_type': 'simple', 'postgres': False, 'scheme': '', 'screenshots': False}))"
+        )
+        harness = subprocess.Popen(
+            [sys.executable, "-c", prelude, str(self.repo)], cwd=Path(bootstrap.__file__).parent,
+            env={**os.environ, "PATH": self.path}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        self.addCleanup(lambda: harness.poll() is None and harness.kill())
+        deadline = time.monotonic() + 20
+        while not (self.pids.exists() and self.pids.read_text().strip()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        pids = [int(line) for line in self.pids.read_text().split()]
+        os.killpg(harness.pid, signal.SIGINT)
+        _, errors = harness.communicate(timeout=20)
+        self.assertNotEqual(harness.returncode, 0)
+        self.assertIn("KeyboardInterrupt", errors.decode())
         deadline = time.monotonic() + 5
         while not _gone(pids[0]) and time.monotonic() < deadline:
             time.sleep(0.05)

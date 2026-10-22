@@ -623,7 +623,8 @@ def _git_show(args: list[str]) -> subprocess.CompletedProcess:
     """subprocess.run(args) with output captured and GIT_SHOW_TIMEOUT, except
     that on POSIX a timeout kills git's whole process group, so the `git fetch`
     a partial clone starts, and its transport, do not outlive the read. Raises
-    subprocess.TimeoutExpired once they are gone."""
+    subprocess.TimeoutExpired once they are gone. A Ctrl-C kills them too: the
+    group is git's own, so the terminal's SIGINT reaches only this process."""
     posix = os.name == "posix"
     with subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_env(),
@@ -631,7 +632,7 @@ def _git_show(args: list[str]) -> subprocess.CompletedProcess:
     ) as process:
         try:
             stdout, stderr = process.communicate(timeout=GIT_SHOW_TIMEOUT)
-        except subprocess.TimeoutExpired:
+        except BaseException:  # the timeout, or a KeyboardInterrupt
             if posix:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)

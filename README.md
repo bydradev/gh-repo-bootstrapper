@@ -708,14 +708,16 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 
 ### Upgrading to 0.18.1
 
-`python`: the fallback tools `test.yml` installs when the project does not
-bring its own move to uv 0.13.5 and ruff 0.17.1 (from 0.12.24 and 0.16.10).
-uv 0.13 still installs a `uv.lock` written by 0.12 with `uv sync --locked`.
-Ruff 0.17 changes its defaults: Python 3.11 when no version is configured,
-the `flake8-datetimez` rules out of the default set and F406 in, and
-trailing pragma comments no longer count toward line length, which can
-reformat imports. A project that relies on the fallback runs `ruff format .`
-and `ruff check .` with 0.17.1 before taking the change. `test.yml` belongs to
+`python`: the uv that `test.yml` installs for every `uv.lock` project moves
+to 0.13.5, and the ruff it falls back to when the project does not bring its
+own moves to 0.17.1 (from 0.12.24 and 0.16.10). uv 0.13 still installs a
+`uv.lock` written by 0.12 with `uv sync --locked`. Ruff 0.17 changes its
+defaults: Python 3.11 when no version is configured, seven `flake8-datetimez`
+rules (DTZ001, DTZ005 to DTZ007, DTZ011, DTZ012 and DTZ901) out of the
+default set and F406 in, and trailing pragma comments no longer count toward
+line length, which can reformat imports. A project that relies on the ruff
+fallback runs `ruff format .` and `ruff check .` with 0.17.1 before taking
+the change. `test.yml` belongs to
 the repository, so `--check` reports it as `differs` and `--adopt` keeps it;
 copy the two pins from the template by hand.
 

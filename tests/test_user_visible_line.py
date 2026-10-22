@@ -60,9 +60,19 @@ class UserVisibleLineTests(unittest.TestCase):
         # fails; in an override, which no block follows, it releases.
         for answer in ("yes", "no"):
             self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
-                             f"because {reason}, but only while that footer ends the squash commit")
+                             f"because {reason}, which it reads as a footer only while it ends the squash commit")
         override = f"BEGIN_COMMIT_OVERRIDE\n{title}\n\n{body}\nEND_COMMIT_OVERRIDE"
         self.assertReleases(title, override, reason.replace("the body", "the commit override"))
+
+    def assertBlockRelease(self, title, body, reason):
+        # Release Please does not release this as the body stands, but
+        # GitHub's co-author block after the body makes it a breaking change
+        # (release-please 17.6.0, checked 2026-10-22), so either answer
+        # fails; in an override, which no block follows, it does not release.
+        for answer in ("yes", "no"):
+            self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
+                             f"because {reason} only once GitHub's default squash commit adds")
+        self.assertDoesNotRelease(title, f"BEGIN_COMMIT_OVERRIDE\n{title}\n\n{body}\nEND_COMMIT_OVERRIDE")
 
     def assertDoesNotRelease(self, title, body):
         self.assertPasses(title, body + "\n\nUser-visible: no")
@@ -94,18 +104,21 @@ class UserVisibleLineTests(unittest.TestCase):
         # A footer note is its value or its last continuation line, and the
         # last marker's note replaces the earlier ones.
         self.assertReleases("docs: x", "Prose.\n\nBREAKING CHANGE:\n  the flag is gone", note)
+        for body in ("Prose.\n\nBREAKING-CHANGES: none", "Prose.\n\nBREAKING CHANGES: none"):
+            with self.subTest(body=body):
+                self.assertDoesNotRelease("docs: x", body)
+        # These give no note as the body stands, but GitHub's co-author
+        # block after the body gives each one.
         for body in (
             "Prose.\n\nBREAKING CHANGE:",
             "Prose.\n\nBREAKING CHANGE:\nRefs: #1",
             "Prose.\nBREAKING CHANGE: the flag is gone\n\nRefs: #1\nBREAKING CHANGE:",
             "Prose.\n\nRefs: the BREAKING-CHANGE: token",
-            "Prose.\n\nBREAKING-CHANGES: none",
-            "Prose.\n\nBREAKING CHANGES: none",
             "Prose ending BREAKING-CHANGE:",
             "Prose.\n\nBREAKING CHANGE: the flag is gone\n   \nRefs: #1",
         ):
             with self.subTest(body=body):
-                self.assertDoesNotRelease("docs: x", body)
+                self.assertBlockRelease("docs: x", body, note)
         self.assertFooterRelease("docs: x", "Prose.\n\nci!: drop a job", "the body has a commit marked breaking")
         # With no subject, only a type of word characters is breaking.
         for body in ("Prose.\n\nBEGIN_NESTED_COMMIT\ndocs!:\nEND_NESTED_COMMIT",
@@ -160,10 +173,13 @@ class UserVisibleLineTests(unittest.TestCase):
             "Prose.\n\nFix: y\n  f(g(x))",
             "Prose.\n\nOutput:\n  fix: y\n\n  More output.",
             "Prose.\n\nFix: y\n  ok\n  f(g(x))",
-            "Prose.\n\nBREAKING-CHANGE: x\n  feat: y\n   ",
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
+        # So is this, whose last line an override would strip.
+        for answer in ("yes", "no"):
+            self.assertFails("docs: x", f"Prose.\n\nBREAKING-CHANGE: x\n  feat: y\n   \n\nUser-visible: {answer}",
+                             "because the body has a breaking-change note only once GitHub's default squash")
         # A footer with an empty scope is prose (a paragraph that opens with
         # one is a dropped entry, tested below); a "!" footer keeps the
         # footers together.

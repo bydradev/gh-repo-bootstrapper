@@ -710,10 +710,15 @@ and `Co-authored-by` trailers after the body, and Release Please 17.6.0 then
 reads the body's trailing footers as body text. A change that only such a
 footer releases, such as a `Release-As:` footer under a `chore:` title, a
 `Fix:` footer or `BREAKING CHANGE #12`, therefore fails the check with either
-answer, and so does a `Release-As:` version that only such a footer carries.
-Give the release to the title or to an extra entry that opens a paragraph,
-write a `BREAKING CHANGE:` note, or put the whole commit message in a
-`BEGIN_COMMIT_OVERRIDE` block, which the squash block does not reach. `--check`
+answer. Give the release to the title or to an extra entry that opens a
+paragraph, write a `BREAKING CHANGE:` note, or put the whole commit message in
+a `BEGIN_COMMIT_OVERRIDE` block, which the squash block does not reach. A
+`Release-As:` version that only such a footer carries also fails, since
+Release Please would propose another one; only the override block keeps it.
+The block can also make a release: a breaking-change token that gives no note
+as the body stands, such as an empty `BREAKING CHANGE:` footer or a
+`BREAKING-CHANGE:` at the end of a line of prose, can give one, and that fails
+the check with either answer too. `--check`
 reports `pr-title-check.yml` as `stale`, and `--adopt` updates it; no action
 pin changes.
 
@@ -1137,7 +1142,8 @@ stop it with an error. A yes/no question is harder to get wrong than a type,
 so the check catches a mistyped title, such as a `docs:` change that ships in
 a release or a `fix:` that ships nothing. Release Please and Dependabot pull
 requests skip the job, as before. The step reads the pull request only through
-its `env:`, and its script prints none of the body.
+its `env:`, and its script prints none of the body but the numbers of a
+`Release-As:` version.
 
 The `pull-requests` skill says how to answer, and `review-guidelines` asks
 the reviewer whether the type and the answer are true to the diff. `--check`

@@ -97,7 +97,15 @@ class EarlyProjectSpecificsTests(unittest.TestCase):
         self._assert_refused(self._early(first), self._headings_from(first))
 
     def test_a_single_project_specifics_among_the_generated_sections_is_refused(self):
-        self._assert_refused(self._early("## Skills", late=False), self._headings_from("## Skills"))
+        # The template's own heading moved up: the file has one copy, above
+        # ## Skills, and the repository's text after it.
+        heading = "## Project specifics\n"
+        self.assertTrue(self.owned.startswith(heading))
+        early = self._early("## Skills", late=False)
+        self.assertTrue(early.endswith(self.owned))
+        agents = early[: -len(self.owned)] + self.owned[len(heading):].lstrip("\n")
+        self.assertEqual([line for line in agents.splitlines() if line == heading.strip()], [heading.strip()])
+        self._assert_refused(agents, self._headings_from("## Skills"))
 
     def test_rebuild_agents_alone_still_splits_the_file(self):
         # What the refusal guards against: rebuild_agents itself is unchanged,

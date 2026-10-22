@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.17.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.0...v0.17.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* cite the open opencode issue and add the shell permission key ([#149](https://github.com/bydradev/gh-repo-bootstrapper/issues/149)) ([341c2eb](https://github.com/bydradev/gh-repo-bootstrapper/commit/341c2ebff6e2f39b4de2b641950169c7f175a135))
+* make the opencode reviewer ask before reading outside the project ([341c2eb](https://github.com/bydradev/gh-repo-bootstrapper/commit/341c2ebff6e2f39b4de2b641950169c7f175a135))
+
 ## [0.17.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.16.1...v0.17.0) (2026-10-22)
 
 

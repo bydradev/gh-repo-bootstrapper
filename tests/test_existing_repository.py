@@ -3820,9 +3820,10 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         })
         docs_first = {runbook: self.files[runbook], **self.files}
         for order, files in (("workflows first", self.files), ("docs first", docs_first)):
-            with self.subTest(order), unittest.mock.patch("subprocess.run", wraps=subprocess.run) as run:
+            # Popen, which subprocess.run starts too: a release read runs git under a timeout of its own.
+            with self.subTest(order), unittest.mock.patch("subprocess.Popen", wraps=subprocess.Popen) as popen:
                 report = bootstrap.compare_repository(self.repo, files)
-            shown = [tuple(call.args[0]) for call in run.call_args_list if "show" in call.args[0]]
+            shown = [tuple(call.args[0]) for call in popen.call_args_list if "show" in call.args[0]]
             # Both readers ran (each diff names its base) ...
             self.assertTrue(report[self.RELEASE][1].startswith(f"--- legacy/v0.12.0/{self.RELEASE}"), report[self.RELEASE])
             self.assertTrue(report[runbook][1].startswith(f"--- legacy/{runbook}"), report[runbook])

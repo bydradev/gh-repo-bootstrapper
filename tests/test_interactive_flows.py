@@ -88,7 +88,7 @@ class Session(unittest.TestCase):
         commands = commands or Commands()
         out, err = io.StringIO(), io.StringIO()
         env = {"RELEASE_PLEASE_CLIENT_ID": "", "RELEASE_PLEASE_APP_KEY": ""}
-        code = None
+        code = self.result = None  # so a call that exits leaves no earlier result behind
         with patch.object(sys, "argv", ["bootstrap.py", *argv]), patch.dict(os.environ, env), \
                 patch("builtins.input", answers), patch.object(sys, "stdin", io.StringIO()), \
                 patch.object(bootstrap.subprocess, "run", commands), \
@@ -193,9 +193,11 @@ class GatherConfigTests(Session):
         self.assertIn("error: Must be lowercase letters", err)
 
     def test_non_interactive_runs_take_the_signed_in_user_or_a_placeholder(self):
-        self.gather(["--non-interactive", "--name", "app", "--type", "simple"])
+        code, _, _, _, _ = self.gather(["--non-interactive", "--name", "app", "--type", "simple"])
+        self.assertIsNone(code)
         self.assertEqual(self.result["owner"], "octocat")
-        _, _, _, _, commands = self.gather(["--non-interactive", "--dry-run", "--name", "app", "--type", "simple"])
+        code, _, _, _, commands = self.gather(["--non-interactive", "--dry-run", "--name", "app", "--type", "simple"])
+        self.assertIsNone(code)
         self.assertEqual(self.result["owner"], "example-org")
         self.assertEqual(commands.calls, [])
 
@@ -224,8 +226,10 @@ class GatherConfigTests(Session):
                                                                            ".private"]])
         self.assertTrue(self.result["private"])
         # A lookup that fails keeps the repository private rather than guessing public.
-        self.gather(["--configure-only", "--non-interactive", "--name", "app", "--type", "simple", "--org", "octocat"],
-                    commands=Commands(fail=lambda command: command[-1:] == [".private"]))
+        code, _, _, _, _ = self.gather(
+            ["--configure-only", "--non-interactive", "--name", "app", "--type", "simple", "--org", "octocat"],
+            commands=Commands(fail=lambda command: command[-1:] == [".private"]))
+        self.assertIsNone(code)
         self.assertTrue(self.result["private"])
 
 

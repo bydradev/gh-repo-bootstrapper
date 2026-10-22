@@ -702,6 +702,21 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
+### Upgrading to 0.17.2
+
+The user-visible step in `pr-title-check.yml` now reads the body as GitHub's
+default squash commit holds it. GitHub refills a body line over 72 characters
+into lines of at most 72, and a wrap that starts a line with a word and an
+unclosed parenthesis, such as `` `hashFiles( ``, made Release Please drop the
+change from the changelog while the step passed. The step now fails and names
+the long line. A long line in a code fence and indented four spaces is left
+as written; one with only a fence or only the indent is still checked as
+wrapped, since GitHub's rule for those was not observed. A
+`BEGIN_COMMIT_OVERRIDE` block is still read unwrapped, as Release Please reads
+it from the pull request body. The `pull-requests` skill says to break such a
+line by hand. `--check` reports `pr-title-check.yml` and the skill as `stale`,
+and `--adopt` updates them; no action pin changes.
+
 ### Upgrading to 0.17.1
 
 The OpenCode reviewer, `.opencode/agents/fresh-eyes-reviewer.md`, now denies

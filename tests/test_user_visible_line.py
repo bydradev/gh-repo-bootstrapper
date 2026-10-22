@@ -237,6 +237,64 @@ class UserVisibleLineTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertPasses("feat: x", f"Prose.\n\n{line}\n\nUser-visible: yes")
 
+    def test_a_line_github_wraps_into_one_release_please_cannot_parse_fails(self):
+        # GitHub refills a body line over 72 characters for the squash
+        # commit, which here starts a line with "f(x," that it does not close.
+        long = "w " * 35 + "f(x, " + "y " * 34 + "z)"
+        wrapped = "Release Please cannot parse line 3 of the body once GitHub wraps it"
+        for answer in ("yes", "no"):
+            self.assertFails("feat: x", f"Prose.\n\n{long}\n\nUser-visible: {answer}", wrapped)
+        # The shape that dropped #147's entry: a code span wrapped open.
+        span = "Keys the cache on " + "the lockfile " * 3 + "with `hashFiles('**/package-lock.json', " + "'x' " * 12 + "'y')`."
+        self.assertFails("fix: x", f"Prose.\n\n{span}\n\nUser-visible: yes", wrapped)
+        # GitHub leaves a line of at most 72 characters as written.
+        self.assertPasses("feat: x", "Prose.\n\n" + "w " * 34 + "f(x,\n\nUser-visible: yes")
+        self.assertFails("feat: x", "Prose.\n\n" + "w " * 34 + "f(xy,\n\nUser-visible: yes", wrapped)
+        self.assertPasses("feat: x", "Prose.\n\n" + "w " * 30 + "f(x, y\ny y z)\n\nUser-visible: yes")
+        # It splits at any run of whitespace and joins with one space.
+        self.assertPasses("feat: x", "Prose.\n\n" + "x" * 64 + "      f(x, " + "y " * 34 + "z)\n\nUser-visible: yes")
+        # A word too long for a line starts a line of its own.
+        self.assertFails("feat: x", "Prose. f(" + "x" * 80 + "\n\nUser-visible: yes",
+                         "cannot parse line 1 of the body once GitHub wraps it")
+        # A long line in a code fence and indented four spaces is left as
+        # written. Whether a fence or the indent alone keeps it is not known,
+        # so either alone still fails.
+        self.assertPasses("feat: x", f"Prose.\n\n```\n    {long}\n```\n\nUser-visible: yes")
+        self.assertFails("feat: x", f"Prose.\n\n```\n{long}\n```\n\nUser-visible: yes",
+                         "cannot parse line 4 of the body once GitHub wraps it")
+        self.assertFails("feat: x", f"Prose.\n\n    {long}\n\nUser-visible: yes", wrapped)
+        # Lines after a wrapped one keep their own numbers.
+        self.assertFails("feat: x", f"Prose.\n\n{'w ' * 50}\n\nf(g(x))\n\nUser-visible: yes",
+                         "cannot parse line 5 of the body, so it")
+        self.assertFails("feat: x", f"Prose.\r\n\r\n{long}\r\n\r\nUser-visible: yes", wrapped)
+        self.assertFails("docs: x", f"Prose.\n\nBEGIN_NESTED_COMMIT\nfix: y\n{long}\nEND_NESTED_COMMIT\n\n"
+                         "User-visible: yes", "cannot parse line 5 of the body once GitHub wraps it")
+        # A line that starts that way is named as such, wrapped or not.
+        self.assertFails("feat: x", "Prose.\n\nf(g(x)) is called " + "word " * 15 + "\n\nUser-visible: yes",
+                         "cannot parse line 3 of the body, so it")
+        # A commit override is read as the body holds it, unwrapped.
+        self.assertPasses("docs: x", f"BEGIN_COMMIT_OVERRIDE\nfix: y\n\n{long}\nEND_COMMIT_OVERRIDE\n\n"
+                          "User-visible: yes")
+
+    def test_fences_github_leaves_alone_are_found_at_any_indent(self):
+        long = "    " + "w " * 35 + "f(x, " + "y " * 34 + "z)"
+        for fence in ("```\n{}\n```", "~~~py\n{}\n~~~~", "````\n{}\n```\n````", "```\n{}",
+                      "- Item:\n\n    ```py\n    {}\n    ```"):
+            with self.subTest(fence=fence):
+                self.assertPasses("feat: x", "Prose.\n\n" + fence.format(long) + "\n\nUser-visible: yes")
+
+    def test_trailing_whitespace_adds_no_wrapped_line(self):
+        # A hard break of two spaces after a part of exactly 72 characters.
+        self.assertPasses("docs: x", "Prose.\n\n" + "w " * 10 + "x" * 72 + "  \nfix: y\nmore prose.\n\n"
+                          "User-visible: no")
+
+    def test_a_wrap_can_make_a_change_release(self):
+        # GitHub's wrap puts the token at the start of a line.
+        line = "w " * 33 + "the BREAKING CHANGE: marker is described here and more words follow"
+        self.assertReleases("docs: x", f"Prose.\n\n{line}", "the body has a breaking-change note")
+        # On either reading of a fenced line.
+        self.assertReleases("docs: x", f"Prose.\n\n```\n{line}\n```", "the body has a breaking-change note")
+
     def test_an_entry_scope_release_please_cannot_parse_fails_when_it_drops_a_change(self):
         # Release Please drops the entry whole, with the change it carries.
         for body, line in (("Prose.\n\nfix(a(b)): y", 3), ("Prose.\n\nfix(): y", 3),

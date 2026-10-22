@@ -790,8 +790,8 @@ files in `templates/` at the `v0.17.0` tag, or accept the `differs` rows. The
 `local-validation-python` skill is template-owned, and `--adopt` brings it. A
 repository that already commits a manifest needs nothing else: the new step
 would never fail there, and its `pip` entry keeps working. One that does not
-can paste the step below between the `actions/checkout` and
-`actions/setup-python` steps of `.github/workflows/test.yml`, and delete its
+can paste the step below into `.github/workflows/test.yml` immediately before
+the `actions/setup-python` step, after `actions/checkout`, and delete its
 `pip` entry until it commits a manifest. In `hashFiles`, list the patterns of
 the repository's own `cache-dependency-path` in the same order, then
 `'**/pyproject.toml'`:

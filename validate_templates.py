@@ -2131,8 +2131,8 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     follow symbolic links unless asked and the action's does; a manifest
     reachable only through a link to a directory outside the checkout would
     pass the cache and fail the guard, which a runner's checkout cannot hold.)
-    Skipped when no setup-python step is asked to cache, since nothing then
-    hashes a manifest.
+    With no setup-python step that asks to cache nothing hashes a manifest, so
+    only a guard left behind is an error.
     """
     where = f"[{label}] Python test.yml"
     steps = [step for step in steps if isinstance(step, dict)]
@@ -2188,8 +2188,9 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         ]
     guard = guards[0]
     errors = []
-    # `if` has its own error below; shell, working-directory and the like change how the script runs.
-    extra = sorted(set(guard) - {"name", "timeout-minutes", "env", "run", "if"})
+    # `if` and `continue-on-error` have errors of their own; shell, working-directory and the
+    # like change how the script runs.
+    extra = sorted(set(guard) - {"name", "timeout-minutes", "env", "run", "if", "continue-on-error"}, key=str)
     if extra:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} may only set name, timeout-minutes, env and run, "
@@ -2214,18 +2215,23 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
     outside = lines[:start] + lines[end + 1:] if test else []
     exit_at = next((i for i, line in enumerate(inside) if re.match(r"\s*exit 1\s*$", line)), None)
     error_at = next((i for i, line in enumerate(inside) if "::error::" in line), None)
-    # The diagnostic comes first: an exit 1 before it ends the step without the message.
-    if not test or exit_at is None or error_at is None or error_at > exit_at:
+    if not test:
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
-            f"in an if block, with `if ...; then`, `exit 1` and `fi` each alone on a line (no trailing "
-            f"comment or `;`), and then print an ::error:: message and exit 1 inside it, "
-            f"the ::error:: line first"
+            f"in an if block, with `if ...; then` and `fi` each alone on a line (no trailing comment or `;`), "
+            f"and then print an ::error:: message and exit 1 inside it"
         )
     elif any(re.match(r"\s*(?:if|for|while|until|case|select)\b|\s*[{(]", line) for line in inside):
         errors.append(
             f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must keep the empty-hash test flat: no nested if, "
             f"loop, case or group, because the first fi after the test ends it"
+        )
+    # The diagnostic comes first: an exit 1 before it ends the step without the message.
+    elif exit_at is None or error_at is None or error_at > exit_at:
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must test an empty hash with [ -z \"$VAR\" ] "
+            f"and then print an ::error:: message and exit 1 inside it, with `exit 1` alone on a line "
+            f"after the ::error:: line"
         )
     elif any(re.match(r"\s*(?:else|elif)\b", line) for line in inside):
         errors.append(
@@ -4773,9 +4779,21 @@ def _structure_self_tests() -> list:
     expect("python manifest guard with a nested if around the failure",
            gates("python", test, lambda w: guard_script(w, nested_if)),
            "must keep the empty-hash test flat")
+    expect("python manifest guard with a nested if before the diagnostic",
+           gates("python", test, lambda w: guard_script(w, lambda r: r.replace(
+               "  echo ", '  if [ -n "$CI" ]; then\n    echo "::notice::in CI"\n  fi\n  echo ', 1))),
+           "must keep the empty-hash test flat")
     expect("python manifest guard with a shell key",
            gates("python", test, lambda w: manifest_guard(w).update({"shell": "pwsh"})),
            "may only set name, timeout-minutes, env and run")
+    # A key that is not a string (YAML reads `on:` as true) must be reported, not crash the sort.
+    expect("python manifest guard with a key that is not a string",
+           gates("python", test, lambda w: manifest_guard(w).update({True: "x", "shell": "bash"})),
+           "may only set name, timeout-minutes, env and run")
+    # continue-on-error has its own error, so the key list must not report it twice.
+    expect("python manifest guard allowed to fail, with no key error",
+           [e for e in gates("python", test, lambda w: manifest_guard(w).update({"continue-on-error": True}))
+            if "may only set" in e], None)
     expect("python manifest guard with an else branch",
            gates("python", test, lambda w: guard_script(w, lambda r: r.replace("fi\n", "else\n  exit 1\nfi\n"))),
            "must not branch with else or elif")

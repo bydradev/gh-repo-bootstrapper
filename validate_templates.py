@@ -468,10 +468,19 @@ CLAUDE_REVIEWER_SHELL_RULE = "use Bash only for read-only commands"
 # permission keys placed before `permission`'s own (ConfigAgentV1.normalize in
 # packages/core/src/v1/config/agent.ts), so `tools: {bash: false, "*": true}`
 # would end with `"*": allow` and reopen the shell.
+# The shell's key is `bash` in OpenCode v1.19.3, which says it will be renamed
+# (packages/opencode/src/tool/shell/id.ts) and accepts any key, and `shell` in
+# opencode.ai/docs/permissions; OpenCode V2 maps this format's `bash` to its
+# `shell` action (dev.opencode.ai/v2/docs/migrate-v1, all checked 2026-10-22).
+# So the reviewer denies both. OpenCode V2 allows external_directory by
+# default where V1 asks (same guide), so the reviewer asks, keeping its read
+# tools from reading outside the project unasked.
 OPENCODE_REVIEWER_PERMISSIONS = {
-    "edit": "",
-    "task": " so it cannot launch a writer",
-    "bash": " so it has no shell, whose rules cannot reliably stop a redirect",
+    "edit": ("deny", ""),
+    "task": ("deny", " so it cannot launch a writer"),
+    "bash": ("deny", " so it has no shell, whose rules cannot reliably stop a redirect"),
+    "shell": ("deny", " so it has no shell once OpenCode renames the bash key"),
+    "external_directory": ("ask", ", since OpenCode V2 otherwise reads outside the project without asking"),
 }
 OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
 # OpenCode reads frontmatter with gray-matter and js-yaml 3, which differ from
@@ -482,7 +491,10 @@ OPENCODE_REVIEWER_KEYS = ("description", "mode", "permission")
 # then exactly these lines. The description starts with a letter, so neither
 # parser reads it as a number, and must read back as its own text, so no tag,
 # quote, anchor, flow mapping or comment changes it.
-OPENCODE_REVIEWER_FRONTMATTER = ("mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny")
+OPENCODE_REVIEWER_FRONTMATTER = (
+    "mode: subagent", "permission:", "  edit: deny", "  task: deny", "  bash: deny", "  shell: deny",
+    "  external_directory: ask",
+)
 OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [A-Za-z][ -9;-~]*")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
 SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
@@ -1021,7 +1033,8 @@ def _tool_names(tools) -> set:
 def check_reviewer_agents(label: str, files: dict) -> list:
     """Both fresh-eyes reviewer agents leave the model unset and get no edit
     tool. OpenCode's frontmatter holds only OPENCODE_REVIEWER_KEYS and sets
-    only the edit, task and bash permissions, each to deny; Claude Code's
+    only the edit, task, bash and shell permissions, each to deny, and
+    external_directory to ask; Claude Code's
     keeps Bash and says to use it only for read-only commands."""
     errors = []
     for path in (CLAUDE_REVIEWER, OPENCODE_REVIEWER):
@@ -1068,9 +1081,9 @@ def check_reviewer_agents(label: str, files: dict) -> list:
                 )
             permission = data.get("permission")
             permission = permission if isinstance(permission, dict) else {}
-            for key, why in OPENCODE_REVIEWER_PERMISSIONS.items():
-                if permission.get(key) != "deny":
-                    errors.append(f"[{label}] {path} must set 'permission.{key}: deny'{why}")
+            for key, (action, why) in OPENCODE_REVIEWER_PERMISSIONS.items():
+                if permission.get(key) != action:
+                    errors.append(f"[{label}] {path} must set 'permission.{key}: {action}'{why}")
             others = sorted(str(key) for key in permission if key not in OPENCODE_REVIEWER_PERMISSIONS)
             if others:
                 errors.append(
@@ -4423,6 +4436,12 @@ def _structure_self_tests() -> list:
          "must say"),
         ("opencode task allowed", OPENCODE_REVIEWER, "task: deny", "task: allow", "permission.task: deny"),
         ("opencode shell open", OPENCODE_REVIEWER, "bash: deny", "bash: allow", "permission.bash: deny"),
+        ("opencode renamed shell open", OPENCODE_REVIEWER, "shell: deny", "shell: allow", "permission.shell: deny"),
+        ("opencode renamed shell missing", OPENCODE_REVIEWER, "\n  shell: deny", "", "permission.shell: deny"),
+        ("opencode outside reads allowed", OPENCODE_REVIEWER, "external_directory: ask", "external_directory: allow",
+         "permission.external_directory: ask"),
+        ("opencode outside reads unset", OPENCODE_REVIEWER, "\n  external_directory: ask", "",
+         "permission.external_directory: ask"),
         ("opencode shell allow rule", OPENCODE_REVIEWER, "bash: deny",
          'bash:\n    "*": deny\n    "git diff *": allow', "permission.bash: deny"),
         ("opencode later wildcard allow", OPENCODE_REVIEWER, "bash: deny", 'bash: deny\n  "*": allow',

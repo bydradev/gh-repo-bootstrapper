@@ -273,7 +273,14 @@ screenshot-review process when it has one.
 Each skill is mirrored as a relative symlink,
 `.claude/skills/<name>` to `../../.agents/skills/<name>`, because Claude Code
 doesn't scan `.agents/` but does follow symlinked skill folders. Codex,
-OpenCode and Antigravity read `.agents/skills` directly. The generated
+OpenCode and Antigravity read `.agents/skills` directly. OpenCode also scans
+`.claude/skills`, so it finds each skill twice and logs a `duplicate skill
+name` warning for each one. Both copies are the same file, so the skill's text
+is the same, but OpenCode loads them concurrently and lists the copy it kept,
+by path, in its system prompt, so that path can differ between sessions and
+cost a prompt cache miss (`skill/index.ts` and `session/system.ts` in
+[OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3),
+checked 2026-10-22). The generated
 `.gitignore` ignores `.agents/*` and `.opencode/*` but re-includes
 `!.agents/skills/` and `!.opencode/agents/`, so these files are committed.
 
@@ -332,17 +339,32 @@ default allows them, so a connected server's write tools stay available to it.
 It reviews the diff and validation results the implementer or person hands
 it, asks for the diff when it has none, and reads files with OpenCode's read
 tools, which ask before reading most paths outside
-the project, such as a diff saved to a scratch directory. It gets no shell
+the project, such as a diff saved to a scratch directory. It sets
+`external_directory: ask` for that, since OpenCode V2 allows those reads
+without asking by default, where V1 asks
+([Migrate from V1](https://dev.opencode.ai/v2/docs/migrate-v1/), checked
+2026-10-22). On V1 the agent's rule comes after OpenCode's defaults and the
+user's own configuration, so the reviewer also asks for the directories those
+allow, such as OpenCode's temporary directory, except its tool output
+directory (`agent/agent.ts` and `permission/index.ts` in v1.19.3, checked
+2026-10-22). It gets no shell
 because OpenCode's shell rules see each command in a line separately and keep
 a redirect only when it sits directly on one command, so an allowed `git log`
 still writes in `git diff && git log > notes` (`tool/shell.ts`,
 `session/tools.ts` and `agent/agent.ts` in
 [OpenCode v1.19.3](https://github.com/anomalyco/opencode/tree/v1.19.3), the
-current npm release, checked 2026-10-16).
+current npm release, checked 2026-10-16). It denies both `bash` and `shell`.
+OpenCode v1.19.3 keeps `bash` as the shell tool's permission key, says it will
+be renamed (`tool/shell/id.ts`), and accepts and ignores a `shell` key. The
+[permissions page](https://opencode.ai/docs/permissions/) for this agent
+format names only `shell`. OpenCode V2 reads this format and maps its `bash`
+to V2's `shell` action
+([Migrate from V1](https://dev.opencode.ai/v2/docs/migrate-v1/)). All three
+were checked 2026-10-22; under either key name, the reviewer has no shell.
 OpenCode's free-tier models on its own provider currently refuse an agent
 whose shell is denied, with "OpenCode's free tier can only be used from within
-OpenCode" ([OpenCode issue 50627](https://github.com/anomalyco/opencode/issues/50627),
-open on 2026-10-16), so run this reviewer with another model. `bash: ask` or a
+OpenCode" ([OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723),
+open on 2026-10-22), so run this reviewer with another model. `bash: ask` or a
 narrow allow rule avoids that error, but a command that yields no pattern,
 such as a bare `> file`, skips the shell check, so either would let the
 reviewer write.
@@ -679,6 +701,19 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.17.1
+
+The OpenCode reviewer, `.opencode/agents/fresh-eyes-reviewer.md`, now denies
+`shell` beside `bash`, so it still has no shell once OpenCode renames the
+permission key, and sets `external_directory: ask`, so it asks before reading
+outside the project on OpenCode V2, which allows that by default. On V1 it now
+also asks for directories that OpenCode's defaults or your own `opencode.json`
+allow, such as OpenCode's temporary directory. The `fresh-eyes-review`
+skill cites
+[OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723)
+instead of 50627, which was closed on 2026-10-20 as its duplicate. Both files
+are template-owned: `--check` reports them `stale` and `--adopt` updates them.
 
 ### Upgrading to 0.17.0
 

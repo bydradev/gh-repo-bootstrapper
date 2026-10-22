@@ -61,7 +61,7 @@ what each round changed, and your recommendation.
 
 OpenCode's free-tier models on its own provider currently refuse an agent whose
 shell is denied, as this repository's OpenCode reviewer's is, with "can only be
-used from within OpenCode" (OpenCode issue 50627, open on 2026-10-16). Run that
+used from within OpenCode" (OpenCode issue 49723, open on 2026-10-22). Run that
 reviewer with another model or use another reviewer; don't loosen its
 permissions.
 

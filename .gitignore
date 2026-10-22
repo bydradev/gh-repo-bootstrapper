@@ -40,6 +40,9 @@ blob-report/
 playwright/.cache/
 e2e/.cache/
 .lighthouseci/
+# Agent browser sessions from the Playwright CLI and MCP server.
+.playwright-cli/
+.playwright-mcp/
 
 # Python
 __pycache__/

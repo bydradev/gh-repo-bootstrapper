@@ -1,6 +1,6 @@
 ---
 name: local-validation-nextjs
-description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, or Playwright E2E. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev` and when it applies, `EMFILE` fallbacks, Playwright traces and flaky results, the CI validation tiers as generated and where to check them, and how a worktree gets its dependencies."
+description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, Playwright E2E, or driving a browser against a local server. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev` and when it applies, `EMFILE` fallbacks, Playwright traces and flaky results, the Playwright CLI for agent browser checks, the CI validation tiers as generated and where to check them, and how a worktree gets its dependencies."
 ---
 
 # Local validation for Next.js
@@ -77,6 +77,48 @@ reported as `flaky`, not failed, and the run stays green unless it is
 configured to fail on flaky tests (`failOnFlakyTests`); read the report's flaky
 count instead of treating a green run as proof nothing failed.
 
+## Agent browser checks
+
+To look at a running page yourself when `@playwright/test` is installed, use
+the CLI it ships, `npx --no-install playwright cli`. Read its commands in
+`node_modules/playwright-core/lib/tools/skills/playwright-cli/SKILL.md`,
+which matches the installed version; `--help` prints that path only under
+Claude Code or Copilot CLI. Older versions, such as 1.60, ship no such skill:
+when the file is missing or `npx --no-install playwright cli --help` fails,
+report that instead of installing or upgrading a package to follow this
+section. Do not install `@playwright/cli`, and do not copy or link that skill
+into `.agents/skills`: a fresh checkout has no `node_modules`, and `--adopt`
+deletes a `.claude/skills` link to a skill folder that is missing.
+
+- Name a session of your own with `-s=<name>` on `open` and every later
+  command. Without it, every agent in the checkout shares the `default`
+  session, and a second `open` replaces the browser another agent is using.
+- Pass `--browser=chromium` to `open`, which `--help` does not list but the
+  CLI accepts as Playwright's own Chromium. The default is the branded Chrome
+  channel, which the E2E setup does not install, and where Chrome is installed
+  it tests a different browser than the suite does.
+- Open only a local server started from this repository with its fixture or
+  test data. Never a hosted or production URL, live or private data, or a real
+  browser profile (`--persistent`, `--profile`, `attach --cdp`, or
+  `attach --extension`).
+- To inspect a failing E2E test, run it with `--debug=cli` in the background.
+  It pauses the test and prints `playwright-cli attach <name>`; run that
+  through `npx --no-install playwright cli`, then pass `-s=<name>` to later
+  commands. The page uses the suite's own servers and sign-in, so no
+  credentials are needed. Stop the run when you are done: it keeps the
+  suite's server, and any `next dev` lock, alive.
+- The CLI writes snapshots, console logs, screenshots, and traces to
+  `.playwright-cli/`, which `.gitignore` excludes because they can hold
+  session data. Leave out `--filename`, or start it with `.playwright-cli/`:
+  a named file is written relative to the repository root, outside that
+  folder. Never commit them. Attach a screenshot to a pull request or
+  issue only as the screenshot rules in `AGENTS.md` allow, after their privacy
+  review, never because the skill suggests `gh --attach`.
+- Do not run `npx playwright init-agents`, `init-skills`, or
+  `playwright cli install`. The healer agent that `init-agents` writes marks
+  failing tests `test.fixme()` and is told not to ask questions, and all three
+  write agent, skill, or MCP files outside this repository's layout.
+
 ## CI validation tiers
 
 As generated, CI validates in three tiers. This repository owns
@@ -117,6 +159,24 @@ verification copy.
 
 - `next dev` build-directory lock: Next.js 16.3.5 `dist/build/lockfile.js` and
   `setup-dev-bundler.js`, checked 2026-09-29.
+- Playwright CLI: `@playwright/test` 1.64.0's `playwright cli --help`,
+  `cli open --help` (`--browser`, `--persistent`, `--profile`), `cli attach
+  --help` (`--cdp`, `--extension`), and `playwright test --help`
+  (`--debug` modes `inspector` and `cli`); `playwright-core` 1.64.0's
+  `resolveBrowserParam` (`chromium` maps to Playwright's Chromium build) and
+  `initWorkspace` (`cli install` copies the skill), and `playwright` 1.64.0's
+  `lib/mcp/test/browserBackend.js` (the printed `attach <name>` and the
+  session name for `-s`); runs on 2026-10-22 where `open` without `--browser`
+  looked for Google Chrome, `--debug=cli` printed the attach command, `-s`
+  drove the paused test, output landed in `.playwright-cli/` but a
+  `screenshot --filename=` file in the working directory, a second `open`
+  restarted the `default` session, and `--help` printed the skill path only
+  with `CLAUDECODE` or `COPILOT_CLI` set; `playwright-core` 1.58.2 and
+  1.60.0, which have no `lib/tools/skills/`, and 1.62.0, which has it; and
+  `playwright-core` 1.64.0's
+  `lib/tools/skills/playwright-cli/SKILL.md` (`gh --attach`) and
+  `playwright` 1.64.0's `lib/agents/playwright-test-healer.agent.md`
+  (`test.fixme()`), checked 2026-10-22.
 - Trace modes: the `--trace` choices in Playwright 1.63.0's
   `playwright test --help`, checked 2026-09-29.
 - Output directory, flaky status, and `failOnFlakyTests`: Playwright 1.63.0's

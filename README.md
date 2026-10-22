@@ -558,7 +558,9 @@ for when the base is another type's. The diff needs the bootstrapper's git
 release tags; from a copy without them, or for a workflow from a shallow clone
 or one with no tag through v0.8.1, `--check` prints a notice and skips it,
 since the few releases such a clone holds could name a base later than the one
-the workflow was forked from.
+the workflow was forked from. It does the same when no tag holds the template,
+as for a copy of `bootstrap.py` with no `.git` of its own inside another
+repository, where git lists that repository's tags.
 
 ### Checking and adopting
 
@@ -701,6 +703,16 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+### Upgrading to 0.18.1
+
+A copy of the bootstrapper with no `.git` of its own, kept inside another
+repository that has `vX.Y.Z` tags, read that repository's tags as releases.
+None of them holds a bootstrapper template, so `--check` diffed an unstamped,
+locally modified workflow against the current template alone, as if it were
+the release the workflow was forked from, and skipped the legacy docs diff
+without saying so. Both now print the missing-tags notice, once per run, and
+skip the diff. No file is classified or written differently.
 
 ### Upgrading to 0.18.0
 

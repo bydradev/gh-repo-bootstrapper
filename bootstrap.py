@@ -634,8 +634,9 @@ class _ReleaseReads:
         if not self._noticed:
             self._noticed = True
             print(
-                f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, or a shallow "
-                "or incomplete clone); skipped the diff against legacy template docs or workflows",
+                f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, a shallow "
+                "or incomplete clone, or tags that hold no bootstrapper template); skipped the diff "
+                "against legacy template docs or workflows",
                 file=sys.stderr,
             )
 
@@ -643,8 +644,10 @@ class _ReleaseReads:
 def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, list[str]]:
     """Render historical owned docs; new skills and agents have no legacy copies.
 
-    Without git or release tags (a copy without .git, a shallow clone) there
-    is nothing to render: a one-line notice goes to stderr and the result is
+    Without git or release tags (a copy without .git, a shallow clone), or
+    when no tag holds a template (a copy without a .git of its own inside
+    another repository, whose own release tags git then lists), there is
+    nothing to render: a one-line notice goes to stderr and the result is
     empty, so callers skip the legacy diff instead of failing. `reads` is the
     run's shared reader, so a template another caller read is not read again.
     """
@@ -685,6 +688,8 @@ def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, lis
                     bodies.setdefault(SCREENSHOT_REVIEW, []).append(
                         _compose(common, "PLATFORM_GUIDANCE", fragment)
                     )
+    if not bodies:
+        reads.notice()
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
 
 
@@ -707,24 +712,30 @@ def _workflow_diff_bases(
     its stamp; a fork of a later template still needs its own base here, or the
     template's later changes read as local edits. Without tags there is no
     release to name, so the result is empty and the diff is skipped; see
-    _workflow_diff_tags for the tags that count. `reads` is the run's shared
-    reader, so a template the legacy docs read is not read again.
+    _workflow_diff_tags for the tags that count. It is empty too when no tag
+    holds any of this workflow's templates, as when the tags are another
+    repository's: this render alone could not name the nearest release.
+    `reads` is the run's shared reader, so a template the legacy docs read is
+    not read again.
     """
     if not tags:
         return []
     reads = _ReleaseReads() if reads is None else reads
     own = _template_source(rel, current)
-    bases = {current: (f"current/{rel}", None)}
+    bases, shipped_any = {current: (f"current/{rel}", None)}, False
     for tag in tags:
         for name in sorted(_LEGACY_WORKFLOW_SOURCES[rel], key=lambda name: name != own):
             shipped = reads.template(tag, name)
             if shipped is not None:
+                shipped_any = True
                 # The deploy markers v0.1.0 spliced in (see _legacy_template_bodies).
                 body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", shipped.decode("utf-8", errors="replace"))
                 bases.setdefault(
                     body,
                     (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
                 )
+    if not shipped_any:
+        return []
     return [(label, body, other) for body, (label, other) in bases.items()]
 
 
@@ -3061,6 +3072,8 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                         if not release_tags:
                             reads.notice()
                     candidates = _workflow_diff_bases(rel, read_stamp(expected, True)[1], release_tags, reads)
+                    if not candidates:
+                        reads.notice()
                 else:
                     if legacy_bodies is None:
                         legacy_bodies = _legacy_template_bodies(reads)

@@ -347,8 +347,9 @@ current npm release, checked 2026-10-16). It denies both `bash` and `shell`:
 OpenCode v1.19.3 keeps `bash` as the shell tool's permission key and says it
 will be renamed with OpenCode 2.0 (`tool/shell/id.ts`), and the current
 [permissions documentation](https://opencode.ai/docs/permissions/) names only
-`shell` (both checked 2026-10-22). Each version ignores the key it does not
-use.
+`shell` (both checked 2026-10-22). v1.19.3 accepts and ignores the `shell`
+key, and a release that renames the key either ignores `bash` or still honours
+it, so the reviewer has no shell either way.
 OpenCode's free-tier models on its own provider currently refuse an agent
 whose shell is denied, with "OpenCode's free tier can only be used from within
 OpenCode" ([OpenCode issue 49723](https://github.com/anomalyco/opencode/issues/49723),

@@ -1028,7 +1028,7 @@ def _tool_names(tools) -> set:
 def check_reviewer_agents(label: str, files: dict) -> list:
     """Both fresh-eyes reviewer agents leave the model unset and get no edit
     tool. OpenCode's frontmatter holds only OPENCODE_REVIEWER_KEYS and sets
-    only the edit, task and bash permissions, each to deny; Claude Code's
+    only the edit, task, bash and shell permissions, each to deny; Claude Code's
     keeps Bash and says to use it only for read-only commands."""
     errors = []
     for path in (CLAUDE_REVIEWER, OPENCODE_REVIEWER):

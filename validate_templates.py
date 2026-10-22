@@ -2144,6 +2144,12 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
         and isinstance(step.get("with"), dict) and step["with"].get("cache")
     ]
     if not cached:
+        # A guard left behind would reject a repository that nothing needs a manifest for.
+        if any(step.get("name") == PYTHON_MANIFEST_GUARD_NAME for step in steps):
+            return [
+                f"{where} has a step {PYTHON_MANIFEST_GUARD_NAME!r} but no setup-python step that asks "
+                f"to cache, so nothing needs a manifest: remove the step or restore the cache"
+            ]
         return []
     # The rule models one pip cache; a second cached step hashes files of its own.
     if len(cached) > 1:
@@ -2174,8 +2180,21 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
             f"{where} must have exactly one step {PYTHON_MANIFEST_GUARD_NAME!r} after actions/checkout and "
             f"before setup-python, which fails with a clear error when its pip cache has no manifest to hash"
         ]
+    # A step between them could change the files the two steps inspect.
+    if steps[setup - 1] is not guards[0]:
+        return [
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must come immediately before setup-python, "
+            f"so that no step between them changes the files they inspect"
+        ]
     guard = guards[0]
     errors = []
+    # `if` has its own error below; shell, working-directory and the like change how the script runs.
+    extra = sorted(set(guard) - {"name", "timeout-minutes", "env", "run", "if"})
+    if extra:
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} may only set name, timeout-minutes, env and run, "
+            f"since the rule models nothing else; got {extra}"
+        )
     if "if" in guard:
         errors.append(f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must run unconditionally")
     timeout = guard.get("timeout-minutes")
@@ -2202,6 +2221,11 @@ def _python_manifest_guard_errors(label: str, steps: list) -> list:
             f"in an if block, with `if ...; then`, `exit 1` and `fi` each alone on a line (no trailing "
             f"comment or `;`), and then print an ::error:: message and exit 1 inside it, "
             f"the ::error:: line first"
+        )
+    elif any(re.match(r"\s*(?:if|for|while|until|case|select)\b|\s*[{(]", line) for line in inside):
+        errors.append(
+            f"{where} step {PYTHON_MANIFEST_GUARD_NAME!r} must keep the empty-hash test flat: no nested if, "
+            f"loop, case or group, because the first fi after the test ends it"
         )
     elif any(re.match(r"\s*(?:else|elif)\b", line) for line in inside):
         errors.append(
@@ -4743,6 +4767,15 @@ def _structure_self_tests() -> list:
     # Bash reads $1ABC as $1 followed by ABC, so the test would never see the variable.
     expect("python manifest guard variable that is not a shell identifier",
            gates("python", test, digit_variable), "must test an empty hash")
+    def nested_if(run):
+        return run.replace("  echo ", "  if false; then\n  echo ", 1).replace("  exit 1\n", "  exit 1\n  fi\n", 1)
+
+    expect("python manifest guard with a nested if around the failure",
+           gates("python", test, lambda w: guard_script(w, nested_if)),
+           "must keep the empty-hash test flat")
+    expect("python manifest guard with a shell key",
+           gates("python", test, lambda w: manifest_guard(w).update({"shell": "pwsh"})),
+           "may only set name, timeout-minutes, env and run")
     expect("python manifest guard with an else branch",
            gates("python", test, lambda w: guard_script(w, lambda r: r.replace("fi\n", "else\n  exit 1\nfi\n"))),
            "must not branch with else or elif")
@@ -4771,6 +4804,22 @@ def _structure_self_tests() -> list:
 
     expect("python uncached setup-python before the cached one, no guard",
            gates("python", test, uncached_setup_first), no_guard)
+
+    def step_between_guard_and_setup(workflow):
+        steps = workflow["jobs"]["test"]["steps"]
+        steps.insert(steps.index(python_setup(workflow)),
+                     {"name": "Drop manifests", "run": "rm -f pyproject.toml requirements.txt uv.lock"})
+
+    expect("python step between the manifest guard and setup-python",
+           gates("python", test, step_between_guard_and_setup), "immediately before setup-python")
+
+    def cache_removed_guard_kept(workflow):
+        options = python_setup(workflow)["with"]
+        options.pop("cache")
+        options.pop("cache-dependency-path")
+
+    expect("python manifest guard left in place after the cache is removed",
+           gates("python", test, cache_removed_guard_kept), "no setup-python step that asks to cache")
 
     def second_cached_setup(workflow):
         steps = workflow["jobs"]["test"]["steps"]

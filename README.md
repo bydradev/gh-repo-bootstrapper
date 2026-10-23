@@ -838,6 +838,16 @@ the check with either answer too. `--check`
 reports `pr-title-check.yml` as `stale`, and `--adopt` updates it; no action
 pin changes.
 
+The release workflow's `actions/create-github-app-token` moves to v3.3.0
+(from v3.2.0), the newest release at least 7 days old, as the Dependabot
+cooldown waits. v3.3.0 adds three `permission-*` inputs and removes
+`permission-team-discussions`; the templates set only `client-id`,
+`private-key`, `permission-contents` and `permission-pull-requests`, which do
+not change. A new repository gets the new pin. An existing one keeps its own,
+since a workflow's digest ignores the version after `@` and `--adopt` keeps
+the repository's pins: its Dependabot brings the bump, and `--check` reports
+no change.
+
 ### Upgrading to 0.19.0
 
 The `--check` report widens its state column to fit `local-modified`, its

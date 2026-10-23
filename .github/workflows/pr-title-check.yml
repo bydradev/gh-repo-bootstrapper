@@ -87,9 +87,11 @@ jobs:
           # request.
           # Mirrors release-please 17.6.0 (commit.js, base.js for the
           # Release-As version, and changelog-notes/default.js and
-          # util/pull-request-body.js with node-html-parser 6.1.13 for the
-          # release pull request), its @conventional-commits/parser 0.4.1 and
-          # the conventionalcommits preset 6.1.0, checked 2026-10-19.
+          # util/pull-request-body.js with node-html-parser 6.1.11, the
+          # version release-please-action v5.0.0 bundles, for the release pull
+          # request), its @conventional-commits/parser 0.4.1 and the
+          # conventionalcommits preset 6.1.0, checked 2026-10-19 (the
+          # node-html-parser version and its reading re-checked 2026-10-22).
           RELEASED = {"feat", "feature", "fix", "perf", "revert"}
           TYPES = "feat, fix, perf or revert"
           SPLIT = re.compile(r"\n\n(?=(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:[(].*?[)])?: )")

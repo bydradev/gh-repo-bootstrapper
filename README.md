@@ -397,16 +397,20 @@ specifics` is last, so it's lost first:
   documentation, checked 2026-10-03).
 - Codex stops at `project_doc_max_bytes`, 32 KiB by default
   (`openai/codex` `agents_md.rs` at `c542fb9`, checked 2026-10-03).
-- OMO (5.1.12 to 5.1.19, checked 2026-10-05) loads `AGENTS.md` from the
-  working folder and its ancestors in full at startup. When it reads a file
-  in a subfolder, it injects that folder's `AGENTS.md` as Directory Context,
-  in full up to 32 KiB per file. Its rules plugin also adds a second copy,
-  on edits and writes as well as reads, which it cuts at 12,000 characters
-  (`PI_RULES_MAX_RULE_CHARS`) with a
-  `[Rule truncated. Read full rule: <path>]` marker.
+- OmO Native, OMO's standalone `omo` command (npm `omo-ai` 5.1.41 on the
+  senpi engine 2026.10.21-1; their packaged source, read 2026-10-22), loads
+  `AGENTS.md` from the working folder and its ancestors at startup, up to
+  64 KiB per file and 128 KiB in all. When it reads a file in a subfolder, it
+  injects that folder's `AGENTS.md` as Directory Context, up to 32 KiB per
+  file. Its built-in rules extension also adds a second copy of an
+  `AGENTS.md` it did not load at startup, on edits and writes as well as
+  reads, which it cuts at 12,000 characters (`PI_RULES_MAX_RULE_CHARS`) with
+  a `[Rule truncated. Read full rule: <path>]` marker. OMO's OpenCode edition
+  (npm `oh-my-openagent` 5.1.41) injects Directory Context on reads only, cut
+  to fit the remaining context window, and adds no second copy.
 
 The truncated OMO copy is a duplicate, so OMO needs no setting. To drop it,
-run OMO with `--pi-rules-mode static`. Directory Context still injects the
+run `omo` with `--pi-rules-mode static`. Directory Context still injects the
 full file on reads, but an edit or write in a subfolder that wasn't read
 first then gets no nested `AGENTS.md`. This only matters for sessions
 started above the repository, since a repository root's `AGENTS.md` loads at
@@ -582,6 +586,7 @@ states:
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>` and git tracks it with no uncommitted change; any other symlink, and one git does not track, is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git tracks it with no uncommitted or staged change; refused when git does not track it, outside a git repository, and inside a repository git cannot read. Deleting a skill's files also removes the folders this leaves empty and then, in the same run, the `.claude/skills` mirror that pointed at the folder (see `dangling`); a folder it cannot remove is refused and keeps its mirror |
+| `other-type` | a stamped template skill that another `--type`, or `--screenshots`, generates, such as `local-validation-nextjs` under `--type simple`; a `(--type)` row lists them all | refused before anything changes, along with every other file; re-run with the `--type`, and `--screenshots` where it applies, that the repository was generated with |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
 A path is `unreadable` when the user running the command cannot read the file
@@ -613,12 +618,21 @@ shipped. A repository's own `docs/screenshot-review.md`, such as its own
 screenshot-review process, does not count, even one that shows the stamp in
 an example further down. Without the template's skill it is left alone; next
 to the template's skill it is reported as `local-modified`, as before, so
-move it to another path first. Pass the same
+move it to another path first. A Next.js repository's `test.yml` is its own,
+so `--check` reports it as `differs`, not `stale`, whether the repository
+edited it or it was generated with the other `--postgres`; under that row a
+line says whether the file and the render each have a Postgres service (one
+named `postgres`, or one whose image is `postgres`), such as "Postgres
+service: in the render (--postgres), not in this file; drop --postgres if
+the repository does not use it". When the file uses YAML the script does not
+read, or gives a service's image as a block scalar or an expression, the line
+says it cannot tell. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type
 (for example `local-validation-nextjs` under `--type simple`), or a stamped
 `screenshot-review` skill this configuration does not generate, `--check`
-reports `(--type)` and `--adopt` refuses before changing anything, since it
-would otherwise delete those skills. For `AGENTS.md` it reports per section: a
+reports each such skill as `other-type` and adds a `(--type)` row naming them,
+and `--adopt` refuses before changing anything, since it would otherwise
+delete those skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local`:
 repository text outside `## Project specifics`, including a subsection added
@@ -702,7 +716,25 @@ of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
 
-### Upgrading to 0.18.1
+The user-visible step in `pr-title-check.yml` judges a pull request's title
+and body, so it agrees with Release Please only when the squash commit is made
+of them. `bootstrap.py` sets that squash default (the pull request title as
+the commit title, its body as the message) when it creates a repository and
+with `--configure-only`; `--adopt` never contacts GitHub, so it leaves the
+setting as it is. A repository `bootstrap.py` did not create, and that never
+ran `--configure-only`, usually still has GitHub's default: the commit's own
+title and message for a pull request of one commit, and the pull request
+title with a list of its commits for more ("Configuring commit squashing for
+pull requests" and "Pull request merges", GitHub Docs, read
+2026-10-22). A merge through the web interface then commits a message the
+check never read, and Release Please may release it differently. After the
+first `--adopt`, run `--configure-only` once, which also applies the other
+repository settings listed in
+[What the script configures](#what-the-script-configures), or pick only the
+pull request title and description as the default message under *Allow
+squash merging* in the repository's general settings.
+
+### Upgrading to 0.19.1
 
 `pr-title-check.yml` now also reads the body as GitHub's default squash commit
 ends it. That commit can add a line of dashes and the commits' `Signed-off-by`
@@ -721,6 +753,39 @@ as the body stands, such as an empty `BREAKING CHANGE:` footer or a
 the check with either answer too. `--check`
 reports `pr-title-check.yml` as `stale`, and `--adopt` updates it; no action
 pin changes.
+
+### Upgrading to 0.19.0
+
+The `--check` report widens its state column to fit `local-modified`, its
+longest state, so every path starts in the same column; a script that reads
+the report by fixed position needs the new width. The README's state table
+gains the `other-type` row the report already printed.
+
+`python`: the uv that `test.yml` installs for every `uv.lock` project moves
+to 0.13.1, and the ruff it falls back to when the project does not bring its
+own moves to 0.17.1 (from 0.12.24 and 0.16.10), each the newest release at
+least 7 days old, as the Dependabot cooldown waits. uv 0.13 still installs a
+`uv.lock` written by 0.12 with `uv sync --locked`. Ruff 0.17 changes its
+defaults: Python 3.11 when no version is configured, seven `flake8-datetimez`
+rules (DTZ001, DTZ005 to DTZ007, DTZ011, DTZ012 and DTZ901) out of the
+default set and F406 in, and trailing pragma comments no longer count toward
+line length, which can reformat imports. A project that relies on the ruff
+fallback runs `ruff format .` and `ruff check .` with 0.17.1 before taking
+the change. `test.yml` belongs to
+the repository, so `--check` reports it as `differs` and `--adopt` keeps it;
+copy the two pins from the template by hand.
+
+`nextjs`, `rust`, and every type's `pull-requests` skill and
+`pr-title-check.yml`: dated sources move to the versions they were re-checked
+against (Next.js 16.4.2, Playwright 1.64.1, cargo 1.99.1, and
+node-html-parser 6.1.11, which release-please-action v5.0.0 bundles), with no
+change in what they say. `--check` reports those skills and the workflow as
+`stale`, and `--adopt` updates them.
+
+`nextjs`: when the repository's own `test.yml` differs from the render,
+`--check` adds a line under its row saying whether the file and the render
+each have a Postgres service, so a `--postgres` that does not match the
+repository shows. The check still only reads; nothing else changes.
 
 ### Upgrading to 0.18.0
 
@@ -1313,7 +1378,7 @@ footer) proposes the next minor, 0.2.0 from the seeded 0.1.0, and not 1.0.0,
 which Release Please proposes without the option. To release 1.0.0 on purpose,
 merge a commit with a `Release-As: 1.0.0` footer, in a `BEGIN_COMMIT_OVERRIDE`
 block so that GitHub's squash trailers do not end it (see
-[Upgrading to 0.18.1](#upgrading-to-0181)), or remove the line before the
+[Upgrading to 0.19.1](#upgrading-to-0191)), or remove the line before the
 breaking change merges. The repository owns the file, so `--adopt` writes
 it only when it is missing and keeps an existing one (see
 [Upgrading to 0.17.0](#upgrading-to-0170)).
@@ -1359,7 +1424,9 @@ Full CI pipeline for Next.js applications.
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
 - `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore` (which keeps Prettier off
-  the three template-owned workflows)
+  the three template-owned workflows); `.nvmrc` names Node 24, in Maintenance
+  LTS since 2026-10-20, while Node 26 becomes Active LTS on 2026-10-28
+  (`nodejs/Release` `schedule.json`, read 2026-10-22)
 - `docs/lint-baseline.md`: policy and an empty table for our own inline lint/type suppressions
 - `docs/advisory-baseline.md`: policy and an empty table for accepted dependency advisories
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks

@@ -637,10 +637,12 @@ def _git_show(args: list[str]) -> subprocess.CompletedProcess:
     GIT_NO_LAZY_FETCH=1 keeps a partial clone from fetching a missing object
     from its remote, so --check and --adopt do not contact it; git then fails
     the read instead (git-scm.com/docs/git, read 2026-10-23). A git that
-    predates the variable ignores it."""
+    predates the variable ignores it. LC_ALL=C keeps git's messages in
+    English, so _PROMISOR_MISS matches under a translated git too."""
     posix = os.name == "posix"
     with subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={**_git_env(), "GIT_NO_LAZY_FETCH": "1"},
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env={**_git_env(), "GIT_NO_LAZY_FETCH": "1", "LC_ALL": "C"},
         **({"process_group": 0} if posix else {}),
     ) as process:
         try:

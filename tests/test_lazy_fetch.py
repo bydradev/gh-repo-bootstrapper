@@ -22,6 +22,12 @@ class NoLazyFetchTests(unittest.TestCase):
         result = bootstrap._git_show(["sh", "-c", 'printf %s "$GIT_NO_LAZY_FETCH"'])
         self.assertEqual(result.stdout, b"1")
 
+    def test_git_show_keeps_git_messages_untranslated(self):
+        # A translated "from promisor remote" would not be recognised.
+        with unittest.mock.patch.dict(os.environ, {"LANG": "de_DE.UTF-8", "LC_ALL": "de_DE.UTF-8"}):
+            result = bootstrap._git_show(["sh", "-c", 'printf %s "$LC_ALL"'])
+        self.assertEqual(result.stdout, b"C")
+
 
 class MissingObjectTests(unittest.TestCase):
     """A read that needs an object the partial clone has not fetched ends the

@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=6becb4b0ce04f31226ddc5345175158b913f12c42b95446fcbef788f7d8f7788 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=e7bdf51dc4387a3220dcbe621632eac217e5f3c9fb4e8120cd43d66c900d4c79 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -122,6 +122,8 @@ follow `docs/branch-protection-runbook.md` (repository root) and the
   release-please-action v5.0.0 locks, and v17.11.2, with
   conventional-changelog-conventionalcommits 6.1.0, checked 2026-10-18.
 - How it reads back a release pull request's body: release-please v17.6.0
-  with node-html-parser 6.1.13, checked 2026-10-19.
+  with node-html-parser 6.1.11, the version release-please-action v5.0.0
+  bundles, and 6.1.13, which reads those bodies the same way, checked
+  2026-10-22.
 - `merge_pull_request` parameters: the `github/github-mcp-server` README,
   checked 2026-10-16.

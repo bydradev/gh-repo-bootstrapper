@@ -113,6 +113,8 @@ PR_TEMPLATE = ".github/pull_request_template.md"
 PR_TEMPLATE_FOLDERS = (".github", "", "docs")
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
+# Fits the longest --check state, `local-modified`, so every path lines up.
+REPORT_STATUS_WIDTH = len("local-modified")
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
 _STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
 # Workflows are YAML, where an HTML comment is not a comment: they carry the
@@ -2414,6 +2416,65 @@ def _only(entries: list, name: str):
     return found[0] if found else None
 
 
+def _has_postgres_service(text: str):
+    """Whether any job in a workflow has a Postgres service container: one
+    named `postgres`, as the --postgres block names it, or one whose image is
+    `postgres`. None when the file is outside _structural_lines()'s subset, or
+    when no such container is found but one the reader cannot see into might
+    be one: a flow mapping, a block scalar or an expression."""
+    rows = _structural_lines(text)
+    if rows is None:
+        return None
+    root = [(k, key, value) for k, (indent, key, value) in enumerate(rows) if indent == 0]
+    jobs = _only(root, "jobs")
+    if jobs is None:
+        return False
+    if jobs is _UNVERIFIABLE or jobs[1]:
+        return None
+    entries = _children(rows, jobs[0])
+    if entries is _UNVERIFIABLE:
+        return None
+    unsure = False
+    for k, _, value in entries:
+        job = _UNVERIFIABLE if value else _children(rows, k)
+        services = _UNVERIFIABLE if job is _UNVERIFIABLE else _only(job, "services")
+        if services is None:
+            continue
+        containers = _UNVERIFIABLE if services is _UNVERIFIABLE or services[1] else _children(rows, services[0])
+        if containers is _UNVERIFIABLE:
+            unsure = True
+            continue
+        for c, name, container in containers:
+            if name == "postgres":
+                return True
+            fields = _UNVERIFIABLE if container else _children(rows, c)
+            image = _UNVERIFIABLE if fields is _UNVERIFIABLE else _only(fields, "image")
+            if image is None:
+                continue
+            value = "|" if image is _UNVERIFIABLE else (image[1] or "").strip("\"'")
+            if re.fullmatch(r"(?:[^\s/]+/)*postgres(?:[:@].*)?", value):
+                return True
+            unsure = unsure or value == "|" or "${{" in value
+    return None if unsure else False
+
+
+def _postgres_hint(expected: str, actual: str) -> str:
+    """One line on whether an edited test.yml and the render carry the
+    --postgres service block, since --check cannot show a wrong --postgres
+    once the repository's own test.yml differs."""
+    local, render = _has_postgres_service(actual), _has_postgres_service(expected)
+    if local is None:
+        return "Postgres service: cannot read this file to tell; compare it with the render by hand"
+    if local and render:
+        return "Postgres service: in this file and in the render (--postgres)"
+    if local:
+        return "Postgres service: in this file, not in the render; pass --postgres if the repository uses it"
+    if render:
+        return ("Postgres service: in the render (--postgres), not in this file; "
+                "drop --postgres if the repository does not use it")
+    return "Postgres service: in neither this file nor the render"
+
+
 def _declared_inputs(text: str):
     """Names under the root `on.workflow_call.inputs`, [] when it declares none,
     None when the file is not a reusable workflow, or _UNVERIFIABLE."""
@@ -3116,6 +3177,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             report[rel] = ("differs", missing) if missing else ("same", None)
         elif rel == "CLAUDE.md" and "@AGENTS.md" not in actual.split():
             report[rel] = ("differs", "does not import AGENTS.md (no `@AGENTS.md` line)")
+        elif rel == ".github/workflows/test.yml" and NEXTJS_BASELINE_REVIEW_WORKFLOW in files:
+            # Only nextjs renders --postgres; a repository edits its own test.yml.
+            report[rel] = ("differs", _postgres_hint(expected, actual))
         else:
             report[rel] = ("differs", None)
     holds = _seed_holds(report)
@@ -3189,7 +3253,7 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     for rel, (status, detail) in sorted(report.items()):
         if status != "same":
             aligned = False
-        print(f"  {status:<8} {rel}")
+        print(f"  {status:<{REPORT_STATUS_WIDTH}} {rel}")
         if rel == "AGENTS.md" and isinstance(detail, list):
             retired_text = _retired_section_text(repo_dir, detail)
             for row_status, heading in detail:

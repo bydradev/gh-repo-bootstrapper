@@ -113,6 +113,8 @@ PR_TEMPLATE = ".github/pull_request_template.md"
 PR_TEMPLATE_FOLDERS = (".github", "", "docs")
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
+# Fits the longest --check state, `local-modified`, so every path lines up.
+REPORT_STATUS_WIDTH = len("local-modified")
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
 _STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
 # Workflows are YAML, where an HTML comment is not a comment: they carry the
@@ -3168,7 +3170,7 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     for rel, (status, detail) in sorted(report.items()):
         if status != "same":
             aligned = False
-        print(f"  {status:<8} {rel}")
+        print(f"  {status:<{REPORT_STATUS_WIDTH}} {rel}")
         if rel == "AGENTS.md" and isinstance(detail, list):
             retired_text = _retired_section_text(repo_dir, detail)
             for row_status, heading in detail:

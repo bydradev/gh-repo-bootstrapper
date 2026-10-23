@@ -813,6 +813,13 @@ template's last generated section, such as `## Skills`, under its one
 `## Project specifics` heading, reads the same way while the generated part
 lacks that section; rename it to adopt.
 
+The YAML reader `--adopt` uses on a repository's own `test.yml` now refuses
+a flow sequence with a lone `-` item, such as `[- , "a"]` or `[a, -]`, which
+YAML does not allow, instead of reading the `-` as an item. Such a file is
+reported as outside the subset it reads, with the line's number, as other
+YAML it does not model is. Flow items that start with `-`, such as `-a`, and
+a quoted `"-"` are read as before.
+
 ### Upgrading to 0.19.0
 
 The `--check` report widens its state column to fit `local-modified`, its

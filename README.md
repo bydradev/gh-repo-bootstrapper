@@ -618,7 +618,15 @@ shipped. A repository's own `docs/screenshot-review.md`, such as its own
 screenshot-review process, does not count, even one that shows the stamp in
 an example further down. Without the template's skill it is left alone; next
 to the template's skill it is reported as `local-modified`, as before, so
-move it to another path first. Pass the same
+move it to another path first. A Next.js repository's `test.yml` is its own,
+so `--check` reports it as `differs`, not `stale`, whether the repository
+edited it or it was generated with the other `--postgres`; under that row a
+line says whether the file and the render each have a Postgres service (one
+named `postgres`, or one whose image is `postgres`), such as "Postgres
+service: in the render (--postgres), not in this file; drop --postgres if
+the repository does not use it". When the file uses YAML the script does not
+read, or gives a service's image as a block scalar or an expression, the line
+says it cannot tell. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type
 (for example `local-validation-nextjs` under `--type simple`), or a stamped
 `screenshot-review` skill this configuration does not generate, `--check`
@@ -726,7 +734,7 @@ repository settings listed in
 pull request title and description as the default message under *Allow
 squash merging* in the repository's general settings.
 
-### Upgrading to 0.18.1
+### Upgrading to 0.19.0
 
 The `--check` report widens its state column to fit `local-modified`, its
 longest state, so every path starts in the same column; a script that reads
@@ -753,6 +761,11 @@ against (Next.js 16.4.2, Playwright 1.64.1, cargo 1.99.1, and
 node-html-parser 6.1.11, which release-please-action v5.0.0 bundles), with no
 change in what they say. `--check` reports those skills and the workflow as
 `stale`, and `--adopt` updates them.
+
+`nextjs`: when the repository's own `test.yml` differs from the render,
+`--check` adds a line under its row saying whether the file and the render
+each have a Postgres service, so a `--postgres` that does not match the
+repository shows. The check still only reads; nothing else changes.
 
 ### Upgrading to 0.18.0
 

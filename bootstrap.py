@@ -1665,9 +1665,11 @@ def branch_protection_payload(repo_type: str) -> dict:
     open PR — release PRs worst — on every advance of main; enforce_admins
     True so the gates bind the account that does the merging; a required PR
     with zero required approvals so the no-direct-pushes convention is
-    enforced without demanding self-review theatre. Contexts come from
-    required_status_checks() and are asserted against the generated workflows
-    two-way by validate_templates.py, which also pins every value below.
+    enforced without demanding self-review theatre. Every review conversation
+    must be resolved before a merge (operator ruling, 2026-10-23). Contexts
+    come from required_status_checks() and are asserted against the generated
+    workflows two-way by validate_templates.py, which also pins every value
+    below.
     """
     return {
         "required_status_checks": {
@@ -1681,6 +1683,7 @@ def branch_protection_payload(repo_type: str) -> dict:
             "required_approving_review_count": 0,  # PR required; no approval count
         },
         "restrictions": None,  # no push restrictions beyond the above
+        "required_conversation_resolution": True,  # ruled: resolve every review thread
     }
 
 
@@ -4345,6 +4348,10 @@ def print_dry_run(cfg: dict, files: dict):
     print("\nGitHub secrets to configure:")
     print("  RELEASE_PLEASE_APP_KEY")
 
+    print("\nSet by hand after creation (GitHub has no API for these):")
+    for item in manual_settings(cfg):
+        print(f"  {item}")
+
 
 # ---------------------------------------------------------------------------
 # GitHub operations
@@ -4491,15 +4498,73 @@ def actions_policy_changes(requests: list, current: dict) -> list:
     return changes
 
 
-def configure_repo(cfg: dict, confirm=None):
+def repository_settings_requests(cfg: dict) -> list:
+    """The (step, method, endpoint, payload) writes for pull requests and Dependabot.
+
+    Pull request creation is limited to collaborators (users with write access)
+    on a private repository only: a public one stays open to outside pull
+    requests, which only someone with write access can merge (operator ruling,
+    2026-10-23). Dependabot alerts are a prerequisite of malware alerts, which
+    have no API (see manual_settings()); their PUT takes no body.
+    """
+    repo = f"{cfg['owner']}/{cfg['name']}"
+    requests = []
+    if cfg["private"]:
+        requests.append(("pull request creation policy", "PATCH", f"repos/{repo}",
+                         {"pull_request_creation_policy": "collaborators_only"}))
+    requests.append(("Dependabot alerts", "PUT", f"repos/{repo}/vulnerability-alerts", None))
+    return requests
+
+
+def repository_settings_changes(requests: list, repository, alerts_on: bool) -> list:
+    """(step, current value, new value) rows where the repository differs from requests.
+
+    repository is the GET repos/{repo} response, or None when it could not be
+    read; alerts_on is whether GET .../vulnerability-alerts succeeded (GitHub
+    answers 404 when alerts are off, and an unreadable state counts as off).
+    """
+    changes = []
+    for step, _method, _endpoint, payload in requests:
+        if payload is None:
+            if not alerts_on:
+                changes.append((step, "off or unreadable", "on"))
+            continue
+        for key, new in payload.items():
+            current = (repository or {}).get(key)
+            if current != new:
+                changes.append((step, current, new))
+    return changes
+
+
+def manual_settings(cfg: dict) -> list:
+    """Repository settings with no REST or GraphQL field, set by hand.
+
+    Checked against GitHub's REST description and Docs on 2026-10-23: malware
+    alerts are a toggle in the repository's security settings, and the
+    auto-triage presets are UI-only. The preset that dismisses low-impact
+    alerts for development-scoped dependencies is on by default for public
+    repositories and off for private ones; the operator keeps it off, so an
+    unfixable development advisory stays an open alert until it has an
+    advisory-baseline row (operator ruling, 2026-10-23).
+    """
+    steps = ["Dependabot malware alerts: on (Settings > Advanced Security)"]
+    if not cfg.get("private", True):
+        steps.append("Dependabot rules > GitHub presets > dismiss low-impact alerts for "
+                     "development-scoped dependencies: off (Settings > Advanced Security)")
+    return steps
+
+
+def configure_repo(cfg: dict, confirm=None, confirm_settings=None):
     """Apply repository settings.
 
     For a repository this script just created, every setting is applied. With
     --configure-only the repository already exists, so its branch protection
     is never replaced (its required checks must come from its own pull
-    requests; see docs/branch-protection-runbook.md), and Actions policy
-    changes are listed and applied only when confirm() returns true; with no
-    confirm (--non-interactive) they are listed and left unchanged.
+    requests; see docs/branch-protection-runbook.md), Actions policy
+    changes are listed and applied only when confirm() returns true, and pull
+    request creation and Dependabot alert changes only when confirm_settings()
+    does; with no callback (--non-interactive) they are listed and left
+    unchanged.
     """
     name = cfg["name"]
     owner = cfg["owner"]
@@ -4517,6 +4582,8 @@ def configure_repo(cfg: dict, confirm=None):
     plan.append("merge strategy")
     requests = actions_policy_requests(cfg)
     plan += [_actions_policy_step(endpoint) for endpoint, _ in requests]
+    settings = repository_settings_requests(cfg)
+    plan += [step for step, *_ in settings]
     if not existing:
         plan.append("branch protection on main")
 
@@ -4542,10 +4609,13 @@ def configure_repo(cfg: dict, confirm=None):
             )
             done.append(f"{key} secret")
 
-    def api(method: str, endpoint: str, payload: dict, *, stderr=None):
+    def api(method: str, endpoint: str, payload: dict | None, *, stderr=None):
+        command = ["gh", "api", endpoint, "--method", method]
+        if payload is not None:
+            command += ["--input", "-"]
         subprocess.run(
-            ["gh", "api", endpoint, "--method", method, "--input", "-"],
-            input=json.dumps(payload).encode(),
+            command,
+            input=None if payload is None else json.dumps(payload).encode(),
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=stderr,
@@ -4606,6 +4676,40 @@ def configure_repo(cfg: dict, confirm=None):
         api("PUT", endpoint, payload)
         done.append(_actions_policy_step(endpoint))
 
+    # --- pull request creation and Dependabot alerts ---
+    print("  pull requests and Dependabot alerts")
+    if existing:
+        # Limiting pull requests to collaborators stops outside contributors on
+        # a repository that takes them; show before changing.
+        alerts = subprocess.run(["gh", "api", f"repos/{repo}/vulnerability-alerts"], capture_output=True)
+        changes = repository_settings_changes(settings, get(f"repos/{repo}"), alerts.returncode == 0)
+        changed = {step for step, _, _ in changes}
+        done += [step for step, *_ in settings if step not in changed]
+        settings = [request for request in settings if request[0] in changed]
+        if not changes:
+            print("    already match the generated settings")
+        else:
+            for step, current, new in changes:
+                print(f"    {step}: {json.dumps(current)} -> {json.dumps(new)}")
+            if confirm_settings is None or not confirm_settings():
+                print("    left unchanged")
+                cfg["repository_settings_unchanged"] = True
+                for step, *_ in settings:
+                    plan.remove(step)
+                settings = []
+    # A failure here leaves the repository usable, so it is reported, not fatal:
+    # stopping would also skip branch protection, which --configure-only never sets.
+    for step, method, endpoint, payload in settings:
+        try:
+            api(method, endpoint, payload, stderr=subprocess.PIPE)
+            done.append(step)
+        except subprocess.CalledProcessError as exc:
+            cfg.setdefault("settings_failed", []).append(step)
+            print(f"  warning: {step} could not be set automatically.")
+            stderr_text = (exc.stderr or b"").decode(errors="replace").strip()
+            if stderr_text:
+                print(f"    {stderr_text}")
+
     # --- branch protection on main ---
     if existing:
         print("  branch protection (main): left as is on an existing repository")
@@ -4615,6 +4719,8 @@ def configure_repo(cfg: dict, confirm=None):
         else:
             contexts = (protection.get("required_status_checks") or {}).get("contexts") or []
             print(f"    required checks: {', '.join(contexts) or 'none'}")
+            resolution = (protection.get("required_conversation_resolution") or {}).get("enabled")
+            print(f"    conversation resolution: {'required' if resolution else 'not required'}")
         print("    To change it, use the checks this repository's own pull requests report;")
         print("    see docs/branch-protection-runbook.md.")
         return
@@ -4689,11 +4795,20 @@ def print_success(cfg: dict):
             missing.append("branch protection on main (failed — see warning above for details)")
     if cfg.get("actions_policy_unchanged"):
         missing.append("Actions policy (left unchanged; re-run --configure-only interactively to apply it)")
+    for step in cfg.get("settings_failed", []):
+        missing.append(f"{step} (failed; see the warning above)")
+    if cfg.get("repository_settings_unchanged"):
+        missing.append("pull request and Dependabot alert settings (left unchanged; re-run "
+                       "--configure-only interactively to apply them)")
 
     if missing:
         print("\n  Still needs manual setup:")
         for item in missing:
             print(f"    {item}")
+
+    print("\n  Set by hand (GitHub has no API for these):")
+    for item in manual_settings(cfg):
+        print(f"    {item}")
 
     print()
 
@@ -4801,7 +4916,8 @@ def main():
         print(f"\nAbout to configure: {full} ({cfg['repo_type']})")
         print("  Applies: Release Please credentials, squash-merge only (squash commit title and")
         print("    message from the PR), delete branch on merge, update-branch button, Projects")
-        print("  Shows Actions policy changes and asks before applying them")
+        print("  Shows Actions policy, pull request creation (private repositories) and")
+        print("    Dependabot alert changes, and asks before applying each group")
         print("  Leaves branch protection on main unchanged")
         print("  Note: file generation is skipped — commit CLAUDE.md and AGENTS.md separately if needed")
         if not args.non_interactive:
@@ -4811,8 +4927,12 @@ def main():
         def confirm_actions_policy():
             return prompt_yn("    Apply these Actions policy changes?", default=False)
 
+        def confirm_repository_settings():
+            return prompt_yn("    Apply these pull request and Dependabot changes?", default=False)
+
         try:
-            configure_repo(cfg, confirm=None if args.non_interactive else confirm_actions_policy)
+            configure_repo(cfg, confirm=None if args.non_interactive else confirm_actions_policy,
+                           confirm_settings=None if args.non_interactive else confirm_repository_settings)
             print_success(cfg)
         except subprocess.CalledProcessError as exc:
             print(f"\nerror: command failed: {exc.cmd}", file=sys.stderr)

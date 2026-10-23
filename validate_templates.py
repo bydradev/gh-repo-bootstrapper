@@ -37,8 +37,8 @@ Checks performed on each generated file:
 
   - branch-protection payload semantics: bootstrap.branch_protection_payload()
     must pin the operator-ruled configuration (strict False, enforce_admins
-    True, a required PR with zero required approvals, no push restrictions)
-    and contexts identical to required_status_checks(), for every repo type
+    True, a required PR with zero required approvals, no push restrictions,
+    every conversation resolved) and contexts identical to required_status_checks(), for every repo type
   - release-gated full-suite contract: rendered Python, Swift, and Rust
     release-please.yml callers must select the full suite for manual dispatch
     and for the Release Please release commit
@@ -2090,6 +2090,7 @@ DEPENDABOT_INTERVAL = "weekly"
 DEPENDABOT_REFERENCES = {"python": "dependabot-python.yml", "swift": "dependabot-swift.yml"}
 BRANCH_PROTECTION_KEYS = frozenset({
     "required_status_checks", "enforce_admins", "required_pull_request_reviews", "restrictions",
+    "required_conversation_resolution",
 })
 
 
@@ -3017,6 +3018,11 @@ def check_branch_protection_payload(label: str, repo_type: str, payload: dict = 
         )
     if payload.get("restrictions") is not None:
         errors.append(f"[{label}] branch protection must not add push restrictions")
+    if payload.get("required_conversation_resolution") is not True:
+        errors.append(
+            f"[{label}] branch protection must require conversation resolution "
+            f"(ruled 2026-10-23: resolve every review thread before a merge)"
+        )
     # Any other key (allow_force_pushes, allow_deletions, ...) changes the policy.
     if set(payload) != BRANCH_PROTECTION_KEYS:
         errors.append(
@@ -3700,6 +3706,16 @@ def run_self_tests() -> list:
     result = check_branch_protection_payload("self-test:admin bypass", "swift", payload)
     if not any("must enforce admins" in e for e in result):
         errors.append(f"self-test 'admin bypass' did not fail as expected: {result}")
+
+    # Case 20a: conversation resolution switched off, or dropped from the
+    # payload, must be caught; dropping it also changes the key set.
+    for label, mutate in (("off", lambda p: p.update(required_conversation_resolution=False)),
+                          ("dropped", lambda p: p.pop("required_conversation_resolution"))):
+        payload = bootstrap.branch_protection_payload("python")
+        mutate(payload)
+        result = check_branch_protection_payload(f"self-test:conversation resolution {label}", "python", payload)
+        if not any("must require conversation resolution" in e for e in result):
+            errors.append(f"self-test 'conversation resolution {label}' did not fail as expected: {result}")
 
     # Case 21: the runbook never being generated at all (as when the render
     # line is removed from generate_files) must produce a labelled missing-file

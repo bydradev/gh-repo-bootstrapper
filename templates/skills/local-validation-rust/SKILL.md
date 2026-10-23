@@ -54,4 +54,5 @@ exists.
 ## Sources
 
 - Cargo's build-directory lock (its "waiting for file lock" message): cargo
-  1.97.1, checked 2026-09-29.
+  1.99.1, where a second `cargo build` printed "Blocking waiting for file
+  lock on build directory", checked 2026-10-22.

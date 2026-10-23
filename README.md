@@ -48,8 +48,12 @@ anything installed beyond a base Python interpreter.
   `test` with no condition of its own; its release steps skipped, with a
   warning, only while the Release Please App credentials are missing; the
   release App token limited to contents and pull requests, with the
-  untested-merge guard reading with the workflow token instead; and pinned
-  fallback versions of the Python CI tools
+  untested-merge guard reading with the workflow token instead; pinned
+  fallback versions of the Python CI tools; and the step facts the README and
+  `--help` state: `setup-node` and `setup-python` reading `.nvmrc` and
+  `.python-version`, `npm ci` in every Next.js job that sets up Node, the
+  Postgres image `--postgres` names, `swift-format lint` with `--strict`, and a
+  weekly schedule for every Dependabot entry, the reference entries included
 - the word `secrets` in every generated workflow and in this repository's own
   only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
   because some generated repositories run workflow validators that refuse it

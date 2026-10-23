@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=74f6b7d6100c56d377b6f7762c14014610e4b0a1c51a1f2eb5370d6b9267b407 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=f411efd2a194c9535d54140a34a531ac7b1bfc69cfec71da81328afe1c7d3869 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -37,8 +37,8 @@ merge-ready:
   that only a footer ending the body gives, such as `Release-As:` under a
   `chore:` title, fails with either answer, because GitHub's squash trailers
   turn that footer into body text: give the release to the title or an extra
-  entry, or put the whole message in a `BEGIN_COMMIT_OVERRIDE` block. Keep
-  the `BREAKING-CHANGE:` token, lines
+  entry, and to keep a `Release-As:` version, put the whole message in a
+  `BEGIN_COMMIT_OVERRIDE` block. Keep the `BREAKING-CHANGE:` token, lines
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please

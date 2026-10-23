@@ -621,12 +621,12 @@ def _workflow_diff_tags() -> list[str]:
 # supports GIT_NO_LAZY_FETCH; the timeout covers a git that does not.
 GIT_SHOW_TIMEOUT = 10
 
-# What git prints when it needs an object a partial clone has not fetched and
-# may not fetch it (git's promisor-remote.c, master read 2026-10-23): the
-# warning when GIT_NO_LAZY_FETCH stopped the fetch, which newer git prints
-# before failing the read in its own words, and the error when the fetch
-# failed or an older git dies on the missing object.
-_PROMISOR_MISS = (b"lazy fetching disabled", b"from promisor remote")
+# What git show prints when it needs an object a partial clone has not fetched
+# and may not fetch it, seen 2026-10-23: git 2.55.0 skips the fetch and dies
+# with "fatal: bad object <tag>:<path>" (setup.c turns fetch_if_missing off),
+# and Ubuntu's git 2.43.0 tries it and dies with "fatal: could not fetch <oid>
+# from promisor remote". A missing release tag or path reads differently.
+_PROMISOR_MISS = (b"fatal: bad object ", b"from promisor remote")
 
 
 def _git_show(args: list[str]) -> subprocess.CompletedProcess:

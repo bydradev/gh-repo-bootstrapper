@@ -14,9 +14,10 @@ import bootstrap
 import validate_templates
 from test_git_show_timeout import PR_TITLE, RUNBOOK, _fork_repository
 
-MISS = b"fatal: could not fetch 0123abcd from promisor remote\n"
-# Newer git warns that it did not fetch, then fails the read in its own words.
-WARNED = b"warning: lazy fetching disabled; some objects may not be available\nfatal: bad object 0123abcd\n"
+# What git 2.43.0 and git 2.55.0 print for a release read a partial clone has
+# not fetched, with lazy fetch off.
+MISS = b"warning: lazy fetching disabled; some objects may not be available\nfatal: could not fetch 0123abcd from promisor remote\n"
+BAD_OBJECT = b"fatal: bad object v0.1.0:templates/x.yml\n"
 
 
 class NoLazyFetchTests(unittest.TestCase):
@@ -58,7 +59,7 @@ class MissingObjectTests(unittest.TestCase):
         return report, errors.getvalue(), failed
 
     def test_a_missing_object_skips_both_diffs_with_one_notice(self):
-        for stderr in (MISS, WARNED):
+        for stderr in (MISS, BAD_OBJECT):
             with self.subTest(stderr=stderr):
                 self._assert_one_notice(stderr)
 
@@ -153,6 +154,12 @@ class PartialCloneTests(unittest.TestCase):
         self.assertFalse(self.log.exists(), "git show fetched from the remote")
         self.assertTrue(reads.missing_objects)
         self.assertIn("needs an object this partial clone", errors.getvalue())
+        # A tag or path the release lacks is not a missing object.
+        absent = bootstrap._ReleaseReads()
+        with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self.clone / "templates"):
+            self.assertIsNone(absent.template("v0.1.0", "nope.yml"))
+            self.assertIsNone(absent.template("v9.9.9", "x.yml"))
+        self.assertFalse(absent.incomplete)
         # The blob a checkout fetched is still read: only missing ones stop.
         fresh = bootstrap._ReleaseReads()
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", self.clone / "templates"):

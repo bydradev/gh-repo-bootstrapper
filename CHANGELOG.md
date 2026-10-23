@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.19.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.19.0...v0.19.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* check the target folder before the prompts and default the destination ([#159](https://github.com/bydradev/gh-repo-bootstrapper/issues/159)) ([925392a](https://github.com/bydradev/gh-repo-bootstrapper/commit/925392afb3d1dac5a1a0110043bdd188123cc32f))
+* keep git show from fetching missing objects in a partial clone ([#174](https://github.com/bydradev/gh-repo-bootstrapper/issues/174)) ([559c38e](https://github.com/bydradev/gh-repo-bootstrapper/commit/559c38ec4bc5acf63a05c3055de92cdea6ac8473))
+* name the real cause when git or the file system refuses a read ([#158](https://github.com/bydradev/gh-repo-bootstrapper/issues/158)) ([4367486](https://github.com/bydradev/gh-repo-bootstrapper/commit/436748609f583dc48002329153e16804698284f0))
+* pin create-github-app-token v3.3.0 in the release templates ([#171](https://github.com/bydradev/gh-repo-bootstrapper/issues/171)) ([6168e49](https://github.com/bydradev/gh-repo-bootstrapper/commit/6168e49a9aba6a0ca957dc92f16f2b7deea3cb22))
+* read the body with github's squash trailers in the user-visible check ([#168](https://github.com/bydradev/gh-repo-bootstrapper/issues/168)) ([263d555](https://github.com/bydradev/gh-repo-bootstrapper/commit/263d55507bf3535806d2bc20d16daa218c2c448c))
+* refuse an agents file with an early duplicate project specifics heading ([#164](https://github.com/bydradev/gh-repo-bootstrapper/issues/164)) ([9845bae](https://github.com/bydradev/gh-repo-bootstrapper/commit/9845baead64d731090e0354271a5edfe4a454cc7))
+* reject an empty dash item in a flow sequence ([#167](https://github.com/bydradev/gh-repo-bootstrapper/issues/167)) ([9fb5595](https://github.com/bydradev/gh-repo-bootstrapper/commit/9fb5595926c386dc95332dabd4134f9a8c3d4c11))
+* say that a footer-only release needs the override block ([#172](https://github.com/bydradev/gh-repo-bootstrapper/issues/172)) ([3a623bf](https://github.com/bydradev/gh-repo-bootstrapper/commit/3a623bfd20749df44264377ecade2c7d47aa4766))
+* skip the workflow diff when no release tag holds a bootstrapper template ([#163](https://github.com/bydradev/gh-repo-bootstrapper/issues/163)) ([d78df7b](https://github.com/bydradev/gh-repo-bootstrapper/commit/d78df7b5f8cc987cf06f0c385424042ea2e0b2d4))
+* stop waiting on a hung git show when building diff bases ([#160](https://github.com/bydradev/gh-repo-bootstrapper/issues/160)) ([47fae82](https://github.com/bydradev/gh-repo-bootstrapper/commit/47fae82da9b9de5c57de1900882237aff6ad7dc5))
+
 ## [0.19.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.18.0...v0.19.0) (2026-10-23)
 
 

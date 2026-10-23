@@ -350,14 +350,17 @@ class ConfigureOnlyTests(Session):
         self.assertFalse(any("--method" in command for command in commands.calls))
 
     def test_declined_actions_policy_changes_are_left_and_reported(self):
-        code, out, _, answers, commands = self.run_bootstrap(self.ARGV, ["", "", "y", "n"])
+        code, out, _, answers, commands = self.run_bootstrap(self.ARGV, ["", "", "y", "n", "n"])
         self.assertIsNone(code)
         self.assertIn("    Apply these Actions policy changes? [y/N]: ", answers.questions)
+        self.assertIn("    Apply these pull request and Dependabot changes? [y/N]: ", answers.questions)
         self.assertIn("    left unchanged", out)
         self.assertEqual([command[2] for command in commands.ran("gh", "api") if "--method" in command],
                          ["repos/octocat/app"], "only the merge settings change")
         self.assertIn("https://github.com/octocat/app", out)
         self.assertIn("Actions policy (left unchanged; re-run --configure-only interactively to apply it)", out)
+        self.assertIn("pull request and Dependabot alert settings (left unchanged; re-run "
+                      "--configure-only interactively to apply them)", out)
         self.assertIn("branch protection (main): left as is on an existing repository", out)
 
     def test_a_failed_setting_reports_what_was_applied(self):

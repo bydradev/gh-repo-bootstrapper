@@ -617,8 +617,14 @@ def _workflow_diff_tags() -> list[str]:
 # milliseconds; one that does not answer is waiting on something that will not
 # come: in a partial clone, git fetches a missing object from the remote
 # (git-scm.com/docs/partial-clone, read 2026-10-22), which can wait on the
-# network or a credential prompt.
+# network or a credential prompt. _git_show turns that fetch off where git
+# supports GIT_NO_LAZY_FETCH; the timeout covers a git that does not.
 GIT_SHOW_TIMEOUT = 10
+
+# What git prints when it needs an object a partial clone has not fetched and
+# may not fetch it: GIT_NO_LAZY_FETCH set, or the remote unreachable
+# ("could not fetch %s from promisor remote", git's promisor-remote.c).
+_PROMISOR_MISS = b"from promisor remote"
 
 
 def _git_show(args: list[str]) -> subprocess.CompletedProcess:
@@ -626,10 +632,15 @@ def _git_show(args: list[str]) -> subprocess.CompletedProcess:
     that on POSIX a timeout kills git's whole process group, so the `git fetch`
     a partial clone starts, and its transport, do not outlive the read. Raises
     subprocess.TimeoutExpired once they are gone. A Ctrl-C kills them too: the
-    group is git's own, so the terminal's SIGINT reaches only this process."""
+    group is git's own, so the terminal's SIGINT reaches only this process.
+
+    GIT_NO_LAZY_FETCH=1 keeps a partial clone from fetching a missing object
+    from its remote, so --check and --adopt do not contact it; git then fails
+    the read instead (git-scm.com/docs/git, read 2026-10-23). A git that
+    predates the variable ignores it."""
     posix = os.name == "posix"
     with subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_env(),
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={**_git_env(), "GIT_NO_LAZY_FETCH": "1"},
         **({"process_group": 0} if posix else {}),
     ) as process:
         try:
@@ -657,18 +668,26 @@ class _ReleaseReads:
     is set, and every later read returns None without starting git again, so
     callers skip the diff rather than build it from the bodies read before.
     The missing-tags notice is then not printed: the timeout notice already
-    says why the diff was skipped."""
+    says why the diff was skipped. A read that needs an object a partial
+    clone has not fetched ends the reads the same way and sets
+    `missing_objects`: the releases it could not read are not known to lack
+    the template. `incomplete` is either."""
 
     def __init__(self):
         self._templates = {}
         self._noticed = False
         self.timed_out = False
+        self.missing_objects = False
+
+    @property
+    def incomplete(self) -> bool:
+        return self.timed_out or self.missing_objects
 
     def template(self, tag: str, name: str) -> bytes | None:
         """templates/<name> as release `tag` shipped it; None if it did not, or
         once a read has timed out."""
         key = (tag, name)
-        if self.timed_out:
+        if self.incomplete:
             return None
         if key not in self._templates:
             try:
@@ -681,11 +700,20 @@ class _ReleaseReads:
                     file=sys.stderr,
                 )
                 return None
+            if result.returncode != 0 and _PROMISOR_MISS in result.stderr:
+                self.missing_objects = True
+                print(
+                    f"notice: git show {tag}:templates/{name} needs an object this partial clone of "
+                    f"{TEMPLATES_DIR.parent} has not fetched; skipped the diff against legacy template docs "
+                    "or workflows (a full clone has every release)",
+                    file=sys.stderr,
+                )
+                return None
             self._templates[key] = result.stdout if result.returncode == 0 else None
         return self._templates[key]
 
     def notice(self) -> None:
-        if not self._noticed and not self.timed_out:
+        if not self._noticed and not self.incomplete:
             self._noticed = True
             print(
                 f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, a shallow "
@@ -742,7 +770,7 @@ def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, lis
                     bodies.setdefault(SCREENSHOT_REVIEW, []).append(
                         _compose(common, "PLATFORM_GUIDANCE", fragment)
                     )
-    if reads.timed_out:
+    if reads.incomplete:
         return {}  # some releases were not read, so no body here is known to be the nearest
     if not bodies:
         reads.notice()
@@ -790,7 +818,7 @@ def _workflow_diff_bases(
                     body,
                     (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
                 )
-    if reads.timed_out:
+    if reads.incomplete:
         return []  # as for _legacy_template_bodies: a partial set of bases names the wrong one
     if not shipped_any:
         return []
@@ -800,12 +828,15 @@ def _workflow_diff_bases(
 def compute_legacy_digests() -> dict:
     """Rebuild the checked-in legacy table using the historical template renders.
 
-    Raises TimeoutError when a read of a release timed out, since a table
+    Raises TimeoutError when a read of a release timed out, and OSError when
+    one needed an object this partial clone has not fetched, since a table
     without that release's bodies would be wrong."""
     reads = _ReleaseReads()
     bodies = _legacy_template_bodies(reads)
     if reads.timed_out:
         raise TimeoutError(f"a git show of a release did not answer within {GIT_SHOW_TIMEOUT} s")
+    if reads.missing_objects:
+        raise OSError("a git show of a release needed an object this partial clone has not fetched")
     return {
         path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in texts)
         for path, texts in bodies.items()

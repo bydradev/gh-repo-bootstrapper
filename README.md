@@ -75,7 +75,10 @@ anything installed beyond a base Python interpreter.
   To refresh them, the error suggests `./bootstrap.py --adopt . --type simple`;
   that run also stamps `pr-title-check.yml` and refuses `release-please.yml`,
   which is this repository's own and stays as it is, so commit only the agent
-  files it changes
+  files it changes. For the same reason `./bootstrap.py --check . --type
+  simple` reports `pr-title-check.yml` as `stale`: this repository's copy is
+  the unstamped template, byte-identical to `templates/pr-title-check.yml`,
+  and is expected to stay that way
 - the bootstrapper's own bug-report form, whose repository types and flags must
   match `bootstrap.py`'s parser
 
@@ -788,6 +791,13 @@ diff against earlier releases is skipped, as it is without release tags. No
 file is classified or written differently. `validate_templates.py` fails the
 `LEGACY_TEMPLATE_DIGESTS` check, and `--regenerate-legacy-digests` exits 1,
 instead of rebuilding the table from the releases read before.
+
+In a partial clone of the bootstrapper, those reads no longer fetch a missing
+object from its remote, so `--check` and `--adopt` do not contact it. A read
+that needs such an object ends the reads the same way, with a notice that names
+it, and the diff is skipped; a full clone of the bootstrapper reads every
+release as before. This needs a git that knows `GIT_NO_LAZY_FETCH`; an older
+one ignores it, fetches as before, and the 10-second limit still applies.
 
 A copy of the bootstrapper with no `.git` of its own, kept inside another
 repository that has `vX.Y.Z` tags, some of them v0.8.1 or earlier, read that

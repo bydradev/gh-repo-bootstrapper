@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.18.0...v0.19.0) (2026-10-23)
+
+
+### Features
+
+* show whether test.yml carries the postgres block in the check report ([#165](https://github.com/bydradev/gh-repo-bootstrapper/issues/165)) ([b62316c](https://github.com/bydradev/gh-repo-bootstrapper/commit/b62316cc2e69a9c7ebd42f64b1d174eb639d857a))
+
+
+### Bug Fixes
+
+* add the other-type state and align the check report columns ([#155](https://github.com/bydradev/gh-repo-bootstrapper/issues/155)) ([0f98399](https://github.com/bydradev/gh-repo-bootstrapper/commit/0f983992a86bbb066e26c56609bbf8f1b04ecce5))
+* refresh dated tool and harness citations ([#161](https://github.com/bydradev/gh-repo-bootstrapper/issues/161)) ([2023fa8](https://github.com/bydradev/gh-repo-bootstrapper/commit/2023fa8ee67010d33dec22f0c338c59611d1a3ff))
+
 ## [0.18.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.2...v0.18.0) (2026-10-22)
 
 

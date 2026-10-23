@@ -78,7 +78,6 @@ import os
 import posixpath
 import re
 import shlex
-import subprocess
 import sys
 import tempfile
 import textwrap
@@ -3213,7 +3212,10 @@ def check_legacy_digests(computed: Optional[dict] = None, recorded: Optional[dic
         if not bootstrap._legacy_tags():
             print("notice: git vX.Y.Z release tags unavailable; skipped the LEGACY_TEMPLATE_DIGESTS check")
             return []
-        computed = bootstrap.compute_legacy_digests()
+        try:
+            computed = bootstrap.compute_legacy_digests()
+        except TimeoutError as exc:
+            return [f"bootstrap.LEGACY_TEMPLATE_DIGESTS could not be checked: {exc}"]
     if recorded is None:
         recorded = bootstrap.LEGACY_TEMPLATE_DIGESTS
     if _digest_table(computed) != _digest_table(recorded):
@@ -3235,15 +3237,6 @@ def format_legacy_digests(table: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _shallow_checkout() -> bool:
-    """True when the bootstrapper's own checkout is a shallow clone."""
-    result = subprocess.run(
-        ["git", "-C", str(bootstrap.TEMPLATES_DIR.parent), "rev-parse", "--is-shallow-repository"],
-        capture_output=True, text=True, check=False, env=bootstrap._git_env(),
-    )
-    return result.returncode == 0 and result.stdout.strip() == "true"
-
-
 def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict] = None) -> list:
     """bootstrap.SEED_DIGESTS must equal what the release tags give.
 
@@ -3257,7 +3250,7 @@ def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict]
     if computed is None:
         tags = bootstrap._release_tags()
         named = {tag for digests in recorded.values() for tag in digests.values()}
-        if not tags or (_shallow_checkout() and not named <= set(tags)):
+        if not tags or (bootstrap._shallow_checkout() and not named <= set(tags)):
             print("notice: git vX.Y.Z release tags unavailable or incomplete in a shallow clone; "
                   "skipped the SEED_DIGESTS check")
             return []
@@ -5409,7 +5402,10 @@ if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--render-markdown":
         sys.exit(render_markdown(Path(sys.argv[2])))
     if sys.argv[1:] == ["--regenerate-legacy-digests"]:
-        print(format_legacy_digests(bootstrap.compute_legacy_digests()), end="")
+        try:
+            print(format_legacy_digests(bootstrap.compute_legacy_digests()), end="")
+        except TimeoutError as exc:
+            sys.exit(f"error: LEGACY_TEMPLATE_DIGESTS not regenerated: {exc}")
         sys.exit(0)
     if sys.argv[1:] == ["--regenerate-seed-digests"]:
         print(format_seed_digests(bootstrap.compute_seed_digests()), end="")

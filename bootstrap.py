@@ -27,6 +27,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -612,28 +613,79 @@ def _workflow_diff_tags() -> list[str]:
     return tags
 
 
+# Seconds to wait for one `git show` of a released template. A read takes
+# milliseconds; one that does not answer is waiting on something that will not
+# come: in a partial clone, git fetches a missing object from the remote
+# (git-scm.com/docs/partial-clone, read 2026-10-22), which can wait on the
+# network or a credential prompt.
+GIT_SHOW_TIMEOUT = 10
+
+
+def _git_show(args: list[str]) -> subprocess.CompletedProcess:
+    """subprocess.run(args) with output captured and GIT_SHOW_TIMEOUT, except
+    that on POSIX a timeout kills git's whole process group, so the `git fetch`
+    a partial clone starts, and its transport, do not outlive the read. Raises
+    subprocess.TimeoutExpired once they are gone. A Ctrl-C kills them too: the
+    group is git's own, so the terminal's SIGINT reaches only this process."""
+    posix = os.name == "posix"
+    with subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_env(),
+        **({"process_group": 0} if posix else {}),
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=GIT_SHOW_TIMEOUT)
+        except BaseException:  # the timeout, or a KeyboardInterrupt
+            if posix:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            process.communicate()
+            raise
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
 class _ReleaseReads:
     """What one run reads from the bootstrapper's release tags: each template at
     each tag is read once, whichever of the legacy docs and the workflow diff
-    asks first, and the notice about missing tags is printed once."""
+    asks first, and the notice about missing tags is printed once.
+
+    A read that does not answer within GIT_SHOW_TIMEOUT seconds ends the
+    run's reads: it prints a one-line notice of its own instead, `timed_out`
+    is set, and every later read returns None without starting git again, so
+    callers skip the diff rather than build it from the bodies read before.
+    The missing-tags notice is then not printed: the timeout notice already
+    says why the diff was skipped."""
 
     def __init__(self):
         self._templates = {}
         self._noticed = False
+        self.timed_out = False
 
     def template(self, tag: str, name: str) -> bytes | None:
-        """templates/<name> as release `tag` shipped it; None if it did not."""
+        """templates/<name> as release `tag` shipped it; None if it did not, or
+        once a read has timed out."""
         key = (tag, name)
+        if self.timed_out:
+            return None
         if key not in self._templates:
-            result = subprocess.run(
-                ["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"],
-                capture_output=True, check=False, env=_git_env(),
-            )
+            try:
+                result = _git_show(["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"])
+            except subprocess.TimeoutExpired:
+                self.timed_out = True
+                print(
+                    f"notice: git show {tag}:templates/{name} did not answer within {GIT_SHOW_TIMEOUT} s "
+                    f"in {TEMPLATES_DIR.parent}; skipped the diff against legacy template docs or workflows",
+                    file=sys.stderr,
+                )
+                return None
             self._templates[key] = result.stdout if result.returncode == 0 else None
         return self._templates[key]
 
     def notice(self) -> None:
-        if not self._noticed:
+        if not self._noticed and not self.timed_out:
             self._noticed = True
             print(
                 f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, or a shallow "
@@ -687,6 +739,8 @@ def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, lis
                     bodies.setdefault(SCREENSHOT_REVIEW, []).append(
                         _compose(common, "PLATFORM_GUIDANCE", fragment)
                     )
+    if reads.timed_out:
+        return {}  # some releases were not read, so no body here is known to be the nearest
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
 
 
@@ -727,14 +781,23 @@ def _workflow_diff_bases(
                     body,
                     (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
                 )
+    if reads.timed_out:
+        return []  # as for _legacy_template_bodies: a partial set of bases names the wrong one
     return [(label, body, other) for body, (label, other) in bases.items()]
 
 
 def compute_legacy_digests() -> dict:
-    """Rebuild the checked-in legacy table using the historical template renders."""
+    """Rebuild the checked-in legacy table using the historical template renders.
+
+    Raises TimeoutError when a read of a release timed out, since a table
+    without that release's bodies would be wrong."""
+    reads = _ReleaseReads()
+    bodies = _legacy_template_bodies(reads)
+    if reads.timed_out:
+        raise TimeoutError(f"a git show of a release did not answer within {GIT_SHOW_TIMEOUT} s")
     return {
-        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in bodies)
-        for path, bodies in _legacy_template_bodies().items()
+        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in texts)
+        for path, texts in bodies.items()
     }
 
 

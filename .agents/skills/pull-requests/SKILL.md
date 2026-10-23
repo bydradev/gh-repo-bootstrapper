@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=e7bdf51dc4387a3220dcbe621632eac217e5f3c9fb4e8120cd43d66c900d4c79 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=74f6b7d6100c56d377b6f7762c14014610e4b0a1c51a1f2eb5370d6b9267b407 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -31,9 +31,14 @@ merge-ready:
   repository or a site as soon as it merges, CI, tests, refactors, and
   tooling, typed `docs`, `chore`, `refactor`, `test`, `build`, or `ci`. Text a
   release ships, such as help output, is `yes`. The check reads the body as
-  Release Please does, so an extra entry of a released type, a `Release-As:`
-  footer, or a `BREAKING-CHANGE:` token anywhere in the body but a footer's
-  own line, even quoted, also makes the answer `yes`. Keep that token, lines
+  Release Please does, so an extra entry of a released type or a
+  `BREAKING-CHANGE:` token anywhere in the body but a footer's own line, even
+  quoted, also makes the answer `yes`. A release or `Release-As:` version
+  that only a footer ending the body gives, such as `Release-As:` under a
+  `chore:` title, fails with either answer, because GitHub's squash trailers
+  turn that footer into body text: give the release to the title or an extra
+  entry, or put the whole message in a `BEGIN_COMMIT_OVERRIDE` block. Keep
+  the `BREAKING-CHANGE:` token, lines
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please

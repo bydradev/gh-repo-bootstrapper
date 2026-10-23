@@ -30,9 +30,14 @@ merge-ready:
   repository or a site as soon as it merges, CI, tests, refactors, and
   tooling, typed `docs`, `chore`, `refactor`, `test`, `build`, or `ci`. Text a
   release ships, such as help output, is `yes`. The check reads the body as
-  Release Please does, so an extra entry of a released type, a `Release-As:`
-  footer, or a `BREAKING-CHANGE:` token anywhere in the body but a footer's
-  own line, even quoted, also makes the answer `yes`. Keep that token, lines
+  Release Please does, so an extra entry of a released type or a
+  `BREAKING-CHANGE:` token anywhere in the body but a footer's own line, even
+  quoted, also makes the answer `yes`. A release or `Release-As:` version
+  that only a footer ending the body gives, such as `Release-As:` under a
+  `chore:` title, fails with either answer, because GitHub's squash trailers
+  turn that footer into body text: give the release to the title or an extra
+  entry, and to keep a `Release-As:` version, put the whole message in a
+  `BEGIN_COMMIT_OVERRIDE` block. Keep the `BREAKING-CHANGE:` token, lines
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please

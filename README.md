@@ -570,11 +570,14 @@ for when the base is another type's. The diff needs the bootstrapper's git
 release tags; from a copy without them, or for a workflow from a shallow clone
 or one with no tag through v0.8.1, `--check` prints a notice and skips it,
 since the few releases such a clone holds could name a base later than the one
-the workflow was forked from. Each release read is a `git show` that may take
-up to 10 seconds; if one takes longer (in a partial clone, git fetching a
-missing object from a remote that does not answer or waits on a credential
-prompt), `--check` stops that git and the fetch it started, prints a notice
-naming the read, reads no more releases and skips the diff.
+the workflow was forked from. It does the same when no tag holds the template,
+as for a copy of `bootstrap.py` with no `.git` of its own inside another
+repository, where git lists that repository's tags. Each release read is a
+`git show` that may take up to 10 seconds; if one takes longer (in a partial
+clone, git fetching a missing object from a remote that does not answer or
+waits on a credential prompt), `--check` stops that git and the fetch it
+started, prints a notice naming the read, reads no more releases and skips
+the diff.
 
 ### Checking and adopting
 
@@ -779,6 +782,15 @@ diff against earlier releases is skipped, as it is without release tags. No
 file is classified or written differently. `validate_templates.py` fails the
 `LEGACY_TEMPLATE_DIGESTS` check, and `--regenerate-legacy-digests` exits 1,
 instead of rebuilding the table from the releases read before.
+
+A copy of the bootstrapper with no `.git` of its own, kept inside another
+repository that has `vX.Y.Z` tags, some of them v0.8.1 or earlier, read that
+repository's tags as releases. None of them holds a bootstrapper template, so
+`--check` diffed an unstamped, locally modified workflow against the current
+template alone, as if it were the release the workflow was forked from, and
+skipped the legacy docs diff without saying so. Both now print the missing-tags
+notice, once per run, and skip the diff. No file is classified or written
+differently.
 
 ### Upgrading to 0.19.0
 

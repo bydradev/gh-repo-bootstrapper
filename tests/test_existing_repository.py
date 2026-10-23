@@ -3185,7 +3185,7 @@ class SeedScriptTests(unittest.TestCase):
         templates = self._tagged_templates({"v0.1.0": "a\n", "v0.2.0": "b\n"}, "c\n")
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates), \
                 unittest.mock.patch.object(bootstrap, "SEED_FILES", frozenset({"scripts/x.mjs"})), \
-                unittest.mock.patch.object(validate_templates, "_shallow_checkout", return_value=True):
+                unittest.mock.patch.object(bootstrap, "_shallow_checkout", return_value=True):
             recorded = {"scripts/x.mjs": {bootstrap._digest("a\n"): "v0.1.0"}}
             errors = validate_templates.check_seed_digests(recorded=recorded)
         self.assertTrue(any("SEED_DIGESTS is stale" in error for error in errors), errors)

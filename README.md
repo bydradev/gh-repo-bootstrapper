@@ -169,8 +169,10 @@ reporter the upload finds nothing and is skipped silently.
 Run with no arguments for a fully interactive session. The script will prompt
 for the repo name, type, owner, visibility, and any type-specific options, then
 confirm before creating anything. A name whose folder already exists and is not
-empty is refused straight away, before the other questions. Pressing Enter at a
-numbered question that has a default, such as the Swift destination, takes it.
+empty, or whose path has a file or a broken symbolic link where a folder
+belongs, is refused straight away, before the other questions.
+Pressing Enter at a numbered question that has a default, such as the Swift
+destination, takes it.
 
 ### Flags
 
@@ -738,10 +740,13 @@ squash merging* in the repository's general settings.
 
 ### Upgrading to 0.19.1
 
-The interactive session refuses a name whose folder already exists and is not
-empty as soon as the name is given, before the other questions, rather than
-after the confirmation, and pressing Enter at the Swift destination question
-takes `iphone`. Generated repositories do not change.
+A name whose folder already exists and is not empty is refused as soon as it
+is given, typed or with `--name`, before any other question or command,
+rather than after the confirmation. A path with a file or a broken symbolic
+link where a folder belongs is refused there too, where it used to fail after
+`gh repo create` and leave an empty repository behind. Pressing Enter at the
+Swift destination question takes `iphone`. Generated repositories do not
+change.
 
 ### Upgrading to 0.19.0
 

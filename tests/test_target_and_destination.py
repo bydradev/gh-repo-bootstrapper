@@ -79,6 +79,36 @@ class TargetAndDestinationTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("error: target directory 'file' cannot be used: Not a directory", err)
 
+    def test_paths_git_clone_cannot_create_are_refused(self):
+        (self.dir / "file").write_text("x\n")
+        (self.dir / "dangling").symlink_to("nowhere")
+        (self.dir / "loop").symlink_to("loop")
+        (self.dir / "to-file").symlink_to("file")
+        for name, reason in (
+            ("dangling", "'dangling' is a link that leads nowhere"),
+            ("loop/repo", "'loop' is a link that leads nowhere"),
+            ("to-file/repo", "'to-file' is not a directory"),
+            ("dangling/repo", "'dangling' is a link that leads nowhere"),
+            ("file/repo", "'file' is not a directory"),
+            ("file/deeper/repo", "'file' is not a directory"),
+        ):
+            with self.subTest(name=name):
+                code, _, _, err, _, commands = self.gather(
+                    ["--name", name, "--type", "simple", "--org", "octocat", "--non-interactive"])
+                self.assertEqual(code, 1)
+                self.assertIn(f"error: target directory '{name}' cannot be used: {reason}", err)
+                self.assertEqual(commands, [])
+
+    def test_paths_git_clone_can_create_are_accepted(self):
+        (self.dir / "empty").mkdir()
+        (self.dir / "link").symlink_to("empty")
+        for name in ("link", "missing/deeper/repo", str(self.dir.resolve() / "absolute")):
+            with self.subTest(name=name):
+                code, cfg, _, err, _, _ = self.gather(
+                    ["--name", name, "--type", "simple", "--org", "octocat", "--non-interactive"])
+                self.assertIsNone(code, err)
+                self.assertEqual(cfg["repo_dir"], Path(name))
+
     def test_runs_that_create_nothing_locally_do_not_check_the_folder(self):
         for extra in (["--dry-run"], ["--configure-only"]):
             with self.subTest(extra=extra):

@@ -1244,8 +1244,21 @@ def split_name_and_path(raw: str) -> tuple:
 
 
 def target_error(repo_dir: Path) -> str:
-    """Return error string, or empty string if repo_dir can take the new clone."""
+    """Return error string, or empty string if repo_dir can take the new clone.
+
+    Missing folders on the way are created later, but a symbolic link that
+    leads nowhere, or a file where a folder belongs, would stop that creation
+    or the clone after the repository exists on GitHub, so both are refused
+    here. Permissions are not checked.
+    """
     try:
+        for path in (repo_dir, *repo_dir.parents):
+            if path.is_symlink() and not path.exists():
+                return f"target directory '{repo_dir}' cannot be used: '{path}' is a link that leads nowhere"
+            if path.exists():
+                if path != repo_dir and not path.is_dir():
+                    return f"target directory '{repo_dir}' cannot be used: '{path}' is not a directory"
+                break
         if repo_dir.exists() and any(repo_dir.iterdir()):
             return f"target directory '{repo_dir}' already exists and is not empty"
     except OSError as exc:

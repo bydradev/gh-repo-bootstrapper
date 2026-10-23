@@ -17,6 +17,7 @@ from pathlib import Path
 
 import bootstrap
 import validate_templates
+from test_existing_repository import _skip_without_tags
 
 PR_TITLE = ".github/workflows/pr-title-check.yml"
 RUNBOOK = "docs/branch-protection-runbook.md"
@@ -28,6 +29,32 @@ def _git(repo: Path, *args):
         env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"},
     )
+
+
+def _fork_repository(test):
+    """Give `test` a committed repository at test.repo whose pr-title-check.yml
+    and branch-protection runbook are unstamped, locally edited copies, so the
+    workflow diff and the legacy docs diff each read release tags with git
+    show; test.files is its render. Skips, or fails in GitHub Actions, without
+    the release tags."""
+    if not bootstrap._workflow_diff_tags() or not bootstrap._legacy_tags():
+        _skip_without_tags(test)
+    test._tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(test._tmp.cleanup)
+    test.repo = Path(test._tmp.name) / "sample"
+    test.repo.mkdir()
+    test.files = bootstrap.generate_files(
+        {"name": "sample", "repo_type": "simple", "postgres": False, "scheme": "", "screenshots": False}
+    )
+    fork = re.sub(r"(?m)^( +- name: .+)$", r"\1 (ours)", bootstrap.read_stamp(test.files[PR_TITLE], True)[1], count=1)
+    runbook = bootstrap.read_stamp(test.files[RUNBOOK])[1] + "\nOur own note.\n"
+    for rel, body in ((PR_TITLE, fork), (RUNBOOK, runbook)):
+        path = test.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+    _git(test.repo, "init", "-q")
+    _git(test.repo, "add", "-A")
+    _git(test.repo, "commit", "-q", "-m", "fork")
 
 
 def _gone(pid: int) -> bool:
@@ -45,27 +72,8 @@ def _gone(pid: int) -> bool:
 @unittest.skipIf(os.name == "nt", "the fake git is a POSIX shell script")
 class GitShowTimeoutTests(unittest.TestCase):
     def setUp(self):
-        if not bootstrap._workflow_diff_tags() or not bootstrap._legacy_tags():
-            self.skipTest("release tags unavailable")
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
+        _fork_repository(self)
         tmp = Path(self._tmp.name)
-        self.repo = tmp / "sample"
-        self.repo.mkdir()
-        self.files = bootstrap.generate_files(
-            {"name": "sample", "repo_type": "simple", "postgres": False, "scheme": "", "screenshots": False}
-        )
-        # Unstamped, locally edited copies: the workflow diff and the legacy
-        # docs diff each read release tags with git show.
-        fork = re.sub(r"(?m)^( +- name: .+)$", r"\1 (ours)", bootstrap.read_stamp(self.files[PR_TITLE], True)[1], count=1)
-        runbook = bootstrap.read_stamp(self.files[RUNBOOK])[1] + "\nOur own note.\n"
-        for rel, body in ((PR_TITLE, fork), (RUNBOOK, runbook)):
-            path = self.repo / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(body, encoding="utf-8")
-        _git(self.repo, "init", "-q")
-        _git(self.repo, "add", "-A")
-        _git(self.repo, "commit", "-q", "-m", "fork")
         # A git whose `show` hangs, as one fetching a missing object in a
         # partial clone from a remote that does not answer would. The sleep
         # stands for the `git fetch` that git starts: a child that keeps the
@@ -206,6 +214,51 @@ class GitShowTimeoutTests(unittest.TestCase):
                 self.assertIn("did not answer within 0.5 s", result.stderr)
                 self.assertEqual(result.stderr.count("notice:"), 1, result.stderr)
                 self.assertIn(PR_TITLE, result.stdout)
+
+
+class PartialReadTests(unittest.TestCase):
+    """A read that times out after others answered: the diff it was building
+    is skipped rather than built from the releases read so far, which would
+    name the wrong nearest release."""
+
+    def setUp(self):
+        _fork_repository(self)
+
+    def _compare(self, stop):
+        """compare_repository where a git show read times out once
+        stop(the arguments of the reads that answered) is true."""
+        real, answered = bootstrap._git_show, []
+
+        def show(args, *rest, **kwargs):
+            if stop(answered):
+                raise subprocess.TimeoutExpired(args, bootstrap.GIT_SHOW_TIMEOUT)
+            answered.append(args[-1])
+            return real(args, *rest, **kwargs)
+
+        errors = io.StringIO()
+        with unittest.mock.patch.object(bootstrap, "_git_show", show), contextlib.redirect_stderr(errors):
+            report = bootstrap.compare_repository(self.repo, self.files)
+        return report, errors.getvalue()
+
+    def test_a_timeout_inside_the_workflow_reads_skips_the_workflow_diff(self):
+        # The first release answers, the second does not.
+        report, errors = self._compare(lambda answered: len(answered) == 1)
+        self.assertEqual(report[PR_TITLE], ("local-modified", None))
+        self.assertEqual(report[RUNBOOK], ("local-modified", None))
+        self.assertEqual(len(errors.splitlines()), 1, errors)
+        self.assertIn("did not answer within", errors)
+
+    def test_a_timeout_inside_the_legacy_reads_skips_the_docs_diff(self):
+        # The workflow diff reads first and gets every release; the legacy
+        # docs read one release's runbook and then time out.
+        runbook = "templates/docs-branch-protection-runbook.md"
+        report, errors = self._compare(lambda answered: any(arg.endswith(runbook) for arg in answered))
+        status, detail = report[PR_TITLE]
+        self.assertEqual(status, "local-modified")
+        self.assertTrue(detail and detail.startswith("--- "), detail)
+        self.assertEqual(report[RUNBOOK], ("local-modified", None))
+        self.assertEqual(len(errors.splitlines()), 1, errors)
+        self.assertIn("did not answer within", errors)
 
 
 if __name__ == "__main__":

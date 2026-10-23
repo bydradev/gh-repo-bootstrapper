@@ -157,8 +157,9 @@ verification copy.
 
 ## Sources
 
-- `next dev` build-directory lock: Next.js 16.3.5 `dist/build/lockfile.js` and
-  `setup-dev-bundler.js`, checked 2026-09-29.
+- `next dev` build-directory lock: Next.js 16.4.2 `dist/build/lockfile.js`,
+  `setup-dev-bundler.js` and `config-shared.js` (`lockDistDir` on by
+  default), checked 2026-10-22.
 - Playwright CLI: `@playwright/test` 1.64.0's `playwright cli --help`,
   `cli open --help` (`--browser`, `--persistent`, `--profile`), `cli attach
   --help` (`--cdp`, `--extension`), and `playwright test --help`
@@ -177,11 +178,11 @@ verification copy.
   `lib/tools/skills/playwright-cli/SKILL.md` (`gh --attach`) and
   `playwright` 1.64.0's `lib/agents/playwright-test-healer.agent.md`
   (`test.fixme()`), checked 2026-10-22.
-- Trace modes: the `--trace` choices in Playwright 1.63.0's
-  `playwright test --help`, checked 2026-09-29.
-- Output directory, flaky status, and `failOnFlakyTests`: Playwright 1.63.0's
-  `outputDir`, test-status, and `failOnFlakyTests` documentation, checked
-  2026-09-29.
+- Trace modes: the `--trace` choices in Playwright 1.64.1's
+  `playwright test --help`, checked 2026-10-22.
+- Output directory, flaky status, and `failOnFlakyTests`: Playwright 1.64.1's
+  `outputDir`, test-status, and `failOnFlakyTests` documentation in its
+  `types/test.d.ts` and `types/testReporter.d.ts`, checked 2026-10-22.
 - `lint` script of a new project: `create-next-app` 16.4.2 (npm `latest`,
   published 2026-10-15), `dist/index.js`, which writes `lint: "eslint"` for the
   ESLint option, checked 2026-10-22.

@@ -820,6 +820,24 @@ reported as outside the subset it reads, with the line's number, as other
 YAML it does not model is. Flow items that start with `-`, such as `-a`, and
 a quoted `"-"` are read as before.
 
+`pr-title-check.yml` now also reads the body as GitHub's default squash commit
+ends it. That commit can add a line of dashes and the commits' `Signed-off-by`
+and `Co-authored-by` trailers after the body, and Release Please 17.6.0 then
+reads the body's trailing footers as body text. A change that only such a
+footer releases, such as a `Release-As:` footer under a `chore:` title, a
+`Fix:` footer or `BREAKING CHANGE #12`, therefore fails the check with either
+answer. Give the release to the title or to an extra entry that opens a
+paragraph, write a `BREAKING CHANGE:` note, or put the whole commit message in
+a `BEGIN_COMMIT_OVERRIDE` block, which the squash block does not reach. A
+`Release-As:` version that only such a footer carries also fails, since
+Release Please would propose another one; only the override block keeps it.
+The block can also make a release: a breaking-change token that gives no note
+as the body stands, such as an empty `BREAKING CHANGE:` footer or a
+`BREAKING-CHANGE:` at the end of a line of prose, can give one, and that fails
+the check with either answer too. `--check`
+reports `pr-title-check.yml` as `stale`, and `--adopt` updates it; no action
+pin changes.
+
 ### Upgrading to 0.19.0
 
 The `--check` report widens its state column to fit `local-modified`, its
@@ -1273,7 +1291,8 @@ stop it with an error. A yes/no question is harder to get wrong than a type,
 so the check catches a mistyped title, such as a `docs:` change that ships in
 a release or a `fix:` that ships nothing. Release Please and Dependabot pull
 requests skip the job, as before. The step reads the pull request only through
-its `env:`, and its script prints none of the body.
+its `env:`, and its script prints none of the body but the numbers of a
+`Release-As:` version.
 
 The `pull-requests` skill says how to answer, and `review-guidelines` asks
 the reviewer whether the type and the answer are true to the diff. `--check`
@@ -1441,8 +1460,10 @@ highlight the additional files and README guidance for that type.
 is below 1.0.0 a breaking change (`feat!`, `chore!` or a `BREAKING CHANGE:`
 footer) proposes the next minor, 0.2.0 from the seeded 0.1.0, and not 1.0.0,
 which Release Please proposes without the option. To release 1.0.0 on purpose,
-merge a commit with a `Release-As: 1.0.0` footer, or remove the line before
-the breaking change merges. The repository owns the file, so `--adopt` writes
+merge a commit with a `Release-As: 1.0.0` footer, in a `BEGIN_COMMIT_OVERRIDE`
+block so that GitHub's squash trailers do not end it (see
+[Upgrading to 0.19.1](#upgrading-to-0191)), or remove the line before the
+breaking change merges. The repository owns the file, so `--adopt` writes
 it only when it is missing and keeps an existing one (see
 [Upgrading to 0.17.0](#upgrading-to-0170)).
 

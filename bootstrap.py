@@ -622,9 +622,11 @@ def _workflow_diff_tags() -> list[str]:
 GIT_SHOW_TIMEOUT = 10
 
 # What git prints when it needs an object a partial clone has not fetched and
-# may not fetch it: GIT_NO_LAZY_FETCH set, or the remote unreachable
-# ("could not fetch %s from promisor remote", git's promisor-remote.c).
-_PROMISOR_MISS = b"from promisor remote"
+# may not fetch it (git's promisor-remote.c, master read 2026-10-23): the
+# warning when GIT_NO_LAZY_FETCH stopped the fetch, which newer git prints
+# before failing the read in its own words, and the error when the fetch
+# failed or an older git dies on the missing object.
+_PROMISOR_MISS = (b"lazy fetching disabled", b"from promisor remote")
 
 
 def _git_show(args: list[str]) -> subprocess.CompletedProcess:
@@ -702,7 +704,7 @@ class _ReleaseReads:
                     file=sys.stderr,
                 )
                 return None
-            if result.returncode != 0 and _PROMISOR_MISS in result.stderr:
+            if result.returncode != 0 and any(marker in result.stderr for marker in _PROMISOR_MISS):
                 self.missing_objects = True
                 print(
                     f"notice: git show {tag}:templates/{name} needs an object this partial clone of "

@@ -15,6 +15,8 @@ import validate_templates
 from test_git_show_timeout import PR_TITLE, RUNBOOK, _fork_repository
 
 MISS = b"fatal: could not fetch 0123abcd from promisor remote\n"
+# Newer git warns that it did not fetch, then fails the read in its own words.
+WARNED = b"warning: lazy fetching disabled; some objects may not be available\nfatal: bad object 0123abcd\n"
 
 
 class NoLazyFetchTests(unittest.TestCase):
@@ -37,15 +39,16 @@ class MissingObjectTests(unittest.TestCase):
     def setUp(self):
         _fork_repository(self)
 
-    def _compare(self, stop):
-        """compare_repository where a read fails for a missing object once
-        stop(the arguments of the reads that answered) is true."""
+    def _compare(self, stop, stderr=MISS):
+        """compare_repository where a read fails for a missing object, with
+        `stderr`, once stop(the arguments of the reads that answered) is
+        true."""
         real, answered, failed = bootstrap._git_show, [], []
 
         def show(args, *rest, **kwargs):
             if stop(answered):
                 failed.append(args[-1])
-                return subprocess.CompletedProcess(args, 128, b"", MISS)
+                return subprocess.CompletedProcess(args, 128, b"", stderr)
             answered.append(args[-1])
             return real(args, *rest, **kwargs)
 
@@ -55,7 +58,12 @@ class MissingObjectTests(unittest.TestCase):
         return report, errors.getvalue(), failed
 
     def test_a_missing_object_skips_both_diffs_with_one_notice(self):
-        report, errors, failed = self._compare(lambda answered: True)
+        for stderr in (MISS, WARNED):
+            with self.subTest(stderr=stderr):
+                self._assert_one_notice(stderr)
+
+    def _assert_one_notice(self, stderr):
+        report, errors, failed = self._compare(lambda answered: True, stderr)
         self.assertEqual(report[PR_TITLE], ("local-modified", None))
         self.assertEqual(report[RUNBOOK], ("local-modified", None))
         notices = errors.splitlines()

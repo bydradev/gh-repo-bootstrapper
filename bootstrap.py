@@ -27,6 +27,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -612,28 +613,79 @@ def _workflow_diff_tags() -> list[str]:
     return tags
 
 
+# Seconds to wait for one `git show` of a released template. A read takes
+# milliseconds; one that does not answer is waiting on something that will not
+# come: in a partial clone, git fetches a missing object from the remote
+# (git-scm.com/docs/partial-clone, read 2026-10-22), which can wait on the
+# network or a credential prompt.
+GIT_SHOW_TIMEOUT = 10
+
+
+def _git_show(args: list[str]) -> subprocess.CompletedProcess:
+    """subprocess.run(args) with output captured and GIT_SHOW_TIMEOUT, except
+    that on POSIX a timeout kills git's whole process group, so the `git fetch`
+    a partial clone starts, and its transport, do not outlive the read. Raises
+    subprocess.TimeoutExpired once they are gone. A Ctrl-C kills them too: the
+    group is git's own, so the terminal's SIGINT reaches only this process."""
+    posix = os.name == "posix"
+    with subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_env(),
+        **({"process_group": 0} if posix else {}),
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=GIT_SHOW_TIMEOUT)
+        except BaseException:  # the timeout, or a KeyboardInterrupt
+            if posix:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            process.communicate()
+            raise
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
 class _ReleaseReads:
     """What one run reads from the bootstrapper's release tags: each template at
     each tag is read once, whichever of the legacy docs and the workflow diff
-    asks first, and the notice about missing tags is printed once."""
+    asks first, and the notice about missing tags is printed once.
+
+    A read that does not answer within GIT_SHOW_TIMEOUT seconds ends the
+    run's reads: it prints a one-line notice of its own instead, `timed_out`
+    is set, and every later read returns None without starting git again, so
+    callers skip the diff rather than build it from the bodies read before.
+    The missing-tags notice is then not printed: the timeout notice already
+    says why the diff was skipped."""
 
     def __init__(self):
         self._templates = {}
         self._noticed = False
+        self.timed_out = False
 
     def template(self, tag: str, name: str) -> bytes | None:
-        """templates/<name> as release `tag` shipped it; None if it did not."""
+        """templates/<name> as release `tag` shipped it; None if it did not, or
+        once a read has timed out."""
         key = (tag, name)
+        if self.timed_out:
+            return None
         if key not in self._templates:
-            result = subprocess.run(
-                ["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"],
-                capture_output=True, check=False, env=_git_env(),
-            )
+            try:
+                result = _git_show(["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"])
+            except subprocess.TimeoutExpired:
+                self.timed_out = True
+                print(
+                    f"notice: git show {tag}:templates/{name} did not answer within {GIT_SHOW_TIMEOUT} s "
+                    f"in {TEMPLATES_DIR.parent}; skipped the diff against legacy template docs or workflows",
+                    file=sys.stderr,
+                )
+                return None
             self._templates[key] = result.stdout if result.returncode == 0 else None
         return self._templates[key]
 
     def notice(self) -> None:
-        if not self._noticed:
+        if not self._noticed and not self.timed_out:
             self._noticed = True
             print(
                 f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, a shallow "
@@ -690,6 +742,8 @@ def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, lis
                     bodies.setdefault(SCREENSHOT_REVIEW, []).append(
                         _compose(common, "PLATFORM_GUIDANCE", fragment)
                     )
+    if reads.timed_out:
+        return {}  # some releases were not read, so no body here is known to be the nearest
     if not bodies:
         reads.notice()
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
@@ -736,16 +790,25 @@ def _workflow_diff_bases(
                     body,
                     (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
                 )
+    if reads.timed_out:
+        return []  # as for _legacy_template_bodies: a partial set of bases names the wrong one
     if not shipped_any:
         return []
     return [(label, body, other) for body, (label, other) in bases.items()]
 
 
 def compute_legacy_digests() -> dict:
-    """Rebuild the checked-in legacy table using the historical template renders."""
+    """Rebuild the checked-in legacy table using the historical template renders.
+
+    Raises TimeoutError when a read of a release timed out, since a table
+    without that release's bodies would be wrong."""
+    reads = _ReleaseReads()
+    bodies = _legacy_template_bodies(reads)
+    if reads.timed_out:
+        raise TimeoutError(f"a git show of a release did not answer within {GIT_SHOW_TIMEOUT} s")
     return {
-        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in bodies)
-        for path, bodies in _legacy_template_bodies().items()
+        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in texts)
+        for path, texts in bodies.items()
     }
 
 
@@ -2742,10 +2805,19 @@ def _case_alias(repo_dir: Path, rel: str, files: dict) -> str | None:
 
 
 def _exact_path_exists(repo_dir: Path, rel: str) -> bool:
-    """True when every component of rel exists with exactly this spelling."""
+    """True when every component of rel exists with exactly this spelling.
+
+    Raises OSError, naming the directory, when one on the way cannot be
+    listed, as _symlink_in_path does.
+    """
     current = repo_dir
     for part in Path(rel).parts:
-        if part not in os.listdir(current):
+        try:
+            names = os.listdir(current)
+        except OSError as exc:
+            where = current.relative_to(repo_dir).as_posix()
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {where}") from exc
+        if part not in names:
             return False
         current = current / part
     return True
@@ -3359,6 +3431,52 @@ def _git_file_state(repo_dir: Path, rel: str) -> str:
     return "dirty" if lines else "clean"
 
 
+def _git_unreadable(repo_dir: Path, rel: str) -> str | None:
+    """Why git cannot read the repository that holds repo_dir, or None.
+
+    None too when git reads it, or when no .git is above it: the file's own
+    state is then the reason to give. Otherwise _git_file_state reports every
+    file as dirty, and a refusal that says so would name the wrong cause, so
+    this names git's own (its ownership check, an unreadable .git or index)
+    and where. It asks what _git_file_state asks about rel, so a failure there
+    that git explains, such as an index it cannot open, is named too.
+    """
+    path = Path(os.path.abspath(repo_dir))
+    top = next((directory for directory in (path, *path.parents) if os.path.lexists(directory / ".git")), None)
+    if top is None:
+        return None
+    commands = (
+        ("rev-parse", "--is-inside-work-tree"),
+        ("status", "--porcelain", "--untracked-files=all", "--", rel),
+        ("ls-files", "-v", "--", rel),
+    )
+    for args in commands:
+        try:
+            result = subprocess.run(
+                ["git", "--literal-pathspecs", "-C", str(repo_dir), *args],
+                capture_output=True, text=True, env=_git_env(),
+            )
+        except OSError as exc:
+            return f"git could not be run ({exc.strerror or exc}), so the state of the repository at {top} is unknown"
+        inside = args[0] != "rev-parse" or result.stdout.strip() == "true"
+        if result.returncode == 0 and inside:
+            continue
+        cause = next((line.strip() for line in result.stderr.splitlines() if line.strip()), "")
+        cause = re.sub(r"^(?:fatal|error): ", "", cause) or (
+            "not a work tree" if result.returncode == 0 else f"exit status {result.returncode}"
+        )
+        where = "this repository" if str(top) in cause else f"the repository at {top}"
+        return f"git cannot read {where} ({cause})"
+    return None
+
+
+def _unclean_reason(repo_dir: Path, rel: str, reason: str) -> str:
+    """`reason` for a file that is not tracked and clean, unless git cannot read
+    the repository or its index at all, which is then the reason to fix."""
+    unreadable = _git_unreadable(repo_dir, rel)
+    return f"{unreadable}; fix that, then re-run --adopt" if unreadable else reason
+
+
 def _has_git_marker(repo_dir: Path) -> bool:
     """True when repo_dir or a parent holds a .git entry (directory or file)."""
     path = Path(os.path.abspath(repo_dir))
@@ -3670,15 +3788,17 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             # Up to date on disk, but untracked or not what git has committed
             # and staged, so a commit could pair another copy with its group.
             blocked.add(rel)
-            actions[rel] = ("kept", rel, "up to date, but untracked or with uncommitted changes, so the files that "
-                            "change with it wait; commit it, then re-run --adopt")
+            actions[rel] = ("kept", rel, _unclean_reason(
+                repo_dir, rel, "up to date, but untracked or with uncommitted changes, so the files that "
+                "change with it wait; commit it, then re-run --adopt"))
         elif status(rel) == "missing" and rel not in actions and _git_file_state(repo_dir, rel) == "dirty":
             # Absent on disk, but git still tracks or stages it: recreating it
             # untracked would leave that change, such as a staged deletion, to
             # be committed beside the rest of its group.
             blocked.add(rel)
-            actions[rel] = ("kept", rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
-                            "it and the files that change with it wait; commit or undo that change, then re-run --adopt")
+            actions[rel] = ("kept", rel, _unclean_reason(
+                repo_dir, rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
+                "it and the files that change with it wait; commit or undo that change, then re-run --adopt"))
     holds = _seed_holds(report, frozenset(blocked))
     for rel in pending:
         if rel in holds and rel not in actions:
@@ -3715,7 +3835,7 @@ def _seed_refusal(repo_dir: Path, rel: str, expected: str):
     if _git_ignored(repo_dir, rel):
         return "ignored by git"
     if not _git_file_is_clean(repo_dir, rel):
-        return "needs the file tracked by git with no uncommitted changes"
+        return _unclean_reason(repo_dir, rel, "needs the file tracked by git with no uncommitted changes")
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         raw = _read_anchored(parent, Path(rel).name)[0]
@@ -3757,7 +3877,8 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
         return ("refused", rel, "ignored by git; not deleted")
     state = _git_file_state(repo_dir, rel)
     if state not in ("clean", "untracked"):
-        return ("refused", rel, "dangling mirror has uncommitted or staged changes; not deleted")
+        return ("refused", rel, _unclean_reason(
+            repo_dir, rel, "dangling mirror has uncommitted or staged changes; not deleted"))
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         before = os.stat(name, dir_fd=parent, follow_symlinks=False)
@@ -3854,7 +3975,8 @@ def _adopt_file(
     name = Path(rel).name
     if status in ("stale", "orphaned"):
         if status == "stale" and not _git_file_is_clean(repo_dir, rel):
-            return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+            return ("refused", rel, _unclean_reason(
+                repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
         parent = _open_parent(repo_dir, rel, create=False)
         try:
             raw, identity = _read_anchored(parent, name)
@@ -3866,7 +3988,8 @@ def _adopt_file(
                     # Nothing committed to recover it from, also outside a git repository.
                     return ("refused", rel, "orphaned file is not tracked by git; not deleted")
                 if state != "clean":
-                    return ("refused", rel, "orphaned file has uncommitted or staged changes; not deleted")
+                    return ("refused", rel, _unclean_reason(
+                        repo_dir, rel, "orphaned file has uncommitted or staged changes; not deleted"))
                 try:
                     current = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -3938,7 +4061,8 @@ def _adopt_file(
     if rel != "AGENTS.md":
         return ("kept", rel, "differs from the template; not overwritten")
     if not _git_file_is_clean(repo_dir, rel):
-        return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+        return ("refused", rel, _unclean_reason(
+            repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         raw, identity = _read_anchored(parent, name)

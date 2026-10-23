@@ -187,6 +187,29 @@ class GitShowTimeoutTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("error: LEGACY_TEMPLATE_DIGESTS not regenerated: ", result.stderr)
 
+    def test_the_validator_does_not_rebuild_the_seed_table_from_a_partial_read(self):
+        with self._hung(), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(TimeoutError):
+                bootstrap.compute_seed_digests()
+            errors = validate_templates.check_seed_digests()
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0].startswith("bootstrap.SEED_DIGESTS could not be checked: "), errors)
+        self.assertIn("did not answer within 0.5 s", errors[0])
+        # One hung read ends them: git show was not started again.
+        self.assertEqual(len(self.log.read_text().splitlines()), 2)
+        prelude = (
+            "import sys; import bootstrap; bootstrap.GIT_SHOW_TIMEOUT = 0.5; "
+            "sys.argv = ['validate_templates.py', '--regenerate-seed-digests']; "
+            "import runpy; runpy.run_path('validate_templates.py', run_name='__main__')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", prelude], capture_output=True, text=True,
+            env={**os.environ, "PATH": self.path}, cwd=Path(bootstrap.__file__).parent, timeout=60,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("error: SEED_DIGESTS not regenerated: ", result.stderr)
+
     def test_the_same_repository_diffs_when_git_answers(self):
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors):

@@ -4839,7 +4839,7 @@ def _structure_self_tests() -> list:
     expect("python pins only in a comment",
            gates("python", test, text=lambda t: re.sub(
                r"( *)for tool in [^\n]*\n[^\n]*\n *done\n",
-               lambda m: f"{m.group(1)}# ruff==0.16.10 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
+               lambda m: f"{m.group(1)}# ruff==0.17.1 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
                t, count=1)), "pinned fallback loop")
 
     # The manifest guard stops the pip cache from throwing on a repository with

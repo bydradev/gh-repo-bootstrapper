@@ -709,8 +709,9 @@ without stopping the others, and `--adopt` exits 1 when it refused anything.
 ### Upgrading to 0.18.1
 
 `python`: the uv that `test.yml` installs for every `uv.lock` project moves
-to 0.13.5, and the ruff it falls back to when the project does not bring its
-own moves to 0.17.1 (from 0.12.24 and 0.16.10). uv 0.13 still installs a
+to 0.13.1, and the ruff it falls back to when the project does not bring its
+own moves to 0.17.1 (from 0.12.24 and 0.16.10), each the newest release at
+least 7 days old, as the Dependabot cooldown waits. uv 0.13 still installs a
 `uv.lock` written by 0.12 with `uv sync --locked`. Ruff 0.17 changes its
 defaults: Python 3.11 when no version is configured, seven `flake8-datetimez`
 rules (DTZ001, DTZ005 to DTZ007, DTZ011, DTZ012 and DTZ901) out of the

@@ -957,10 +957,10 @@ class PythonToolInstallTests(unittest.TestCase):
         build = "[build-system]\nrequires = [\"poetry-core\"]\nbuild-backend = \"poetry.core.masonry.api\"\n"
         cases = {
             "uv.lock": ({"pyproject.toml": project + group, "uv.lock": ""},
-                        ["pip install uv==0.13.5", "uv sync --locked --group dev",
+                        ["pip install uv==0.13.1", "uv sync --locked --group dev",
                          "uv pip install ruff==0.17.1"]),
             "uv.lock with a dev extra": ({"pyproject.toml": project + extra, "uv.lock": ""},
-                                         ["pip install uv==0.13.5", "uv sync --locked --extra dev",
+                                         ["pip install uv==0.13.1", "uv sync --locked --extra dev",
                                           "uv pip install ruff==0.17.1"]),
             "requirements-dev.txt": ({"requirements-dev.txt": "", "pyproject.toml": project + group},
                                      ["pip install -r requirements-dev.txt", "pip install ruff==0.17.1"]),

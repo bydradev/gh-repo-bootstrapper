@@ -61,7 +61,8 @@ jobs:
       # release, and the answer must agree with whether Release Please will
       # release the squash commit. Body edits re-run this check. The script
       # reads the pull request only from its env and prints none of its text
-      # but released types, so no line of it can act as a workflow command.
+      # but released types and the numbers of a Release-As version, so no
+      # line of it can act as a workflow command.
       - name: Check the user-visible line
         env:
           TITLE: ${{ github.event.pull_request.title }}
@@ -86,9 +87,11 @@ jobs:
           # request.
           # Mirrors release-please 17.6.0 (commit.js, base.js for the
           # Release-As version, and changelog-notes/default.js and
-          # util/pull-request-body.js with node-html-parser 6.1.13 for the
-          # release pull request), its @conventional-commits/parser 0.4.1 and
-          # the conventionalcommits preset 6.1.0, checked 2026-10-19.
+          # util/pull-request-body.js with node-html-parser 6.1.11, the
+          # version release-please-action v5.0.0 bundles, for the release pull
+          # request), its @conventional-commits/parser 0.4.1 and the
+          # conventionalcommits preset 6.1.0, checked 2026-10-19 (the
+          # node-html-parser version and its reading re-checked 2026-10-22).
           RELEASED = {"feat", "feature", "fix", "perf", "revert"}
           TYPES = "feat, fix, perf or revert"
           SPLIT = re.compile(r"\n\n(?=(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:[(].*?[)])?: )")
@@ -117,6 +120,15 @@ jobs:
           # A code fence's opening or closing line, at any indent, since a
           # fence in a list item is indented as far as the item's text.
           FENCE = re.compile(r" *(`{3,}|~{3,})(.*)")
+          # What GitHub's default squash commit can add after the body: a
+          # line of dashes, then the commits' Signed-off-by and
+          # Co-authored-by trailers (seen on most squashes with either on
+          # the bootstrapper's own main, 2026-10-21 to 2026-10-22, though
+          # not all). Release Please then reads the body's trailing
+          # footers as body text, so a release or a Release-As version
+          # that only one of them makes is lost, and a breaking-change
+          # token that gives no note as the body stands can give one.
+          CO_AUTHORS = "\n\n---------\n\nCo-authored-by: A <a@example.com>"
 
 
           def squashed(body, fences):
@@ -310,11 +322,12 @@ jobs:
               return f"line {abs(line)} of the body", line
 
 
-          def releases(title, body, fences):
+          def releases(title, body, fences, co_authors=False):
               # Why Release Please releases the change, or None; the first
-              # problem that makes it drop a change or stop with an error; and
-              # whether it cannot parse the title. It reads the override as the
-              # pull request body holds it, or else the squash commit.
+              # problem that makes it drop a change or stop with an error;
+              # whether it cannot parse the title; and the Release-As version. It reads the override as the
+              # pull request body holds it, or else the squash commit, with
+              # GitHub's co-author block after the body when co_authors is set.
               override = body.split("BEGIN_COMMIT_OVERRIDE")[1:2]
               override = override[0].split("END_COMMIT_OVERRIDE")[0].strip() if override else ""
               origin = "the commit override" if override else "the body"
@@ -323,6 +336,9 @@ jobs:
                   source, place = override, lambda line: line + shift + 1
               else:
                   squash, numbers = squashed(body, fences)
+                  if co_authors:
+                      squash += CO_AUTHORS
+                      numbers += [0] * CO_AUTHORS.count("\n")
                   source, place = f"{title}\n\n{squash}", lambda line: numbers[line - 2]
               found, problem, title_lost, version = None, None, False, None
               for index, (text, offset) in enumerate(messages(source)):
@@ -383,7 +399,7 @@ jobs:
                           "Break that line yourself into lines of at most 72 characters, which GitHub leaves as "
                           "written, so that none starts that way."
                       )
-              return found, problem, title_lost
+              return found, problem, title_lost, version
 
 
           def fail(message):
@@ -401,9 +417,13 @@ jobs:
           )
           # Whether GitHub leaves a long line alone for a code fence or for
           # its indent, a release or a problem on either reading counts.
-          reason, problem, title_lost = releases(title.strip(), body, True)
+          reason, problem, title_lost, version = releases(title.strip(), body, True)
           other = releases(title.strip(), body, False)
-          reason, problem = reason or other[0], problem or other[1]
+          reason, problem, version = reason or other[0], problem or other[1], version or other[3]
+          # The same readings after GitHub's default co-author block.
+          blocked = releases(title.strip(), body, True, True), releases(title.strip(), body, False, True)
+          kept = blocked[0][0] or blocked[1][0]
+          kept_version = blocked[0][3] or blocked[1][3]
           if answers - {"yes", "no"}:
               fail(f"A User-visible line must answer yes or no. {how}")
           if answers == {"yes", "no"}:
@@ -412,6 +432,45 @@ jobs:
               fail(f"The body has no User-visible line. {how}")
           if problem is not None:
               fail(problem)
+          # The messages print only the version's numbers, none of the
+          # footer's other text.
+          shown = (VERSION.search(version) or [None])[0] if version is not None else None
+          moved = (VERSION.search(kept_version) or [None])[0] if kept_version is not None else None
+          block = (
+              "GitHub's default squash commit can add a line of dashes and the commits' "
+              "Signed-off-by and Co-authored-by trailers after the body, and Release Please then "
+              "reads the body's trailing footers as body text"
+          )
+          # A version only such a footer sets is lost or changed after the
+          # block; the override keeps it.
+          lost = version is not None and moved != shown
+          if reason and not kept:
+              fail(
+                  f"Release Please releases this change because {reason}, which it reads as a footer "
+                  f"only while it ends the squash commit. {block} and does not release the change. " + (
+                      "Put the whole commit message with its Release-As footer in a "
+                      "BEGIN_COMMIT_OVERRIDE block, which keeps its version."
+                  if lost else
+                      "Give the release to the title or to an extra entry that opens a paragraph, such "
+                      "as fix: subject, write a BREAKING CHANGE: note, or put the whole commit message "
+                      "with its footer in a BEGIN_COMMIT_OVERRIDE block."
+                  )
+              )
+          if reason and lost:
+              fail(
+                  f"Release Please releases this change as {shown or 'the Release-As version'} because "
+                  "of its Release-As footer, which it reads as a footer only while it ends the squash "
+                  f"commit. {block} and proposes another version. Put the whole commit message with "
+                  "its Release-As footer in a BEGIN_COMMIT_OVERRIDE block."
+              )
+          if kept and not reason:
+              fail(
+                  f"Release Please releases this change because {kept} only once GitHub's default "
+                  "squash commit adds a line of dashes and the commits' Signed-off-by and "
+                  "Co-authored-by trailers after the body, which changes how it reads the body's "
+                  "last lines. Reword or remove the text that makes the release, or put the whole "
+                  "commit message in a BEGIN_COMMIT_OVERRIDE block."
+              )
           if answers == {"yes"} and not reason and title_lost:
               fail(
                   "The body says User-visible: yes, but Release Please cannot parse the title, so it "

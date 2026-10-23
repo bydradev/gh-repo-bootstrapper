@@ -121,6 +121,8 @@ follow `docs/branch-protection-runbook.md` (repository root) and the
   release-please-action v5.0.0 locks, and v17.11.2, with
   conventional-changelog-conventionalcommits 6.1.0, checked 2026-10-18.
 - How it reads back a release pull request's body: release-please v17.6.0
-  with node-html-parser 6.1.13, checked 2026-10-19.
+  with node-html-parser 6.1.11, the version release-please-action v5.0.0
+  bundles, and 6.1.13, which reads those bodies the same way, checked
+  2026-10-22.
 - `merge_pull_request` parameters: the `github/github-mcp-server` README,
   checked 2026-10-16.

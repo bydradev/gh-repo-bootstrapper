@@ -54,6 +54,26 @@ class UserVisibleLineTests(unittest.TestCase):
         self.assertFails(title, body + "\n\nUser-visible: no", f"because {reason}.")
         self.assertPasses(title, body + "\n\nUser-visible: yes")
 
+    def assertFooterRelease(self, title, body, reason):
+        # Release Please releases this only through a trailing footer, which
+        # GitHub's co-author block after the body ends, so either answer
+        # fails; in an override, which no block follows, it releases.
+        for answer in ("yes", "no"):
+            self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
+                             f"because {reason}, which it reads as a footer only while it ends the squash commit")
+        override = f"BEGIN_COMMIT_OVERRIDE\n{title}\n\n{body}\nEND_COMMIT_OVERRIDE"
+        self.assertReleases(title, override, reason.replace("the body", "the commit override"))
+
+    def assertBlockRelease(self, title, body, reason):
+        # Release Please does not release this as the body stands, but
+        # GitHub's co-author block after the body makes it a breaking change
+        # (release-please 17.6.0, checked 2026-10-22), so either answer
+        # fails; in an override, which no block follows, it does not release.
+        for answer in ("yes", "no"):
+            self.assertFails(title, f"{body}\n\nUser-visible: {answer}",
+                             f"because {reason} only once GitHub's default squash commit adds")
+        self.assertDoesNotRelease(title, f"BEGIN_COMMIT_OVERRIDE\n{title}\n\n{body}\nEND_COMMIT_OVERRIDE")
+
     def assertDoesNotRelease(self, title, body):
         self.assertPasses(title, body + "\n\nUser-visible: no")
         self.assertFails(title, body + "\n\nUser-visible: yes", "will not release this change")
@@ -76,7 +96,7 @@ class UserVisibleLineTests(unittest.TestCase):
         note = "the body has a breaking-change note"
         self.assertReleases("docs: x", "Prose.\n\nBREAKING CHANGE: the flag is gone\n\nMore prose.", note)
         self.assertReleases("docs: x", "Prose.\n\nBREAKING CHANGE:\n- the flag is gone", note)
-        self.assertReleases("docs: x", "Prose.\n\nBREAKING CHANGE #12", note)
+        self.assertFooterRelease("docs: x", "Prose.\n\nBREAKING CHANGE #12", note)
         # Release Please finds this token anywhere in the body, quoted or not.
         self.assertReleases("docs: x", "The `BREAKING-CHANGE:` token is accepted.", note)
         self.assertReleases("docs: x", "Prose.\n\n    BREAKING-CHANGE: indented\n\nMore.", note)
@@ -84,19 +104,22 @@ class UserVisibleLineTests(unittest.TestCase):
         # A footer note is its value or its last continuation line, and the
         # last marker's note replaces the earlier ones.
         self.assertReleases("docs: x", "Prose.\n\nBREAKING CHANGE:\n  the flag is gone", note)
+        for body in ("Prose.\n\nBREAKING-CHANGES: none", "Prose.\n\nBREAKING CHANGES: none"):
+            with self.subTest(body=body):
+                self.assertDoesNotRelease("docs: x", body)
+        # These give no note as the body stands, but GitHub's co-author
+        # block after the body gives each one.
         for body in (
             "Prose.\n\nBREAKING CHANGE:",
             "Prose.\n\nBREAKING CHANGE:\nRefs: #1",
             "Prose.\nBREAKING CHANGE: the flag is gone\n\nRefs: #1\nBREAKING CHANGE:",
             "Prose.\n\nRefs: the BREAKING-CHANGE: token",
-            "Prose.\n\nBREAKING-CHANGES: none",
-            "Prose.\n\nBREAKING CHANGES: none",
             "Prose ending BREAKING-CHANGE:",
             "Prose.\n\nBREAKING CHANGE: the flag is gone\n   \nRefs: #1",
         ):
             with self.subTest(body=body):
-                self.assertDoesNotRelease("docs: x", body)
-        self.assertReleases("docs: x", "Prose.\n\nci!: drop a job", "the body has a commit marked breaking")
+                self.assertBlockRelease("docs: x", body, note)
+        self.assertFooterRelease("docs: x", "Prose.\n\nci!: drop a job", "the body has a commit marked breaking")
         # With no subject, only a type of word characters is breaking.
         for body in ("Prose.\n\nBEGIN_NESTED_COMMIT\ndocs!:\nEND_NESTED_COMMIT",
                      "Prose.\n\nBEGIN_NESTED_COMMIT\nre-ref!: y\nEND_NESTED_COMMIT"):
@@ -114,12 +137,12 @@ class UserVisibleLineTests(unittest.TestCase):
                       "END_COMMIT_OVERRIDE")):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
-        self.assertReleases("docs: x", "Prose.\n\nci!: x\n  BREAKING CHANGE:", "the body has a commit marked breaking")
+        self.assertFooterRelease("docs: x", "Prose.\n\nci!: x\n  BREAKING CHANGE:", "the body has a commit marked breaking")
         self.assertReleases("docs: x", "BEGIN_COMMIT_OVERRIDE\nre-ref!: x\n\nBREAKING CHANGE:\nBREAKING CHANGE: y\n"
                             "END_COMMIT_OVERRIDE", "the commit override has a commit marked breaking")
         # Release Please reads a footer and its continuation lines again as
         # a commit of their own.
-        self.assertReleases("docs: x", "Prose.\n\nExample:\n\n    BREAKING CHANGE: the --foo flag is gone", note)
+        self.assertFooterRelease("docs: x", "Prose.\n\nExample:\n\n    BREAKING CHANGE: the --foo flag is gone", note)
         self.assertReleases("docs: x", "Prose.\n\nRefs: #1\n  the BREAKING-CHANGE: token", note)
 
     def test_extra_entries_count_where_release_please_reads_them(self):
@@ -128,13 +151,13 @@ class UserVisibleLineTests(unittest.TestCase):
         self.assertReleases("docs: x", "Prose.\n\nperf(cli): also y\ndetail", "the body has a perf entry")
         self.assertReleases("docs: x", "Prose.\n\n```\n\nfix: keep the key\n```\n\nMore.", "the body has a fix entry")
         # So is a trailing footer of a released type, in any case.
-        self.assertReleases("docs: x", "Prose.\n\nFix: also y", "the body has a fix entry")
-        self.assertReleases("docs: x", "Prose.\n\nfeature(cli): add a flag", "the body has a feature entry")
-        self.assertReleases("docs: x", "Note: this matters.\nFeat: y\n  continued", "the body has a feat entry")
+        self.assertFooterRelease("docs: x", "Prose.\n\nFix: also y", "the body has a fix entry")
+        self.assertFooterRelease("docs: x", "Prose.\n\nfeature(cli): add a flag", "the body has a feature entry")
+        self.assertFooterRelease("docs: x", "Note: this matters.\nFeat: y\n  continued", "the body has a feat entry")
         # Release Please reads each footer with its continuation lines, less
         # their indent, as a commit, unless it has no colon or such a line
         # makes the parser throw.
-        self.assertReleases("docs: x", "Prose.\n\nExample:\n\n    feat(api): add the endpoint",
+        self.assertFooterRelease("docs: x", "Prose.\n\nExample:\n\n    feat(api): add the endpoint",
                             "the body has a feat entry")
         # Elsewhere such lines are prose.
         for body in (
@@ -150,29 +173,36 @@ class UserVisibleLineTests(unittest.TestCase):
             "Prose.\n\nFix: y\n  f(g(x))",
             "Prose.\n\nOutput:\n  fix: y\n\n  More output.",
             "Prose.\n\nFix: y\n  ok\n  f(g(x))",
-            "Prose.\n\nBREAKING-CHANGE: x\n  feat: y\n   ",
         ):
             with self.subTest(body=body):
                 self.assertDoesNotRelease("docs: x", body)
+        # So is this, whose last line an override would strip.
+        for answer in ("yes", "no"):
+            self.assertFails("docs: x", f"Prose.\n\nBREAKING-CHANGE: x\n  feat: y\n   \n\nUser-visible: {answer}",
+                             "because the body has a breaking-change note only once GitHub's default squash")
         # A footer with an empty scope is prose (a paragraph that opens with
         # one is a dropped entry, tested below); a "!" footer keeps the
         # footers together.
         self.assertDoesNotRelease("docs: x", "Prose.\n\nOther: x\nfix(): y")
-        self.assertReleases("docs: x", "Prose.\n\nFeat: y\n!: x", "the body has a feat entry")
+        self.assertFooterRelease("docs: x", "Prose.\n\nFeat: y\n!: x", "the body has a feat entry")
         code, out = self._run("chore: x", "Prose.\n\nfeat(cli)!: y\n\nMore prose.\n\nUser-visible: yes")
         self.assertIn("will not release this change", out)
 
     def test_a_release_as_footer_releases(self):
-        self.assertReleases("chore: release 1.0.0", "Release-As: 1.0.0", "the body has a Release-As footer")
-        self.assertReleases("chore: release 1.0.0", "Prose.\n\nRelease-As: v1.0.0\nCo-Authored-By: A <a@b.c>",
+        self.assertFooterRelease("chore: release 1.0.0", "Release-As: 1.0.0", "the body has a Release-As footer")
+        self.assertFooterRelease("chore: release 1.0.0", "Prose.\n\nRelease-As: v1.0.0\nCo-Authored-By: A <a@b.c>",
                             "the body has a Release-As footer")
         self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: 1.0.0\n\nThen prose.")
         # The version is the footer's value or its last continuation line.
         for body in ("Release-As #1.0.0", "Release-As:\n  1.0.0", "Release-As: pkg@1.0.0",
-                     "Release-As: 1.0.0\nRelease-As: next", "Prose.\n\nExample:\n  Release-As: 2.0.0",
-                     "Release-As: 2.0.0\n\nchore: y\n\nRelease-As: next"):
+                     "Release-As: 1.0.0\nRelease-As: next", "Prose.\n\nExample:\n  Release-As: 2.0.0"):
             with self.subTest(body=body):
-                self.assertReleases("chore: release 1.0.0", body, "the body has a Release-As footer")
+                self.assertFooterRelease("chore: release 1.0.0", body, "the body has a Release-As footer")
+        # A Release-As paragraph that an extra entry follows ends the title's
+        # own commit, which the co-author block after the entry cannot reach
+        # (release-please 17.6.0 keeps the RELEASE AS note, checked 2026-10-22).
+        self.assertReleases("chore: release 1.0.0", "Release-As: 2.0.0\n\nchore: y\n\nRelease-As: next",
+                            "the body has a Release-As footer")
         self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: @scope/pkg@1.0.0")
         self.assertDoesNotRelease("chore: release 1.0.0", "Release-As: 1.2.x\n\nThen prose.")
 

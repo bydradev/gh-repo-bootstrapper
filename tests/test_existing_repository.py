@@ -358,8 +358,21 @@ def _git(repo: Path, *args):
         capture_output=True,
         env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
              "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
-             "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+             "PATH": os.environ.get("PATH", os.defpath)},
     )
+
+
+def _skip_without_tags(test, detail=""):
+    """Skip a test that reads this checkout's release tags when there are none,
+    except in GitHub Actions: validate.yml fetches every tag, so a missing
+    one there is a failure, not a quiet skip. detail says what went wrong."""
+    detail = f" ({detail.strip()})" if detail.strip() else ""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        test.fail(
+            f"release tags unavailable{detail}; validate.yml checks out with fetch-depth: 0 to have them, "
+            "and a fork's own run needs this repository's tags pushed to it"
+        )
+    test.skipTest(f"release tags unavailable{detail}")
 
 
 class ExistingRepositoryTests(unittest.TestCase):
@@ -1594,7 +1607,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, released.stderr)
         self._write(rel, released.stdout)
         self._commit_all()
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
@@ -1625,7 +1638,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, released.stderr)
         old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
         old_bumped = released.stdout.replace(f"@{old_pin[2]} # {old_pin[3]}", "@" + "b" * 40 + " # v98.0.0", 1)
         self._write(rel, old_bumped)
@@ -1659,7 +1672,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, released.stderr)
         template_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
         old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
         for body, reported in (
@@ -1718,7 +1731,7 @@ class ExistingRepositoryTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         if released.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, released.stderr)
         default = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", released.stdout)
         files = _render("nextjs")
         rel = ".github/workflows/release-please.yml"
@@ -1917,7 +1930,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     ["git", "-C", str(tools), "show", f"v0.8.0:templates/{name}"], capture_output=True, text=True,
                 )
                 if released.returncode:
-                    self.skipTest("release tags unavailable")
+                    _skip_without_tags(self, released.stderr)
                 files = _render(repo_type)
                 self._write(rel, released.stdout)
                 self._commit_all()
@@ -1970,7 +1983,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     ["git", "-C", str(tools), "show", f"v0.11.1:templates/{name}"], capture_output=True, text=True,
                 )
                 if released.returncode:
-                    self.skipTest("release tags unavailable")
+                    _skip_without_tags(self, released.stderr)
                 self.assertNotIn("id: credentials", released.stdout)
                 pin = re.search(r"create-github-app-token(@\S+ # \S+)", released.stdout)[1]
                 shipped = bootstrap.stamp(released.stdout.replace(pin, older, 1), True, template=name)
@@ -2230,7 +2243,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                          "--type", "nextjs"], capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode, 1, result.stdout)
-                    row = "shadowed" if flag == "--check" else "refused "
+                    row = f"{'shadowed':<{bootstrap.REPORT_STATUS_WIDTH}}" if flag == "--check" else "refused "
                     self.assertIn(f"{row} {rel}", result.stdout)
                     self.assertEqual((self.repo / rel).read_bytes(), original)
 
@@ -2865,8 +2878,13 @@ class ExistingRepositoryTests(unittest.TestCase):
     def test_create_and_push_clones_to_an_absolute_path(self):
         # A relative --name starting with "-" must not reach gh as a flag.
         files = _render()
+        # Reached through a symbolic link, as macOS reaches its temporary
+        # directory (/var is a link to /private/var): the working directory
+        # the clone path is built from is the resolved one.
+        link = Path(self._tmp.name) / "link"
+        link.symlink_to(self.repo, target_is_directory=True)
         cwd = os.getcwd()
-        os.chdir(self.repo)
+        os.chdir(link)
         self.addCleanup(os.chdir, cwd)
         cfg = {"name": "app", "repo_type": "python", "owner": "owner",
                "private": True, "repo_dir": Path("-x/app")}
@@ -2874,7 +2892,8 @@ class ExistingRepositoryTests(unittest.TestCase):
         with unittest.mock.patch.object(bootstrap, "_run", lambda command, **kwargs: calls.append(command)):
             bootstrap.create_and_push(cfg, files)
         clone = next(command for command in calls if command[:3] == ["gh", "repo", "clone"])
-        self.assertEqual(clone[4], str(self.repo / "-x/app"))
+        self.assertTrue(Path(clone[4]).is_absolute(), clone)
+        self.assertEqual(Path(clone[4]).resolve(), (link / "-x/app").resolve())
 
     def test_create_and_push_refuses_before_creating_without_anchored_symlinks(self):
         files = _render()
@@ -3166,7 +3185,7 @@ class SeedScriptTests(unittest.TestCase):
         templates = self._tagged_templates({"v0.1.0": "a\n", "v0.2.0": "b\n"}, "c\n")
         with unittest.mock.patch.object(bootstrap, "TEMPLATES_DIR", templates), \
                 unittest.mock.patch.object(bootstrap, "SEED_FILES", frozenset({"scripts/x.mjs"})), \
-                unittest.mock.patch.object(validate_templates, "_shallow_checkout", return_value=True):
+                unittest.mock.patch.object(bootstrap, "_shallow_checkout", return_value=True):
             recorded = {"scripts/x.mjs": {bootstrap._digest("a\n"): "v0.1.0"}}
             errors = validate_templates.check_seed_digests(recorded=recorded)
         self.assertTrue(any("SEED_DIGESTS is stale" in error for error in errors), errors)
@@ -3528,7 +3547,7 @@ class CheckReportWordingTests(unittest.TestCase):
                 self._commit(label)
                 self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[rel], ("shadowed", self.SHADOWED))
                 checked, adopted = self._check_and_adopt()
-                self.assertIn(f"shadowed {rel}\n      {self.SHADOWED}\n", checked)
+                self.assertIn(f"{'shadowed':<{bootstrap.REPORT_STATUS_WIDTH}} {rel}\n      {self.SHADOWED}\n", checked)
                 self.assertIn(f"refused  {rel}{self.DASH}{self.SHADOWED}\n", adopted)
                 self.assertEqual((self.repo / rel).read_text(), text)
 
@@ -3689,7 +3708,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         )
         if result.returncode or not bootstrap._workflow_diff_tags():
             # No tag to read, or a shallow checkout: --check skips the workflow diff there.
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, result.stderr or "the tags stop short of the unstamped releases, or the checkout is shallow")
         return result.stdout
 
     @staticmethod
@@ -3728,7 +3747,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
 
     def test_diff_names_the_current_template_when_the_workflow_was_forked_from_it(self):
         if not bootstrap._workflow_diff_tags():
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, "the tags stop short of the unstamped releases, or the checkout is shallow")
         for rel in (self.RELEASE, self.PR_TITLE):
             with self.subTest(rel=rel):
                 body, step = self._fork(bootstrap.read_stamp(self.files[rel], True)[1])
@@ -3820,9 +3839,10 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
         })
         docs_first = {runbook: self.files[runbook], **self.files}
         for order, files in (("workflows first", self.files), ("docs first", docs_first)):
-            with self.subTest(order), unittest.mock.patch("subprocess.run", wraps=subprocess.run) as run:
+            # Popen, which subprocess.run starts too: a release read runs git under a timeout of its own.
+            with self.subTest(order), unittest.mock.patch("subprocess.Popen", wraps=subprocess.Popen) as popen:
                 report = bootstrap.compare_repository(self.repo, files)
-            shown = [tuple(call.args[0]) for call in run.call_args_list if "show" in call.args[0]]
+            shown = [tuple(call.args[0]) for call in popen.call_args_list if "show" in call.args[0]]
             # Both readers ran (each diff names its base) ...
             self.assertTrue(report[self.RELEASE][1].startswith(f"--- legacy/v0.12.0/{self.RELEASE}"), report[self.RELEASE])
             self.assertTrue(report[runbook][1].startswith(f"--- legacy/{runbook}"), report[runbook])
@@ -3872,7 +3892,7 @@ class LegacyWorkflowDiffBaseTests(unittest.TestCase):
             capture_output=True, text=True, env=bootstrap._git_env(),
         )
         if cloned.returncode:
-            self.skipTest("release tags unavailable")
+            _skip_without_tags(self, cloned.stderr)
         # Run this checkout's bootstrapper and templates in the clone's shallow history.
         shutil.copy2(checkout / "bootstrap.py", clone / "bootstrap.py")
         shutil.rmtree(clone / "templates")
@@ -4176,7 +4196,7 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
                 result = self._cli("--check")
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertNotIn("Traceback", result.stderr)
-                self.assertIn(f"unreadable {rel}", result.stdout)
+                self.assertIn(f"{'unreadable':<{bootstrap.REPORT_STATUS_WIDTH}} {rel}", result.stdout)
                 self.assertIn(f"Permission denied: {self.SKILL_DIR}", result.stdout)
                 self._chmod(self.SKILL_DIR, 0o755)
 
@@ -4309,7 +4329,7 @@ class AdoptUnreadableDirectoryTests(unittest.TestCase):
         result = self._cli("--check")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)
-        self.assertIn(f"unreadable {rel}\n      PermissionError: Permission denied: docs\n", result.stdout)
+        self.assertIn(f"{'unreadable':<{bootstrap.REPORT_STATUS_WIDTH}} {rel}\n      PermissionError: Permission denied: docs\n", result.stdout)
         result = self._cli("--adopt")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)

@@ -27,6 +27,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -113,6 +114,8 @@ PR_TEMPLATE = ".github/pull_request_template.md"
 PR_TEMPLATE_FOLDERS = (".github", "", "docs")
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
+# Fits the longest --check state, `local-modified`, so every path lines up.
+REPORT_STATUS_WIDTH = len("local-modified")
 STAMP_PREFIX = "<!-- gh-repo-bootstrapper: template-owned; sha256="
 _STAMP_RE = re.compile(r"^" + re.escape(STAMP_PREFIX) + r"([0-9a-f]{64}) -->$")
 # Workflows are YAML, where an HTML comment is not a comment: they carry the
@@ -610,32 +613,84 @@ def _workflow_diff_tags() -> list[str]:
     return tags
 
 
+# Seconds to wait for one `git show` of a released template. A read takes
+# milliseconds; one that does not answer is waiting on something that will not
+# come: in a partial clone, git fetches a missing object from the remote
+# (git-scm.com/docs/partial-clone, read 2026-10-22), which can wait on the
+# network or a credential prompt.
+GIT_SHOW_TIMEOUT = 10
+
+
+def _git_show(args: list[str]) -> subprocess.CompletedProcess:
+    """subprocess.run(args) with output captured and GIT_SHOW_TIMEOUT, except
+    that on POSIX a timeout kills git's whole process group, so the `git fetch`
+    a partial clone starts, and its transport, do not outlive the read. Raises
+    subprocess.TimeoutExpired once they are gone. A Ctrl-C kills them too: the
+    group is git's own, so the terminal's SIGINT reaches only this process."""
+    posix = os.name == "posix"
+    with subprocess.Popen(
+        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_git_env(),
+        **({"process_group": 0} if posix else {}),
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=GIT_SHOW_TIMEOUT)
+        except BaseException:  # the timeout, or a KeyboardInterrupt
+            if posix:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            process.communicate()
+            raise
+    return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+
+
 class _ReleaseReads:
     """What one run reads from the bootstrapper's release tags: each template at
     each tag is read once, whichever of the legacy docs and the workflow diff
-    asks first, and the notice about missing tags is printed once."""
+    asks first, and the notice about missing tags is printed once.
+
+    A read that does not answer within GIT_SHOW_TIMEOUT seconds ends the
+    run's reads: it prints a one-line notice of its own instead, `timed_out`
+    is set, and every later read returns None without starting git again, so
+    callers skip the diff rather than build it from the bodies read before.
+    The missing-tags notice is then not printed: the timeout notice already
+    says why the diff was skipped."""
 
     def __init__(self):
         self._templates = {}
         self._noticed = False
+        self.timed_out = False
 
     def template(self, tag: str, name: str) -> bytes | None:
-        """templates/<name> as release `tag` shipped it; None if it did not."""
+        """templates/<name> as release `tag` shipped it; None if it did not, or
+        once a read has timed out."""
         key = (tag, name)
+        if self.timed_out:
+            return None
         if key not in self._templates:
-            result = subprocess.run(
-                ["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"],
-                capture_output=True, check=False, env=_git_env(),
-            )
+            try:
+                result = _git_show(["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"])
+            except subprocess.TimeoutExpired:
+                self.timed_out = True
+                print(
+                    f"notice: git show {tag}:templates/{name} did not answer within {GIT_SHOW_TIMEOUT} s "
+                    f"in {TEMPLATES_DIR.parent}; skipped the diff against legacy template docs or workflows",
+                    file=sys.stderr,
+                )
+                return None
             self._templates[key] = result.stdout if result.returncode == 0 else None
         return self._templates[key]
 
     def notice(self) -> None:
-        if not self._noticed:
+        if not self._noticed and not self.timed_out:
             self._noticed = True
             print(
-                f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, or a shallow "
-                "or incomplete clone); skipped the diff against legacy template docs or workflows",
+                f"notice: no usable git release tags in {TEMPLATES_DIR.parent} (none, a shallow "
+                "or incomplete clone, or tags that hold no bootstrapper template); skipped the diff "
+                "against legacy template docs or workflows",
                 file=sys.stderr,
             )
 
@@ -643,8 +698,10 @@ class _ReleaseReads:
 def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, list[str]]:
     """Render historical owned docs; new skills and agents have no legacy copies.
 
-    Without git or release tags (a copy without .git, a shallow clone) there
-    is nothing to render: a one-line notice goes to stderr and the result is
+    Without git or release tags (a copy without .git, a shallow clone), or
+    when no tag holds a template (a copy without a .git of its own inside
+    another repository, whose own release tags git then lists), there is
+    nothing to render: a one-line notice goes to stderr and the result is
     empty, so callers skip the legacy diff instead of failing. `reads` is the
     run's shared reader, so a template another caller read is not read again.
     """
@@ -685,6 +742,10 @@ def _legacy_template_bodies(reads: _ReleaseReads | None = None) -> dict[str, lis
                     bodies.setdefault(SCREENSHOT_REVIEW, []).append(
                         _compose(common, "PLATFORM_GUIDANCE", fragment)
                     )
+    if reads.timed_out:
+        return {}  # some releases were not read, so no body here is known to be the nearest
+    if not bodies:
+        reads.notice()
     return {path: list(dict.fromkeys(texts)) for path, texts in bodies.items()}
 
 
@@ -707,32 +768,47 @@ def _workflow_diff_bases(
     its stamp; a fork of a later template still needs its own base here, or the
     template's later changes read as local edits. Without tags there is no
     release to name, so the result is empty and the diff is skipped; see
-    _workflow_diff_tags for the tags that count. `reads` is the run's shared
-    reader, so a template the legacy docs read is not read again.
+    _workflow_diff_tags for the tags that count. It is empty too when no tag
+    holds any of this workflow's templates, as when the tags are another
+    repository's: this render alone could not name the nearest release.
+    `reads` is the run's shared reader, so a template the legacy docs read is
+    not read again.
     """
     if not tags:
         return []
     reads = _ReleaseReads() if reads is None else reads
     own = _template_source(rel, current)
-    bases = {current: (f"current/{rel}", None)}
+    bases, shipped_any = {current: (f"current/{rel}", None)}, False
     for tag in tags:
         for name in sorted(_LEGACY_WORKFLOW_SOURCES[rel], key=lambda name: name != own):
             shipped = reads.template(tag, name)
             if shipped is not None:
+                shipped_any = True
                 # The deploy markers v0.1.0 spliced in (see _legacy_template_bodies).
                 body = re.sub(r"(?m)^# <<[A-Z_]+>>\n", "", shipped.decode("utf-8", errors="replace"))
                 bases.setdefault(
                     body,
                     (f"legacy/{tag}/{rel}", None) if name == own else (f"legacy/{tag}/templates/{name}", own),
                 )
+    if reads.timed_out:
+        return []  # as for _legacy_template_bodies: a partial set of bases names the wrong one
+    if not shipped_any:
+        return []
     return [(label, body, other) for body, (label, other) in bases.items()]
 
 
 def compute_legacy_digests() -> dict:
-    """Rebuild the checked-in legacy table using the historical template renders."""
+    """Rebuild the checked-in legacy table using the historical template renders.
+
+    Raises TimeoutError when a read of a release timed out, since a table
+    without that release's bodies would be wrong."""
+    reads = _ReleaseReads()
+    bodies = _legacy_template_bodies(reads)
+    if reads.timed_out:
+        raise TimeoutError(f"a git show of a release did not answer within {GIT_SHOW_TIMEOUT} s")
     return {
-        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in bodies)
-        for path, bodies in _legacy_template_bodies().items()
+        path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in texts)
+        for path, texts in bodies.items()
     }
 
 
@@ -965,14 +1041,18 @@ def prompt_yn(question: str, default: bool = True) -> bool:
         print("  Please enter y or n.")
 
 
-def prompt_choice(question: str, choices: list) -> str:
+def prompt_choice(question: str, choices: list, default: str = "") -> str:
+    """Ask for one of `choices` by number; an empty answer takes `default`, if any."""
     for i, c in enumerate(choices, 1):
         print(f"  {i}. {c}")
+    suffix = f" [{choices.index(default) + 1}]" if default else ""
     while True:
         try:
-            raw = input(f"{question} (1-{len(choices)}): ").strip()
+            raw = input(f"{question} (1-{len(choices)}){suffix}: ").strip()
         except EOFError:
             _die("unexpected end of input")
+        if not raw and default:
+            return default
         try:
             idx = int(raw) - 1
             if 0 <= idx < len(choices):
@@ -1237,6 +1317,29 @@ def split_name_and_path(raw: str) -> tuple:
     return local_dir.name, local_dir
 
 
+def target_error(repo_dir: Path) -> str:
+    """Return error string, or empty string if repo_dir can take the new clone.
+
+    Missing folders on the way are created later, but a symbolic link that
+    leads nowhere, or a file where a folder belongs, would stop that creation
+    or the clone after the repository exists on GitHub, so both are refused
+    here. Permissions are not checked.
+    """
+    try:
+        for path in (repo_dir, *repo_dir.parents):
+            if path.is_symlink() and not path.exists():
+                return f"target directory '{repo_dir}' cannot be used: '{path}' is a link that leads nowhere"
+            if path.exists():
+                if path != repo_dir and not path.is_dir():
+                    return f"target directory '{repo_dir}' cannot be used: '{path}' is not a directory"
+                break
+        if repo_dir.exists() and any(repo_dir.iterdir()):
+            return f"target directory '{repo_dir}' already exists and is not empty"
+    except OSError as exc:
+        return f"target directory '{repo_dir}' cannot be used: {exc.strerror or exc}"
+    return ""
+
+
 def validate_name_or_path(raw: str) -> str:
     """Return error string or empty string if valid. `raw` may be a bare
     repo name or a relative/absolute path ending in the repo name."""
@@ -1285,6 +1388,13 @@ def gather_config(args) -> dict:
     configure_only = args.configure_only
 
     # --- name ---
+    # A run that creates the repository checks the target folder here, before
+    # the other questions, rather than only in create_and_push after them all.
+    creating = not dry and not configure_only
+
+    def name_error(raw: str) -> str:
+        return validate_name_or_path(raw) or (creating and target_error(split_name_and_path(raw)[1])) or ""
+
     raw_name = args.name
     if not raw_name:
         if ni:
@@ -1294,9 +1404,9 @@ def gather_config(args) -> dict:
             "directory by default.\nTo create it elsewhere, enter a relative "
             "or absolute path instead (e.g. ../my-app or /Users/you/code/my-app)."
         )
-        raw_name = prompt_validated("Repository name", validate_name_or_path)
+        raw_name = prompt_validated("Repository name", name_error)
     else:
-        err = validate_name_or_path(raw_name)
+        err = name_error(raw_name)
         if err:
             _die(err)
     name, repo_dir = split_name_and_path(raw_name)
@@ -1387,7 +1497,7 @@ def gather_config(args) -> dict:
                 destination = "iphone"
             else:
                 print("\nTarget destination:")
-                destination = prompt_choice("Select destination", ["iphone", "ipad", "macos"])
+                destination = prompt_choice("Select destination", ["iphone", "ipad", "macos"], default="iphone")
         xcodegen = args.xcodegen
         if not ni and not args.xcodegen:
             xcodegen = prompt_yn("Generate the Xcode project from project.yml?", default=False)
@@ -2010,6 +2120,13 @@ NEXTJS_BLOCK_MOVED = "(`next dev` block moved from the top of the file)"
 CARRIAGE_RETURNS = "(CRLF or CR line endings; convert to LF first)"
 MIXED_LINE_ENDINGS = "(CRLF and LF line endings mixed; convert to LF first)"
 STRAY_CARRIAGE_RETURN = "(carriage return inside a line; remove it first)"
+# A generated heading the file has only after its first `## Project specifics`,
+# as when a second, early copy of that heading sits among the generated
+# sections. Everything from the first copy on is the repository's, so a
+# rebuild would add the section again above it and keep the old one below.
+# Only the sections the template places after the last one the file still
+# has above it count (see compare_agents).
+AFTER_PROJECT_SPECIFICS = f"(generated heading after {PROJECT_SPECIFICS}: "
 BYTE_ORDER_MARK = "(byte-order mark before the first heading; remove it first)"
 
 
@@ -2059,12 +2176,29 @@ def compare_agents(expected: str, actual: str) -> list:
         else:
             rows.append(("missing", "(`next dev` block)"))
     fenced = {line.strip() for _, line, in_fence in _markdown_lines(act_generated) if in_fence}
+    # Generated sections swallowed by an early `## Project specifics`: those
+    # the template places after the generated section the file has last above
+    # it, missing above it and present below it. A repository's own section
+    # that shares a generated name, under its one heading after the generated
+    # sections, is not one.
+    swallowed = set()
+    if act_owned:
+        owned_headings = {heading for heading, _ in _agents_sections(act_owned)[1]}
+        order = {heading: index for index, (heading, _) in enumerate(exp_sections)}
+        placed = [order[heading] for heading, _ in act_sections if heading in order]
+        cut = placed[-1] if placed else -1
+        swallowed = {
+            heading for heading, _ in exp_sections[cut + 1:]
+            if heading not in actual_by_heading and heading in owned_headings
+        }
     for heading, body in exp_sections:
         found = actual_by_heading.get(heading)
         if not found and heading in fenced:
             # The heading is there but the scan placed it inside code, so its
             # section's text would not be compared and a rebuild could drop it.
             rows.append(("local", f"(generated heading read as code: {heading})"))
+        elif not found and heading in swallowed:
+            rows.append(("local", f"{AFTER_PROJECT_SPECIFICS}{heading})"))
         elif not found:
             rows.append(("missing", heading))
         elif len(found) == 1 and found[0].strip() == body.strip():
@@ -2210,8 +2344,11 @@ _UNVERIFIABLE = object()
 
 # An item of a flow sequence: a plain word, or a quoted string with no escape
 # and no quote of its own, which YAML 1.2.2 (sections 7.3.1 and 7.3.2, checked
-# 2026-10-21) reads as the text between its quotes.
-_FLOW_ITEM = r"""[A-Za-z0-9_./-]+|"[^"\\]*"|'[^']*'"""
+# 2026-10-21) reads as the text between its quotes. A plain word starts with
+# "-" only when a character it allows follows: a lone "-" is a block sequence
+# entry's indicator, which YAML 1.2.2 forbids there (section 7.3.3, a plain
+# scalar's first character; checked 2026-10-22), and PyYAML rejects `[- , "a"]`.
+_FLOW_ITEM = r"""(?:[A-Za-z0-9_./]|-(?=[A-Za-z0-9_./-]))[A-Za-z0-9_./-]*|"[^"\\]*"|'[^']*'"""
 
 # The only flow collections the reader admits: `{}`, `[]`, or a list of those items.
 _FLOW_VALUE_RE = re.compile(rf"\{{\s*\}}|\[\s*(?:(?:{_FLOW_ITEM})(?:\s*,\s*(?:{_FLOW_ITEM}))*)?\s*\]")
@@ -2391,6 +2528,65 @@ def _only(entries: list, name: str):
     if len(found) > 1:
         return _UNVERIFIABLE
     return found[0] if found else None
+
+
+def _has_postgres_service(text: str):
+    """Whether any job in a workflow has a Postgres service container: one
+    named `postgres`, as the --postgres block names it, or one whose image is
+    `postgres`. None when the file is outside _structural_lines()'s subset, or
+    when no such container is found but one the reader cannot see into might
+    be one: a flow mapping, a block scalar or an expression."""
+    rows = _structural_lines(text)
+    if rows is None:
+        return None
+    root = [(k, key, value) for k, (indent, key, value) in enumerate(rows) if indent == 0]
+    jobs = _only(root, "jobs")
+    if jobs is None:
+        return False
+    if jobs is _UNVERIFIABLE or jobs[1]:
+        return None
+    entries = _children(rows, jobs[0])
+    if entries is _UNVERIFIABLE:
+        return None
+    unsure = False
+    for k, _, value in entries:
+        job = _UNVERIFIABLE if value else _children(rows, k)
+        services = _UNVERIFIABLE if job is _UNVERIFIABLE else _only(job, "services")
+        if services is None:
+            continue
+        containers = _UNVERIFIABLE if services is _UNVERIFIABLE or services[1] else _children(rows, services[0])
+        if containers is _UNVERIFIABLE:
+            unsure = True
+            continue
+        for c, name, container in containers:
+            if name == "postgres":
+                return True
+            fields = _UNVERIFIABLE if container else _children(rows, c)
+            image = _UNVERIFIABLE if fields is _UNVERIFIABLE else _only(fields, "image")
+            if image is None:
+                continue
+            value = "|" if image is _UNVERIFIABLE else (image[1] or "").strip("\"'")
+            if re.fullmatch(r"(?:[^\s/]+/)*postgres(?:[:@].*)?", value):
+                return True
+            unsure = unsure or value == "|" or "${{" in value
+    return None if unsure else False
+
+
+def _postgres_hint(expected: str, actual: str) -> str:
+    """One line on whether an edited test.yml and the render carry the
+    --postgres service block, since --check cannot show a wrong --postgres
+    once the repository's own test.yml differs."""
+    local, render = _has_postgres_service(actual), _has_postgres_service(expected)
+    if local is None:
+        return "Postgres service: cannot read this file to tell; compare it with the render by hand"
+    if local and render:
+        return "Postgres service: in this file and in the render (--postgres)"
+    if local:
+        return "Postgres service: in this file, not in the render; pass --postgres if the repository uses it"
+    if render:
+        return ("Postgres service: in the render (--postgres), not in this file; "
+                "drop --postgres if the repository does not use it")
+    return "Postgres service: in neither this file nor the render"
 
 
 def _declared_inputs(text: str):
@@ -2636,10 +2832,19 @@ def _case_alias(repo_dir: Path, rel: str, files: dict) -> str | None:
 
 
 def _exact_path_exists(repo_dir: Path, rel: str) -> bool:
-    """True when every component of rel exists with exactly this spelling."""
+    """True when every component of rel exists with exactly this spelling.
+
+    Raises OSError, naming the directory, when one on the way cannot be
+    listed, as _symlink_in_path does.
+    """
     current = repo_dir
     for part in Path(rel).parts:
-        if part not in os.listdir(current):
+        try:
+            names = os.listdir(current)
+        except OSError as exc:
+            where = current.relative_to(repo_dir).as_posix()
+            raise OSError(exc.errno, f"{exc.strerror or type(exc).__name__}: {where}") from exc
+        if part not in names:
             return False
         current = current / part
     return True
@@ -3061,6 +3266,8 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
                         if not release_tags:
                             reads.notice()
                     candidates = _workflow_diff_bases(rel, read_stamp(expected, True)[1], release_tags, reads)
+                    if not candidates:
+                        reads.notice()
                 else:
                     if legacy_bodies is None:
                         legacy_bodies = _legacy_template_bodies(reads)
@@ -3095,6 +3302,9 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             report[rel] = ("differs", missing) if missing else ("same", None)
         elif rel == "CLAUDE.md" and "@AGENTS.md" not in actual.split():
             report[rel] = ("differs", "does not import AGENTS.md (no `@AGENTS.md` line)")
+        elif rel == ".github/workflows/test.yml" and NEXTJS_BASELINE_REVIEW_WORKFLOW in files:
+            # Only nextjs renders --postgres; a repository edits its own test.yml.
+            report[rel] = ("differs", _postgres_hint(expected, actual))
         else:
             report[rel] = ("differs", None)
     holds = _seed_holds(report)
@@ -3168,7 +3378,7 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     for rel, (status, detail) in sorted(report.items()):
         if status != "same":
             aligned = False
-        print(f"  {status:<8} {rel}")
+        print(f"  {status:<{REPORT_STATUS_WIDTH}} {rel}")
         if rel == "AGENTS.md" and isinstance(detail, list):
             retired_text = _retired_section_text(repo_dir, detail)
             for row_status, heading in detail:
@@ -3176,6 +3386,9 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
                     hint = "  → move under ## Project specifics" if row_status == "local" else ""
                     if heading == NEXTJS_BLOCK_MOVED:
                         hint = "  → move it back to the top of the file"
+                    elif heading.startswith(AFTER_PROJECT_SPECIFICS):
+                        hint = (f"  → keep one {PROJECT_SPECIFICS} heading, after every generated section, "
+                                "or rename the repository's own section")
                     elif heading == BYTE_ORDER_MARK:
                         hint = ""
                     print(f"      {row_status:<8} {heading}{hint}")
@@ -3246,6 +3459,52 @@ def _git_file_state(repo_dir: Path, rel: str) -> str:
     if "S" in tags or any(tag.islower() for tag in tags):
         return "dirty"
     return "dirty" if lines else "clean"
+
+
+def _git_unreadable(repo_dir: Path, rel: str) -> str | None:
+    """Why git cannot read the repository that holds repo_dir, or None.
+
+    None too when git reads it, or when no .git is above it: the file's own
+    state is then the reason to give. Otherwise _git_file_state reports every
+    file as dirty, and a refusal that says so would name the wrong cause, so
+    this names git's own (its ownership check, an unreadable .git or index)
+    and where. It asks what _git_file_state asks about rel, so a failure there
+    that git explains, such as an index it cannot open, is named too.
+    """
+    path = Path(os.path.abspath(repo_dir))
+    top = next((directory for directory in (path, *path.parents) if os.path.lexists(directory / ".git")), None)
+    if top is None:
+        return None
+    commands = (
+        ("rev-parse", "--is-inside-work-tree"),
+        ("status", "--porcelain", "--untracked-files=all", "--", rel),
+        ("ls-files", "-v", "--", rel),
+    )
+    for args in commands:
+        try:
+            result = subprocess.run(
+                ["git", "--literal-pathspecs", "-C", str(repo_dir), *args],
+                capture_output=True, text=True, env=_git_env(),
+            )
+        except OSError as exc:
+            return f"git could not be run ({exc.strerror or exc}), so the state of the repository at {top} is unknown"
+        inside = args[0] != "rev-parse" or result.stdout.strip() == "true"
+        if result.returncode == 0 and inside:
+            continue
+        cause = next((line.strip() for line in result.stderr.splitlines() if line.strip()), "")
+        cause = re.sub(r"^(?:fatal|error): ", "", cause) or (
+            "not a work tree" if result.returncode == 0 else f"exit status {result.returncode}"
+        )
+        where = "this repository" if str(top) in cause else f"the repository at {top}"
+        return f"git cannot read {where} ({cause})"
+    return None
+
+
+def _unclean_reason(repo_dir: Path, rel: str, reason: str) -> str:
+    """`reason` for a file that is not tracked and clean, unless git cannot read
+    the repository or its index at all, which is then the reason to fix."""
+    unreadable = _git_unreadable(repo_dir, rel)
+    return f"{unreadable}; fix that, then re-run --adopt" if unreadable else reason
 
 
 def _has_git_marker(repo_dir: Path) -> bool:
@@ -3559,15 +3818,17 @@ def _seed_actions(repo_dir: Path, report: dict, files: dict) -> dict:
             # Up to date on disk, but untracked or not what git has committed
             # and staged, so a commit could pair another copy with its group.
             blocked.add(rel)
-            actions[rel] = ("kept", rel, "up to date, but untracked or with uncommitted changes, so the files that "
-                            "change with it wait; commit it, then re-run --adopt")
+            actions[rel] = ("kept", rel, _unclean_reason(
+                repo_dir, rel, "up to date, but untracked or with uncommitted changes, so the files that "
+                "change with it wait; commit it, then re-run --adopt"))
         elif status(rel) == "missing" and rel not in actions and _git_file_state(repo_dir, rel) == "dirty":
             # Absent on disk, but git still tracks or stages it: recreating it
             # untracked would leave that change, such as a staged deletion, to
             # be committed beside the rest of its group.
             blocked.add(rel)
-            actions[rel] = ("kept", rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
-                            "it and the files that change with it wait; commit or undo that change, then re-run --adopt")
+            actions[rel] = ("kept", rel, _unclean_reason(
+                repo_dir, rel, "missing, but git has an uncommitted change to it, such as a deletion, so "
+                "it and the files that change with it wait; commit or undo that change, then re-run --adopt"))
     holds = _seed_holds(report, frozenset(blocked))
     for rel in pending:
         if rel in holds and rel not in actions:
@@ -3604,7 +3865,7 @@ def _seed_refusal(repo_dir: Path, rel: str, expected: str):
     if _git_ignored(repo_dir, rel):
         return "ignored by git"
     if not _git_file_is_clean(repo_dir, rel):
-        return "needs the file tracked by git with no uncommitted changes"
+        return _unclean_reason(repo_dir, rel, "needs the file tracked by git with no uncommitted changes")
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         raw = _read_anchored(parent, Path(rel).name)[0]
@@ -3646,7 +3907,8 @@ def _adopt_dangling_mirror(repo_dir: Path, rel: str):
         return ("refused", rel, "ignored by git; not deleted")
     state = _git_file_state(repo_dir, rel)
     if state not in ("clean", "untracked"):
-        return ("refused", rel, "dangling mirror has uncommitted or staged changes; not deleted")
+        return ("refused", rel, _unclean_reason(
+            repo_dir, rel, "dangling mirror has uncommitted or staged changes; not deleted"))
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         before = os.stat(name, dir_fd=parent, follow_symlinks=False)
@@ -3743,7 +4005,8 @@ def _adopt_file(
     name = Path(rel).name
     if status in ("stale", "orphaned"):
         if status == "stale" and not _git_file_is_clean(repo_dir, rel):
-            return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+            return ("refused", rel, _unclean_reason(
+                repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
         parent = _open_parent(repo_dir, rel, create=False)
         try:
             raw, identity = _read_anchored(parent, name)
@@ -3755,7 +4018,8 @@ def _adopt_file(
                     # Nothing committed to recover it from, also outside a git repository.
                     return ("refused", rel, "orphaned file is not tracked by git; not deleted")
                 if state != "clean":
-                    return ("refused", rel, "orphaned file has uncommitted or staged changes; not deleted")
+                    return ("refused", rel, _unclean_reason(
+                        repo_dir, rel, "orphaned file has uncommitted or staged changes; not deleted"))
                 try:
                     current = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -3827,7 +4091,8 @@ def _adopt_file(
     if rel != "AGENTS.md":
         return ("kept", rel, "differs from the template; not overwritten")
     if not _git_file_is_clean(repo_dir, rel):
-        return ("refused", rel, "needs the file tracked by git with no uncommitted changes")
+        return ("refused", rel, _unclean_reason(
+            repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
     parent = _open_parent(repo_dir, rel, create=False)
     try:
         raw, identity = _read_anchored(parent, name)
@@ -3842,7 +4107,13 @@ def _adopt_file(
             return ("refused", rel, "move the `next dev`-managed block back to the top of the file first")
         if BYTE_ORDER_MARK in local:
             return ("refused", rel, "remove the byte-order mark at the start of the file first")
-        structure = [heading for heading in local if heading.startswith("(")]
+        after = [heading for heading in local if heading.startswith(AFTER_PROJECT_SPECIFICS)]
+        structure = [heading for heading in local if heading.startswith("(") and heading not in after]
+        if after:
+            also = f"; also fix this structure first: {'; '.join(structure)}" if structure else ""
+            return ("refused", rel, f"keep one {PROJECT_SPECIFICS} heading, after every generated section, or "
+                    "rename a section of the repository's own that shares a generated name, first; a rebuild would "
+                    "otherwise add these sections again above it: " + "; ".join(after) + also)
         if structure:
             return ("refused", rel, "fix this structure, or move it under ## Project specifics, first: "
                     + "; ".join(structure))
@@ -4044,8 +4315,9 @@ def create_and_push(cfg: dict, files: dict):
     full = f"{owner}/{name}"
     vis = "--private" if cfg["private"] else "--public"
 
-    if repo_dir.exists() and any(repo_dir.iterdir()):
-        _die(f"target directory '{repo_dir}' already exists and is not empty")
+    # gather_config() checked this already; the folder may have changed since.
+    if err := target_error(repo_dir):
+        _die(err)
     # Checked before the remote exists, so a failure leaves nothing to clean up.
     if generate_links(cfg) and (not _ANCHORED_WRITES or os.symlink not in os.supports_dir_fd):
         _die("this platform cannot create anchored symlinks for the .claude/skills mirrors")

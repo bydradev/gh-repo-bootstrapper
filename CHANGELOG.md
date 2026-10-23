@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.19.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.18.0...v0.19.0) (2026-10-23)
+
+
+### Features
+
+* show whether test.yml carries the postgres block in the check report ([#165](https://github.com/bydradev/gh-repo-bootstrapper/issues/165)) ([b62316c](https://github.com/bydradev/gh-repo-bootstrapper/commit/b62316cc2e69a9c7ebd42f64b1d174eb639d857a))
+
+
+### Bug Fixes
+
+* add the other-type state and align the check report columns ([#155](https://github.com/bydradev/gh-repo-bootstrapper/issues/155)) ([0f98399](https://github.com/bydradev/gh-repo-bootstrapper/commit/0f983992a86bbb066e26c56609bbf8f1b04ecce5))
+* refresh dated tool and harness citations ([#161](https://github.com/bydradev/gh-repo-bootstrapper/issues/161)) ([2023fa8](https://github.com/bydradev/gh-repo-bootstrapper/commit/2023fa8ee67010d33dec22f0c338c59611d1a3ff))
+
+## [0.18.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.2...v0.18.0) (2026-10-22)
+
+
+### Features
+
+* point nextjs agents at the playwright cli for browser checks ([#153](https://github.com/bydradev/gh-repo-bootstrapper/issues/153)) ([e2078d9](https://github.com/bydradev/gh-repo-bootstrapper/commit/e2078d928a4f31175dd111a9c900937c076957d0))
+
 ## [0.17.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.17.1...v0.17.2) (2026-10-22)
 
 

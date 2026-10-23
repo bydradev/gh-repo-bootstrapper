@@ -48,8 +48,12 @@ anything installed beyond a base Python interpreter.
   `test` with no condition of its own; its release steps skipped, with a
   warning, only while the Release Please App credentials are missing; the
   release App token limited to contents and pull requests, with the
-  untested-merge guard reading with the workflow token instead; and pinned
-  fallback versions of the Python CI tools
+  untested-merge guard reading with the workflow token instead; pinned
+  fallback versions of the Python CI tools; and the step facts the README and
+  `--help` state: `setup-node` and `setup-python` reading `.nvmrc` and
+  `.python-version`, `npm ci` in every Next.js job that sets up Node, the
+  Postgres image `--postgres` names, `swift-format lint` with `--strict`, and a
+  weekly schedule for every Dependabot entry, the reference entries included
 - the word `secrets` in every generated workflow and in this repository's own
   only as a static `secrets.NAME` or a `secrets:` key that opens a mapping,
   because some generated repositories run workflow validators that refuse it
@@ -168,7 +172,11 @@ reporter the upload finds nothing and is skipped silently.
 
 Run with no arguments for a fully interactive session. The script will prompt
 for the repo name, type, owner, visibility, and any type-specific options, then
-confirm before creating anything.
+confirm before creating anything. A name whose folder already exists and is not
+empty, or whose path has a file or a broken symbolic link where a folder
+belongs, is refused straight away, before the other questions.
+Pressing Enter at a numbered question that has a default, such as the Swift
+destination, takes it.
 
 ### Flags
 
@@ -397,16 +405,20 @@ specifics` is last, so it's lost first:
   documentation, checked 2026-10-03).
 - Codex stops at `project_doc_max_bytes`, 32 KiB by default
   (`openai/codex` `agents_md.rs` at `c542fb9`, checked 2026-10-03).
-- OMO (5.1.12 to 5.1.19, checked 2026-10-05) loads `AGENTS.md` from the
-  working folder and its ancestors in full at startup. When it reads a file
-  in a subfolder, it injects that folder's `AGENTS.md` as Directory Context,
-  in full up to 32 KiB per file. Its rules plugin also adds a second copy,
-  on edits and writes as well as reads, which it cuts at 12,000 characters
-  (`PI_RULES_MAX_RULE_CHARS`) with a
-  `[Rule truncated. Read full rule: <path>]` marker.
+- OmO Native, OMO's standalone `omo` command (npm `omo-ai` 5.1.41 on the
+  senpi engine 2026.10.21-1; their packaged source, read 2026-10-22), loads
+  `AGENTS.md` from the working folder and its ancestors at startup, up to
+  64 KiB per file and 128 KiB in all. When it reads a file in a subfolder, it
+  injects that folder's `AGENTS.md` as Directory Context, up to 32 KiB per
+  file. Its built-in rules extension also adds a second copy of an
+  `AGENTS.md` it did not load at startup, on edits and writes as well as
+  reads, which it cuts at 12,000 characters (`PI_RULES_MAX_RULE_CHARS`) with
+  a `[Rule truncated. Read full rule: <path>]` marker. OMO's OpenCode edition
+  (npm `oh-my-openagent` 5.1.41) injects Directory Context on reads only, cut
+  to fit the remaining context window, and adds no second copy.
 
 The truncated OMO copy is a duplicate, so OMO needs no setting. To drop it,
-run OMO with `--pi-rules-mode static`. Directory Context still injects the
+run `omo` with `--pi-rules-mode static`. Directory Context still injects the
 full file on reads, but an edit or write in a subfolder that wasn't read
 first then gets no nested `AGENTS.md`. This only matters for sessions
 started above the repository, since a repository root's `AGENTS.md` loads at
@@ -558,7 +570,14 @@ for when the base is another type's. The diff needs the bootstrapper's git
 release tags; from a copy without them, or for a workflow from a shallow clone
 or one with no tag through v0.8.1, `--check` prints a notice and skips it,
 since the few releases such a clone holds could name a base later than the one
-the workflow was forked from.
+the workflow was forked from. It does the same when no tag holds the template,
+as for a copy of `bootstrap.py` with no `.git` of its own inside another
+repository, where git lists that repository's tags. Each release read is a
+`git show` that may take up to 10 seconds; if one takes longer (in a partial
+clone, git fetching a missing object from a remote that does not answer or
+waits on a credential prompt), `--check` stops that git and the fetch it
+started, prints a notice naming the read, reads no more releases and skips
+the diff.
 
 ### Checking and adopting
 
@@ -582,6 +601,7 @@ states:
 | `ignored` | `git check-ignore` matches the path | refused, fix `.gitignore` first |
 | `dangling` | a `.claude/skills` symlink, outside the rendered mirrors, whose target does not exist (left behind by a retired template skill or a wrong `--type`) | deleted when it has the mirror shape `../../.agents/skills/<name>` and git tracks it with no uncommitted change; any other symlink, and one git does not track, is refused |
 | `orphaned` | a stamped file under `.agents/skills`, `.claude/agents` or `.opencode/agents` that the render no longer produces | deleted, only if its digest matches its stamp and git tracks it with no uncommitted or staged change; refused when git does not track it, outside a git repository, and inside a repository git cannot read. Deleting a skill's files also removes the folders this leaves empty and then, in the same run, the `.claude/skills` mirror that pointed at the folder (see `dangling`); a folder it cannot remove is refused and keeps its mirror |
+| `other-type` | a stamped template skill that another `--type`, or `--screenshots`, generates, such as `local-validation-nextjs` under `--type simple`; a `(--type)` row lists them all | refused before anything changes, along with every other file; re-run with the `--type`, and `--screenshots` where it applies, that the repository was generated with |
 | `retired` | a generated `AGENTS.md` heading from an older template that the hub dropped, or an unedited guidance paragraph an older template put inside `## Project specifics` | dropped with `--replace-generated-sections`, unless the section holds an unknown level-3 or deeper subheading; any text under a retired heading is dropped too, so `--check` prints its line count and first lines. An edited guidance paragraph is the repository's text and stays |
 
 A path is `unreadable` when the user running the command cannot read the file
@@ -613,12 +633,21 @@ shipped. A repository's own `docs/screenshot-review.md`, such as its own
 screenshot-review process, does not count, even one that shows the stamp in
 an example further down. Without the template's skill it is left alone; next
 to the template's skill it is reported as `local-modified`, as before, so
-move it to another path first. Pass the same
+move it to another path first. A Next.js repository's `test.yml` is its own,
+so `--check` reports it as `differs`, not `stale`, whether the repository
+edited it or it was generated with the other `--postgres`; under that row a
+line says whether the file and the render each have a Postgres service (one
+named `postgres`, or one whose image is `postgres`), such as "Postgres
+service: in the render (--postgres), not in this file; drop --postgres if
+the repository does not use it". When the file uses YAML the script does not
+read, or gives a service's image as a block scalar or an expression, the line
+says it cannot tell. Pass the same
 `--type` too: when the repository holds a template-owned skill of another type
 (for example `local-validation-nextjs` under `--type simple`), or a stamped
 `screenshot-review` skill this configuration does not generate, `--check`
-reports `(--type)` and `--adopt` refuses before changing anything, since it
-would otherwise delete those skills. For `AGENTS.md` it reports per section: a
+reports each such skill as `other-type` and adds a `(--type)` row naming them,
+and `--adopt` refuses before changing anything, since it would otherwise
+delete those skills. For `AGENTS.md` it reports per section: a
 generated section that is `missing` or `differs` (including generated
 sections in a different order), and anything `local`:
 repository text outside `## Project specifics`, including a subsection added
@@ -640,7 +669,13 @@ remove it, then re-run. The `next dev`-managed block and everything from
 that an unedited guidance paragraph from an older template there is `retired`.
 The block must stay at the top of the file: a moved block is `local`, and a
 missing one is `missing`. Only a `## Project specifics` heading
-indented by at most three spaces counts; deeper indentation is a code block. For
+indented by at most three spaces counts; deeper indentation is a code block.
+Everything from the first such heading on is the repository's, so a generated
+heading that appears only after it, as under a second, early copy of the
+heading, is `local` and `--adopt` refuses the rebuild. Only the sections the
+template places after the last generated section the file still has above the
+heading count, so a repository's own section that shares the name of an earlier
+generated one stays `missing`. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
@@ -688,7 +723,10 @@ The `AGENTS.md` rewrite needs the file tracked by git with no uncommitted
 changes, LF line endings, and UTF-8 text, so the result can be reviewed with
 `git diff` and reverted. An index entry marked `skip-worktree` or
 `assume-unchanged` counts as uncommitted, because `git status` hides its
-edits. It replaces the file atomically with a new one, keeping its
+edits. When git cannot read the repository at all, for example when its
+ownership check (`safe.directory`) refuses it or `.git` or its index cannot be
+read, this refusal and the others that need a clean file name git's reason and
+the repository instead. It replaces the file atomically with a new one, keeping its
 permission bits, so a hard link elsewhere keeps its old content; a
 new file is written in full before it appears, and never replaces one created
 meanwhile. Every write walks from `PATH` one directory at a time without
@@ -701,6 +739,137 @@ every race with a concurrent process (for example one moving a directory out
 of `PATH` mid-run), so do not run it while an editor, agent, or build is
 writing to the same checkout. A failure on one file is reported as `refused`
 without stopping the others, and `--adopt` exits 1 when it refused anything.
+
+The user-visible step in `pr-title-check.yml` judges a pull request's title
+and body, so it agrees with Release Please only when the squash commit is made
+of them. `bootstrap.py` sets that squash default (the pull request title as
+the commit title, its body as the message) when it creates a repository and
+with `--configure-only`; `--adopt` never contacts GitHub, so it leaves the
+setting as it is. A repository `bootstrap.py` did not create, and that never
+ran `--configure-only`, usually still has GitHub's default: the commit's own
+title and message for a pull request of one commit, and the pull request
+title with a list of its commits for more ("Configuring commit squashing for
+pull requests" and "Pull request merges", GitHub Docs, read
+2026-10-22). A merge through the web interface then commits a message the
+check never read, and Release Please may release it differently. After the
+first `--adopt`, run `--configure-only` once, which also applies the other
+repository settings listed in
+[What the script configures](#what-the-script-configures), or pick only the
+pull request title and description as the default message under *Allow
+squash merging* in the repository's general settings.
+
+### Upgrading to 0.19.1
+
+A name whose folder already exists and is not empty is refused as soon as it
+is given, typed or with `--name`, before any other question or command,
+rather than after the confirmation. A path with a file or a broken symbolic
+link where a folder belongs is refused there too, where it used to fail after
+`gh repo create` and leave an empty repository behind. Pressing Enter at the
+Swift destination question takes `iphone`. Generated repositories do not
+change.
+
+`--adopt` names the real cause when git cannot read the repository. Every
+file then looked uncommitted, so a stale file was refused with `needs the
+file tracked by git with no uncommitted changes` (and an orphaned file or a
+seed script with a similar reason) when git's ownership check
+(`safe.directory`), an unreadable `.git` or an index git could not open was
+the cause. These refusals now say `git cannot read`, the repository and git's
+own message. A folder that cannot be listed while the pull request template's
+exact spelling is checked is reported as `unreadable` with the folder's name,
+as other unreadable folders are, instead of a bare `Permission denied`. No
+file is classified, written or refused differently.
+
+`--check` and `--adopt` no longer wait forever on a `git show` of a release
+that does not answer, such as one in a partial clone fetching a missing
+object from a remote that does not answer or waits on a credential prompt.
+Each read of a release now gives up after 10 seconds and stops the fetch it
+started: a one-line notice names the read, no more releases are read, and the
+diff against earlier releases is skipped, as it is without release tags. No
+file is classified or written differently. `validate_templates.py` fails the
+`LEGACY_TEMPLATE_DIGESTS` check, and `--regenerate-legacy-digests` exits 1,
+instead of rebuilding the table from the releases read before.
+
+A copy of the bootstrapper with no `.git` of its own, kept inside another
+repository that has `vX.Y.Z` tags, some of them v0.8.1 or earlier, read that
+repository's tags as releases. None of them holds a bootstrapper template, so
+`--check` diffed an unstamped, locally modified workflow against the current
+template alone, as if it were the release the workflow was forked from, and
+skipped the legacy docs diff without saying so. Both now print the missing-tags
+notice, once per run, and skip the diff. No file is classified or written
+differently.
+
+`--check` now reports a generated `AGENTS.md` section that comes only after
+the first `## Project specifics` heading as `local`, for example
+`(generated heading after ## Project specifics: ## Branches)`. This happens
+when a second, early `## Project specifics` heading sits before or among the
+generated sections, or when the only one does. Everything from that heading
+on belongs to the repository, so `--adopt` used to report those sections as
+`missing`, add them again above it and keep the old copies below, which split
+the file. It now refuses the rebuild, with or without
+`--replace-generated-sections`, and leaves the file as it is, byte for byte.
+Keep one `## Project specifics` heading, after every generated section, then
+re-run `--adopt`. A repository's own section that shares the name of the
+template's last generated section, such as `## Skills`, under its one
+`## Project specifics` heading, reads the same way while the generated part
+lacks that section; rename it to adopt.
+
+The YAML reader `--adopt` uses on a repository's own `test.yml` now refuses
+a flow sequence with a lone `-` item, such as `[- , "a"]` or `[a, -]`, which
+YAML does not allow, instead of reading the `-` as an item. Such a file is
+reported as outside the subset it reads, with the line's number, as other
+YAML it does not model is. Flow items that start with `-`, such as `-a`, and
+a quoted `"-"` are read as before.
+
+`pr-title-check.yml` now also reads the body as GitHub's default squash commit
+ends it. That commit can add a line of dashes and the commits' `Signed-off-by`
+and `Co-authored-by` trailers after the body, and Release Please 17.6.0 then
+reads the body's trailing footers as body text. A change that only such a
+footer releases, such as a `Release-As:` footer under a `chore:` title, a
+`Fix:` footer or `BREAKING CHANGE #12`, therefore fails the check with either
+answer. Give the release to the title or to an extra entry that opens a
+paragraph, write a `BREAKING CHANGE:` note, or put the whole commit message in
+a `BEGIN_COMMIT_OVERRIDE` block, which the squash block does not reach. A
+`Release-As:` version that only such a footer carries also fails, since
+Release Please would propose another one; only the override block keeps it.
+The block can also make a release: a breaking-change token that gives no note
+as the body stands, such as an empty `BREAKING CHANGE:` footer or a
+`BREAKING-CHANGE:` at the end of a line of prose, can give one, and that fails
+the check with either answer too. `--check`
+reports `pr-title-check.yml` as `stale`, and `--adopt` updates it; no action
+pin changes.
+
+### Upgrading to 0.19.0
+
+The `--check` report widens its state column to fit `local-modified`, its
+longest state, so every path starts in the same column; a script that reads
+the report by fixed position needs the new width. The README's state table
+gains the `other-type` row the report already printed.
+
+`python`: the uv that `test.yml` installs for every `uv.lock` project moves
+to 0.13.1, and the ruff it falls back to when the project does not bring its
+own moves to 0.17.1 (from 0.12.24 and 0.16.10), each the newest release at
+least 7 days old, as the Dependabot cooldown waits. uv 0.13 still installs a
+`uv.lock` written by 0.12 with `uv sync --locked`. Ruff 0.17 changes its
+defaults: Python 3.11 when no version is configured, seven `flake8-datetimez`
+rules (DTZ001, DTZ005 to DTZ007, DTZ011, DTZ012 and DTZ901) out of the
+default set and F406 in, and trailing pragma comments no longer count toward
+line length, which can reformat imports. A project that relies on the ruff
+fallback runs `ruff format .` and `ruff check .` with 0.17.1 before taking
+the change. `test.yml` belongs to
+the repository, so `--check` reports it as `differs` and `--adopt` keeps it;
+copy the two pins from the template by hand.
+
+`nextjs`, `rust`, and every type's `pull-requests` skill and
+`pr-title-check.yml`: dated sources move to the versions they were re-checked
+against (Next.js 16.4.2, Playwright 1.64.1, cargo 1.99.1, and
+node-html-parser 6.1.11, which release-please-action v5.0.0 bundles), with no
+change in what they say. `--check` reports those skills and the workflow as
+`stale`, and `--adopt` updates them.
+
+`nextjs`: when the repository's own `test.yml` differs from the render,
+`--check` adds a line under its row saying whether the file and the render
+each have a Postgres service, so a `--postgres` that does not match the
+repository shows. The check still only reads; nothing else changes.
 
 ### Upgrading to 0.18.0
 
@@ -1122,7 +1291,8 @@ stop it with an error. A yes/no question is harder to get wrong than a type,
 so the check catches a mistyped title, such as a `docs:` change that ships in
 a release or a `fix:` that ships nothing. Release Please and Dependabot pull
 requests skip the job, as before. The step reads the pull request only through
-its `env:`, and its script prints none of the body.
+its `env:`, and its script prints none of the body but the numbers of a
+`Release-As:` version.
 
 The `pull-requests` skill says how to answer, and `review-guidelines` asks
 the reviewer whether the type and the answer are true to the diff. `--check`
@@ -1290,8 +1460,10 @@ highlight the additional files and README guidance for that type.
 is below 1.0.0 a breaking change (`feat!`, `chore!` or a `BREAKING CHANGE:`
 footer) proposes the next minor, 0.2.0 from the seeded 0.1.0, and not 1.0.0,
 which Release Please proposes without the option. To release 1.0.0 on purpose,
-merge a commit with a `Release-As: 1.0.0` footer, or remove the line before
-the breaking change merges. The repository owns the file, so `--adopt` writes
+merge a commit with a `Release-As: 1.0.0` footer, in a `BEGIN_COMMIT_OVERRIDE`
+block so that GitHub's squash trailers do not end it (see
+[Upgrading to 0.19.1](#upgrading-to-0191)), or remove the line before the
+breaking change merges. The repository owns the file, so `--adopt` writes
 it only when it is missing and keeps an existing one (see
 [Upgrading to 0.17.0](#upgrading-to-0170)).
 
@@ -1336,7 +1508,9 @@ Full CI pipeline for Next.js applications.
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
 - `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore` (which keeps Prettier off
-  the three template-owned workflows)
+  the three template-owned workflows); `.nvmrc` names Node 24, in Maintenance
+  LTS since 2026-10-20, while Node 26 becomes Active LTS on 2026-10-28
+  (`nodejs/Release` `schedule.json`, read 2026-10-22)
 - `docs/lint-baseline.md`: policy and an empty table for our own inline lint/type suppressions
 - `docs/advisory-baseline.md`: policy and an empty table for accepted dependency advisories
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks

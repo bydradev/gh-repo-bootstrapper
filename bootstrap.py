@@ -967,14 +967,18 @@ def prompt_yn(question: str, default: bool = True) -> bool:
         print("  Please enter y or n.")
 
 
-def prompt_choice(question: str, choices: list) -> str:
+def prompt_choice(question: str, choices: list, default: str = "") -> str:
+    """Ask for one of `choices` by number; an empty answer takes `default`, if any."""
     for i, c in enumerate(choices, 1):
         print(f"  {i}. {c}")
+    suffix = f" [{choices.index(default) + 1}]" if default else ""
     while True:
         try:
-            raw = input(f"{question} (1-{len(choices)}): ").strip()
+            raw = input(f"{question} (1-{len(choices)}){suffix}: ").strip()
         except EOFError:
             _die("unexpected end of input")
+        if not raw and default:
+            return default
         try:
             idx = int(raw) - 1
             if 0 <= idx < len(choices):
@@ -1239,6 +1243,29 @@ def split_name_and_path(raw: str) -> tuple:
     return local_dir.name, local_dir
 
 
+def target_error(repo_dir: Path) -> str:
+    """Return error string, or empty string if repo_dir can take the new clone.
+
+    Missing folders on the way are created later, but a symbolic link that
+    leads nowhere, or a file where a folder belongs, would stop that creation
+    or the clone after the repository exists on GitHub, so both are refused
+    here. Permissions are not checked.
+    """
+    try:
+        for path in (repo_dir, *repo_dir.parents):
+            if path.is_symlink() and not path.exists():
+                return f"target directory '{repo_dir}' cannot be used: '{path}' is a link that leads nowhere"
+            if path.exists():
+                if path != repo_dir and not path.is_dir():
+                    return f"target directory '{repo_dir}' cannot be used: '{path}' is not a directory"
+                break
+        if repo_dir.exists() and any(repo_dir.iterdir()):
+            return f"target directory '{repo_dir}' already exists and is not empty"
+    except OSError as exc:
+        return f"target directory '{repo_dir}' cannot be used: {exc.strerror or exc}"
+    return ""
+
+
 def validate_name_or_path(raw: str) -> str:
     """Return error string or empty string if valid. `raw` may be a bare
     repo name or a relative/absolute path ending in the repo name."""
@@ -1287,6 +1314,13 @@ def gather_config(args) -> dict:
     configure_only = args.configure_only
 
     # --- name ---
+    # A run that creates the repository checks the target folder here, before
+    # the other questions, rather than only in create_and_push after them all.
+    creating = not dry and not configure_only
+
+    def name_error(raw: str) -> str:
+        return validate_name_or_path(raw) or (creating and target_error(split_name_and_path(raw)[1])) or ""
+
     raw_name = args.name
     if not raw_name:
         if ni:
@@ -1296,9 +1330,9 @@ def gather_config(args) -> dict:
             "directory by default.\nTo create it elsewhere, enter a relative "
             "or absolute path instead (e.g. ../my-app or /Users/you/code/my-app)."
         )
-        raw_name = prompt_validated("Repository name", validate_name_or_path)
+        raw_name = prompt_validated("Repository name", name_error)
     else:
-        err = validate_name_or_path(raw_name)
+        err = name_error(raw_name)
         if err:
             _die(err)
     name, repo_dir = split_name_and_path(raw_name)
@@ -1389,7 +1423,7 @@ def gather_config(args) -> dict:
                 destination = "iphone"
             else:
                 print("\nTarget destination:")
-                destination = prompt_choice("Select destination", ["iphone", "ipad", "macos"])
+                destination = prompt_choice("Select destination", ["iphone", "ipad", "macos"], default="iphone")
         xcodegen = args.xcodegen
         if not ni and not args.xcodegen:
             xcodegen = prompt_yn("Generate the Xcode project from project.yml?", default=False)
@@ -4169,8 +4203,9 @@ def create_and_push(cfg: dict, files: dict):
     full = f"{owner}/{name}"
     vis = "--private" if cfg["private"] else "--public"
 
-    if repo_dir.exists() and any(repo_dir.iterdir()):
-        _die(f"target directory '{repo_dir}' already exists and is not empty")
+    # gather_config() checked this already; the folder may have changed since.
+    if err := target_error(repo_dir):
+        _die(err)
     # Checked before the remote exists, so a failure leaves nothing to clean up.
     if generate_links(cfg) and (not _ANCHORED_WRITES or os.symlink not in os.supports_dir_fd):
         _die("this platform cannot create anchored symlinks for the .claude/skills mirrors")

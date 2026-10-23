@@ -103,6 +103,23 @@ class MissingObjectTests(unittest.TestCase):
         self.assertIn("could not be checked: ", errors[0])
         self.assertIn("partial clone has not fetched", errors[0])
 
+    def test_the_validator_does_not_rebuild_the_seed_table_from_a_partial_clone(self):
+        shown = []
+
+        def show(args, *rest, **kwargs):
+            shown.append(args[-1])
+            return subprocess.CompletedProcess(args, 128, b"", MISS)
+
+        with unittest.mock.patch.object(bootstrap, "_git_show", show), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(OSError):
+                bootstrap.compute_seed_digests()
+            errors = validate_templates.check_seed_digests()
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bootstrap.SEED_DIGESTS could not be checked: ", errors[0])
+        self.assertIn("partial clone has not fetched", errors[0])
+        # The first missing object ended each run's reads.
+        self.assertEqual(len(shown), 2)
+
 
 def _git(*args, cwd=None):
     return subprocess.run(

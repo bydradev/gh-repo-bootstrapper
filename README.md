@@ -761,6 +761,17 @@ repository settings listed in
 pull request title and description as the default message under *Allow
 squash merging* in the repository's general settings.
 
+### Upgrading to 0.19.2
+
+`validate_templates.py` reads the releases for its `SEED_DIGESTS` check the way
+`--check` and `--adopt` do since 0.19.1: each read gives up after 10 seconds,
+and in a partial clone of the bootstrapper, with a git that knows
+`GIT_NO_LAZY_FETCH`, it does not fetch a missing object from the remote.
+Either one fails the check, and makes
+`--regenerate-seed-digests` exit 1, instead of rebuilding the table without
+that release's copy. Generated repositories and `bootstrap.py` runs do not
+change.
+
 ### Upgrading to 0.19.1
 
 A name whose folder already exists and is not empty is refused as soon as it

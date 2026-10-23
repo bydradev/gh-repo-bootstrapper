@@ -3254,7 +3254,10 @@ def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict]
             print("notice: git vX.Y.Z release tags unavailable or incomplete in a shallow clone; "
                   "skipped the SEED_DIGESTS check")
             return []
-        computed = bootstrap.compute_seed_digests()
+        try:
+            computed = bootstrap.compute_seed_digests()
+        except OSError as exc:  # TimeoutError is one
+            return [f"bootstrap.SEED_DIGESTS could not be checked: {exc}"]
     if computed != recorded:
         return [
             "bootstrap.SEED_DIGESTS is stale; regenerate it with "
@@ -5408,7 +5411,10 @@ if __name__ == "__main__":
             sys.exit(f"error: LEGACY_TEMPLATE_DIGESTS not regenerated: {exc}")
         sys.exit(0)
     if sys.argv[1:] == ["--regenerate-seed-digests"]:
-        print(format_seed_digests(bootstrap.compute_seed_digests()), end="")
+        try:
+            print(format_seed_digests(bootstrap.compute_seed_digests()), end="")
+        except OSError as exc:  # TimeoutError is one
+            sys.exit(f"error: SEED_DIGESTS not regenerated: {exc}")
         sys.exit(0)
     if len(sys.argv) > 1:
         sys.exit(

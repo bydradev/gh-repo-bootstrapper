@@ -208,8 +208,9 @@ jobs:
             # does locally. --locked fails if uv.lock is out of date with
             # pyproject.toml. A declared `dev` group and `dev` extra are named
             # explicitly, since [tool.uv] default-groups can leave `dev` out.
-            # Pinned (PyPI, 2026-10-08), like the tool fallbacks below.
-            pip install uv==0.12.24
+            # Pinned (PyPI, 2026-10-23), like the tool fallbacks below, to the
+            # newest release at least 7 days old, as Dependabot's cooldown waits.
+            pip install uv==0.13.1
             tables=" $(pyproject) "
             dev=()
             case "$tables" in *" extra "*) dev+=(--extra dev) ;; esac
@@ -266,10 +267,10 @@ jobs:
               fi
             fi
           fi
-          # Pinned fallbacks (PyPI, 2026-10-08), so the suite does not change
+          # Pinned fallbacks (PyPI, 2026-10-23), so the suite does not change
           # with each upstream release; a version the project already installed
           # from its own dependencies is kept.
-          for tool in ruff==0.16.10 mypy==2.4.0 pytest==9.1.1; do
+          for tool in ruff==0.17.1 mypy==2.4.0 pytest==9.1.1; do
             $show "${tool%%==*}" > /dev/null 2>&1 || $install "$tool"
           done
       - run: ruff format --check .

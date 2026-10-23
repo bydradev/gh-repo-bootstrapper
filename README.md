@@ -736,6 +736,13 @@ repository settings listed in
 pull request title and description as the default message under *Allow
 squash merging* in the repository's general settings.
 
+### Upgrading to 0.19.1
+
+The interactive session refuses a name whose folder already exists and is not
+empty as soon as the name is given, before the other questions, rather than
+after the confirmation, and pressing Enter at the Swift destination question
+takes `iphone`. Generated repositories do not change.
+
 ### Upgrading to 0.19.0
 
 The `--check` report widens its state column to fit `local-modified`, its
@@ -768,11 +775,6 @@ change in what they say. `--check` reports those skills and the workflow as
 `--check` adds a line under its row saying whether the file and the render
 each have a Postgres service, so a `--postgres` that does not match the
 repository shows. The check still only reads; nothing else changes.
-
-The interactive session refuses a name whose folder already exists and is not
-empty as soon as the name is given, before the other questions, rather than
-after the confirmation, and pressing Enter at the Swift destination question
-takes `iphone`. Generated repositories do not change.
 
 ### Upgrading to 0.18.0
 

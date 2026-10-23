@@ -1741,8 +1741,12 @@ Beyond file generation, the script applies GitHub configuration to the repo:
 - **Pull request creation:** limited to collaborators (users with write
   access) on a private repo; a public repo stays open to outside pull
   requests, which only someone with write access can merge. Dependabot still
-  opens its pull requests, and Release Please, which uses its GitHub App's
-  token, does too.
+  opens its pull requests (a GitHub staff answer in
+  [community discussion 187038](https://github.com/orgs/community/discussions/187038),
+  2026-02-24), and so does Release Please with its GitHub App's token (seen on
+  a private repository with the setting on, 2026-10-21). On a personal
+  account every collaborator has write access, so the setting changes most on
+  an organization's private repo, where read and triage roles exist.
 - **Dependabot alerts:** turned on, which Dependabot malware alerts need.
 - **Branch protection on `main`:** requires the relevant status checks to pass
   before merging, and requires a pull request with **zero** required approving

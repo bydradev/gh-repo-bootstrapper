@@ -1,4 +1,4 @@
-<!-- gh-repo-bootstrapper: template-owned; sha256=6a5e0183e018a294236eb0ed9fa7813cdb956c725d2f1ef40e4da4aa984ceda6 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=1c33eda8b821e29602439de8a01138da63bdbbf0e8887cd26716b1d084833bcd -->
 # Branch protection runbook
 
 Use this when a required check blocks a pull request, most often a release
@@ -89,8 +89,8 @@ confirms whether the PR is still blocked.
 
 **Check:** when the live rule requires conversation resolution
 (`required_conversation_resolution.enabled`), every unresolved review thread
-blocks the merge, for administrators too. List the PR's unresolved threads
-with the commands below.
+blocks the merge, for administrators too when the rule applies to them
+(`enforce_admins`). List the PR's unresolved threads with the commands below.
 
 **Action:** answer each finding with the fix or the evidence, as
 `fresh-eyes-review` says, then resolve its thread. A reviewer resolves only
@@ -130,7 +130,7 @@ gh run view <run-id> -R $O --json event
 gh pr view <n> -R $O --json mergeStateStatus
 gh api $R/pulls/<n> --jq '[.head.sha, .mergeable, .merge_commit_sha] | @tsv'
 gh api $R/commits/<merge-sha> --jq '[.parents[].sha]'
-gh api graphql -F o=<owner> -F r=<repo> -F n=<n> -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved path comments(first:1){nodes{author{login}}}}}}}}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | [.path, .comments.nodes[0].author.login] | @tsv'
+gh api graphql --paginate -f o=<owner> -f r=<repo> -F n=<n> -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved path comments(first:1){nodes{author{login}}}}}}}}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | [.path, .comments.nodes[0].author.login] | @tsv'
 gh api $R/commits/main --jq .sha
 gh run view <run-id> -R $O --log | grep -m1 'HEAD is now at'
 gh api -X PUT $R/pulls/<n>/update-branch  # changes the PR branch; only when authorized

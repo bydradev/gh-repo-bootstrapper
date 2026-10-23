@@ -4769,7 +4769,8 @@ def print_configuration_progress(cfg: dict):
     if cfg.get("scheme"):
         retry += ["--scheme", cfg["scheme"]]
     print("  Apply the rest by running this interactively, which asks before changing the", file=out)
-    print(f"  Actions policy:\n    {shlex.join(retry)}", file=out)
+    print("  Actions policy, pull request creation or Dependabot alerts:", file=out)
+    print(f"    {shlex.join(retry)}", file=out)
     print("  Press Enter at a credential prompt to keep a value already applied.", file=out)
     if "branch protection on main" in remaining:
         print("  --configure-only leaves branch protection alone; set it as", file=out)

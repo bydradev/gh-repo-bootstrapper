@@ -64,18 +64,27 @@ ALSO_ON_OWN_WORKFLOWS = {
     "check_sha_pinned_actions", "check_workflow_gates", "check_secrets_word", "check_user_visible_step",
 }
 LABELS = [label for label, _ in validate_templates.configurations()]
+# The run-once checks that take most of a main() run (about 13 of 16 s, the
+# self-tests most of it). A test that asserts on other checks stubs these.
+SLOW = ("run_self_tests", "check_legacy_digests", "check_seed_digests", "check_own_template_copies")
+
+
+def _stub(stack, names, failing=None, fixtures_per_run=1):
+    """Replace each named check with one that passes, or that fails with a
+    sentinel naming its label when it is `failing`."""
+    for name in names:
+        def fake(*args, _name=name, **kwargs):
+            if _name == "run_self_tests":
+                validate_templates.STRUCTURE_FIXTURES_RUN[0] += fixtures_per_run
+            label = args[0] if args and isinstance(args[0], str) else ""
+            return [f"SENTINEL {_name} [{label}]"] if _name == failing else []
+        stack.enter_context(patch.object(validate_templates, name, side_effect=fake))
 
 
 class ValidatorWiringTests(unittest.TestCase):
     def _main(self, failing=None, fixtures_per_run=1):
         with contextlib.ExitStack() as stack:
-            for name in CHECKS:
-                def fake(*args, _name=name, **kwargs):
-                    if _name == "run_self_tests":
-                        validate_templates.STRUCTURE_FIXTURES_RUN[0] += fixtures_per_run
-                    label = args[0] if args and isinstance(args[0], str) else ""
-                    return [f"SENTINEL {_name} [{label}]"] if _name == failing else []
-                stack.enter_context(patch.object(validate_templates, name, side_effect=fake))
+            _stub(stack, CHECKS, failing, fixtures_per_run)
             out = io.StringIO()
             stack.enter_context(contextlib.redirect_stdout(out))
             code = validate_templates.main()
@@ -119,8 +128,12 @@ class ValidatorWiringTests(unittest.TestCase):
             return files
 
         out = io.StringIO()
-        with patch.object(validate_templates.bootstrap, "generate_files", side_effect=rewrapped), \
-                contextlib.redirect_stdout(out):
+        # Every per-configuration check still runs, check_runbook among them; the slow
+        # run-once checks are stubbed, though the self-tests and own copies render too.
+        with contextlib.ExitStack() as stack:
+            _stub(stack, SLOW)
+            stack.enter_context(patch.object(validate_templates.bootstrap, "generate_files", side_effect=rewrapped))
+            stack.enter_context(contextlib.redirect_stdout(out))
             code = validate_templates.main()
         self.assertEqual(code, 0, out.getvalue())
 
@@ -175,9 +188,10 @@ class OwnTemplateCopyTests(unittest.TestCase):
                 roots.append(Path(repo_dir).resolve())
             return []
         # From another directory, so a path relative to the working directory fails.
-        with tempfile.TemporaryDirectory() as tmp, contextlib.chdir(tmp), \
-                patch.object(validate_templates, "check_own_template_copies", side_effect=record), \
-                contextlib.redirect_stdout(io.StringIO()):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.chdir(tmp), contextlib.ExitStack() as stack:
+            _stub(stack, [name for name in SLOW if name != "check_own_template_copies"])
+            stack.enter_context(patch.object(validate_templates, "check_own_template_copies", side_effect=record))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             validate_templates.main()
         self.assertEqual(roots, [Path(validate_templates.__file__).resolve().parent])
 
@@ -238,9 +252,12 @@ class StalePinTests(unittest.TestCase):
     def test_a_stale_pin_warns_without_failing_the_run(self):
         out = io.StringIO()
         # Outside GitHub Actions, even when this suite itself runs there.
-        with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:1: old"]), \
-                patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "false"}), \
-                contextlib.redirect_stdout(out):
+        # Only the warning path is under test, so every check is stubbed.
+        with contextlib.ExitStack() as stack:
+            _stub(stack, CHECKS)
+            stack.enter_context(patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:1: old"]))
+            stack.enter_context(patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "false"}))
+            stack.enter_context(contextlib.redirect_stdout(out))
             code = validate_templates.main()
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("WARNING: templates/x.yml:1: old", out.getvalue())
@@ -248,9 +265,12 @@ class StalePinTests(unittest.TestCase):
 
     def test_a_stale_pin_is_annotated_in_github_actions(self):
         out = io.StringIO()
-        with patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:12: old 50%"]), \
-                patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "true"}), \
-                contextlib.redirect_stdout(out):
+        # Only the warning path is under test, so every check is stubbed.
+        with contextlib.ExitStack() as stack:
+            _stub(stack, CHECKS)
+            stack.enter_context(patch.object(validate_templates, "stale_pin_warnings", return_value=["templates/x.yml:12: old 50%"]))
+            stack.enter_context(patch.dict(validate_templates.os.environ, {"GITHUB_ACTIONS": "true"}))
+            stack.enter_context(contextlib.redirect_stdout(out))
             code = validate_templates.main()
         self.assertEqual(code, 0, out.getvalue())
         self.assertIn("::warning file=templates/x.yml,line=12::old 50%25\n", out.getvalue())

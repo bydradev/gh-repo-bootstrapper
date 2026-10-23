@@ -2073,6 +2073,22 @@ PLAYWRIGHT_RUNS = (
     ("${{ !inputs.full }}", "npm run test:e2e -- --project=chromium"),
 )
 E2E_JOB_CONDITION = "${{ inputs.e2e || inputs.full }}"
+# Executable step facts the README and --help state, compared whole: in
+# October 2026 a monthly Dependabot schedule, another Postgres image, a typo in
+# python-version-file, a lint without --strict and `npm install` for `npm ci`
+# each passed every other check.
+SWIFT_FORMAT_LINT = "xcrun swift-format lint --recursive --strict ."
+# Per type: the setup action, its version-file input, and the file the
+# generator writes for it.
+VERSION_FILE_INPUTS = {
+    "nextjs": ("actions/setup-node", "node-version-file", ".nvmrc"),
+    "python": ("actions/setup-python", "python-version-file", ".python-version"),
+}
+NPM_INSTALL_RE = re.compile(r"\bnpm\s+(install|i|add)\b")
+DEPENDABOT_INTERVAL = "weekly"
+# Reference entries the README tells a repository of that type to copy in
+# once it has a manifest; never rendered, so read from templates/.
+DEPENDABOT_REFERENCES = {"python": "dependabot-python.yml", "swift": "dependabot-swift.yml"}
 BRANCH_PROTECTION_KEYS = frozenset({
     "required_status_checks", "enforce_admins", "required_pull_request_reviews", "restrictions",
 })
@@ -2504,7 +2520,80 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 f"[{label}] Next.js e2e must run every project on full runs and Chromium "
                 f"otherwise, got {runs}"
             )
-    return errors + _workflow_hardening(label, files)
+    return errors + _step_fact_errors(label, repo_type, files) + _workflow_hardening(label, files)
+
+
+def _postgres_image() -> str:
+    """The image the `--postgres` help promises: `PostgreSQL 16` is postgres:16."""
+    action = next(a for a in bootstrap.build_parser()._actions if "--postgres" in a.option_strings)
+    match = re.search(r"PostgreSQL (\d+)", action.help or "")
+    return f"postgres:{match.group(1)}" if match else "postgres:<no version in the --postgres help>"
+
+
+def _dependabot_interval_errors(where: str, text: str) -> list:
+    errors = []
+    for entry in (yaml.safe_load(text) or {}).get("updates") or []:
+        schedule = entry.get("schedule") if isinstance(entry, dict) else None
+        interval = schedule.get("interval") if isinstance(schedule, dict) else None
+        if interval != DEPENDABOT_INTERVAL:
+            ecosystem = entry.get("package-ecosystem") if isinstance(entry, dict) else entry
+            errors.append(f"{where} {ecosystem} updates must run {DEPENDABOT_INTERVAL}, got {interval!r}")
+    return errors
+
+
+def _step_fact_errors(label: str, repo_type: str, files: dict, load=bootstrap._load) -> list:
+    """The setup inputs, install and lint commands, service image and update
+    schedule each type's README and --help describe. `load` reads the
+    reference Dependabot entries from templates/."""
+    errors = []
+    postgres = _postgres_image()
+    for path in _workflow_paths(files):
+        workflow = yaml.safe_load(files[path]) or {}
+        for job_id, job in (workflow.get("jobs", {}) or {}).items():
+            if not isinstance(job, dict):
+                continue
+            where = f"[{label}] {path} job '{job_id}'"
+            steps = [s for s in job.get("steps") or [] if isinstance(s, dict)]
+            if repo_type in VERSION_FILE_INPUTS:
+                action, key, version_file = VERSION_FILE_INPUTS[repo_type]
+                setups = [s for s in steps if str(s.get("uses", "")).split("@", 1)[0] == action]
+                for setup in setups:
+                    named = (setup.get("with") or {}).get(key)
+                    if named != version_file or version_file not in files:
+                        errors.append(
+                            f"{where} {action} must read {key}: {version_file}, which the "
+                            f"generator writes; got {named!r}"
+                        )
+                if repo_type == "nextjs" and setups:
+                    runs = [str(s.get("run", "")).strip() for s in steps]
+                    if runs.count("npm ci") != 1:
+                        errors.append(f"{where} sets up Node, so it must install with `npm ci` exactly once")
+            if repo_type == "nextjs":
+                for step in steps:
+                    for line in _executable_lines(str(step.get("run", ""))):
+                        if NPM_INSTALL_RE.search(line):
+                            errors.append(f"{where} must install with `npm ci`, not {line.strip()!r}")
+            for name, service in (job.get("services") or {}).items():
+                image = service.get("image") if isinstance(service, dict) else service
+                if (name == "postgres" or str(image).startswith("postgres")) and image != postgres:
+                    errors.append(
+                        f"{where} service '{name}' must use {postgres}, the version the --postgres "
+                        f"help names; got {image!r}"
+                    )
+    if repo_type == "swift":
+        test_jobs = (yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}).get("jobs") or {}
+        suite = test_jobs.get("test") or {}
+        lint = [s for s in suite.get("steps") or []
+                if isinstance(s, dict) and str(s.get("run", "")).strip() == SWIFT_FORMAT_LINT]
+        # The job's own `if:` counts too: ci.yml calls it with full: false.
+        if len(lint) != 1 or "if" in lint[0] or "if" in suite:
+            errors.append(f"[{label}] swift test.yml job 'test' must run {SWIFT_FORMAT_LINT!r} once, unconditionally")
+    if ".github/dependabot.yml" in files:
+        errors += _dependabot_interval_errors(f"[{label}] .github/dependabot.yml", files[".github/dependabot.yml"])
+    if repo_type in DEPENDABOT_REFERENCES:
+        reference = DEPENDABOT_REFERENCES[repo_type]
+        errors += _dependabot_interval_errors(f"[{label}] templates/{reference}", load(reference))
+    return errors
 
 
 # The only accepted condition for a job that skips Release Please PRs: the
@@ -4615,8 +4704,9 @@ def _structure_self_tests() -> list:
         )
 
     # Workflow gates: each executable gate fails when broken.
-    def gates(repo_type, path=None, change=None, text=None):
-        render = bootstrap.generate_files(dict(next(c for _, c in configurations() if c["repo_type"] == repo_type)))
+    def gates(repo_type, path=None, change=None, text=None, **options):
+        render = bootstrap.generate_files({**next(c for _, c in configurations() if c["repo_type"] == repo_type),
+                                           **options})
         if change is not None:
             workflow = yaml.safe_load(render[path])
             change(workflow)
@@ -5014,6 +5104,39 @@ def _structure_self_tests() -> list:
     expect("full e2e run with Chromium only",
            gates("nextjs", test, lambda w: step(w, "e2e", lambda s: s.get("run") == "npx playwright install --with-deps")
                  .update({"run": "npx playwright install --with-deps chromium"})), "install every default browser")
+
+    # Step facts: one mutation each that passed every other check in October 2026.
+    expect("python-version-file with a typo",
+           gates("python", test, text=lambda t: t.replace(
+               "python-version-file: .python-version", "python-version-file: .python-versions")),
+           "must read python-version-file: .python-version")
+    expect("node-version-file naming a file the generator does not write",
+           gates("nextjs", test, text=lambda t: t.replace("node-version-file: .nvmrc", "node-version-file: .node-version", 1)),
+           "must read node-version-file: .nvmrc")
+    expect("npm install in place of npm ci",
+           gates("nextjs", test, text=lambda t: t.replace("- run: npm ci", "- run: npm install", 1)),
+           "must install with `npm ci` exactly once")
+    expect("npm install beside npm ci",
+           gates("nextjs", test, text=lambda t: t.replace("- run: npm ci\n", "- run: npm ci\n      - run: npm i left-pad\n", 1)),
+           "must install with `npm ci`, not 'npm i left-pad'")
+    expect("swift-format lint without --strict",
+           gates("swift", test, text=lambda t: t.replace(SWIFT_FORMAT_LINT, "xcrun swift-format lint --recursive .")),
+           "must run 'xcrun swift-format lint --recursive --strict .' once")
+    expect("swift suite job that runs only on full runs",
+           gates("swift", test, lambda w: w["jobs"]["test"].update({"if": "${{ inputs.full }}"})),
+           "must run 'xcrun swift-format lint --recursive --strict .' once")
+    expect("postgres service on a clean render", gates("nextjs", postgres=True), None)
+    expect("postgres service on another version than --postgres names",
+           gates("nextjs", test, text=lambda t: t.replace("image: postgres:16", "image: postgres:15"), postgres=True),
+           "must use postgres:16")
+    expect("Dependabot updates monthly",
+           gates("rust", ".github/dependabot.yml", text=lambda t: t.replace("interval: weekly", "interval: monthly")),
+           "github-actions updates must run weekly")
+    expect("reference Dependabot entry updates monthly",
+           _step_fact_errors("self-test:gates", "python", bootstrap.generate_files(
+               dict(next(c for _, c in configurations() if c["repo_type"] == "python"))),
+               load=lambda name: bootstrap._load(name).replace("interval: weekly", "interval: monthly", 1)),
+           "templates/dependabot-python.yml pip updates must run weekly")
 
     # 0.12.0's release workflows cited the "Using secrets in GitHub Actions"
     # page in a comment, and generated repositories whose workflow validators

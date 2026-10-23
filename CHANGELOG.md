@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.20.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.19.2...v0.20.0) (2026-10-23)
+
+
+### Features
+
+* **configure-only:** ask before changing pr creation and dependabot alerts ([56f2480](https://github.com/bydradev/gh-repo-bootstrapper/commit/56f2480fe585346957c62a45b10246c7e3739009))
+* limit pull requests to collaborators and require conversation resolution on new repositories ([#177](https://github.com/bydradev/gh-repo-bootstrapper/issues/177)) ([56f2480](https://github.com/bydradev/gh-repo-bootstrapper/commit/56f2480fe585346957c62a45b10246c7e3739009))
+* list the github settings that have no api after creation ([56f2480](https://github.com/bydradev/gh-repo-bootstrapper/commit/56f2480fe585346957c62a45b10246c7e3739009))
+* turn on dependabot alerts on new repositories ([56f2480](https://github.com/bydradev/gh-repo-bootstrapper/commit/56f2480fe585346957c62a45b10246c7e3739009))
+
 ## [0.19.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.19.1...v0.19.2) (2026-10-23)
 
 

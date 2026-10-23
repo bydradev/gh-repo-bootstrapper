@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.19.1...v0.19.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* read the releases for the seed digest table with a timeout and no lazy fetch ([#175](https://github.com/bydradev/gh-repo-bootstrapper/issues/175)) ([2a187aa](https://github.com/bydradev/gh-repo-bootstrapper/commit/2a187aadf2feaae57a13dd74b9ba967bdd85d5e6))
+
 ## [0.19.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.19.0...v0.19.1) (2026-10-23)
 
 

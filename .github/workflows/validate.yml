@@ -57,10 +57,14 @@ jobs:
       # .prettierrc.json and ESLint with --max-warnings=0 over these scripts, so
       # an unformatted file or an unused variable here fails their CI. ESLint
       # runs only no-unused-vars: the repositories bring their own config.
+      # 9.39.5 is the last ESLint 9 release, the line create-next-app 16.4.2
+      # installs; ESLint 9 reached end of life on 2026-08-06, so npm marks
+      # every 9.x release unsupported (eslint.org/version-support and
+      # `npm view eslint`, read 2026-10-22).
       - name: Check generated script formatting and unused variables
         run: |
           npx --yes prettier@3.9.9 --config templates/.prettierrc.json --check "templates/*.mjs"
-          npx --yes eslint@9.39.4 --no-config-lookup --rule '{"no-unused-vars":"error"}' "templates/*.mjs"
+          npx --yes eslint@9.39.5 --no-config-lookup --rule '{"no-unused-vars":"error"}' "templates/*.mjs"
       # Generated AGENTS.md, CLAUDE.md, READMEs and docs land in repositories
       # that may lint Markdown; keep them markdownlint-clean.
       - name: Lint generated Markdown

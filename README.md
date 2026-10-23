@@ -397,16 +397,20 @@ specifics` is last, so it's lost first:
   documentation, checked 2026-10-03).
 - Codex stops at `project_doc_max_bytes`, 32 KiB by default
   (`openai/codex` `agents_md.rs` at `c542fb9`, checked 2026-10-03).
-- OMO (5.1.12 to 5.1.19, checked 2026-10-05) loads `AGENTS.md` from the
-  working folder and its ancestors in full at startup. When it reads a file
-  in a subfolder, it injects that folder's `AGENTS.md` as Directory Context,
-  in full up to 32 KiB per file. Its rules plugin also adds a second copy,
-  on edits and writes as well as reads, which it cuts at 12,000 characters
-  (`PI_RULES_MAX_RULE_CHARS`) with a
-  `[Rule truncated. Read full rule: <path>]` marker.
+- OmO Native, OMO's standalone `omo` command (npm `omo-ai` 5.1.41 on the
+  senpi engine 2026.10.21-1; their packaged source, read 2026-10-22), loads
+  `AGENTS.md` from the working folder and its ancestors at startup, up to
+  64 KiB per file and 128 KiB in all. When it reads a file in a subfolder, it
+  injects that folder's `AGENTS.md` as Directory Context, up to 32 KiB per
+  file. Its built-in rules extension also adds a second copy of an
+  `AGENTS.md` it did not load at startup, on edits and writes as well as
+  reads, which it cuts at 12,000 characters (`PI_RULES_MAX_RULE_CHARS`) with
+  a `[Rule truncated. Read full rule: <path>]` marker. OMO's OpenCode edition
+  (npm `oh-my-openagent` 5.1.41) injects Directory Context on reads only, cut
+  to fit the remaining context window, and adds no second copy.
 
 The truncated OMO copy is a duplicate, so OMO needs no setting. To drop it,
-run OMO with `--pi-rules-mode static`. Directory Context still injects the
+run `omo` with `--pi-rules-mode static`. Directory Context still injects the
 full file on reads, but an edit or write in a subfolder that wasn't read
 first then gets no nested `AGENTS.md`. This only matters for sessions
 started above the repository, since a repository root's `AGENTS.md` loads at
@@ -728,6 +732,27 @@ The `--check` report widens its state column to fit `local-modified`, its
 longest state, so every path starts in the same column; a script that reads
 the report by fixed position needs the new width. The README's state table
 gains the `other-type` row the report already printed.
+
+`python`: the uv that `test.yml` installs for every `uv.lock` project moves
+to 0.13.1, and the ruff it falls back to when the project does not bring its
+own moves to 0.17.1 (from 0.12.24 and 0.16.10), each the newest release at
+least 7 days old, as the Dependabot cooldown waits. uv 0.13 still installs a
+`uv.lock` written by 0.12 with `uv sync --locked`. Ruff 0.17 changes its
+defaults: Python 3.11 when no version is configured, seven `flake8-datetimez`
+rules (DTZ001, DTZ005 to DTZ007, DTZ011, DTZ012 and DTZ901) out of the
+default set and F406 in, and trailing pragma comments no longer count toward
+line length, which can reformat imports. A project that relies on the ruff
+fallback runs `ruff format .` and `ruff check .` with 0.17.1 before taking
+the change. `test.yml` belongs to
+the repository, so `--check` reports it as `differs` and `--adopt` keeps it;
+copy the two pins from the template by hand.
+
+`nextjs`, `rust`, and every type's `pull-requests` skill and
+`pr-title-check.yml`: dated sources move to the versions they were re-checked
+against (Next.js 16.4.2, Playwright 1.64.1, cargo 1.99.1, and
+node-html-parser 6.1.11, which release-please-action v5.0.0 bundles), with no
+change in what they say. `--check` reports those skills and the workflow as
+`stale`, and `--adopt` updates them.
 
 ### Upgrading to 0.18.0
 
@@ -1363,7 +1388,9 @@ Full CI pipeline for Next.js applications.
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
 - `.nvmrc`, `.npmrc`, `.prettierrc.json`, `.prettierignore` (which keeps Prettier off
-  the three template-owned workflows)
+  the three template-owned workflows); `.nvmrc` names Node 24, in Maintenance
+  LTS since 2026-10-20, while Node 26 becomes Active LTS on 2026-10-28
+  (`nodejs/Release` `schedule.json`, read 2026-10-22)
 - `docs/lint-baseline.md`: policy and an empty table for our own inline lint/type suppressions
 - `docs/advisory-baseline.md`: policy and an empty table for accepted dependency advisories
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks

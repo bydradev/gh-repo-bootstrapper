@@ -78,7 +78,6 @@ import os
 import posixpath
 import re
 import shlex
-import subprocess
 import sys
 import tempfile
 import textwrap
@@ -3238,15 +3237,6 @@ def format_legacy_digests(table: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _shallow_checkout() -> bool:
-    """True when the bootstrapper's own checkout is a shallow clone."""
-    result = subprocess.run(
-        ["git", "-C", str(bootstrap.TEMPLATES_DIR.parent), "rev-parse", "--is-shallow-repository"],
-        capture_output=True, text=True, check=False, env=bootstrap._git_env(),
-    )
-    return result.returncode == 0 and result.stdout.strip() == "true"
-
-
 def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict] = None) -> list:
     """bootstrap.SEED_DIGESTS must equal what the release tags give.
 
@@ -3260,7 +3250,7 @@ def check_seed_digests(computed: Optional[dict] = None, recorded: Optional[dict]
     if computed is None:
         tags = bootstrap._release_tags()
         named = {tag for digests in recorded.values() for tag in digests.values()}
-        if not tags or (_shallow_checkout() and not named <= set(tags)):
+        if not tags or (bootstrap._shallow_checkout() and not named <= set(tags)):
             print("notice: git vX.Y.Z release tags unavailable or incomplete in a shallow clone; "
                   "skipped the SEED_DIGESTS check")
             return []

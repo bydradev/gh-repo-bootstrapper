@@ -70,7 +70,7 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertIn("Applied:     RELEASE_PLEASE_CLIENT_ID variable, RELEASE_PLEASE_APP_KEY secret, "
                       "merge strategy, Actions policy (selected actions, SHA pinning)", report)
         self.assertIn("Not applied: Actions allowlist, default workflow token permissions, "
-                      "branch protection on main", report)
+                      "Dependabot alerts, branch protection on main", report)
         self.assertIn("without its allowlist", report)
         script = str(Path(bootstrap.__file__).resolve())
         self.assertIn(f"{sys.executable} {script} --configure-only --name example --type nextjs --org octocat",
@@ -92,8 +92,8 @@ class ConfigureRepoTests(unittest.TestCase):
         with contextlib.redirect_stderr(err):
             bootstrap.print_configuration_progress(cfg)
         self.assertIn("Not applied: merge strategy, Actions policy (selected actions, SHA pinning), "
-                      "Actions allowlist, default workflow token permissions, branch protection on main",
-                      err.getvalue())
+                      "Actions allowlist, default workflow token permissions, Dependabot alerts, "
+                      "branch protection on main", err.getvalue())
         self.assertIn("docs/branch-protection-runbook.md", err.getvalue())
 
     def test_a_completed_configuration_records_every_step(self):
@@ -580,7 +580,7 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
         },
     }
 
-    def _configure(self, current, confirm, configure_only=True):
+    def _configure(self, current, confirm, configure_only=True, private=False, confirm_settings=None):
         calls = []
 
         def run(command, **kwargs):
@@ -593,13 +593,13 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0)
 
         cfg = {
-            "name": "example", "owner": "octocat", "repo_type": "rust", "private": False,
+            "name": "example", "owner": "octocat", "repo_type": "rust", "private": private,
             "configure_only": configure_only,
             "release_please_client_id": "client-id", "release_please_app_key": "private-key",
         }
         out = io.StringIO()
         with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(out):
-            bootstrap.configure_repo(cfg, confirm=confirm)
+            bootstrap.configure_repo(cfg, confirm=confirm, confirm_settings=confirm_settings)
         writes = [command[2] for command in calls if command[:2] == ["gh", "api"] and "--method" in command]
         return writes, out.getvalue(), cfg
 
@@ -660,15 +660,20 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
         }
         with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(io.StringIO()):
             bootstrap.configure_repo(cfg)
-        payloads = {
-            command[2]: json.loads(kwargs["input"].decode())
+        writes = [
+            (command[2], command[command.index("--method") + 1],
+             None if kwargs["input"] is None else json.loads(kwargs["input"].decode()))
             for command, kwargs in calls if command[:2] == ["gh", "api"]
-        }
-        self.assertEqual(payloads[self.REPO], {
+        ]
+        payloads = {endpoint: payload for endpoint, _, payload in writes if endpoint != self.REPO}
+        self.assertEqual([payload for endpoint, _, payload in writes if endpoint == self.REPO], [{
             "allow_squash_merge": True, "allow_merge_commit": False, "allow_rebase_merge": False,
             "delete_branch_on_merge": True, "squash_merge_commit_title": "PR_TITLE",
             "squash_merge_commit_message": "PR_BODY", "allow_update_branch": True, "has_projects": True,
-        })
+        }, {"pull_request_creation_policy": "collaborators_only"}])
+        self.assertIn((f"{self.REPO}/vulnerability-alerts", "PUT", None), writes)
+        alerts = next(command for command, _ in calls if command[2] == f"{self.REPO}/vulnerability-alerts")
+        self.assertNotIn("--input", alerts, "the alerts PUT takes no body")
         self.assertEqual(payloads[f"{self.REPO}/actions/permissions"], {
             "enabled": True, "allowed_actions": "selected", "sha_pinning_required": True,
         })
@@ -691,12 +696,106 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
                 "required_approving_review_count": 0,
             },
             "restrictions": None,
+            "required_conversation_resolution": True,
         })
 
     def test_new_repository_still_gets_policy_and_protection(self):
         writes, _, _ = self._configure({}, None, configure_only=False)
         self.assertIn(f"{self.REPO}/actions/permissions", writes)
         self.assertIn(f"{self.REPO}/branches/main/protection", writes)
+
+    def test_pull_request_creation_is_limited_on_private_repositories_only(self):
+        for private in (True, False):
+            with self.subTest(private=private):
+                writes, _, cfg = self._configure({}, None, configure_only=False, private=private)
+                self.assertEqual(writes.count(self.REPO), 2 if private else 1)
+                self.assertIn(f"{self.REPO}/vulnerability-alerts", writes)
+                self.assertEqual("pull request creation policy" in cfg["configured"], private)
+                self.assertEqual(cfg["configured"], cfg["configure_plan"])
+
+    def test_a_failed_new_setting_is_reported_and_protection_still_applied(self):
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command[2] == f"{self.REPO}/vulnerability-alerts":
+                raise subprocess.CalledProcessError(1, command, stderr=b"gh: Not Found (HTTP 404)")
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = {"name": "example", "owner": "octocat", "repo_type": "rust", "private": True,
+               "release_please_client_id": "id", "release_please_app_key": "key"}
+        out = io.StringIO()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(out):
+            bootstrap.configure_repo(cfg)
+            bootstrap.print_success(cfg)
+        self.assertIn(f"{self.REPO}/branches/main/protection", [command[2] for command in calls])
+        self.assertIn("  warning: Dependabot alerts could not be set automatically.\n"
+                      "    gh: Not Found (HTTP 404)\n", out.getvalue())
+        self.assertIn("    Dependabot alerts (failed; see the warning above)\n", out.getvalue())
+        self.assertEqual(cfg["settings_failed"], ["Dependabot alerts"])
+
+    def test_existing_settings_changes_are_listed_and_need_their_own_yes(self):
+        for confirm_settings in (None, lambda: False):
+            with self.subTest(confirm_settings=confirm_settings):
+                writes, out, cfg = self._configure(self.CURRENT, None, private=True,
+                                                   confirm_settings=confirm_settings)
+                self.assertEqual(writes, [self.REPO], "only the merge settings change")
+                self.assertIn('pull request creation policy: null -> "collaborators_only"', out)
+                self.assertIn('Dependabot alerts: "off or unreadable" -> "on"', out)
+                self.assertTrue(cfg["repository_settings_unchanged"])
+                self.assertEqual(cfg["configured"], cfg["configure_plan"])
+        writes, _, cfg = self._configure(self.CURRENT, None, private=True, confirm_settings=lambda: True)
+        self.assertEqual(writes, [self.REPO, self.REPO, f"{self.REPO}/vulnerability-alerts"])
+        self.assertNotIn("repository_settings_unchanged", cfg)
+
+    def test_an_existing_public_repository_keeps_open_pull_requests(self):
+        writes, out, _ = self._configure(self.CURRENT, None, confirm_settings=lambda: True)
+        self.assertNotIn("pull request creation policy", out)
+        self.assertEqual(writes, [self.REPO, f"{self.REPO}/vulnerability-alerts"])
+
+    def test_matching_settings_ask_nothing(self):
+        current = {**self.CURRENT, self.REPO: {"pull_request_creation_policy": "collaborators_only"},
+                   f"{self.REPO}/vulnerability-alerts": {}}
+
+        def never():
+            raise AssertionError("asked to confirm unchanged settings")
+
+        writes, out, cfg = self._configure(current, None, private=True, confirm_settings=never)
+        self.assertEqual(writes, [self.REPO])
+        self.assertIn("already match the generated settings", out)
+        self.assertIn("Dependabot alerts", cfg["configured"])
+
+    def test_existing_protection_reports_conversation_resolution(self):
+        for enabled, word in ((True, "required"), (False, "not required")):
+            with self.subTest(enabled=enabled):
+                protection = {**self.CURRENT[f"{self.REPO}/branches/main/protection"],
+                              "required_conversation_resolution": {"enabled": enabled}}
+                current = {**self.CURRENT, f"{self.REPO}/branches/main/protection": protection}
+                _, out, _ = self._configure(current, None)
+                self.assertIn(f"    conversation resolution: {word}\n", out)
+
+
+class ManualSettingsTests(unittest.TestCase):
+    """Settings GitHub has no API for are listed to set by hand."""
+
+    def test_public_repositories_also_turn_the_development_preset_off(self):
+        private = bootstrap.manual_settings({"private": True})
+        public = bootstrap.manual_settings({"private": False})
+        self.assertEqual(private, ["Dependabot malware alerts: on (Settings > Advanced Security)"])
+        self.assertEqual(public[0], private[0])
+        self.assertIn("development-scoped dependencies: off", public[1])
+
+    def test_success_and_dry_run_list_them(self):
+        cfg = {"name": "app", "owner": "octocat", "repo_type": "simple", "private": False,
+               "postgres": False, "repo_dir": Path("app"),
+               "release_please_client_id": "id", "release_please_app_key": "key"}
+        for show in (lambda: bootstrap.print_success(cfg),
+                     lambda: bootstrap.print_dry_run(cfg, bootstrap.generate_files(cfg))):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                show()
+            for item in bootstrap.manual_settings(cfg):
+                self.assertIn(item, out.getvalue())
 
 
 class ReleaseGateGuardTests(unittest.TestCase):

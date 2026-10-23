@@ -84,6 +84,18 @@ details URL (`.../actions/runs/<run-id>/job/...`), and
 or read the section above when `main` already fixed it. `mergeStateStatus`
 confirms whether the PR is still blocked.
 
+## Unresolved conversations block the merge
+
+**Check:** when the live rule requires conversation resolution
+(`required_conversation_resolution.enabled`), every unresolved review thread
+blocks the merge, for administrators too when the rule applies to them
+(`enforce_admins`). List the PR's unresolved threads with the commands below.
+
+**Action:** answer each finding with the fix or the evidence, as
+`fresh-eyes-review` says, then resolve its thread. A reviewer resolves only
+its own threads, and a disputed P0 or P1 finding is the operator's to
+resolve. Never resolve a thread without answering it just to unblock a merge.
+
 ## Still blocked
 
 A stuck PR is a pause state, not authority to weaken protection: the rule
@@ -117,6 +129,7 @@ gh run view <run-id> -R $O --json event
 gh pr view <n> -R $O --json mergeStateStatus
 gh api $R/pulls/<n> --jq '[.head.sha, .mergeable, .merge_commit_sha] | @tsv'
 gh api $R/commits/<merge-sha> --jq '[.parents[].sha]'
+gh api graphql --paginate -f o=<owner> -f r=<repo> -F n=<n> -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{isResolved path comments(first:1){nodes{author{login}}}}}}}}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | [.path, .comments.nodes[0].author.login] | @tsv'
 gh api $R/commits/main --jq .sha
 gh run view <run-id> -R $O --log | grep -m1 'HEAD is now at'
 gh api -X PUT $R/pulls/<n>/update-branch  # changes the PR branch; only when authorized
@@ -124,14 +137,15 @@ gh api -X PUT $R/pulls/<n>/update-branch  # changes the PR branch; only when aut
 
 ## Sources
 
-Checked 2026-10-16, and "Troubleshooting required status checks" again on
-2026-10-17:
+Checked 2026-10-16, "Troubleshooting required status checks" again on
+2026-10-17, and conversation resolution and review threads on 2026-10-23:
 
 - docs.github.com: "About protected branches", "Troubleshooting required
   status checks", "Status checks", "Re-running workflows and jobs", "Events
   that trigger workflows", "GITHUB_TOKEN", "REST API endpoints for pull
   requests", "REST API endpoints for check runs", "REST API endpoints for
-  commit statuses".
+  commit statuses", "REST API endpoints for protected branches" and the
+  GraphQL `PullRequestReviewThread` object.
 - googleapis/release-please `src/manifest.ts`: without `always-update`, an
   open release PR is updated only when its notes change.
 - Observed, not documented: check names, the checkout log line, and, in this

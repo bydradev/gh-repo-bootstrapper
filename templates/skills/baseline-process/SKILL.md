@@ -9,6 +9,10 @@ description: "Use before adding an inline lint suppression, accepting a dependen
   (repository root) before landing an inline suppression or accepted
   dependency advisory. Dismiss a Dependabot alert only after its advisory row
   is on `main`.
+- **Auto-triage:** keep the GitHub preset that dismisses low-impact alerts
+  for development-scoped dependencies off, so an unfixable development
+  advisory stays an open alert until its row exists. Where it is on, nothing
+  checks an advisory whose alert it dismissed: record an unfixable one anyway.
 - **`npm run audit:production`** checks runtime dependencies against only
   runtime-scope advisory rows; a dev row cannot permit a runtime advisory.
 - **`npm run verify:baselines`** checks suppression parity both ways, so

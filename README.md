@@ -194,7 +194,7 @@ destination, takes it.
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
 | `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs and swift only) |
-| `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy (see "What the script configures"). Cannot be combined with `--dry-run` |
+| `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy, pull request creation or Dependabot alerts (see "What the script configures"). Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub. Piping the output to `head` or a pager is fine: the run ends quietly with exit 0 when the reader closes the pipe, and with an error status when a `--non-interactive` run's options are refused |
 | `--non-interactive` | Fail instead of prompting for missing options |
 | `--check PATH` | Compare an existing local repository with the current templates; read-only, exits 1 on drift (also when the reader of its output closes the pipe early). Needs `--type` and the type options the repository was generated with |
@@ -760,6 +760,28 @@ repository settings listed in
 [What the script configures](#what-the-script-configures), or pick only the
 pull request title and description as the default message under *Allow
 squash merging* in the repository's general settings.
+
+### Upgrading to 0.20.0
+
+A new repository gets three more settings: pull request creation limited to
+collaborators (private repositories only), Dependabot alerts turned on, and
+conversation resolution required in the branch protection on `main`. The
+script then lists the two settings GitHub has no API for, to set by hand:
+Dependabot malware alerts on, and, on a public repository, the auto-triage
+preset that dismisses low-impact alerts for development-scoped dependencies
+off. See [What the script configures](#what-the-script-configures).
+
+`--configure-only` on an existing repository shows how its pull request
+creation (private repositories) and Dependabot alerts differ and asks before
+changing them; `--non-interactive` lists them and leaves them. It reports
+whether the branch protection requires conversation resolution and, as
+before, never changes the protection.
+
+The branch protection runbook gains a section on pull requests blocked by
+unresolved review conversations, and the `nextjs` `baseline-process` skill
+says to keep that auto-triage preset off and to record an unfixable
+development advisory whose alert it dismissed. `--check` reports both as
+`stale`, and `--adopt` updates them.
 
 ### Upgrading to 0.19.2
 
@@ -1716,6 +1738,16 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   approve pull requests. Release Please uses its dedicated GitHub App token.
 - **Fork PR workflows:** disabled for private repos (no separate control
   exists for public repos; their fork-PR approval policy is left as-is)
+- **Pull request creation:** limited to collaborators (users with write
+  access) on a private repo; a public repo stays open to outside pull
+  requests, which only someone with write access can merge. Dependabot still
+  opens its pull requests (a GitHub staff answer in
+  [community discussion 187038](https://github.com/orgs/community/discussions/187038),
+  2026-02-24), and so does Release Please with its GitHub App's token (seen on
+  a private repository with the setting on, 2026-10-21). On a personal
+  account every collaborator has write access, so the setting changes most on
+  an organization's private repo, where read and triage roles exist.
+- **Dependabot alerts:** turned on, which Dependabot malware alerts need.
 - **Branch protection on `main`:** requires the relevant status checks to pass
   before merging, and requires a pull request with **zero** required approving
   reviews. That combination is deliberate: direct pushes to `main` are blocked
@@ -1723,27 +1755,44 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   self-review on a solo repository. `enforce_admins: true`, so the gates bind
   the account doing the merging; `strict` is left false, because a
   "branch must be up to date" requirement strands every open PR (release PRs
-  worst) on each advance of `main`. The runbook for PRs blocked by those
-  checks, most often release PRs, is a short symptom, check and action
-  procedure at
+  worst) on each advance of `main`. Every review conversation must be
+  resolved before a merge (`required_conversation_resolution`). The runbook
+  for PRs blocked by those checks, most often release PRs, or by unresolved
+  conversations is a short symptom, check and action procedure at
   [`docs/branch-protection-runbook.md`](docs/branch-protection-runbook.md)
   and ships into every generated repository. The incident behind several of
   its rules, with its run IDs and SHAs, is kept only in this repository, in
   [`docs/archive/branch-protection-incident.md`](docs/archive/branch-protection-incident.md).
 
-With `--configure-only` the repository already exists, so two of these are
+GitHub has no API for two more settings (checked 2026-10-23), so the script
+lists them at the end, and in `--dry-run`, to set by hand under *Settings >
+Advanced Security*:
+
+- **Dependabot malware alerts:** on.
+- **Auto-triage preset** *dismiss low-impact alerts for development-scoped
+  dependencies*: off. GitHub turns it on by default only for public repos.
+  With it off, an unfixable development advisory stays an open alert until it
+  has an advisory-baseline row; with it on, nothing checks an alert it
+  dismissed.
+
+With `--configure-only` the repository already exists, so three of these are
 handled differently. Branch protection on `main` is never replaced: the script
-prints the required checks it finds and points to the runbook, because an
-existing repository's checks must come from its own pull requests, not from
-`--type`. The Actions settings (allowlist, SHA pinning, default token
-permissions and, for private repositories, fork PR controls) are compared with
-the generated policy; any difference is listed and applied only after you
-confirm, and `--non-interactive` lists it and leaves it unchanged.
+prints the required checks it finds and whether conversation resolution is
+required, and points to the runbook, because an existing repository's checks
+must come from its own pull requests, not from `--type`. The Actions settings
+(allowlist, SHA pinning, default token permissions and, for private
+repositories, fork PR controls) are compared with the generated policy; any
+difference is listed and applied only after you confirm, and
+`--non-interactive` lists it and leaves it unchanged. Pull request creation
+(private repositories) and Dependabot alerts are compared the same way, with
+their own confirmation, since limiting pull requests to collaborators stops
+outside contributors on a repository that takes them.
 
 These settings are applied one at a time and nothing is rolled back. If one
 fails after the files are pushed, the script lists the settings it applied and
 the ones it did not, and prints the `--configure-only` command that applies
-the rest.
+the rest. A failed pull request creation or Dependabot alerts setting is only
+reported, so the steps after it, branch protection included, still run.
 
   Note that GitHub requires a paid plan for branch protection on **private**
   repositories. The script detects that case and reports it as manual follow-up

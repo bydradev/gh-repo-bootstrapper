@@ -3214,7 +3214,7 @@ def check_legacy_digests(computed: Optional[dict] = None, recorded: Optional[dic
             return []
         try:
             computed = bootstrap.compute_legacy_digests()
-        except TimeoutError as exc:
+        except OSError as exc:  # TimeoutError is one
             return [f"bootstrap.LEGACY_TEMPLATE_DIGESTS could not be checked: {exc}"]
     if recorded is None:
         recorded = bootstrap.LEGACY_TEMPLATE_DIGESTS
@@ -5404,7 +5404,7 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["--regenerate-legacy-digests"]:
         try:
             print(format_legacy_digests(bootstrap.compute_legacy_digests()), end="")
-        except TimeoutError as exc:
+        except OSError as exc:  # TimeoutError is one
             sys.exit(f"error: LEGACY_TEMPLATE_DIGESTS not regenerated: {exc}")
         sys.exit(0)
     if sys.argv[1:] == ["--regenerate-seed-digests"]:

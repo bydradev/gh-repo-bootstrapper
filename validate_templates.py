@@ -594,6 +594,8 @@ RUNBOOK_REQUIRED_PHRASES = (
     "must both pass",
     "disable protection",
     "explicit operator authorization",
+    "every unresolved review thread blocks the merge",
+    "Never resolve a thread without answering it",
 )
 # Run IDs, commit SHAs and timestamps from the incident behind the runbook
 # belong in docs/archive/branch-protection-incident.md, never in the generated
@@ -3737,6 +3739,17 @@ def run_self_tests() -> list:
     result = check_runbook("self-test:gutted runbook", files)
     if not any("update-branch" in e for e in result):
         errors.append(f"self-test 'gutted runbook' did not fail as expected: {result}")
+
+    # Case 22a: a runbook that loses the unresolved-conversations section (the
+    # recovery path for required_conversation_resolution) must fail too.
+    files = bootstrap.generate_files(next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs"))
+    runbook = files.get(BRANCH_PROTECTION_RUNBOOK, "")
+    start = runbook.find("## Unresolved conversations block the merge")
+    end = runbook.find("## Still blocked")
+    files[BRANCH_PROTECTION_RUNBOOK] = runbook[:start] + runbook[end:] if 0 <= start < end else ""
+    result = check_runbook("self-test:runbook without conversations", files)
+    if not any("unresolved review thread" in e or "without answering it" in e for e in result):
+        errors.append(f"self-test 'runbook without conversations' did not fail as expected: {result}")
 
     # Case 23: the bootstrapper's own docs/ runbook must match the template
     # byte-for-byte. A single-character drift between the two means the

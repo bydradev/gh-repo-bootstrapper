@@ -570,7 +570,14 @@ for when the base is another type's. The diff needs the bootstrapper's git
 release tags; from a copy without them, or for a workflow from a shallow clone
 or one with no tag through v0.8.1, `--check` prints a notice and skips it,
 since the few releases such a clone holds could name a base later than the one
-the workflow was forked from.
+the workflow was forked from. It does the same when no tag holds the template,
+as for a copy of `bootstrap.py` with no `.git` of its own inside another
+repository, where git lists that repository's tags. Each release read is a
+`git show` that may take up to 10 seconds; if one takes longer (in a partial
+clone, git fetching a missing object from a remote that does not answer or
+waits on a credential prompt), `--check` stops that git and the fetch it
+started, prints a notice naming the read, reads no more releases and skips
+the diff.
 
 ### Checking and adopting
 
@@ -662,7 +669,13 @@ remove it, then re-run. The `next dev`-managed block and everything from
 that an unedited guidance paragraph from an older template there is `retired`.
 The block must stay at the top of the file: a moved block is `local`, and a
 missing one is `missing`. Only a `## Project specifics` heading
-indented by at most three spaces counts; deeper indentation is a code block. For
+indented by at most three spaces counts; deeper indentation is a code block.
+Everything from the first such heading on is the repository's, so a generated
+heading that appears only after it, as under a second, early copy of the
+heading, is `local` and `--adopt` refuses the rebuild. Only the sections the
+template places after the last generated section the file still has above the
+heading count, so a repository's own section that shares the name of an earlier
+generated one stays `missing`. For
 `.gitignore` it lists the template entries the repository lacks, and for
 `CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
@@ -710,7 +723,10 @@ The `AGENTS.md` rewrite needs the file tracked by git with no uncommitted
 changes, LF line endings, and UTF-8 text, so the result can be reviewed with
 `git diff` and reverted. An index entry marked `skip-worktree` or
 `assume-unchanged` counts as uncommitted, because `git status` hides its
-edits. It replaces the file atomically with a new one, keeping its
+edits. When git cannot read the repository at all, for example when its
+ownership check (`safe.directory`) refuses it or `.git` or its index cannot be
+read, this refusal and the others that need a clean file name git's reason and
+the repository instead. It replaces the file atomically with a new one, keeping its
 permission bits, so a hard link elsewhere keeps its old content; a
 new file is written in full before it appears, and never replaces one created
 meanwhile. Every write walks from `PATH` one directory at a time without
@@ -751,6 +767,51 @@ link where a folder belongs is refused there too, where it used to fail after
 `gh repo create` and leave an empty repository behind. Pressing Enter at the
 Swift destination question takes `iphone`. Generated repositories do not
 change.
+
+`--adopt` names the real cause when git cannot read the repository. Every
+file then looked uncommitted, so a stale file was refused with `needs the
+file tracked by git with no uncommitted changes` (and an orphaned file or a
+seed script with a similar reason) when git's ownership check
+(`safe.directory`), an unreadable `.git` or an index git could not open was
+the cause. These refusals now say `git cannot read`, the repository and git's
+own message. A folder that cannot be listed while the pull request template's
+exact spelling is checked is reported as `unreadable` with the folder's name,
+as other unreadable folders are, instead of a bare `Permission denied`. No
+file is classified, written or refused differently.
+
+`--check` and `--adopt` no longer wait forever on a `git show` of a release
+that does not answer, such as one in a partial clone fetching a missing
+object from a remote that does not answer or waits on a credential prompt.
+Each read of a release now gives up after 10 seconds and stops the fetch it
+started: a one-line notice names the read, no more releases are read, and the
+diff against earlier releases is skipped, as it is without release tags. No
+file is classified or written differently. `validate_templates.py` fails the
+`LEGACY_TEMPLATE_DIGESTS` check, and `--regenerate-legacy-digests` exits 1,
+instead of rebuilding the table from the releases read before.
+
+A copy of the bootstrapper with no `.git` of its own, kept inside another
+repository that has `vX.Y.Z` tags, some of them v0.8.1 or earlier, read that
+repository's tags as releases. None of them holds a bootstrapper template, so
+`--check` diffed an unstamped, locally modified workflow against the current
+template alone, as if it were the release the workflow was forked from, and
+skipped the legacy docs diff without saying so. Both now print the missing-tags
+notice, once per run, and skip the diff. No file is classified or written
+differently.
+
+`--check` now reports a generated `AGENTS.md` section that comes only after
+the first `## Project specifics` heading as `local`, for example
+`(generated heading after ## Project specifics: ## Branches)`. This happens
+when a second, early `## Project specifics` heading sits before or among the
+generated sections, or when the only one does. Everything from that heading
+on belongs to the repository, so `--adopt` used to report those sections as
+`missing`, add them again above it and keep the old copies below, which split
+the file. It now refuses the rebuild, with or without
+`--replace-generated-sections`, and leaves the file as it is, byte for byte.
+Keep one `## Project specifics` heading, after every generated section, then
+re-run `--adopt`. A repository's own section that shares the name of the
+template's last generated section, such as `## Skills`, under its one
+`## Project specifics` heading, reads the same way while the generated part
+lacks that section; rename it to adopt.
 
 The YAML reader `--adopt` uses on a repository's own `test.yml` now refuses
 a flow sequence with a lone `-` item, such as `[- , "a"]` or `[a, -]`, which

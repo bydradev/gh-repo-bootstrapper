@@ -836,7 +836,8 @@ as the body stands, such as an empty `BREAKING CHANGE:` footer or a
 `BREAKING-CHANGE:` at the end of a line of prose, can give one, and that fails
 the check with either answer too. `--check`
 reports `pr-title-check.yml` as `stale`, and `--adopt` updates it; no action
-pin changes.
+pin changes. The `pull-requests` skill gives the same advice, so it is
+`stale` too until `--adopt` updates it.
 
 ### Upgrading to 0.19.0
 

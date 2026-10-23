@@ -36,8 +36,9 @@ merge-ready:
   that only a footer ending the body gives, such as `Release-As:` under a
   `chore:` title, fails with either answer, because GitHub's squash trailers
   turn that footer into body text: give the release to the title or an extra
-  entry, and to keep a `Release-As:` version, put the whole message in a
-  `BEGIN_COMMIT_OVERRIDE` block. Keep the `BREAKING-CHANGE:` token, lines
+  entry, mark a breaking change with `!` or a `BREAKING CHANGE:` note so it
+  stays breaking, and to keep a `Release-As:` version, put the whole message
+  in a `BEGIN_COMMIT_OVERRIDE` block. Keep the `BREAKING-CHANGE:` token, lines
   that open a paragraph with a type, and the `BEGIN_COMMIT_OVERRIDE` marker
   (Release Please replaces the commit with what follows it) out of prose, and
   indent a line that starts with a call such as `f(g(x))`: Release Please
@@ -75,8 +76,11 @@ merge-ready:
   applicable `Co-Authored-By:` trailers, one per line. The title check judged
   the PR body, so carry its extra entries, `Release-As:` footer and any
   breaking-change note over unchanged: a message that drops or edits them
-  changes what Release Please releases. Do not pass an empty message, and do
-  not assume the PR description is included. With `gh`, for example:
+  changes what Release Please releases. The exception is a PR body with a
+  `BEGIN_COMMIT_OVERRIDE` block: Release Please reads the commit from that
+  block in the PR body, not from the message, so leave the block in the body
+  unchanged. Do not pass an empty message, and do not assume the PR
+  description is included. With `gh`, for example:
 
   ```sh
   gh pr merge <n> --squash --delete-branch --body-file <merge-body.md>
@@ -129,5 +133,10 @@ follow `docs/branch-protection-runbook.md` (repository root) and the
   with node-html-parser 6.1.11, the version release-please-action v5.0.0
   bundles, and 6.1.13, which reads those bodies the same way, checked
   2026-10-22.
+- GitHub's default squash message ending the body with a line of dashes and
+  `Signed-off-by` and `Co-authored-by` trailers: seen on 24 squash commits on
+  gh-repo-bootstrapper's `main`; release-please v17.6.0 then reads a trailing
+  footer as body text, and takes an override block from the pull request
+  body (`build/src/commit.js`), checked 2026-10-23.
 - `merge_pull_request` parameters: the `github/github-mcp-server` README,
   checked 2026-10-16.

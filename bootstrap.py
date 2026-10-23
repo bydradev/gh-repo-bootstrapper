@@ -829,18 +829,24 @@ def _workflow_diff_bases(
     return [(label, body, other) for body, (label, other) in bases.items()]
 
 
-def compute_legacy_digests() -> dict:
-    """Rebuild the checked-in legacy table using the historical template renders.
-
-    Raises TimeoutError when a read of a release timed out, and OSError when
-    one needed an object this partial clone has not fetched, since a table
-    without that release's bodies would be wrong."""
-    reads = _ReleaseReads()
-    bodies = _legacy_template_bodies(reads)
+def _raise_if_incomplete(reads: _ReleaseReads) -> None:
+    """Raise TimeoutError when a read of a release timed out, and OSError when
+    one needed an object this partial clone has not fetched: a digest table
+    built without that release's copies would be wrong."""
     if reads.timed_out:
         raise TimeoutError(f"a git show of a release did not answer within {GIT_SHOW_TIMEOUT} s")
     if reads.missing_objects:
         raise OSError("a git show of a release needed an object this partial clone has not fetched")
+
+
+def compute_legacy_digests() -> dict:
+    """Rebuild the checked-in legacy table using the historical template renders.
+
+    Raises as _raise_if_incomplete does when a read of a release did not
+    complete."""
+    reads = _ReleaseReads()
+    bodies = _legacy_template_bodies(reads)
+    _raise_if_incomplete(reads)
     return {
         path: frozenset(_stamp_digest(body, _is_yaml(path.split("#")[0])) for body in texts)
         for path, texts in bodies.items()
@@ -866,31 +872,33 @@ def compute_seed_digests() -> dict:
     shipped it. The current template's copy is left out, since a file equal to
     it is `same`. A tag newer than the release the checkout's manifest records,
     as in an older checkout that fetched later tags, is a later release, so it
-    is left out too. Without git or release tags the result is empty."""
+    is left out too. Without git or release tags the result is empty.
+
+    The reads are _ReleaseReads', so a read that does not answer or needs an
+    object a partial clone has not fetched raises as compute_legacy_digests
+    does, instead of leaving that release's copy out of the table."""
     tags = _release_tags()
     if not tags:
         return {}
     known = _checkout_version()
     if known is not None:
         tags = [tag for tag in tags if _tag_version(tag) <= known]
-    env = _git_env()
+    reads = _ReleaseReads()
     table = {}
     for rel in sorted(SEED_FILES):
         name = Path(rel).name
         current = _digest(_load(name))
         for tag in tags:
-            result = subprocess.run(
-                ["git", "-C", str(TEMPLATES_DIR.parent), "show", f"{tag}:templates/{name}"],
-                capture_output=True, check=False, env=env,
-            )
-            if result.returncode != 0:
+            body = reads.template(tag, name)
+            if body is None:
                 continue
             try:
-                digest = _digest(result.stdout.decode("utf-8"))
+                digest = _digest(body.decode("utf-8"))
             except UnicodeDecodeError:
                 continue
             if digest != current:
                 table.setdefault(rel, {})[digest] = tag
+    _raise_if_incomplete(reads)
     return table
 
 

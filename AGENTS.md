@@ -190,13 +190,13 @@ replies and release notes name only public repositories (this one,
 - Call any other repository of the maintainer "a private repository" or "a
   target repository", with no name, number or link; say what it showed, not
   where.
-- No claude.ai links (sessions, projects, artifacts, chats) and no session,
-  project or thread IDs. A commit keeps its `Co-Authored-By:` trailer and
-  sign-off but carries no `Claude-Session:` trailer, whatever the harness
-  adds.
+- No claude.ai links but the generic `https://claude.ai/code` (no sessions,
+  projects, artifacts or chats) and no session, project or thread IDs. A
+  commit keeps its `Co-Authored-By:` trailer and sign-off but carries no
+  `Claude-Session:` trailer, whatever the harness adds.
 - No paths from an agent's machine or project storage (`/mnt/`, `/home/`,
-  scratch folders); cite a report by its path in a public repository, or not
-  at all.
+  `/root/`, `/Users/`, scratch folders); cite a report by its path in a
+  public repository, or not at all.
 - A PR body may open with a harness attribution block (the hidden
   `claude-projects-attribution` marker and its "Requested by" line). A squash
   message never carries it: write it as the PR title, the body without that

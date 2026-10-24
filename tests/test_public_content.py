@@ -40,7 +40,15 @@ class ScanTests(unittest.TestCase):
             "Claude-Session: https://example.com": "a Claude-Session trailer",
             '<!-- claude-projects-attribution: {"github_login":"x"} -->': "a project attribution marker",
             "thread cmsg_0123456789abcdefABCD": "a session or thread ID",
+            "https://claude.ai/public/artifacts/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b": "a claude.ai link",
+            "start one at claude.ai/new": "a claude.ai link",
+            "https://claude.ai/code/routines": "a claude.ai link",
             "the report in /mnt/project-files/assessment/x.md": "a local or project-storage path",
+            "see /home/alice/report.md": "a local or project-storage path",
+            "(/mnt/data/report.md)": "a local or project-storage path",
+            "`/root/.claude/settings.json`": "a local or project-storage path",
+            "in /Users/sam/GitHub": "a local or project-storage path",
+            r"in C:\Users\sam\GitHub": "a local or project-storage path",
             "see bydradev/secret-thing#12": "a bydradev repository outside the public list",
             "https://github.com/bydradev/example-private": "a bydradev repository outside the public list",
             "ported from sunrise-app's baseline": "a private repository name",
@@ -60,6 +68,8 @@ class ScanTests(unittest.TestCase):
             "a session_id field, a chan_ prefix",
             "orchards, sunrise-apps and the-sunrise-app",
             "/home/runner/work is the runner's checkout",
+            "/home/linuxbrew/.linuxbrew/bin/brew and GET /users/octocat",
+            "https://example.com/mnt/data and https://claude.ai/code.",
         ):
             with self.subTest(text=text):
                 self.assertEqual(kinds(text), [])

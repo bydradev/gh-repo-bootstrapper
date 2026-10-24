@@ -29,14 +29,19 @@ import sys
 
 PUBLIC_REPOSITORIES = frozenset({"gh-repo-bootstrapper", "gh-agent-kit", "github-agent-kit"})
 
-# The generic footer link `https://claude.ai/code` stays allowed; these are
-# the links that point at one session, project, artifact or chat.
+# Any claude.ai link with a path is found, so a new link format is too; only
+# the generic footer link `https://claude.ai/code` stays allowed. A path is
+# found under /mnt/, a home directory other than the runner's or Homebrew's,
+# /root/, a macOS or Windows user folder, or a Claude scratch folder.
 PATTERNS = (
-    ("a claude.ai link", re.compile(r"claude\.ai/(?:code/)?(?:session_|project/|artifact/|chat/|share/)", re.I)),
+    ("a claude.ai link", re.compile(r"claude\.ai/(?!code(?![\w/-]))[\w-]", re.I)),
     ("a Claude-Session trailer", re.compile(r"Claude-Session:", re.I)),
     ("a project attribution marker", re.compile(r"claude-projects-attribution", re.I)),
     ("a session or thread ID", re.compile(r"\b(?:session|cse|cmsg|chan)_[A-Za-z0-9]{16,}")),
-    ("a local or project-storage path", re.compile(r"/mnt/project-files|/mnt/user-data|/home/user/|/tmp/claude")),
+    ("a local or project-storage path", re.compile(
+        r"(?<![\w.-])(?:/mnt/[\w.-]|/home/(?!runner\b|linuxbrew\b)[\w.-]|/root/|/Users/[\w.-]|/tmp/claude)"
+        r"|\b[A-Za-z]:\\Users\\"
+    )),
 )
 OWNER_REPO = re.compile(r"\bbydradev/([A-Za-z0-9._-]+)", re.I)
 

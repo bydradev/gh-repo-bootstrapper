@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -41,7 +42,7 @@ class ScanTests(unittest.TestCase):
             "thread cmsg_0123456789abcdefABCD": "a session or thread ID",
             "the report in /mnt/project-files/assessment/x.md": "a local or project-storage path",
             "see bydradev/secret-thing#12": "a bydradev repository outside the public list",
-            "https://github.com/bydradev/bydradev": "a bydradev repository outside the public list",
+            "https://github.com/bydradev/example-private": "a bydradev repository outside the public list",
             "ported from sunrise-app's baseline": "a private repository name",
             "as ORCHARD does": "a private repository name",
         }
@@ -83,6 +84,15 @@ class ScanTests(unittest.TestCase):
         self.assertEqual([name for name, _ in check.private_names(" a,b\nc  ")], ["a", "b", "c"])
 
 
+def _git(directory, *args):
+    return subprocess.run(
+        ["git", "-C", str(directory), *args], check=True, capture_output=True, text=True,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUTHOR_NAME": "t",
+             "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
+             "GIT_COMMITTER_EMAIL": "t@example.com"},
+    ).stdout.strip()
+
+
 @unittest.skipUnless(sys.executable, "needs python")
 class CommandLineTests(unittest.TestCase):
     def setUp(self):
@@ -99,11 +109,7 @@ class CommandLineTests(unittest.TestCase):
         return result.returncode, result.stdout + result.stderr
 
     def _git(self, *args):
-        subprocess.run(
-            ["git", "-C", str(self.dir), *args], check=True, capture_output=True,
-            env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"},
-        )
+        return _git(self.dir, *args)
 
     def test_never_prints_the_matched_text(self):
         body = self.dir / "body.md"
@@ -143,6 +149,59 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn(", line 3: a Claude-Session trailer", out)
         self._git("commit", "-q", "--allow-empty", "-m", "fix: three")
         code, out = self._run("--range=main^!")
+        self.assertEqual(code, 0, out)
+
+
+def _step(name):
+    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["public-content"]["steps"]
+    return next(step["run"] for step in steps if step.get("name") == name)
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class StepTests(unittest.TestCase):
+    """The workflow's two steps, run with bash as GitHub runs them, in a scratch repository."""
+
+    def _git(self, *args):
+        return _git(self.dir, *args)
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name) / "repo"
+        self.dir.mkdir()
+        (self.dir / ".github" / "scripts").mkdir(parents=True)
+        shutil.copy(SCRIPT, self.dir / ".github" / "scripts" / SCRIPT.name)
+        self._git("init", "-q", "-b", "main")
+        self._git("commit", "-q", "--allow-empty", "-m", "chore: base")
+        self.base = self._git("rev-parse", "HEAD")
+        self._git("commit", "-q", "--allow-empty", "-m", "fix: one\n\nClaude-Session: https://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV")
+        self._git("commit", "-q", "--allow-empty", "-m", "fix: two\n\nCo-Authored-By: A <a@example.com>")
+        self.head = self._git("rev-parse", "HEAD")
+
+    def _step(self, name, **env):
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", _step(name)],
+            env={"PATH": os.environ["PATH"], "PRIVATE_REPO_NAMES": NAMES, "RUNNER_TEMP": self._tmp.name, **env},
+            cwd=self.dir, capture_output=True, text=True, timeout=30,
+        )
+        return result.returncode, result.stdout + result.stderr
+
+    def test_pull_request_step(self):
+        name = "Check the pull request's title, body and commits"
+        code, out = self._step(name, TITLE="fix: two", BODY=ATTRIBUTION + "\nfrom Orchard\n", BASE=self.base, HEAD=self.head)
+        self.assertEqual(code, 1, out)
+        self.assertIn("body, line 4: a private repository name", out)
+        self.assertRegex(out, r"commit [0-9a-f]{7}, line 3: a Claude-Session trailer")
+        self.assertNotIn("Orchard", out)
+        code, out = self._step(name, TITLE="fix: two", BODY=ATTRIBUTION, BASE=self.head, HEAD=self.head)
+        self.assertEqual(code, 0, out)
+
+    def test_push_step(self):
+        name = "Check the pushed commits"
+        code, out = self._step(name, BEFORE=self.base, AFTER=self.head)
+        self.assertEqual(code, 1, out)
+        self.assertIn("a Claude-Session trailer", out)
+        code, out = self._step(name, BEFORE="0" * 40, AFTER=self.head)
         self.assertEqual(code, 0, out)
 
 

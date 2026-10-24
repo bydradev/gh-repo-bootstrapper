@@ -11,7 +11,7 @@
 # Once the repository has a pyproject.toml or a requirements file, copy the
 # `pip` entry below into .github/dependabot.yml to opt in deliberately; the
 # generated local-validation-python skill carries the same entry. Referenced
-# from the README's `python` section.
+# from the `python` section of docs/repository-types.md.
 
 version: 2
 # Keep dependencies and workflow actions current; surface advisories.

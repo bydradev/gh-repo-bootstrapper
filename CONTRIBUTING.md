@@ -29,6 +29,8 @@ Security issues go through private reporting instead; see
    body.
 4. Run the checks listed under "Tooling" in [AGENTS.md](AGENTS.md) before you
    push, and add or update tests for the behaviour you change.
+   [docs/development.md](docs/development.md) covers the setup and what CI
+   runs.
 5. Sign off every commit, as described below.
 
 The maintainer reviews every pull request and decides whether it is merged.

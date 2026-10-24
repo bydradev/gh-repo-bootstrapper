@@ -53,6 +53,8 @@ class ScanTests(unittest.TestCase):
             "https://github.com/bydradev/example-private": "a bydradev repository outside the public list",
             "ported from sunrise-app's baseline": "a private repository name",
             "as ORCHARD does": "a private repository name",
+            "from _sunrise-app_": "a private repository name",
+            "from __Orchard__": "a private repository name",
         }
         for text, kind in cases.items():
             with self.subTest(text=text):

@@ -60,7 +60,8 @@ ATTRIBUTION = (
 def private_names(value):
     names = [name for name in re.split(r"[\s,]+", value or "") if name]
     return [
-        (name, re.compile(r"(?<![A-Za-z0-9_-])" + re.escape(name) + r"(?![A-Za-z0-9_])", re.I))
+        # An underscore is a boundary, so Markdown emphasis (`_name_`) is found.
+        (name, re.compile(r"(?<![A-Za-z0-9-])" + re.escape(name) + r"(?![A-Za-z0-9])", re.I))
         for name in names
     ]
 

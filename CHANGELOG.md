@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.20.0...v0.20.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* point messages that cite the readme at the new docs pages ([c923099](https://github.com/bydradev/gh-repo-bootstrapper/commit/c923099d6d91975befa46184b8bafda4ac6d2fdb))
+
 ## [0.20.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.19.2...v0.20.0) (2026-10-23)
 
 

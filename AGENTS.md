@@ -185,7 +185,8 @@ before adopting, so the release notes carry it.
 This repository is public. This narrows *Commits* and *Pull requests*:
 files, commit messages, PR and issue titles and bodies, comments, review
 replies and release notes name only public repositories (this one,
-`bydradev/gh-agent-kit` and third-party upstreams).
+`bydradev/gh-agent-kit`, `bydradev/gh-actions-dashboard` and third-party
+upstreams).
 
 - Call any other repository of the maintainer "a private repository" or "a
   target repository", with no name, number or link; say what it showed, not

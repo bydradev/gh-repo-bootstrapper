@@ -70,7 +70,9 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertIn("Applied:     RELEASE_PLEASE_CLIENT_ID variable, RELEASE_PLEASE_APP_KEY secret, "
                       "merge strategy, Actions policy (selected actions, SHA pinning)", report)
         self.assertIn("Not applied: Actions allowlist, default workflow token permissions, "
-                      "Dependabot alerts, branch protection on main", report)
+                      "fork pull request approval policy, Dependabot alerts, "
+                      "secret scanning and push protection, CodeQL default setup, "
+                      "branch protection on main", report)
         self.assertIn("without its allowlist", report)
         script = str(Path(bootstrap.__file__).resolve())
         self.assertIn(f"{sys.executable} {script} --configure-only --name example --type nextjs --org octocat",
@@ -92,7 +94,9 @@ class ConfigureRepoTests(unittest.TestCase):
         with contextlib.redirect_stderr(err):
             bootstrap.print_configuration_progress(cfg)
         self.assertIn("Not applied: merge strategy, Actions policy (selected actions, SHA pinning), "
-                      "Actions allowlist, default workflow token permissions, Dependabot alerts, "
+                      "Actions allowlist, default workflow token permissions, "
+                      "fork pull request approval policy, Dependabot alerts, "
+                      "secret scanning and push protection, CodeQL default setup, "
                       "branch protection on main", err.getvalue())
         self.assertIn("docs/branch-protection-runbook.md", err.getvalue())
 
@@ -708,7 +712,9 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
         for private in (True, False):
             with self.subTest(private=private):
                 writes, _, cfg = self._configure({}, None, configure_only=False, private=private)
-                self.assertEqual(writes.count(self.REPO), 2 if private else 1)
+                # The second PATCH: pull request creation on a private
+                # repository, secret scanning on a public one.
+                self.assertEqual(writes.count(self.REPO), 2)
                 self.assertIn(f"{self.REPO}/vulnerability-alerts", writes)
                 self.assertEqual("pull request creation policy" in cfg["configured"], private)
                 self.assertEqual(cfg["configured"], cfg["configure_plan"])
@@ -751,7 +757,126 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
     def test_an_existing_public_repository_keeps_open_pull_requests(self):
         writes, out, _ = self._configure(self.CURRENT, None, confirm_settings=lambda: True)
         self.assertNotIn("pull request creation policy", out)
-        self.assertEqual(writes, [self.REPO, f"{self.REPO}/vulnerability-alerts"])
+        self.assertEqual(writes, [self.REPO, f"{self.REPO}/vulnerability-alerts", self.REPO,
+                                  f"{self.REPO}/code-scanning/default-setup"])
+
+    def test_existing_public_security_changes_are_listed_and_need_their_own_yes(self):
+        # GitHub's GET answers carry more than the request sets; only the
+        # request's keys are compared and shown.
+        current = {**self.CURRENT,
+                   self.REPO: {"security_and_analysis": {
+                       "secret_scanning": {"status": "enabled"},
+                       "secret_scanning_push_protection": {"status": "disabled"},
+                       "dependabot_security_updates": {"status": "disabled"},
+                   }},
+                   f"{self.REPO}/code-scanning/default-setup": {"state": "not-configured", "languages": []}}
+        for confirm_settings in (None, lambda: False):
+            with self.subTest(confirm_settings=confirm_settings):
+                writes, out, cfg = self._configure(current, None, confirm_settings=confirm_settings)
+                self.assertEqual(writes, [self.REPO], "only the merge settings change")
+                self.assertIn('    secret scanning and push protection: {"secret_scanning": {"status": '
+                              '"enabled"}, "secret_scanning_push_protection": {"status": "disabled"}} -> '
+                              '{"secret_scanning": {"status": "enabled"}, '
+                              '"secret_scanning_push_protection": {"status": "enabled"}}\n', out)
+                self.assertIn('    CodeQL default setup: "not-configured" -> "configured"\n', out)
+                self.assertNotIn("dependabot_security_updates", out)
+                self.assertTrue(cfg["repository_settings_unchanged"])
+                self.assertEqual(cfg["configured"], cfg["configure_plan"])
+        writes, _, cfg = self._configure(current, None, confirm_settings=lambda: True)
+        self.assertEqual(writes, [self.REPO, f"{self.REPO}/vulnerability-alerts", self.REPO,
+                                  f"{self.REPO}/code-scanning/default-setup"])
+        self.assertEqual(cfg["configured"], cfg["configure_plan"])
+
+    def test_unreadable_security_settings_count_as_changes(self):
+        # security_and_analysis is in the GET answer only for an admin.
+        writes, out, _ = self._configure({**self.CURRENT, self.REPO: {"name": "example"}}, None,
+                                         confirm_settings=lambda: True)
+        self.assertIn('    secret scanning and push protection: {"secret_scanning": {"status": null}, '
+                      '"secret_scanning_push_protection": {"status": null}} -> ', out)
+        self.assertIn('    CodeQL default setup: null -> "configured"\n', out)
+        self.assertIn(f"{self.REPO}/code-scanning/default-setup", writes)
+
+    def test_matching_public_security_settings_ask_nothing(self):
+        current = {**self.CURRENT,
+                   self.REPO: {"security_and_analysis": {
+                       "secret_scanning": {"status": "enabled"},
+                       "secret_scanning_push_protection": {"status": "enabled"},
+                       "secret_scanning_validity_checks": {"status": "disabled"},
+                   }},
+                   f"{self.REPO}/vulnerability-alerts": {},
+                   f"{self.REPO}/code-scanning/default-setup": {"state": "configured", "languages": ["actions"]}}
+
+        def never():
+            raise AssertionError("asked to confirm unchanged settings")
+
+        writes, out, cfg = self._configure(current, None, confirm_settings=never)
+        self.assertEqual(writes, [self.REPO])
+        self.assertIn("already match the generated settings", out)
+        self.assertIn("CodeQL default setup", cfg["configured"])
+        self.assertIn("secret scanning and push protection", cfg["configured"])
+
+    def test_public_repositories_get_secret_scanning_codeql_and_fork_approval(self):
+        for private in (False, True):
+            with self.subTest(private=private):
+                calls = []
+
+                def run(command, **kwargs):
+                    calls.append((command, kwargs))
+                    return subprocess.CompletedProcess(command, 0)
+
+                cfg = {"name": "example", "owner": "octocat", "repo_type": "python", "private": private,
+                       "release_please_client_id": "", "release_please_app_key": ""}
+                with patch.object(bootstrap.subprocess, "run", side_effect=run), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    bootstrap.configure_repo(cfg)
+                writes = [
+                    (command[2], command[command.index("--method") + 1],
+                     None if kwargs["input"] is None else json.loads(kwargs["input"].decode()))
+                    for command, kwargs in calls if command[:2] == ["gh", "api"]
+                ]
+                security = (self.REPO, "PATCH", {"security_and_analysis": {
+                    "secret_scanning": {"status": "enabled"},
+                    "secret_scanning_push_protection": {"status": "enabled"},
+                }})
+                codeql = (f"{self.REPO}/code-scanning/default-setup", "PATCH", {"state": "configured"})
+                approval = (f"{self.REPO}/actions/permissions/fork-pr-contributor-approval", "PUT",
+                            {"approval_policy": "all_external_contributors"})
+                endpoints = [endpoint for endpoint, _, _ in writes]
+                if private:
+                    self.assertNotIn(security, writes)
+                    self.assertNotIn(codeql[0], endpoints)
+                    self.assertNotIn(approval[0], endpoints)
+                    self.assertIn(f"{self.REPO}/actions/permissions/fork-pr-workflows-private-repos", endpoints)
+                else:
+                    for write in (security, codeql, approval):
+                        self.assertIn(write, writes)
+                    self.assertNotIn(f"{self.REPO}/actions/permissions/fork-pr-workflows-private-repos",
+                                     endpoints)
+                    # Actions are set up before CodeQL default setup, which runs on them.
+                    self.assertLess(endpoints.index(f"{self.REPO}/actions/permissions"),
+                                    endpoints.index(codeql[0]))
+                self.assertEqual(cfg["configured"], cfg["configure_plan"])
+
+    def test_a_failed_codeql_setup_is_reported_and_protection_still_applied(self):
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command[2] == f"{self.REPO}/code-scanning/default-setup":
+                raise subprocess.CalledProcessError(1, command, stderr=b"gh: Validation Failed (HTTP 422)")
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = {"name": "example", "owner": "octocat", "repo_type": "rust", "private": False,
+               "release_please_client_id": "id", "release_please_app_key": "key"}
+        out = io.StringIO()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), contextlib.redirect_stdout(out):
+            bootstrap.configure_repo(cfg)
+            bootstrap.print_success(cfg)
+        self.assertIn(f"{self.REPO}/branches/main/protection", [command[2] for command in calls])
+        self.assertIn("  warning: CodeQL default setup could not be set automatically.\n"
+                      "    gh: Validation Failed (HTTP 422)\n", out.getvalue())
+        self.assertIn("    CodeQL default setup (failed; see the warning above)\n", out.getvalue())
+        self.assertEqual(cfg["settings_failed"], ["CodeQL default setup"])
 
     def test_matching_settings_ask_nothing(self):
         current = {**self.CURRENT, self.REPO: {"pull_request_creation_policy": "collaborators_only"},

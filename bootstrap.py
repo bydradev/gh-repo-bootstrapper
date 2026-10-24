@@ -4423,6 +4423,13 @@ def selected_action_patterns(repo_type: str) -> list:
     return patterns
 
 
+# Which fork pull request workflows on a public repository wait for a
+# maintainer's approval before they run: every one from a contributor without
+# write access, so an outside pull request cannot spend Actions minutes or an
+# API key's credits unseen.
+FORK_PR_APPROVAL_POLICY = "all_external_contributors"
+
+
 def actions_policy_requests(cfg: dict) -> list:
     """The (endpoint, payload) PUTs that set a repository's Actions policy.
 
@@ -4452,15 +4459,21 @@ def actions_policy_requests(cfg: dict) -> list:
             "can_approve_pull_request_reviews": False,
         }),
     ]
-    # Fork PR workflow controls only exist as a distinct API for private
-    # repos; public repos gate fork PRs via a separate approval-policy
-    # endpoint instead, which isn't part of what was asked for here.
+    # A private repository turns fork pull request workflows off; a public
+    # one runs them, and its approval policy decides which contributors'
+    # runs wait for a maintainer (GitHub's default: first-time contributors).
+    # Endpoints from GitHub's REST docs, "GitHub Actions permissions", read
+    # 2026-10-24.
     if cfg["private"]:
         requests.append((f"repos/{repo}/actions/permissions/fork-pr-workflows-private-repos", {
             "run_workflows_from_fork_pull_requests": False,
             "send_write_tokens_to_workflows": False,
             "send_secrets_and_variables": False,
             "require_approval_for_fork_pr_workflows": False,
+        }))
+    else:
+        requests.append((f"repos/{repo}/actions/permissions/fork-pr-contributor-approval", {
+            "approval_policy": FORK_PR_APPROVAL_POLICY,
         }))
     return requests
 
@@ -4473,6 +4486,7 @@ _ACTIONS_POLICY_STEPS = {
     "actions/permissions/selected-actions": "Actions allowlist",
     "actions/permissions/workflow": "default workflow token permissions",
     "actions/permissions/fork-pr-workflows-private-repos": "fork pull request workflow policy",
+    "actions/permissions/fork-pr-contributor-approval": "fork pull request approval policy",
 }
 
 
@@ -4500,13 +4514,19 @@ def actions_policy_changes(requests: list, current: dict) -> list:
 
 
 def repository_settings_requests(cfg: dict) -> list:
-    """The (step, method, endpoint, payload) writes for pull requests and Dependabot.
+    """The (step, method, endpoint, payload) writes for pull requests and security.
 
     Pull request creation is limited to collaborators (users with write access)
     on a private repository only: a public one stays open to outside pull
     requests, which only someone with write access can merge (operator ruling,
     2026-10-23). Dependabot alerts are a prerequisite of malware alerts, which
     have no API (see manual_settings()); their PUT takes no body.
+
+    A public repository also gets secret scanning with push protection and
+    CodeQL default setup, which GitHub offers public repositories at no cost
+    but leaves off. Fields from GitHub's REST docs, "Update a repository"
+    (security_and_analysis, which needs admin access) and "Update a code
+    scanning default setup configuration", read 2026-10-24.
     """
     repo = f"{cfg['owner']}/{cfg['name']}"
     requests = []
@@ -4514,26 +4534,45 @@ def repository_settings_requests(cfg: dict) -> list:
         requests.append(("pull request creation policy", "PATCH", f"repos/{repo}",
                          {"pull_request_creation_policy": "collaborators_only"}))
     requests.append(("Dependabot alerts", "PUT", f"repos/{repo}/vulnerability-alerts", None))
+    if not cfg["private"]:
+        requests.append(("secret scanning and push protection", "PATCH", f"repos/{repo}", {
+            "security_and_analysis": {
+                "secret_scanning": {"status": "enabled"},
+                "secret_scanning_push_protection": {"status": "enabled"},
+            },
+        }))
+        requests.append(("CodeQL default setup", "PATCH", f"repos/{repo}/code-scanning/default-setup",
+                         {"state": "configured"}))
     return requests
 
 
-def repository_settings_changes(requests: list, repository, alerts_on: bool) -> list:
+def _settings_view(current, new):
+    """current narrowed to the keys new sets, nested objects included, for comparison and display."""
+    if not isinstance(new, dict):
+        return current
+    current = current if isinstance(current, dict) else {}
+    return {key: _settings_view(current.get(key), value) for key, value in new.items()}
+
+
+def repository_settings_changes(requests: list, current: dict, alerts_on: bool) -> list:
     """(step, current value, new value) rows where the repository differs from requests.
 
-    repository is the GET repos/{repo} response, or None when it could not be
-    read; alerts_on is whether GET .../vulnerability-alerts succeeded (GitHub
-    answers 404 when alerts are off, and an unreadable state counts as off).
+    current maps each endpoint a request writes to its GET response, or None
+    when it could not be read; a nested object is compared only on the keys
+    the request sets. alerts_on is whether GET .../vulnerability-alerts
+    succeeded (GitHub answers 404 when alerts are off, and an unreadable state
+    counts as off).
     """
     changes = []
-    for step, _method, _endpoint, payload in requests:
+    for step, _method, endpoint, payload in requests:
         if payload is None:
             if not alerts_on:
                 changes.append((step, "off or unreadable", "on"))
             continue
         for key, new in payload.items():
-            current = (repository or {}).get(key)
-            if current != new:
-                changes.append((step, current, new))
+            existing = _settings_view((current.get(endpoint) or {}).get(key), new)
+            if existing != new:
+                changes.append((step, existing, new))
     return changes
 
 
@@ -4562,8 +4601,9 @@ def configure_repo(cfg: dict, confirm=None, confirm_settings=None):
     --configure-only the repository already exists, so its branch protection
     is never replaced (its required checks must come from its own pull
     requests; see docs/branch-protection-runbook.md), Actions policy
-    changes are listed and applied only when confirm() returns true, and pull
-    request creation and Dependabot alert changes only when confirm_settings()
+    changes are listed and applied only when confirm() returns true, and the
+    repository settings (pull request creation, Dependabot alerts and, on a
+    public repository, secret scanning and CodeQL) only when confirm_settings()
     does; with no callback (--non-interactive) they are listed and left
     unchanged.
     """
@@ -4677,13 +4717,15 @@ def configure_repo(cfg: dict, confirm=None, confirm_settings=None):
         api("PUT", endpoint, payload)
         done.append(_actions_policy_step(endpoint))
 
-    # --- pull request creation and Dependabot alerts ---
-    print("  pull requests and Dependabot alerts")
+    # --- pull request creation, Dependabot alerts, secret scanning, CodeQL ---
+    print("  pull requests and security")
     if existing:
         # Limiting pull requests to collaborators stops outside contributors on
-        # a repository that takes them; show before changing.
+        # a repository that takes them, and push protection blocks pushes that
+        # carry a secret; show before changing.
         alerts = subprocess.run(["gh", "api", f"repos/{repo}/vulnerability-alerts"], capture_output=True)
-        changes = repository_settings_changes(settings, get(f"repos/{repo}"), alerts.returncode == 0)
+        current = {endpoint: get(endpoint) for _, _, endpoint, payload in settings if payload is not None}
+        changes = repository_settings_changes(settings, current, alerts.returncode == 0)
         changed = {step for step, _, _ in changes}
         done += [step for step, *_ in settings if step not in changed]
         settings = [request for request in settings if request[0] in changed]
@@ -4770,7 +4812,7 @@ def print_configuration_progress(cfg: dict):
     if cfg.get("scheme"):
         retry += ["--scheme", cfg["scheme"]]
     print("  Apply the rest by running this interactively, which asks before changing the", file=out)
-    print("  Actions policy, pull request creation or Dependabot alerts:", file=out)
+    print("  Actions policy or the pull request and security settings:", file=out)
     print(f"    {shlex.join(retry)}", file=out)
     print("  Press Enter at a credential prompt to keep a value already applied.", file=out)
     if "branch protection on main" in remaining:
@@ -4800,7 +4842,7 @@ def print_success(cfg: dict):
     for step in cfg.get("settings_failed", []):
         missing.append(f"{step} (failed; see the warning above)")
     if cfg.get("repository_settings_unchanged"):
-        missing.append("pull request and Dependabot alert settings (left unchanged; re-run "
+        missing.append("pull request and security settings (left unchanged; re-run "
                        "--configure-only interactively to apply them)")
 
     if missing:
@@ -4918,8 +4960,9 @@ def main():
         print(f"\nAbout to configure: {full} ({cfg['repo_type']})")
         print("  Applies: Release Please credentials, squash-merge only (squash commit title and")
         print("    message from the PR), delete branch on merge, update-branch button, Projects")
-        print("  Shows Actions policy, pull request creation (private repositories) and")
-        print("    Dependabot alert changes, and asks before applying each group")
+        print("  Shows Actions policy changes, and pull request creation (private repositories),")
+        print("    Dependabot alert, secret scanning and CodeQL (public repositories) changes,")
+        print("    and asks before applying each group")
         print("  Leaves branch protection on main unchanged")
         print("  Note: file generation is skipped — commit CLAUDE.md and AGENTS.md separately if needed")
         if not args.non_interactive:
@@ -4930,7 +4973,7 @@ def main():
             return prompt_yn("    Apply these Actions policy changes?", default=False)
 
         def confirm_repository_settings():
-            return prompt_yn("    Apply these pull request and Dependabot changes?", default=False)
+            return prompt_yn("    Apply these pull request and security changes?", default=False)
 
         try:
             configure_repo(cfg, confirm=None if args.non_interactive else confirm_actions_policy,

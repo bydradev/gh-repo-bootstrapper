@@ -7,6 +7,20 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.21.0
+
+A new public repository gets three more settings: secret scanning with push
+protection, CodeQL default setup, and the fork pull request approval policy
+set to require approval for all external contributors. See
+[What the script configures](github-settings.md#what-the-script-configures).
+
+`--configure-only` on an existing public repository shows how these differ
+and asks before changing them: secret scanning and CodeQL with the pull
+request and Dependabot settings, the fork approval policy with the Actions
+policy. `--non-interactive` lists them and leaves them. Private repositories
+are unchanged, and generated files are unchanged, so `--check` and `--adopt`
+report nothing new.
+
 ## Upgrading to 0.20.0
 
 A new repository gets three more settings: pull request creation limited to

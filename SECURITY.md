@@ -21,8 +21,8 @@ the report is fixed or declined.
 Security fixes land on `main` and ship in the next release; earlier releases
 get no backports. A repository the bootstrapper created or adopted keeps the
 template files it was given, so it has a fixed template only once it runs
-`--check` and `--adopt` from that release, as
-[`docs/upgrading.md`](docs/upgrading.md) describes. The advisory for a fixed
+`bootstrap.py --check` and `--adopt` from a copy checked out at that
+release's tag, as [`docs/upgrading.md`](docs/upgrading.md) describes. The advisory for a fixed
 vulnerability is published with the release that fixes it and names that
 release.
 

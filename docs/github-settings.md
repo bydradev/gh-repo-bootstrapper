@@ -26,9 +26,13 @@ Beyond file generation, the script applies GitHub configuration to the repo:
 - **Fork PR workflows:** disabled for private repos. A public repo runs
   them, and its approval policy is set to *Require approval for all external
   contributors* (`all_external_contributors`): a fork pull request from
-  anyone without write access waits for a maintainer before its workflows
-  run, so it cannot spend Actions minutes or an API key's credits unseen.
-  GitHub's default asks only first-time contributors. Endpoint from
+  anyone who is not a member or owner of the repository and not a member of
+  its organization waits for a maintainer before its workflows run, so it
+  cannot run the generated workflows, and spend Actions minutes or an API
+  key's credits, unseen. GitHub's default asks only first-time contributors.
+  Workflows triggered by `pull_request_target` always run; no generated
+  workflow uses that trigger. Definitions from
+  [Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository). Endpoint from
   [GitHub Actions permissions](https://docs.github.com/en/rest/actions/permissions),
   read 2026-10-24.
 - **Pull request creation:** limited to collaborators (users with write
@@ -53,7 +57,11 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   the languages GitHub detects, workflows included
   ([Update a code scanning default setup configuration](https://docs.github.com/en/rest/code-scanning/code-scanning#update-a-code-scanning-default-setup-configuration),
   [Configuring default setup](https://docs.github.com/en/code-security/code-scanning/enabling-code-scanning/configuring-default-setup-for-code-scanning),
-  read 2026-10-24).
+  read 2026-10-24). On a repository that already runs CodeQL from a
+  workflow file (advanced setup), default setup turns that workflow off and
+  blocks its uploads; a required check that workflow reports then never
+  arrives. No generated workflow runs CodeQL, so this matters only for
+  `--configure-only`, which says so before it asks.
 - **Branch protection on `main`:** requires the relevant status checks to pass
   before merging, and requires a pull request with **zero** required approving
   reviews. That combination is deliberate: direct pushes to `main` are blocked

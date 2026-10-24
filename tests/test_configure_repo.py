@@ -100,6 +100,26 @@ class ConfigureRepoTests(unittest.TestCase):
                       "branch protection on main", err.getvalue())
         self.assertIn("docs/branch-protection-runbook.md", err.getvalue())
 
+    def test_a_failed_fork_approval_policy_stops_and_is_reported(self):
+        approval = "repos/octocat/example/actions/permissions/fork-pr-contributor-approval"
+
+        def run(command, **kwargs):
+            if command[:3] == ["gh", "api", approval]:
+                raise subprocess.CalledProcessError(1, command)
+            return subprocess.CompletedProcess(command, 0)
+
+        cfg = self._config()
+        with patch.object(bootstrap.subprocess, "run", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()), self.assertRaises(subprocess.CalledProcessError):
+            bootstrap.configure_repo(cfg)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            bootstrap.print_configuration_progress(cfg)
+        self.assertIn("default workflow token permissions\n", err.getvalue())
+        self.assertIn("Not applied: fork pull request approval policy, Dependabot alerts, "
+                      "secret scanning and push protection, CodeQL default setup, "
+                      "branch protection on main", err.getvalue())
+
     def test_a_completed_configuration_records_every_step(self):
         cfg = self._config()
         with patch.object(bootstrap.subprocess, "run",
@@ -638,6 +658,24 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(writes, [self.REPO, *actions])
         self.assertNotIn("actions_policy_unchanged", cfg)
 
+    def test_an_existing_public_fork_approval_policy_is_listed_and_needs_a_yes(self):
+        requests = bootstrap.actions_policy_requests(
+            {"owner": "octocat", "name": "example", "repo_type": "rust", "private": False}
+        )
+        approval = f"{self.REPO}/actions/permissions/fork-pr-contributor-approval"
+        current = {**self.CURRENT, **dict(requests), approval: {"approval_policy": "first_time_contributors"}}
+        for confirm in (None, lambda: False):
+            with self.subTest(confirm=confirm):
+                writes, out, cfg = self._configure(current, confirm)
+                self.assertNotIn(approval, writes)
+                self.assertIn('    approval_policy: "first_time_contributors" -> "all_external_contributors"\n',
+                              out)
+                self.assertTrue(cfg["actions_policy_unchanged"])
+                self.assertEqual(cfg["configured"], cfg["configure_plan"])
+        writes, _, cfg = self._configure(current, lambda: True)
+        self.assertIn(approval, writes)
+        self.assertIn("fork pull request approval policy", cfg["configured"])
+
     def test_matching_actions_policy_asks_nothing(self):
         requests = bootstrap.actions_policy_requests(
             {"owner": "octocat", "name": "example", "repo_type": "rust", "private": False}
@@ -778,7 +816,9 @@ class ConfigureExistingRepositoryTests(unittest.TestCase):
                               '"enabled"}, "secret_scanning_push_protection": {"status": "disabled"}} -> '
                               '{"secret_scanning": {"status": "enabled"}, '
                               '"secret_scanning_push_protection": {"status": "enabled"}}\n', out)
-                self.assertIn('    CodeQL default setup: "not-configured" -> "configured"\n', out)
+                self.assertIn('    CodeQL default setup: "not-configured" -> "configured"\n'
+                              "      (turns off a CodeQL workflow file the repository runs, and blocks "
+                              "its uploads)\n", out)
                 self.assertNotIn("dependabot_security_updates", out)
                 self.assertTrue(cfg["repository_settings_unchanged"])
                 self.assertEqual(cfg["configured"], cfg["configure_plan"])

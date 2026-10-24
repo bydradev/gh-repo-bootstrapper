@@ -4424,9 +4424,12 @@ def selected_action_patterns(repo_type: str) -> list:
 
 
 # Which fork pull request workflows on a public repository wait for a
-# maintainer's approval before they run: every one from a contributor without
-# write access, so an outside pull request cannot spend Actions minutes or an
-# API key's credits unseen.
+# maintainer's approval before they run: every one from an external
+# contributor, which GitHub defines as someone who is not a member or owner of
+# the repository and not a member of its organization ("Managing GitHub
+# Actions settings for a repository", read 2026-10-24). An outside pull
+# request then cannot run the generated workflows, and spend Actions minutes
+# or an API key's credits, before a maintainer has looked at it.
 FORK_PR_APPROVAL_POLICY = "all_external_contributors"
 
 
@@ -4734,6 +4737,10 @@ def configure_repo(cfg: dict, confirm=None, confirm_settings=None):
         else:
             for step, current, new in changes:
                 print(f"    {step}: {json.dumps(current)} -> {json.dumps(new)}")
+                if step == "CodeQL default setup":
+                    # GitHub's "Configuring default setup for code scanning",
+                    # read 2026-10-24.
+                    print("      (turns off a CodeQL workflow file the repository runs, and blocks its uploads)")
             if confirm_settings is None or not confirm_settings():
                 print("    left unchanged")
                 cfg["repository_settings_unchanged"] = True
@@ -4960,9 +4967,9 @@ def main():
         print(f"\nAbout to configure: {full} ({cfg['repo_type']})")
         print("  Applies: Release Please credentials, squash-merge only (squash commit title and")
         print("    message from the PR), delete branch on merge, update-branch button, Projects")
-        print("  Shows Actions policy changes, and pull request creation (private repositories),")
-        print("    Dependabot alert, secret scanning and CodeQL (public repositories) changes,")
-        print("    and asks before applying each group")
+        print("  Shows Actions policy changes, and Dependabot alert, pull request creation")
+        print("    (private repositories) and secret scanning and CodeQL (public repositories)")
+        print("    changes, and asks before applying each group")
         print("  Leaves branch protection on main unchanged")
         print("  Note: file generation is skipped — commit CLAUDE.md and AGENTS.md separately if needed")
         if not args.non_interactive:

@@ -17,7 +17,10 @@ set to require approval for all external contributors. See
 `--configure-only` on an existing public repository shows how these differ
 and asks before changing them: secret scanning and CodeQL with the pull
 request and Dependabot settings, the fork approval policy with the Actions
-policy. `--non-interactive` lists them and leaves them. Private repositories
+policy. `--non-interactive` lists them and leaves them. Say no to CodeQL
+default setup on a repository that runs CodeQL from its own workflow file:
+default setup turns that workflow off, and a required check it reports
+would then never arrive. Private repositories
 are unchanged, and generated files are unchanged, so `--check` and `--adopt`
 report nothing new.
 

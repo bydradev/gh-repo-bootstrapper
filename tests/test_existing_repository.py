@@ -4612,7 +4612,7 @@ class AdoptOrphanTrackingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(old.is_dir())
         self.assertTrue(mirror.is_symlink())
-        # The README's remedy: delete the empty folder by hand.
+        # The documented remedy: delete the empty folder by hand.
         old.rmdir()
         result = adopt()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

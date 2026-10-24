@@ -7,7 +7,7 @@
 #
 # Once the repository has a root Package.swift (or another manifest Dependabot
 # supports), copy this file over .github/dependabot.yml to opt in deliberately.
-# Referenced from the README's `swift` section.
+# Referenced from the `swift` section of docs/repository-types.md.
 
 version: 2
 # Keep dependencies and workflow actions current; surface advisories.

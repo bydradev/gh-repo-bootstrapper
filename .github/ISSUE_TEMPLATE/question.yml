@@ -1,5 +1,5 @@
 name: Question
-description: Ask about usage or behaviour that the README doesn't answer
+description: Ask about usage or behaviour that the README and docs don't answer
 title: "[Question]: "
 labels: ["question"]
 body:
@@ -19,7 +19,7 @@ body:
     id: checked
     attributes:
       label: What have you already checked?
-      description: README sections, docs/branch-protection-runbook.md, existing issues, etc.
+      description: The README, the pages under docs/, existing issues, etc.
     validations:
       required: true
 

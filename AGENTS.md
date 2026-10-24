@@ -168,6 +168,7 @@ npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_di
 rm -rf "$md_dir"
 npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc \
   "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
+python3 -I .github/scripts/check_public_content.py --range=origin/main..HEAD
 ```
 
 ### Template-owned workflows
@@ -178,6 +179,35 @@ so a pin bumped here reaches repositories through their Dependabot, not adopt.
 A template change that needs a newer action version must keep working on the
 older one, or its PR must say that repositories merge the Dependabot bump
 before adopting, so the release notes carry it.
+
+### Public repository content
+
+This repository is public. This narrows *Commits* and *Pull requests*:
+files, commit messages, PR and issue titles and bodies, comments, review
+replies and release notes name only public repositories (this one,
+`bydradev/gh-agent-kit` and third-party upstreams).
+
+- Call any other repository of the maintainer "a private repository" or "a
+  target repository", with no name, number or link; say what it showed, not
+  where.
+- No claude.ai links but the generic `https://claude.ai/code` (no sessions,
+  projects, artifacts or chats) and no session, project or thread IDs. A
+  commit keeps its `Co-Authored-By:` trailer and sign-off but carries no
+  `Claude-Session:` trailer, whatever the harness adds.
+- No paths from an agent's machine or project storage (`/mnt/`, `/home/`,
+  `/root/`, `/Users/`, scratch folders); cite a report by its path in a
+  public repository, or not at all.
+- A PR body may open with a harness attribution block (the hidden
+  `claude-projects-attribution` marker and its "Requested by" line). A squash
+  message never carries it: write it as the PR title, the body without that
+  block, then the trailers.
+- Before pushing, and before posting a PR body or a comment, run
+  `python3 -I .github/scripts/check_public_content.py` with `--range`,
+  `--title`, `--pr-body` or `--text`. It reads the private names from
+  `PRIVATE_REPO_NAMES` when the environment sets it, and never prints what it
+  matched. The `public-content` workflow runs it on every PR and every push
+  to `main`, after the text is already on GitHub: when it fails, reword, and
+  never bypass or weaken it.
 
 ### Code review rules
 
@@ -191,3 +221,6 @@ before adopting, so the release notes carry it.
 - `bootstrap.py`, `validate_templates.py` and `tests/` are Python, which this
   repository's `simple` copy of `review-guidelines` has no section for: apply
   Python review practice, and keep `bootstrap.py` on the standard library.
+- A PR's title, body, commits and files name no private repository and carry
+  no claude.ai link or `Claude-Session:` trailer (*Public repository
+  content*).

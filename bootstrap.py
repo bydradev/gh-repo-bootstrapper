@@ -4030,7 +4030,8 @@ def _adopt_file(
             return (
                 "refused", rel,
                 "edited locally; move the repository's own jobs or steps into a separate "
-                "workflow, then delete the file to regenerate (see README, Template-owned files)",
+                "workflow, then delete the file to regenerate (see docs/existing-repositories.md, "
+                "Template-owned files)",
             )
         if rel in SCREENSHOT_FILES:
             # Detection only sees the template's copies, so once this file is
@@ -4304,7 +4305,7 @@ def screenshot_review_notice(cfg: dict) -> str | None:
         f"notice: screenshot review is on without --screenshots, because the repository "
         f"has the template's {' and '.join(found)}; pass --screenshots to silence this. "
         f"To regenerate a screenshot file you deleted, re-run with --screenshots; to drop "
-        f"screenshot review, see the README's \"Upgrading to 0.12.0\""
+        f"screenshot review, see \"Upgrading to 0.12.0\" in docs/upgrading.md"
     )
 
 

@@ -58,6 +58,14 @@ repository's own.
 Both check out the full history and tags, which the validator needs to
 rebuild its tables of earlier releases.
 
+`.github/workflows/public-content.yml` runs
+`.github/scripts/check_public_content.py` on each pull request's title, body
+and commits, and on each push to `main`, for the private details that
+[`AGENTS.md`](../AGENTS.md) *Public repository content* rules out. It reads
+bare private repository names from the `PRIVATE_REPO_NAMES` repository
+secret, which pull requests from forks do not get, and prints where each
+finding is and its kind, never the matched text.
+
 ## Validator options
 
 `python validate_templates.py` with no option runs every check. Three

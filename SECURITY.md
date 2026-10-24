@@ -12,9 +12,9 @@ to reproduce and confirm the report. A suggested fix is welcome there too. A
 fix that is merged follows [`CONTRIBUTING.md`](CONTRIBUTING.md), including the
 sign-off on every commit.
 
-The maintainer aims to acknowledge a report within 7 days, best effort, and
-keeps the reporter updated in the advisory until the report is fixed or
-declined.
+The maintainer reads and answers reports as time allows, best effort, with
+no set response time, and keeps the reporter updated in the advisory until
+the report is fixed or declined.
 
 ## Supported versions
 

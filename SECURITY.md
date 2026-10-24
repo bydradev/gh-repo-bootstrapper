@@ -12,10 +12,24 @@ to reproduce and confirm the report. A suggested fix is welcome there too. A
 fix that is merged follows [`CONTRIBUTING.md`](CONTRIBUTING.md), including the
 sign-off on every commit.
 
+The maintainer aims to acknowledge a report within 7 days, best effort, and
+keeps the reporter updated in the advisory until the report is fixed or
+declined.
+
+## Supported versions
+
+Security fixes land on `main` and ship in the next release; earlier releases
+get no backports. A repository the bootstrapper created or adopted keeps the
+template files it was given, so it has a fixed template only once it runs
+`--check` and `--adopt` from that release, as
+[`docs/upgrading.md`](docs/upgrading.md) describes. The advisory for a fixed
+vulnerability is published with the release that fixes it and names that
+release.
+
 ## Scope
 
-`bootstrap.py` runs locally, on the operator's own machine, under their own
-authenticated `gh` CLI session. It has no server component and stores no
+`bootstrap.py` runs locally, on the machine of whoever runs it, under their
+own authenticated `gh` CLI session. It has no server component and stores no
 credentials. It reads GitHub App secrets from prompts
 or environment variables and passes them to `gh` over stdin (never as
 command-line arguments, so they stay out of the process list).

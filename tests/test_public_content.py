@@ -66,6 +66,7 @@ class ScanTests(unittest.TestCase):
             "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>",
             "Signed-off-by: Dra <207542236+bydradev@users.noreply.github.com>",
             "bydradev/gh-agent-kit#72 and https://github.com/bydradev/gh-repo-bootstrapper.git",
+            "see bydradev/gh-actions-dashboard#12",
             "the old name bydradev/github-agent-kit. still redirects",
             "a session_id field, a chan_ prefix",
             "orchards, sunrise-apps and the-sunrise-app",

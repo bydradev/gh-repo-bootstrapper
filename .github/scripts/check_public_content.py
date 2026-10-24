@@ -27,7 +27,9 @@ import re
 import subprocess
 import sys
 
-PUBLIC_REPOSITORIES = frozenset({"gh-repo-bootstrapper", "gh-agent-kit", "github-agent-kit"})
+PUBLIC_REPOSITORIES = frozenset(
+    {"gh-repo-bootstrapper", "gh-agent-kit", "github-agent-kit", "gh-actions-dashboard"}
+)
 
 # Any claude.ai link with a path is found, so a new link format is too; only
 # the generic footer link `https://claude.ai/code` stays allowed. A path is

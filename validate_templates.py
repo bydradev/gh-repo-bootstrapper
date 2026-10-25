@@ -1472,6 +1472,39 @@ def check_dependabot_cooldown(label: str, files: dict) -> list:
     return errors
 
 
+def check_managed_blocks(label: str, repo_type: str, files: dict) -> list:
+    """Each ignore file --adopt manages carries one block, of literal rules only,
+    holding the entries the template's own files need.
+
+    --adopt appends the block after a repository's own rules, and
+    bootstrap._block_conflicts judges it safe only for entries without glob
+    characters, negation or escapes, so the template must keep to those."""
+    errors = []
+    required = {".gitignore": AGENT_BROWSER_GITIGNORE_ENTRIES if repo_type == "nextjs" else ()}
+    if repo_type == "nextjs":
+        required[".prettierignore"] = NEXTJS_PRETTIERIGNORE_REQUIRED
+    for rel, needed in required.items():
+        try:
+            _, block, _ = bootstrap._split_managed_block(files.get(rel, ""))
+        except ValueError as exc:
+            errors.append(f"[{label}] {rel}: {exc}")
+            continue
+        if block is None:
+            errors.append(f"[{label}] {rel} has no managed block for --adopt to keep in step")
+            continue
+        entries = bootstrap._ignore_entries(block)
+        for entry in entries:
+            if any(char in entry for char in "*?[!\\"):
+                errors.append(
+                    f"[{label}] {rel} managed block entry {entry!r} is not a literal path; "
+                    "--adopt can judge only literal entries safe to append"
+                )
+        for entry in needed:
+            if entry not in entries:
+                errors.append(f"[{label}] {rel} must list {entry!r} inside its managed block, so --adopt brings it")
+    return errors
+
+
 def check_baseline_documents(label: str, repo_type: str, files: dict) -> list:
     """Ensure policy documents are generated only for the npm/ESLint repo type."""
     expected = set(bootstrap.NEXTJS_BASELINE_DOCUMENTS) if repo_type == "nextjs" else set()
@@ -3687,6 +3720,28 @@ def run_self_tests() -> list:
         if not any(f".prettierignore must not list {path}" in e for e in result):
             errors.append(f"self-test 'prettierignore owned' ({path}) did not fail as expected: {result}")
 
+    # Case 17c: the ignore files --adopt manages keep one block of literal
+    # rules holding what the template needs; a render without it, with a glob
+    # in it, or with a required entry outside it must fail.
+    files = bootstrap.generate_files(next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs"))
+    result = check_managed_blocks("self-test:managed block", "nextjs", files)
+    if result:
+        errors.append(f"self-test 'managed block' failed on the unmodified render: {result}")
+    for rel, entry in ((".gitignore", ".playwright-cli/"), (".prettierignore", ".github/workflows/release-please.yml")):
+        before, block, after = bootstrap._split_managed_block(files[rel])
+        cases = {
+            "no managed block": before + after,
+            "is not a literal path": before + block.replace(entry + "\n", entry + "\n*.tmp\n", 1) + after,
+            "inside its managed block": before + block.replace(entry + "\n", "", 1) + after + entry + "\n",
+            "do not form one begin": files[rel] + bootstrap.MANAGED_BLOCK_END + "\n",
+        }
+        for expected, text in cases.items():
+            mutated = dict(files)
+            mutated[rel] = text
+            result = check_managed_blocks("self-test:managed block", "nextjs", mutated)
+            if not any(expected in e for e in result):
+                errors.append(f"self-test 'managed block {rel}: {expected}' did not fail as expected: {result}")
+
     # Case 18: the ruled protection configuration must not drift back to
     # strict True — the failure mode the operator ruled against.
     payload = bootstrap.branch_protection_payload("nextjs")
@@ -5384,6 +5439,7 @@ def main() -> int:
         all_errors += check_rust_suite(label, cfg["repo_type"], files)
         all_errors += check_release_please_config(label, cfg, files)
         all_errors += check_baseline_documents(label, cfg["repo_type"], files)
+        all_errors += check_managed_blocks(label, cfg["repo_type"], files)
         all_errors += check_dependabot_cooldown(label, files)
         all_errors += check_readme(label, cfg, files)
         all_errors += check_branch_protection_payload(label, cfg["repo_type"])

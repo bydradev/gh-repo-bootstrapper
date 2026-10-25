@@ -21,8 +21,21 @@ policy. `--non-interactive` lists them and leaves them. Say no to CodeQL
 default setup on a repository that runs CodeQL from its own workflow file:
 default setup turns that workflow off, and a required check it reports
 would then never arrive. Private repositories
-are unchanged, and generated files are unchanged, so `--check` and `--adopt`
-report nothing new.
+are unchanged.
+
+Every type: `.gitignore`, and for `nextjs` `.prettierignore`, now end with a
+block between `# >>> gh-repo-bootstrapper managed block` and
+`# <<< gh-repo-bootstrapper managed block` that `--adopt` keeps in step with
+the template, so the entries the template's own files need no longer go in
+by hand. It holds `.playwright-cli/` and `.playwright-mcp/` in `.gitignore`
+and the three template-owned workflows in `.prettierignore`. `--check`
+reports a file without the block as `differs`, and `--adopt` appends it,
+unless a `!` rule outside it may re-include a path the block would hide, or
+the file has uncommitted changes (see [Existing
+repositories](existing-repositories.md#gitignore-and-prettierignore)). A
+repository that added those lines by hand gets them twice; `--adopt` names
+the lines outside the block, which can go. Other missing `.gitignore`
+entries are still listed for a person to add.
 
 ## Upgrading to 0.20.0
 

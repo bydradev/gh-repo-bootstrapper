@@ -44,6 +44,7 @@ CHECKS = (
     "check_rust_suite",
     "check_release_please_config",
     "check_baseline_documents",
+    "check_managed_blocks",
     "check_dependabot_cooldown",
     "check_readme",
     "check_branch_protection_payload",

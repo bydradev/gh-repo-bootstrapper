@@ -23,6 +23,20 @@ default setup turns that workflow off, and a required check it reports
 would then never arrive. Private repositories
 are unchanged.
 
+`nextjs`: the weekly Baseline review also checks the `Expires` field of
+`public/.well-known/security.txt` when the repository has one. RFC 9116
+makes the field mandatory and the file stale once it passes ([RFC 9116,
+section 2.5.5](https://www.rfc-editor.org/rfc/rfc9116.html#section-2.5.5),
+checked 2026-10-25). An expired, missing or invalid field, or a file that
+cannot be read, is actionable; an expiry within 30 days is listed. A
+repository without the file gets one informational line and nothing else
+changes. `--adopt` updates unedited copies of `scripts/review-baselines.mjs`
+and its test. A repository that added this check to its own copy can take
+the template's copy instead, so later releases reach it through `--adopt`:
+the template reports a missing file as informational, not actionable. The
+`baseline-process` skill describes the check; `--check` reports it as
+`stale`, and `--adopt` updates it.
+
 Every type: `.gitignore`, and for `nextjs` `.prettierignore`, now end with a
 block between `# >>> gh-repo-bootstrapper managed block` and
 `# <<< gh-repo-bootstrapper managed block` that `--adopt` keeps in step with

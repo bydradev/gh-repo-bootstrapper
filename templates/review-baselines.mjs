@@ -4,6 +4,11 @@ import { parseAdvisoryRows, parseLintRows } from "./baseline-table.mjs";
 
 const advisoryBaselinePath = new URL("../docs/advisory-baseline.md", import.meta.url);
 const lintBaselinePath = new URL("../docs/lint-baseline.md", import.meta.url);
+// RFC 9116 requires an Expires field in security.txt, and a file past it is
+// stale (RFC 9116, section 2.5.5, checked 2026-10-25). A repository that
+// publishes one gets its expiry reviewed here; one without it gets a single
+// informational line.
+const securityTxtPath = new URL("../public/.well-known/security.txt", import.meta.url);
 const now = new Date();
 const reviewWindowDays = 30;
 const releaseStaleDays = 14;
@@ -230,6 +235,72 @@ function parity(rows, alerts) {
   };
 }
 
+// RFC 9116 field names are case-insensitive (section 2) and Expires holds
+// one RFC 3339 date-time (section 2.5.5), so the whole value must be one, with
+// a real calendar date: Date() alone would roll 2099-02-30 over to March.
+const rfc3339 =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/i;
+
+function securityTxtExpiry(text) {
+  const fields = [...text.matchAll(/^expires[ \t]*:(.*)$/gim)];
+  if (!fields.length) throw new Error("security.txt has no Expires field");
+  if (fields.length > 1) throw new Error("security.txt has more than one Expires field");
+  const value = fields[0][1].trim();
+  const parts = rfc3339.exec(value);
+  const [year, month, day, hour, minute, second] = (parts ?? []).slice(1, 7).map(Number);
+  const offsetHours = Number(parts?.[10] ?? 0);
+  const offsetMinutes = Number(parts?.[11] ?? 0);
+  const calendar = parts && new Date(Date.UTC(year, month - 1, day));
+  if (
+    !parts ||
+    calendar.getUTCFullYear() !== year ||
+    calendar.getUTCMonth() !== month - 1 ||
+    calendar.getUTCDate() !== day ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 60 ||
+    offsetHours > 23 ||
+    offsetMinutes > 59
+  )
+    throw new Error("security.txt Expires field is not an RFC 3339 date-time");
+  return new Date(value.replace(/:60(?=[.zZ+-]|$)/, ":59"));
+}
+
+function securityTxtReviewLine() {
+  let text;
+  try {
+    text = readFileSync(securityTxtPath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT")
+      return {
+        actionable: false,
+        line: "- security.txt: none at `public/.well-known/security.txt`, so there is no expiry to review.",
+      };
+    return { actionable: true, line: `- security.txt: could not be read (${error.message})` };
+  }
+  let expiresAt;
+  try {
+    expiresAt = securityTxtExpiry(text);
+  } catch (error) {
+    return { actionable: true, line: `- ${error.message}` };
+  }
+  const urgency = reviewUrgency(daysUntil(expiresAt), reviewWindowDays);
+  if (urgency === "past")
+    return {
+      actionable: true,
+      line: `- security.txt: expired. Expires was ${expiresAt.toISOString()}; renew the field and republish.`,
+    };
+  if (urgency === "upcoming")
+    return {
+      actionable: false,
+      line: `- security.txt: Expires ${expiresAt.toISOString()}, within ${reviewWindowDays} days; renew it soon.`,
+    };
+  return {
+    actionable: false,
+    line: `- security.txt: Expires ${expiresAt.toISOString()}, more than ${reviewWindowDays} days away.`,
+  };
+}
+
 function writeSummary(lines, actionable) {
   const summary = ["## Baseline review", "", ...lines, "", "Baseline review completed."].join("\n");
   console.log(summary);
@@ -297,6 +368,7 @@ function releaseHealth(latest, lastSuccess, evidence) {
 }
 
 async function main() {
+  const securityTxt = securityTxtReviewLine();
   let rows;
   try {
     rows = parseAdvisoryRows(readFileSync(advisoryBaselinePath, "utf8"));
@@ -306,6 +378,7 @@ async function main() {
         `- Advisory baseline: could not be parsed (${error.message})`,
         "- Dependabot parity: could not be determined because the advisory baseline is unavailable.",
         "- Release pipeline: could not be determined because the advisory baseline is unavailable.",
+        securityTxt.line,
       ],
       true,
     );
@@ -376,6 +449,7 @@ async function main() {
     lines.push(
       "- Release pipeline: could not be determined because GITHUB_REPOSITORY or GITHUB_TOKEN is unavailable.",
     );
+    lines.push(securityTxt.line);
     writeSummary(lines, true);
     return;
   }
@@ -418,6 +492,9 @@ async function main() {
     lines.push(`- Release pipeline: could not be determined (${error.message})`);
     actionable = true;
   }
+
+  lines.push(securityTxt.line);
+  actionable ||= securityTxt.actionable;
   writeSummary(lines, actionable);
 }
 

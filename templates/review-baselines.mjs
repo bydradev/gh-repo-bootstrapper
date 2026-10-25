@@ -235,7 +235,7 @@ function parity(rows, alerts) {
   };
 }
 
-// RFC 9116 field names are case-insensitive (section 2.4) and Expires holds
+// RFC 9116 field names are case-insensitive (section 2) and Expires holds
 // one RFC 3339 date-time (section 2.5.5), so the whole value must be one, with
 // a real calendar date: Date() alone would roll 2099-02-30 over to March.
 const rfc3339 =

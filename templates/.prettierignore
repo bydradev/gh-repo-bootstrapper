@@ -3,10 +3,6 @@ node_modules/
 package-lock.json
 # Release Please manages this generated version manifest.
 .release-please-manifest.json
-# Template-owned workflows stay verbatim, or they count as local edits.
-.github/workflows/pr-title-check.yml
-.github/workflows/release-please.yml
-.github/workflows/baseline-review.yml
 public/
 *.md
 playwright-report/
@@ -16,3 +12,12 @@ test-results/
 
 # Serena MCP local project state, not source.
 .serena/
+
+# >>> gh-repo-bootstrapper managed block
+# --adopt keeps the lines up to the end marker in step with the template;
+# put the repository's own rules outside this block.
+# Template-owned workflows stay verbatim, or they count as local edits.
+.github/workflows/pr-title-check.yml
+.github/workflows/release-please.yml
+.github/workflows/baseline-review.yml
+# <<< gh-repo-bootstrapper managed block

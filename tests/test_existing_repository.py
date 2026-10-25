@@ -1440,14 +1440,16 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap._split_project_specifics(text), (text, None))
         self.assertIn("(code fence left open at end of file)", bootstrap._markdown_ambiguities("```\n## A\n"))
 
-    def test_adopt_reports_missing_gitignore_entries_without_writing(self):
+    def test_adopt_reports_missing_gitignore_entries_without_writing_them(self):
         files = _render()
         self._write(".gitignore", "node_modules/\n!.worktrees/keep\n")
         self._commit_all()
         actions = {rel: (action, detail) for action, rel, detail in bootstrap.adopt_repository(self.repo, files)}
-        self.assertEqual(actions[".gitignore"][0], "kept")
+        self.assertEqual(actions[".gitignore"][0], "updated")
+        self.assertIn("missing entries by hand", actions[".gitignore"][1])
         self.assertIn(".worktrees/", actions[".gitignore"][1])
-        self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\n!.worktrees/keep\n")
+        block = bootstrap._split_managed_block(files[".gitignore"])[1]
+        self.assertEqual((self.repo / ".gitignore").read_text(), "node_modules/\n!.worktrees/keep\n\n" + block)
 
     def test_nextjs_block_is_kept_and_not_compared(self):
         files = _render("nextjs")
@@ -2920,6 +2922,217 @@ class ExistingRepositoryTests(unittest.TestCase):
         for rel, target in bootstrap.generate_links(cfg).items():
             self.assertIn(f"{rel} -> {target}", output.getvalue())
         self.assertEqual(list(self.repo.iterdir()), [])
+
+
+class ManagedBlockTests(unittest.TestCase):
+    """--adopt keeps one block of each repository-owned ignore file in step."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.repo = Path(self._tmp.name) / "sample"
+        self.repo.mkdir()
+        self.files = _render("nextjs")
+        self.block = {
+            rel: bootstrap._split_managed_block(self.files[rel])[1] for rel in bootstrap.MANAGED_BLOCK_FILES
+        }
+
+    def _commit(self, **texts):
+        for rel, text in texts.items():
+            (self.repo / rel).write_text(text)
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "--allow-empty", "-m", "files")
+
+    def _adopt(self, rel):
+        return next((
+            (action, detail) for action, path, detail in bootstrap.adopt_repository(self.repo, self.files)
+            if path == rel
+        ), None)
+
+    def _read(self, rel):
+        return (self.repo / rel).read_text()
+
+    def test_render_ends_each_ignore_file_with_its_block(self):
+        for rel in bootstrap.MANAGED_BLOCK_FILES:
+            self.assertTrue(self.files[rel].endswith(self.block[rel]), rel)
+        self.assertIn(".playwright-cli/", bootstrap._ignore_entries(self.block[".gitignore"]))
+        self.assertEqual(
+            set(bootstrap._ignore_entries(self.block[".prettierignore"])), set(bootstrap.TEMPLATE_OWNED_WORKFLOWS)
+        )
+
+    def test_missing_block_is_appended_and_the_file_then_reads_same(self):
+        gitignore = bootstrap._split_managed_block(self.files[".gitignore"])[0].rstrip("\n") + "\n"
+        self._commit(**{".gitignore": gitignore})
+        report = bootstrap.compare_repository(self.repo, self.files)
+        self.assertEqual(report[".gitignore"], ("differs", {"block": "absent", "reason": None, "by_hand": None, "missing": []}))
+        self.assertEqual(self._adopt(".gitignore"), ("updated", "managed block added"))
+        self.assertEqual(self._read(".gitignore"), gitignore + "\n" + self.block[".gitignore"])
+        _git(self.repo, "commit", "-q", "-am", "block")
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[".gitignore"], ("same", None))
+        self.assertIsNone(self._adopt(".gitignore"))
+
+    def test_file_without_final_newline_gets_one_before_the_block(self):
+        self._commit(**{".gitignore": "node_modules/"})
+        self._adopt(".gitignore")
+        self.assertTrue(self._read(".gitignore").startswith("node_modules/\n\n" + bootstrap.MANAGED_BLOCK_BEGIN))
+
+    def test_outdated_block_is_replaced_in_place_and_the_rest_is_kept(self):
+        old_block = "\n".join([bootstrap.MANAGED_BLOCK_BEGIN, ".old-tool/", bootstrap.MANAGED_BLOCK_END, ""])
+        self._commit(**{".gitignore": "mine/\n" + old_block + "also-mine/\n"})
+        self.assertEqual(self._adopt(".gitignore")[0], "updated")
+        self.assertEqual(self._read(".gitignore"), "mine/\n" + self.block[".gitignore"] + "also-mine/\n")
+
+    def test_lines_already_listed_outside_the_block_are_named(self):
+        self._commit(**{".gitignore": ".playwright-cli/\n"})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "updated")
+        self.assertIn("also listed outside the managed block, so those lines can go: .playwright-cli/", detail)
+        self.assertTrue(self._read(".gitignore").startswith(".playwright-cli/\n\n"))
+
+    def test_negation_at_or_under_a_block_entry_leaves_the_block_to_a_person(self):
+        for rule in ("!.playwright-cli/keep.txt", "!.Playwright-MCP", "!.playwright-*", "!docs/**", "!a\\ b",
+                     "!.playwright-[[:alpha:]]cp/"):
+            with self.subTest(rule=rule):
+                text = "*.txt\n" + rule + "\n"
+                self._commit(**{".gitignore": text})
+                action, detail = self._adopt(".gitignore")
+                self.assertEqual(action, "kept")
+                self.assertIn("add the managed block by hand, where these `!` rules allow: " + rule, detail)
+                self.assertEqual(self._read(".gitignore"), text)
+
+    def test_negation_of_an_unrelated_or_parent_path_does_not_block(self):
+        self._commit(**{".gitignore": "*.env*\n!.env.example\n!build/\n"})
+        self.assertEqual(self._adopt(".gitignore")[0], "updated")
+
+    def test_negation_naming_no_entry_loses_nothing_to_the_block_order(self):
+        # Git never re-includes a path under an excluded directory, so the
+        # appended block hides what it would hide written first.
+        rules = "*.txt\n!keep.txt\n"
+        self._commit(**{".gitignore": rules})
+        self.assertEqual(self._adopt(".gitignore")[0], "updated")
+        appended = self._read(".gitignore")
+        for text in (appended, self.block[".gitignore"] + rules):
+            with self.subTest(first=text.startswith(bootstrap.MANAGED_BLOCK_BEGIN)):
+                (self.repo / ".gitignore").write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    ["git", "-C", str(self.repo), "check-ignore", "--no-index",
+                     ".playwright-cli/keep.txt", "keep.txt"],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.stdout.split(), [".playwright-cli/keep.txt"], result.stderr)
+
+    def test_malformed_markers_are_refused(self):
+        for text in (
+            bootstrap.MANAGED_BLOCK_BEGIN + "\n.x/\n",
+            bootstrap.MANAGED_BLOCK_END + "\n" + bootstrap.MANAGED_BLOCK_BEGIN + "\n",
+            self.block[".gitignore"] * 2,
+        ):
+            with self.subTest(text=text):
+                self._commit(**{".gitignore": text})
+                report = bootstrap.compare_repository(self.repo, self.files)[".gitignore"]
+                self.assertEqual(report[1]["block"], "malformed")
+                action, detail = self._adopt(".gitignore")
+                self.assertEqual(action, "refused")
+                self.assertIn("do not form one begin and one end line", detail)
+                self.assertEqual(self._read(".gitignore"), text)
+
+    def test_uncommitted_or_crlf_file_is_not_rewritten(self):
+        self._commit(**{".gitignore": "node_modules/\n"})
+        (self.repo / ".gitignore").write_text("node_modules/\ndist/\n")
+        self.assertEqual(self._adopt(".gitignore")[0], "refused")
+        self.assertEqual(self._read(".gitignore"), "node_modules/\ndist/\n")
+        (self.repo / ".gitignore").write_bytes(b"node_modules/\r\n")
+        _git(self.repo, "commit", "-q", "-am", "crlf")
+        self.assertEqual(self._adopt(".gitignore"), ("kept", "not LF-terminated UTF-8 text; add the managed block by hand"))
+        self.assertEqual((self.repo / ".gitignore").read_bytes(), b"node_modules/\r\n")
+
+    def test_prettierignore_gets_its_block_and_keeps_its_own_lines(self):
+        self._commit(**{".prettierignore": "node_modules/\n.github/workflows/release-please.yml\n"})
+        action, detail = self._adopt(".prettierignore")
+        self.assertEqual(action, "updated")
+        self.assertIn(".github/workflows/release-please.yml", detail)
+        self.assertEqual(
+            self._read(".prettierignore"),
+            "node_modules/\n.github/workflows/release-please.yml\n\n" + self.block[".prettierignore"],
+        )
+        _git(self.repo, "commit", "-q", "-am", "block")
+        action, detail = self._adopt(".prettierignore")
+        self.assertEqual(action, "kept")
+        self.assertIn("add these missing entries by hand, where the repository's own rules allow: .next/", detail)
+        self.assertNotIn("also listed", detail)
+
+    def test_prettierignore_with_its_own_rules_and_every_template_entry_reads_same(self):
+        before, block, after = bootstrap._split_managed_block(self.files[".prettierignore"])
+        self._commit(**{".prettierignore": "coverage/\n" + before + "dist/\n" + block + after})
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[".prettierignore"], ("same", None))
+
+    def test_negation_after_an_existing_block_does_not_hold_it_back(self):
+        outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"
+        self._commit(**{".gitignore": "mine/\n" + outdated + "!.playwright-cli/notes.md\n"})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "updated")
+        self.assertTrue(detail.startswith("managed block brought up to date"), detail)
+        self.assertEqual(self._read(".gitignore"), "mine/\n" + self.block[".gitignore"] + "!.playwright-cli/notes.md\n")
+
+    def test_a_copy_after_a_later_negation_is_not_called_redundant(self):
+        outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"
+        self._commit(**{".gitignore": ".playwright-cli/\n" + outdated + "!.playwright-mcp/\n.playwright-mcp/\n"})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "updated")
+        self.assertIn("so those lines can go: .playwright-cli/", detail)
+        self.assertNotIn(".playwright-mcp/", detail)
+
+    def test_negation_before_an_existing_block_is_named_for_an_update_by_hand(self):
+        outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"
+        text = "!.playwright-cli/notes.md\n" + outdated
+        self._commit(**{".gitignore": text})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "kept")
+        self.assertIn("update the managed block by hand, where these `!` rules allow: !.playwright-cli/notes.md", detail)
+        self.assertEqual(self._read(".gitignore"), text)
+
+    def test_byte_order_mark_and_caret_brackets_are_judged_like_git(self):
+        for text, rule in (
+            ("\ufeff!.playwright-cli/keep.txt\n", "!.playwright-cli/keep.txt"),
+            (".playwright-mcp/*\n!.playwright-[^x]cp/keep.txt\n", "!.playwright-[^x]cp/keep.txt"),
+        ):
+            with self.subTest(rule=rule):
+                self._commit(**{".gitignore": text})
+                action, detail = self._adopt(".gitignore")
+                self.assertEqual(action, "kept")
+                self.assertIn("where these `!` rules allow: " + rule, detail)
+
+    def test_check_says_a_crlf_file_needs_the_block_by_hand(self):
+        (self.repo / ".gitignore").write_bytes(b"node_modules/\r\n")
+        self._commit()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bootstrap.print_repository_report(
+                self.repo, {"repo_type": "nextjs"}, bootstrap.compare_repository(self.repo, self.files)
+            )
+        self.assertIn("managed block: missing; not LF-terminated UTF-8 text, so add it by hand", out.getvalue())
+
+    def test_type_specific_gitignore_lines_go_before_the_block(self):
+        for repo_type, line in (("rust", "/target/"), ("swift", "*.xcodeproj/")):
+            with self.subTest(repo_type=repo_type):
+                gitignore = bootstrap.generate_files(
+                    {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App",
+                     "screenshots": False, "xcodegen": True}
+                )[".gitignore"]
+                before, block, after = bootstrap._split_managed_block(gitignore)
+                self.assertEqual(after, "")
+                self.assertIn(line, before.splitlines())
+
+    def test_check_prints_the_block_state(self):
+        self._commit(**{".gitignore": "node_modules/\n"})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bootstrap.print_repository_report(
+                self.repo, {"repo_type": "nextjs"}, bootstrap.compare_repository(self.repo, self.files)
+            )
+        self.assertIn("managed block: missing; --adopt adds it", out.getvalue())
+        self.assertIn("missing entries outside the managed block: ", out.getvalue())
 
 
 class SeedScriptTests(unittest.TestCase):

@@ -127,8 +127,10 @@ section that shares the name of an earlier generated one stays `missing`.
 
 ### Other files
 
-For `.gitignore` it lists the template entries the repository lacks, and for
-`CLAUDE.md` it flags a file that does not import `AGENTS.md`. It never writes,
+For `.gitignore` and `.prettierignore` it says whether the managed block is
+missing or differs, and lists the template's entries outside the block the
+repository lacks; for `CLAUDE.md` it flags a file that does not import
+`AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
 directory's name, or, for a linked git worktree whose shared git directory is
 its main checkout's `.git`, that checkout's name, so a verification worktree
@@ -168,13 +170,41 @@ or still has a change for, such as a staged deletion, is not recreated and
 holds its group the same way. Merge the template's changes into that group by hand, or
 commit the file and re-run `--adopt`.
 
-### `.gitignore`
+### `.gitignore` and `.prettierignore`
 
-For an existing `.gitignore`, missing entries are listed, not written; a
-missing `.gitignore` is created like any other file. Whether an added rule
-would override an existing `!` exception depends on git's full ignore rules
-across every ignore file (git cannot re-include a file once a parent
-directory is excluded), so that edit is left to a person.
+Both files belong to the repository except for one block, between the
+`# >>> gh-repo-bootstrapper managed block` and
+`# <<< gh-repo-bootstrapper managed block` lines, which holds the entries the
+template's own files need: the Playwright CLI and MCP session folders in
+`.gitignore`, and the three template-owned workflows in a `nextjs`
+`.prettierignore`. A missing file is created like any other. In an existing
+one, `--adopt` adds the block at the end, after a blank line, or replaces the
+block's lines with the template's, and leaves every line outside it as it
+is. Put the repository's own rules outside the block: `--adopt` overwrites an
+edit inside it.
+
+The block is left to a person, with the reason, when:
+
+- a `!` line above the block's place (the whole file, for a new block)
+  names one of its entries: one with a component that matches an entry's
+  last component as a glob, ignoring case, or one with `**`, a backslash
+  escape or a POSIX class such as `[:alpha:]`. The block's rules would win over that exception; a `!` line after
+  the block already wins over it. A `!` line that only re-includes a folder
+  above an entry does not count, nor does one that names no entry, such as
+  `!.env.example`: git never re-includes a file under an excluded folder,
+  so the session folders hide such a file wherever their lines sit;
+- the file has uncommitted changes, is not tracked, or is not LF-terminated
+  UTF-8 text, as for the `AGENTS.md` rewrite (`--check` says so too);
+- the markers do not form one begin and one end line (refused).
+
+Other template entries the repository lacks outside the block are still
+listed, not written, and `--check` counts them as drift; other differences
+outside the block are the repository's own. For `.gitignore`, whether one
+would override an existing `!` exception depends on
+git's full ignore rules across every ignore file (git cannot re-include a
+file once a parent directory is excluded). When an entry of the block is also
+listed outside it, before the block or after it with no `!` line in
+between, `--adopt` says so; that line can go.
 
 ### Safety
 
@@ -246,7 +276,7 @@ repository's to edit once written, and
 ### Prettier and actionlint
 
 A `nextjs` repository's `.prettierignore` lists the three template-owned
-workflows, which must stay verbatim, so a scaffold whose `format:check` is
+workflows in its managed block, since they must stay verbatim, so a scaffold whose `format:check` is
 `prettier --check .` cannot fail on them. Prettier can format the same text
 differently between releases (patch releases included;
 [Install](https://prettier.io/docs/install), Prettier docs, checked

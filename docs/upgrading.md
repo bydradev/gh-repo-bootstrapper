@@ -37,6 +37,23 @@ the template reports a missing file as informational, not actionable. The
 `baseline-process` skill describes the check; `--check` reports it as
 `stale`, and `--adopt` updates it.
 
+Every type: `.gitignore`, and for `nextjs` `.prettierignore`, now end with a
+block between `# >>> gh-repo-bootstrapper managed block` and
+`# <<< gh-repo-bootstrapper managed block` that `--adopt` keeps in step with
+the template, so the entries the template's own files need no longer go in
+by hand. It holds `.playwright-cli/` and `.playwright-mcp/` in `.gitignore`
+and the three template-owned workflows in `.prettierignore`. `--check`
+reports a file without the block as `differs`, and `--adopt` appends it,
+unless a `!` rule above it names one of the block's entries, or
+the file has uncommitted changes (see [Existing
+repositories](existing-repositories.md#gitignore-and-prettierignore)). A
+repository that added those lines by hand gets them twice; `--adopt` names
+the lines outside the block, which can go. Other template entries missing
+outside the block are still listed for a person to add; for
+`.prettierignore` they now count as drift instead of any difference from the
+template, so its own rules outside the block no longer do. Rust and swift
+`--xcodegen` renders put their extra `.gitignore` lines before the block.
+
 ## Upgrading to 0.20.0
 
 A new repository gets three more settings: pull request creation limited to

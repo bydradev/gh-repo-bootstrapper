@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.21.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.20.1...v0.21.0) (2026-10-25)
+
+
+### Features
+
+* keep a managed block of .gitignore and .prettierignore in step on adopt ([#190](https://github.com/bydradev/gh-repo-bootstrapper/issues/190)) ([ca9f0a5](https://github.com/bydradev/gh-repo-bootstrapper/commit/ca9f0a5a91a2b817c6ac37e9d14981bd3f2aa87e))
+* review the security.txt expiry in the weekly baseline review ([#189](https://github.com/bydradev/gh-repo-bootstrapper/issues/189)) ([639ed99](https://github.com/bydradev/gh-repo-bootstrapper/commit/639ed99c4b980da9c3ddf94122df7424065a66e7))
+* turn on secret scanning, CodeQL and fork-run approval for public repositories ([#187](https://github.com/bydradev/gh-repo-bootstrapper/issues/187)) ([ca769b7](https://github.com/bydradev/gh-repo-bootstrapper/commit/ca769b7f9b61ccf20db9c73d87b8b1bc5a115229)), closes [#183](https://github.com/bydradev/gh-repo-bootstrapper/issues/183)
+
 ## [0.20.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.20.0...v0.20.1) (2026-10-24)
 
 

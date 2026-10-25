@@ -353,13 +353,13 @@ class ConfigureOnlyTests(Session):
         code, out, _, answers, commands = self.run_bootstrap(self.ARGV, ["", "", "y", "n", "n"])
         self.assertIsNone(code)
         self.assertIn("    Apply these Actions policy changes? [y/N]: ", answers.questions)
-        self.assertIn("    Apply these pull request and Dependabot changes? [y/N]: ", answers.questions)
+        self.assertIn("    Apply these pull request and security changes? [y/N]: ", answers.questions)
         self.assertIn("    left unchanged", out)
         self.assertEqual([command[2] for command in commands.ran("gh", "api") if "--method" in command],
                          ["repos/octocat/app"], "only the merge settings change")
         self.assertIn("https://github.com/octocat/app", out)
         self.assertIn("Actions policy (left unchanged; re-run --configure-only interactively to apply it)", out)
-        self.assertIn("pull request and Dependabot alert settings (left unchanged; re-run "
+        self.assertIn("pull request and security settings (left unchanged; re-run "
                       "--configure-only interactively to apply them)", out)
         self.assertIn("branch protection (main): left as is on an existing repository", out)
 

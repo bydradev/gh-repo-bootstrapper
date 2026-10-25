@@ -4,6 +4,11 @@ import { parseAdvisoryRows, parseLintRows } from "./baseline-table.mjs";
 
 const advisoryBaselinePath = new URL("../docs/advisory-baseline.md", import.meta.url);
 const lintBaselinePath = new URL("../docs/lint-baseline.md", import.meta.url);
+// RFC 9116 requires an Expires field in security.txt, and a file past it is
+// stale (RFC 9116, section 2.5.5, checked 2026-10-25). A repository that
+// publishes one gets its expiry reviewed here; one without it gets a single
+// informational line.
+const securityTxtPath = new URL("../public/.well-known/security.txt", import.meta.url);
 const now = new Date();
 const reviewWindowDays = 30;
 const releaseStaleDays = 14;
@@ -230,6 +235,50 @@ function parity(rows, alerts) {
   };
 }
 
+function securityTxtExpiry(text) {
+  const match = /^Expires:\s*(\S+)/m.exec(text);
+  if (!match) throw new Error("security.txt has no Expires field");
+  const date = new Date(match[1]);
+  if (Number.isNaN(date.valueOf()))
+    throw new Error("security.txt Expires field is not a valid date");
+  return date;
+}
+
+function securityTxtReviewLine() {
+  let text;
+  try {
+    text = readFileSync(securityTxtPath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT")
+      return {
+        actionable: false,
+        line: "- security.txt: none at `public/.well-known/security.txt`, so there is no expiry to review.",
+      };
+    return { actionable: true, line: `- security.txt: could not be read (${error.message})` };
+  }
+  let expiresAt;
+  try {
+    expiresAt = securityTxtExpiry(text);
+  } catch (error) {
+    return { actionable: true, line: `- ${error.message}` };
+  }
+  const urgency = reviewUrgency(daysUntil(expiresAt), reviewWindowDays);
+  if (urgency === "past")
+    return {
+      actionable: true,
+      line: `- security.txt: expired. Expires was ${expiresAt.toISOString()}; renew the field and republish.`,
+    };
+  if (urgency === "upcoming")
+    return {
+      actionable: false,
+      line: `- security.txt: Expires ${expiresAt.toISOString()}, within ${reviewWindowDays} days; renew it soon.`,
+    };
+  return {
+    actionable: false,
+    line: `- security.txt: Expires ${expiresAt.toISOString()}, more than ${reviewWindowDays} days away.`,
+  };
+}
+
 function writeSummary(lines, actionable) {
   const summary = ["## Baseline review", "", ...lines, "", "Baseline review completed."].join("\n");
   console.log(summary);
@@ -297,6 +346,7 @@ function releaseHealth(latest, lastSuccess, evidence) {
 }
 
 async function main() {
+  const securityTxt = securityTxtReviewLine();
   let rows;
   try {
     rows = parseAdvisoryRows(readFileSync(advisoryBaselinePath, "utf8"));
@@ -306,6 +356,7 @@ async function main() {
         `- Advisory baseline: could not be parsed (${error.message})`,
         "- Dependabot parity: could not be determined because the advisory baseline is unavailable.",
         "- Release pipeline: could not be determined because the advisory baseline is unavailable.",
+        securityTxt.line,
       ],
       true,
     );
@@ -376,6 +427,7 @@ async function main() {
     lines.push(
       "- Release pipeline: could not be determined because GITHUB_REPOSITORY or GITHUB_TOKEN is unavailable.",
     );
+    lines.push(securityTxt.line);
     writeSummary(lines, true);
     return;
   }
@@ -418,6 +470,9 @@ async function main() {
     lines.push(`- Release pipeline: could not be determined (${error.message})`);
     actionable = true;
   }
+
+  lines.push(securityTxt.line);
+  actionable ||= securityTxt.actionable;
   writeSummary(lines, actionable);
 }
 

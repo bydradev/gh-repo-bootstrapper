@@ -63,6 +63,16 @@ function successfulRelease(updatedAt = new Date().toISOString()) {
   return { ...capturedSuccessfulReleaseRun, updated_at: updatedAt };
 }
 
+function securityTxt(expires = "2099-01-01T00:00:00.000Z") {
+  return [
+    "Contact: mailto:security@example.com",
+    `Expires: ${expires}`,
+    "Preferred-Languages: en",
+    "Canonical: https://example.com/.well-known/security.txt",
+    "",
+  ].join("\n");
+}
+
 // The release job of the generated release-please.yml as GitHub's jobs API
 // lists it. Without the Release Please credentials the token step and the
 // steps after it are "completed" with the conclusion "skipped", and there is
@@ -125,6 +135,9 @@ async function runFixture({
   jobsStatus = 200,
   auditReport = auditReportMatching("GHSA-aaaa-bbbb-cccc"),
   fakeNpmScript,
+  advisoryBaselineContents,
+  securityTxtContents,
+  securityTxtDirectory = false,
 }) {
   const root = mkdtempSync(join(tmpdir(), "review-baselines-"));
   const requests = [];
@@ -196,7 +209,15 @@ async function runFixture({
     mkdirSync(join(root, "docs"));
     for (const file of ["baseline-table.mjs", "review-baselines.mjs"])
       copyFileSync(join(scriptsDirectory, file), join(root, "scripts", file));
-    writeFileSync(join(root, "docs/advisory-baseline.md"), advisoryBaseline(rows));
+    writeFileSync(
+      join(root, "docs/advisory-baseline.md"),
+      advisoryBaselineContents ?? advisoryBaseline(rows),
+    );
+    if (securityTxtContents !== undefined || securityTxtDirectory) {
+      mkdirSync(join(root, "public/.well-known"), { recursive: true });
+      if (securityTxtDirectory) mkdirSync(join(root, "public/.well-known/security.txt"));
+      else writeFileSync(join(root, "public/.well-known/security.txt"), securityTxtContents);
+    }
     writeFileSync(join(root, "docs/lint-baseline.md"), lintBaseline(lintRows));
     const binDir = writeFakeNpm(root, fakeNpmScript ?? fakeNpmAuditJson(auditReport));
     // Start from the host environment without the variables the script reads,
@@ -252,6 +273,10 @@ test("accepts a captured GitHub workflow-run payload and exits zero when healthy
   assert.match(
     output,
     /Release pipeline: last successful `release-please\.yml` run completed successfully/,
+  );
+  assert.match(
+    output,
+    /security\.txt: none at `public\/\.well-known\/security\.txt`, so there is no expiry to review/,
   );
   assert.match(output, /Baseline review completed/);
   assert.deepEqual(
@@ -749,4 +774,134 @@ test("accepts a clean npm audit with no vulnerabilities", async () => {
     output,
     /Orphaned advisory-baseline rows: none; every row's advisory appears in `npm audit`/,
   );
+});
+
+test("reports a security.txt that expires more than the review window away as informational", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: securityTxt(),
+  });
+  assert.equal(code, 0);
+  assert.match(output, /security\.txt: Expires 2099-01-01T00:00:00\.000Z, more than 30 days away/);
+});
+
+test("reports an expired security.txt as actionable", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: securityTxt("2020-01-01T00:00:00.000Z"),
+  });
+  assert.equal(code, 1);
+  assert.match(output, /security\.txt: expired\. Expires was 2020-01-01T00:00:00\.000Z/);
+  assert.match(output, /Baseline review completed/);
+});
+
+test("reports a security.txt that expired less than a day ago as expired, not upcoming", async () => {
+  const barelyExpired = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: securityTxt(barelyExpired),
+  });
+  assert.equal(code, 1);
+  assert.match(output, new RegExp(`security\\.txt: expired\\. Expires was ${barelyExpired}`));
+  assert.doesNotMatch(output, /security\.txt:.*renew it soon/);
+});
+
+test("reports a security.txt expiring within the review window as informational", async () => {
+  const soon = new Date(Date.now() + 15 * 86_400_000).toISOString();
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: securityTxt(soon),
+  });
+  assert.equal(code, 0);
+  assert.match(
+    output,
+    new RegExp(`security\\.txt: Expires ${soon}, within 30 days; renew it soon`),
+  );
+});
+
+test("reports a security.txt without an Expires field as actionable", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: "Contact: mailto:security@example.com\n",
+  });
+  assert.equal(code, 1);
+  assert.match(output, /^- security\.txt has no Expires field$/m);
+});
+
+test("reports a security.txt whose Expires field is not an RFC 3339 date-time as actionable", async () => {
+  for (const expires of [
+    "next-year",
+    "2099-02-30T00:00:00Z",
+    "2099-01-01T00:00:00Z trailing",
+    "2099-01-01",
+    "2099-01-01T24:00:00Z",
+    "2099-01-01T00:00:00+24:00",
+  ]) {
+    const { code, output } = await runFixture({
+      rows: [documented],
+      alerts: matchingAlert,
+      securityTxtContents: securityTxt(expires),
+    });
+    assert.equal(code, 1, expires);
+    assert.match(output, /^- security\.txt Expires field is not an RFC 3339 date-time$/m, expires);
+  }
+});
+
+test("reads the Expires field name in any case and an offset date-time", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents:
+      "Contact: mailto:security@example.com\nexpires: 2099-01-01t02:00:00+02:00\n",
+  });
+  assert.equal(code, 0);
+  assert.match(output, /security\.txt: Expires 2099-01-01T00:00:00\.000Z, more than 30 days away/);
+});
+
+test("reports a security.txt with more than one Expires field as actionable", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: securityTxt() + "Expires: 2098-01-01T00:00:00Z\n",
+  });
+  assert.equal(code, 1);
+  assert.match(output, /^- security\.txt has more than one Expires field$/m);
+});
+
+test("reports a security.txt that cannot be read as actionable", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtDirectory: true,
+  });
+  assert.equal(code, 1);
+  assert.match(output, /security\.txt: could not be read \(/);
+});
+
+test("still reports security.txt when the advisory baseline cannot be parsed", async () => {
+  const { code, output } = await runFixture({
+    rows: [],
+    alerts: [],
+    advisoryBaselineContents: "not a baseline table",
+    securityTxtContents: securityTxt("2020-01-01T00:00:00.000Z"),
+  });
+  assert.equal(code, 1);
+  assert.match(output, /Advisory baseline: could not be parsed/);
+  assert.match(output, /security\.txt: expired\. Expires was 2020-01-01T00:00:00\.000Z/);
+});
+
+test("still reports security.txt without a GitHub token", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    token: false,
+    securityTxtContents: securityTxt(),
+  });
+  assert.equal(code, 1);
+  assert.match(output, /security\.txt: Expires 2099-01-01T00:00:00\.000Z, more than 30 days away/);
 });

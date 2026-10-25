@@ -528,6 +528,7 @@ SEED_DIGESTS: dict[str, dict[str, str]] = {
         "66a626d6ed20a9abfef999fc9e99f6db84a2e930aef1e91ccae9e270ab24c916": "v0.12.0",
         "db70d489679943de39fe20570eb06ba6ed2a6896ffe7f0b3508e3644a5d67c36": "v0.15.2",
         "1af06303f6f027ac87b82d271aa0dd30a1fba8fc118c39bba4dfca7507921509": "v0.15.3",
+        "bc3daaa2e387a91912e0f204b0bfe3cd78e653883a07b99a728805e871fd9e72": "v0.20.1",
     },
     "scripts/review-baselines.test.mjs": {
         "3a4fbf739ae1d41d5bc67a2d0ed85f51c48de99d521585a56b841bd5da9aa501": "v0.3.1",
@@ -537,6 +538,7 @@ SEED_DIGESTS: dict[str, dict[str, str]] = {
         "9ebc1e4c4b41e2fc962f9214827c13d2a92ddbf74237fb6f1cd2f5353faa8dc1": "v0.12.0",
         "a17bf394a4374ea6f27a4af7f52deabe09b02f1c72f7cdf102e87e5ff4f37270": "v0.15.2",
         "acee36a6980ae91c28bf99175d82a93cd7c95fc70c53f1cdc001bdd70396bc07": "v0.15.3",
+        "995cded5aa6a8b8e4042761fc3e3f5ca6c417d67d83cf6faa5520eca5cf201fd": "v0.20.1",
     },
     "scripts/verify-baselines.mjs": {
         "1da3a761aae451f78d4ec7a352908d89b330532478c5aa0751d6d42bcc2f1674": "v0.5.0",

@@ -2991,7 +2991,8 @@ class ManagedBlockTests(unittest.TestCase):
         self.assertTrue(self._read(".gitignore").startswith(".playwright-cli/\n\n"))
 
     def test_negation_at_or_under_a_block_entry_leaves_the_block_to_a_person(self):
-        for rule in ("!.playwright-cli/keep.txt", "!.Playwright-MCP", "!.playwright-*", "!docs/**", "!a\\ b"):
+        for rule in ("!.playwright-cli/keep.txt", "!.Playwright-MCP", "!.playwright-*", "!docs/**", "!a\\ b",
+                     "!.playwright-[[:alpha:]]cp/"):
             with self.subTest(rule=rule):
                 text = "*.txt\n" + rule + "\n"
                 self._commit(**{".gitignore": text})
@@ -3073,6 +3074,14 @@ class ManagedBlockTests(unittest.TestCase):
         self.assertEqual(action, "updated")
         self.assertTrue(detail.startswith("managed block brought up to date"), detail)
         self.assertEqual(self._read(".gitignore"), "mine/\n" + self.block[".gitignore"] + "!.playwright-cli/notes.md\n")
+
+    def test_a_copy_after_a_later_negation_is_not_called_redundant(self):
+        outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"
+        self._commit(**{".gitignore": ".playwright-cli/\n" + outdated + "!.playwright-mcp/\n.playwright-mcp/\n"})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "updated")
+        self.assertIn("so those lines can go: .playwright-cli/", detail)
+        self.assertNotIn(".playwright-mcp/", detail)
 
     def test_negation_before_an_existing_block_is_named_for_an_update_by_hand(self):
         outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"

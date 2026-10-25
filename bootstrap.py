@@ -2373,10 +2373,11 @@ def _block_conflicts(outside: str, entries: list) -> list:
     file, so it would hide again a path such a line re-includes by the
     entry's name. A `!` line is a conflict when any of its components
     matches an entry's last component as a glob, ignoring case as git can
-    (core.ignorecase). A `**` or a backslash escape is not judged and counts
-    as a conflict. A `!` line that only re-includes a directory above an
-    entry is not one: the block hides the entry inside it, which is what the
-    block is for. Nor is one that names no entry, such as `!keep.txt`: it
+    (core.ignorecase). A `**`, a backslash escape or a POSIX class such as
+    `[:alpha:]` (which git matches and fnmatch does not) is not judged and
+    counts as a conflict. A `!` line that only re-includes a directory above
+    an entry is not one: the block hides the entry inside it, which is what
+    the block is for. Nor is one that names no entry, such as `!keep.txt`: it
     also matches inside an entry's directory, but git never re-includes a
     path under an excluded directory, so the entry hides that path wherever
     its line sits. Ignore files in subdirectories override this one, and
@@ -2391,7 +2392,7 @@ def _block_conflicts(outside: str, entries: list) -> list:
         pattern = rule[1:]
         # git reads `[^` like `[!`; fnmatch takes `^` literally.
         parts = [part.lower().replace("[^", "[!") for part in pattern.split("/") if part]
-        if "\\" in pattern or "**" in pattern or any(
+        if "\\" in pattern or "**" in pattern or "[:" in pattern or any(
             fnmatch.fnmatchcase(name, part) for part in parts for name in names
         ):
             found.append(rule)
@@ -4345,7 +4346,14 @@ def _adopt_managed_block(repo_dir: Path, rel: str, detail: dict, expected: str) 
     finally:
         os.close(parent)
     done = "managed block added" if own_block is None else "managed block brought up to date"
-    listed = set(_ignore_entries(before + after))
+    # A copy before the block is shadowed by the block's own line; a copy
+    # after it can go only while no `!` line comes between them.
+    unshadowed = []
+    for line in after.splitlines():
+        if line.strip().removeprefix("\ufeff").startswith("!"):
+            break
+        unshadowed.append(line)
+    listed = set(_ignore_entries(before + "\n" + "\n".join(unshadowed)))
     duplicates = [entry for entry in entries if entry in listed]
     if duplicates:
         remaining.append("also listed outside the managed block, so those lines can go: " + ", ".join(duplicates))

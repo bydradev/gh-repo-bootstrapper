@@ -187,8 +187,8 @@ The block is left to a person, with the reason, when:
 
 - a `!` line above the block's place (the whole file, for a new block)
   names one of its entries: one with a component that matches an entry's
-  last component as a glob, ignoring case, or one with `**` or a backslash
-  escape. The block's rules would win over that exception; a `!` line after
+  last component as a glob, ignoring case, or one with `**`, a backslash
+  escape or a POSIX class such as `[:alpha:]`. The block's rules would win over that exception; a `!` line after
   the block already wins over it. A `!` line that only re-includes a folder
   above an entry does not count, nor does one that names no entry, such as
   `!.env.example`: git never re-includes a file under an excluded folder,
@@ -203,7 +203,8 @@ outside the block are the repository's own. For `.gitignore`, whether one
 would override an existing `!` exception depends on
 git's full ignore rules across every ignore file (git cannot re-include a
 file once a parent directory is excluded). When an entry of the block is also
-listed outside it, `--adopt` says so; that line can go.
+listed outside it, before the block or after it with no `!` line in
+between, `--adopt` says so; that line can go.
 
 ### Safety
 

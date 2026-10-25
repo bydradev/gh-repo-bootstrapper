@@ -833,14 +833,44 @@ test("reports a security.txt without an Expires field as actionable", async () =
   assert.match(output, /^- security\.txt has no Expires field$/m);
 });
 
-test("reports a security.txt whose Expires field is not a date as actionable", async () => {
+test("reports a security.txt whose Expires field is not an RFC 3339 date-time as actionable", async () => {
+  for (const expires of [
+    "next-year",
+    "2099-02-30T00:00:00Z",
+    "2099-01-01T00:00:00Z trailing",
+    "2099-01-01",
+    "2099-01-01T24:00:00Z",
+    "2099-01-01T00:00:00+24:00",
+  ]) {
+    const { code, output } = await runFixture({
+      rows: [documented],
+      alerts: matchingAlert,
+      securityTxtContents: securityTxt(expires),
+    });
+    assert.equal(code, 1, expires);
+    assert.match(output, /^- security\.txt Expires field is not an RFC 3339 date-time$/m, expires);
+  }
+});
+
+test("reads the Expires field name in any case and an offset date-time", async () => {
   const { code, output } = await runFixture({
     rows: [documented],
     alerts: matchingAlert,
-    securityTxtContents: securityTxt("next-year"),
+    securityTxtContents:
+      "Contact: mailto:security@example.com\nexpires: 2099-01-01t02:00:00+02:00\n",
+  });
+  assert.equal(code, 0);
+  assert.match(output, /security\.txt: Expires 2099-01-01T00:00:00\.000Z, more than 30 days away/);
+});
+
+test("reports a security.txt with more than one Expires field as actionable", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    securityTxtContents: securityTxt() + "Expires: 2098-01-01T00:00:00Z\n",
   });
   assert.equal(code, 1);
-  assert.match(output, /^- security\.txt Expires field is not a valid date$/m);
+  assert.match(output, /^- security\.txt has more than one Expires field$/m);
 });
 
 test("reports a security.txt that cannot be read as actionable", async () => {

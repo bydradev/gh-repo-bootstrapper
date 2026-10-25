@@ -235,13 +235,35 @@ function parity(rows, alerts) {
   };
 }
 
+// RFC 9116 field names are case-insensitive (section 2.4) and Expires holds
+// one RFC 3339 date-time (section 2.5.5), so the whole value must be one, with
+// a real calendar date: Date() alone would roll 2099-02-30 over to March.
+const rfc3339 =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/i;
+
 function securityTxtExpiry(text) {
-  const match = /^Expires:\s*(\S+)/m.exec(text);
-  if (!match) throw new Error("security.txt has no Expires field");
-  const date = new Date(match[1]);
-  if (Number.isNaN(date.valueOf()))
-    throw new Error("security.txt Expires field is not a valid date");
-  return date;
+  const fields = [...text.matchAll(/^expires[ \t]*:(.*)$/gim)];
+  if (!fields.length) throw new Error("security.txt has no Expires field");
+  if (fields.length > 1) throw new Error("security.txt has more than one Expires field");
+  const value = fields[0][1].trim();
+  const parts = rfc3339.exec(value);
+  const [year, month, day, hour, minute, second] = (parts ?? []).slice(1, 7).map(Number);
+  const offsetHours = Number(parts?.[10] ?? 0);
+  const offsetMinutes = Number(parts?.[11] ?? 0);
+  const calendar = parts && new Date(Date.UTC(year, month - 1, day));
+  if (
+    !parts ||
+    calendar.getUTCFullYear() !== year ||
+    calendar.getUTCMonth() !== month - 1 ||
+    calendar.getUTCDate() !== day ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 60 ||
+    offsetHours > 23 ||
+    offsetMinutes > 59
+  )
+    throw new Error("security.txt Expires field is not an RFC 3339 date-time");
+  return new Date(value.replace(/:60(?=[.zZ+-]|$)/, ":59"));
 }
 
 function securityTxtReviewLine() {

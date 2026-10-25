@@ -1492,7 +1492,16 @@ def check_managed_blocks(label: str, repo_type: str, files: dict) -> list:
         if block is None:
             errors.append(f"[{label}] {rel} has no managed block for --adopt to keep in step")
             continue
+        before, _, after = bootstrap._split_managed_block(files[rel])
+        if after.strip():
+            errors.append(f"[{label}] {rel} has lines after its managed block; --adopt appends the block last")
         entries = bootstrap._ignore_entries(block)
+        conflicts = bootstrap._block_conflicts(before + after, entries)
+        if conflicts:
+            errors.append(
+                f"[{label}] {rel} has `!` rules that name a managed block entry, so --adopt "
+                f"would leave its own render's block to a person: {', '.join(conflicts)}"
+            )
         for entry in entries:
             if any(char in entry for char in "*?[!\\"):
                 errors.append(
@@ -3721,8 +3730,9 @@ def run_self_tests() -> list:
             errors.append(f"self-test 'prettierignore owned' ({path}) did not fail as expected: {result}")
 
     # Case 17c: the ignore files --adopt manages keep one block of literal
-    # rules holding what the template needs; a render without it, with a glob
-    # in it, or with a required entry outside it must fail.
+    # rules holding what the template needs, last, with no `!` rule naming
+    # its entries; a render without it, with a glob in it, with a required
+    # entry outside it, with lines after it or with such a rule must fail.
     files = bootstrap.generate_files(next(cfg for _, cfg in configurations() if cfg["repo_type"] == "nextjs"))
     result = check_managed_blocks("self-test:managed block", "nextjs", files)
     if result:
@@ -3734,6 +3744,8 @@ def run_self_tests() -> list:
             "is not a literal path": before + block.replace(entry + "\n", entry + "\n*.tmp\n", 1) + after,
             "inside its managed block": before + block.replace(entry + "\n", "", 1) + after + entry + "\n",
             "do not form one begin": files[rel] + bootstrap.MANAGED_BLOCK_END + "\n",
+            "lines after its managed block": files[rel] + "dist/\n",
+            "name a managed block entry": before + "!" + entry + "\n" + block + after,
         }
         for expected, text in cases.items():
             mutated = dict(files)

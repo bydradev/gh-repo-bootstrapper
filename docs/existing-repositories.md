@@ -128,7 +128,7 @@ section that shares the name of an earlier generated one stays `missing`.
 ### Other files
 
 For `.gitignore` and `.prettierignore` it says whether the managed block is
-missing or differs, and lists the `.gitignore` entries outside the block the
+missing or differs, and lists the template's entries outside the block the
 repository lacks; for `CLAUDE.md` it flags a file that does not import
 `AGENTS.md`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
@@ -185,17 +185,22 @@ edit inside it.
 
 The block is left to a person, with the reason, when:
 
-- a `!` line outside it may re-include a path at or under one of its
-  entries: one with a component that matches an entry's last component as a
-  glob, ignoring case, or one with `**` or a backslash escape. Appended last,
-  the block's rules would win over that exception. A `!` line that only
-  re-includes a folder above an entry does not count;
+- a `!` line above the block's place (the whole file, for a new block)
+  names one of its entries: one with a component that matches an entry's
+  last component as a glob, ignoring case, or one with `**` or a backslash
+  escape. The block's rules would win over that exception; a `!` line after
+  the block already wins over it. A `!` line that only re-includes a folder
+  above an entry does not count, nor does one that names no entry, such as
+  `!.env.example`: git never re-includes a file under an excluded folder,
+  so the session folders hide such a file wherever their lines sit;
 - the file has uncommitted changes, is not tracked, or is not LF-terminated
-  UTF-8 text, as for the `AGENTS.md` rewrite;
+  UTF-8 text, as for the `AGENTS.md` rewrite (`--check` says so too);
 - the markers do not form one begin and one end line (refused).
 
-Other template `.gitignore` entries the repository lacks are still listed,
-not written: whether one would override an existing `!` exception depends on
+Other template entries the repository lacks outside the block are still
+listed, not written, and `--check` counts them as drift; other differences
+outside the block are the repository's own. For `.gitignore`, whether one
+would override an existing `!` exception depends on
 git's full ignore rules across every ignore file (git cannot re-include a
 file once a parent directory is excluded). When an entry of the block is also
 listed outside it, `--adopt` says so; that line can go.

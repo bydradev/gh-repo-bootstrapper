@@ -1859,11 +1859,12 @@ def generate_files(cfg: dict) -> dict:
               else "AGENTS-screenshot-review-ref-generic.md"),
     )
     files["AGENTS.md"] = agents
-    files[".gitignore"] = _load(".gitignore")
+    gitignore = _load(".gitignore")
     if repo_type == "swift" and xcodegen:
-        files[".gitignore"] += "\n# XcodeGen output (project.yml is the source of truth)\n*.xcodeproj/\n"
+        gitignore = _before_managed_block(gitignore, "# XcodeGen output (project.yml is the source of truth)\n*.xcodeproj/\n")
     if repo_type == "rust":
-        files[".gitignore"] += "\n# Rust build output\n/target/\n"
+        gitignore = _before_managed_block(gitignore, "# Rust build output\n/target/\n")
+    files[".gitignore"] = gitignore
     files["release-please-config.json"] = _release_please_config(name, repo_type)
     files[".release-please-manifest.json"] = json.dumps({".": "0.1.0"}, indent=2) + "\n"
 
@@ -2321,6 +2322,13 @@ def rebuild_agents(expected: str, actual: str, replace_generated: bool = False) 
     return generated + (owned if owned is not None else template_owned)
 
 
+def _before_managed_block(text: str, lines: str) -> str:
+    """text with lines added as their own group just before its managed
+    block, which stays last, where --adopt also puts it."""
+    begin = text.index(MANAGED_BLOCK_BEGIN)
+    return text[:begin] + lines + "\n" + text[begin:]
+
+
 def _missing_lines(expected: str, actual: str) -> list:
     present = {line.strip() for line in actual.splitlines()}
     return [
@@ -2359,26 +2367,30 @@ def _ignore_entries(text: str) -> list:
 
 
 def _block_conflicts(outside: str, entries: list) -> list:
-    """The `!` lines of outside that may name a path at or under one of entries.
+    """The `!` lines of outside that name one of entries.
 
     Appended last, a block rule wins over every earlier line of the same
-    file, so it would hide again a path such a line re-includes. A path at or
-    under an entry has the entry's last component among its own, so a `!`
-    line is a conflict when any of its components matches that name as a
-    glob, ignoring case as git can (core.ignorecase). A `**` or a backslash
-    escape is not judged and counts as a conflict. A `!` line that only
-    re-includes a directory above an entry is not one: the block hides the
-    entry inside it, which is what the block is for. Ignore files in
-    subdirectories override this one, and per-user exclude files are not
-    the repository's rules, so neither is read."""
+    file, so it would hide again a path such a line re-includes by the
+    entry's name. A `!` line is a conflict when any of its components
+    matches an entry's last component as a glob, ignoring case as git can
+    (core.ignorecase). A `**` or a backslash escape is not judged and counts
+    as a conflict. A `!` line that only re-includes a directory above an
+    entry is not one: the block hides the entry inside it, which is what the
+    block is for. Nor is one that names no entry, such as `!keep.txt`: it
+    also matches inside an entry's directory, but git never re-includes a
+    path under an excluded directory, so the entry hides that path wherever
+    its line sits. Ignore files in subdirectories override this one, and
+    per-user exclude files are not the repository's rules, so neither is
+    read."""
     names = [entry.rstrip("/").rsplit("/", 1)[-1].lower() for entry in entries]
     found = []
     for line in outside.splitlines():
-        rule = line.rstrip()
+        rule = line.rstrip().removeprefix("\ufeff")
         if not rule.startswith("!"):
             continue
         pattern = rule[1:]
-        parts = [part.lower() for part in pattern.split("/") if part]
+        # git reads `[^` like `[!`; fnmatch takes `^` literally.
+        parts = [part.lower().replace("[^", "[!") for part in pattern.split("/") if part]
         if "\\" in pattern or "**" in pattern or any(
             fnmatch.fnmatchcase(name, part) for part in parts for name in names
         ):
@@ -2390,22 +2402,22 @@ def _managed_file_state(rel: str, expected: str, actual: str) -> tuple:
     """(status, detail) of a MANAGED_BLOCK_FILES file that exists.
 
     detail is a dict: "block" is current, absent, outdated or malformed (with
-    "reason"), and "missing" lists the template's .gitignore entries outside
-    the block that the file lacks. A .prettierignore is the repository's own
-    outside the block, so it is `same` only when it equals the template."""
+    "reason"), "by_hand" says why --adopt leaves a missing or outdated block
+    to a person, and "missing" lists the template's entries outside the
+    block that the file lacks. Lines outside the block are the repository's
+    own, so other differences there are not drift."""
     before, block, after = _split_managed_block(expected)
     try:
         own_before, own_block, own_after = _split_managed_block(actual)
     except ValueError as exc:
-        return ("differs", {"block": "malformed", "reason": str(exc), "missing": []})
+        return ("differs", {"block": "malformed", "reason": str(exc), "by_hand": None, "missing": []})
     state = "absent" if own_block is None else ("current" if own_block == block else "outdated")
-    detail = {"block": state, "reason": None, "missing": []}
-    if rel == ".gitignore":
-        detail["missing"] = _missing_lines(before + after, actual)
-        aligned = not detail["missing"]
-    else:
-        aligned = own_before + own_after == before + after
-    return ("same", None) if state == "current" and aligned else ("differs", detail)
+    by_hand = None
+    if state != "current" and ("\r" in actual or "\ufffd" in actual):
+        by_hand = "not LF-terminated UTF-8 text"
+    detail = {"block": state, "reason": None, "by_hand": by_hand,
+              "missing": _missing_lines(before + after, actual)}
+    return ("same", None) if state == "current" and not detail["missing"] else ("differs", detail)
 
 
 def _is_symlink(path: Path) -> bool:
@@ -3526,8 +3538,12 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
                         print(f"          {line}")
         elif rel in MANAGED_BLOCK_FILES and isinstance(detail, dict):
             if detail["block"] != "current":
-                print(f"      managed block: {_MANAGED_BLOCK_STATES[detail['block']]}"
-                      + (f" ({detail['reason']})" if detail["reason"] else ""))
+                state, action = _MANAGED_BLOCK_STATES[detail["block"]]
+                if detail["by_hand"]:
+                    action = f"{detail['by_hand']}, so add it by hand"
+                print(f"      managed block: {state}"
+                      + (f" ({detail['reason']})" if detail["reason"] else "")
+                      + (f"; {action}" if action else ""))
             if detail["missing"]:
                 print(f"      missing entries outside the managed block: {', '.join(detail['missing'])}")
         elif isinstance(detail, str):
@@ -3546,9 +3562,9 @@ def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
 
 
 _MANAGED_BLOCK_STATES = {
-    "absent": "missing; --adopt adds it",
-    "outdated": "differs from the template; --adopt replaces it",
-    "malformed": "cannot be read",
+    "absent": ("missing", "--adopt adds it"),
+    "outdated": ("differs from the template", "--adopt replaces it"),
+    "malformed": ("cannot be read", None),
 }
 
 
@@ -3808,16 +3824,19 @@ def adopt_repository(
     tracks with no uncommitted change. Locally
     modified or shadowed owned files and ignored paths are refused. Other
     existing files are kept, except that AGENTS.md is rebuilt while keeping
-    `## Project specifics` and the `next dev` block. That rewrite needs the
+    `## Project specifics` and the `next dev` block, and the managed block of
+    .gitignore and .prettierignore is added or replaced (see
+    _adopt_managed_block). Each rewrite needs the
     file tracked by git with no uncommitted changes, LF line endings, and
     UTF-8 text, so the result can be reviewed and reverted. Writes refuse any
     symlink they meet on the way. --adopt assumes nothing else modifies the
     repository while it runs; it narrows but cannot close races with a
     process that does.
 
-    Missing .gitignore entries are reported, not written: whether an added
-    rule would break an existing `!` exception depends on git's full ignore
-    semantics across every ignore file, so that edit is left to a person.
+    Template entries missing outside the managed block are reported, not
+    written: whether an added rule would break an existing `!` exception
+    depends on git's full ignore semantics across every ignore file, so that
+    edit is left to a person.
 
     The AGENTS.md rebuild is refused while any repository text sits outside
     `## Project specifics`, or the file has structure the parser does not
@@ -4279,8 +4298,8 @@ def _adopt_managed_block(repo_dir: Path, rel: str, detail: dict, expected: str) 
     no uncommitted changes and LF-terminated UTF-8 text, so the result can be
     reviewed and reverted. A missing block goes at the end, after a blank
     line, where its rules win over the file's own; it is left to a person
-    when a `!` line outside it may re-include a path the block would hide
-    (see _block_conflicts)."""
+    when a `!` line before it names one of its entries (see
+    _block_conflicts)."""
     remaining = []
     if detail["missing"]:
         remaining.append(
@@ -4290,9 +4309,7 @@ def _adopt_managed_block(repo_dir: Path, rel: str, detail: dict, expected: str) 
     if detail["block"] == "malformed":
         return ("refused", rel, f"{detail['reason']}; fix them by hand, then re-run --adopt")
     if detail["block"] == "current":
-        if rel == ".gitignore":
-            return ("kept", rel, "; ".join(remaining))
-        return ("kept", rel, "differs from the template outside its managed block; not overwritten")
+        return ("kept", rel, "; ".join(remaining))
     if not _git_file_is_clean(repo_dir, rel):
         return ("refused", rel, _unclean_reason(
             repo_dir, rel, "needs the file tracked by git with no uncommitted changes"))
@@ -4303,16 +4320,19 @@ def _adopt_managed_block(repo_dir: Path, rel: str, detail: dict, expected: str) 
         raw, identity = _read_anchored(parent, name)
         current = _decode_for_rewrite(raw)
         if current is None:
-            return ("kept", rel, "not LF-terminated UTF-8 text; add the managed block by hand")
+            verb = "add" if detail["block"] == "absent" else "update"
+            return ("kept", rel, f"not LF-terminated UTF-8 text; {verb} the managed block by hand")
         try:
             before, own_block, after = _split_managed_block(current)
         except ValueError as exc:
             return ("refused", rel, f"{exc}; fix them by hand, then re-run --adopt")
         entries = _ignore_entries(block)
-        conflicts = _block_conflicts(before + after, entries)
+        # A `!` line after an existing block already wins over it.
+        conflicts = _block_conflicts(before if own_block is not None else before + after, entries)
         if conflicts:
+            verb = "add" if own_block is None else "update"
             return ("kept", rel, "; ".join([
-                "add the managed block by hand, where these `!` rules allow: " + ", ".join(conflicts)
+                f"{verb} the managed block by hand, where these `!` rules allow: " + ", ".join(conflicts)
             ] + remaining))
         if own_block is None:
             text = before

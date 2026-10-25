@@ -2965,7 +2965,7 @@ class ManagedBlockTests(unittest.TestCase):
         gitignore = bootstrap._split_managed_block(self.files[".gitignore"])[0].rstrip("\n") + "\n"
         self._commit(**{".gitignore": gitignore})
         report = bootstrap.compare_repository(self.repo, self.files)
-        self.assertEqual(report[".gitignore"], ("differs", {"block": "absent", "reason": None, "missing": []}))
+        self.assertEqual(report[".gitignore"], ("differs", {"block": "absent", "reason": None, "by_hand": None, "missing": []}))
         self.assertEqual(self._adopt(".gitignore"), ("updated", "managed block added"))
         self.assertEqual(self._read(".gitignore"), gitignore + "\n" + self.block[".gitignore"])
         _git(self.repo, "commit", "-q", "-am", "block")
@@ -3004,6 +3004,23 @@ class ManagedBlockTests(unittest.TestCase):
         self._commit(**{".gitignore": "*.env*\n!.env.example\n!build/\n"})
         self.assertEqual(self._adopt(".gitignore")[0], "updated")
 
+    def test_negation_naming_no_entry_loses_nothing_to_the_block_order(self):
+        # Git never re-includes a path under an excluded directory, so the
+        # appended block hides what it would hide written first.
+        rules = "*.txt\n!keep.txt\n"
+        self._commit(**{".gitignore": rules})
+        self.assertEqual(self._adopt(".gitignore")[0], "updated")
+        appended = self._read(".gitignore")
+        for text in (appended, self.block[".gitignore"] + rules):
+            with self.subTest(first=text.startswith(bootstrap.MANAGED_BLOCK_BEGIN)):
+                (self.repo / ".gitignore").write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    ["git", "-C", str(self.repo), "check-ignore", "--no-index",
+                     ".playwright-cli/keep.txt", "keep.txt"],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.stdout.split(), [".playwright-cli/keep.txt"], result.stderr)
+
     def test_malformed_markers_are_refused(self):
         for text in (
             bootstrap.MANAGED_BLOCK_BEGIN + "\n.x/\n",
@@ -3039,10 +3056,64 @@ class ManagedBlockTests(unittest.TestCase):
             "node_modules/\n.github/workflows/release-please.yml\n\n" + self.block[".prettierignore"],
         )
         _git(self.repo, "commit", "-q", "-am", "block")
-        self.assertEqual(
-            self._adopt(".prettierignore"),
-            ("kept", "differs from the template outside its managed block; not overwritten"),
-        )
+        action, detail = self._adopt(".prettierignore")
+        self.assertEqual(action, "kept")
+        self.assertIn("add these missing entries by hand, where the repository's own rules allow: .next/", detail)
+        self.assertNotIn("also listed", detail)
+
+    def test_prettierignore_with_its_own_rules_and_every_template_entry_reads_same(self):
+        before, block, after = bootstrap._split_managed_block(self.files[".prettierignore"])
+        self._commit(**{".prettierignore": "coverage/\n" + before + "dist/\n" + block + after})
+        self.assertEqual(bootstrap.compare_repository(self.repo, self.files)[".prettierignore"], ("same", None))
+
+    def test_negation_after_an_existing_block_does_not_hold_it_back(self):
+        outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"
+        self._commit(**{".gitignore": "mine/\n" + outdated + "!.playwright-cli/notes.md\n"})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "updated")
+        self.assertTrue(detail.startswith("managed block brought up to date"), detail)
+        self.assertEqual(self._read(".gitignore"), "mine/\n" + self.block[".gitignore"] + "!.playwright-cli/notes.md\n")
+
+    def test_negation_before_an_existing_block_is_named_for_an_update_by_hand(self):
+        outdated = bootstrap.MANAGED_BLOCK_BEGIN + "\n.old/\n" + bootstrap.MANAGED_BLOCK_END + "\n"
+        text = "!.playwright-cli/notes.md\n" + outdated
+        self._commit(**{".gitignore": text})
+        action, detail = self._adopt(".gitignore")
+        self.assertEqual(action, "kept")
+        self.assertIn("update the managed block by hand, where these `!` rules allow: !.playwright-cli/notes.md", detail)
+        self.assertEqual(self._read(".gitignore"), text)
+
+    def test_byte_order_mark_and_caret_brackets_are_judged_like_git(self):
+        for text, rule in (
+            ("\ufeff!.playwright-cli/keep.txt\n", "!.playwright-cli/keep.txt"),
+            (".playwright-mcp/*\n!.playwright-[^x]cp/keep.txt\n", "!.playwright-[^x]cp/keep.txt"),
+        ):
+            with self.subTest(rule=rule):
+                self._commit(**{".gitignore": text})
+                action, detail = self._adopt(".gitignore")
+                self.assertEqual(action, "kept")
+                self.assertIn("where these `!` rules allow: " + rule, detail)
+
+    def test_check_says_a_crlf_file_needs_the_block_by_hand(self):
+        (self.repo / ".gitignore").write_bytes(b"node_modules/\r\n")
+        self._commit()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bootstrap.print_repository_report(
+                self.repo, {"repo_type": "nextjs"}, bootstrap.compare_repository(self.repo, self.files)
+            )
+        self.assertIn("managed block: missing; not LF-terminated UTF-8 text, so add it by hand", out.getvalue())
+
+    def test_type_specific_gitignore_lines_go_before_the_block(self):
+        for repo_type, line in (("rust", "/target/"), ("swift", "*.xcodeproj/")):
+            with self.subTest(repo_type=repo_type):
+                gitignore = bootstrap.generate_files(
+                    {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App",
+                     "screenshots": False, "xcodegen": True}
+                )[".gitignore"]
+                before, block, after = bootstrap._split_managed_block(gitignore)
+                self.assertEqual(after, "")
+                self.assertIn(line, before.splitlines())
 
     def test_check_prints_the_block_state(self):
         self._commit(**{".gitignore": "node_modules/\n"})

@@ -23,8 +23,18 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   to a full commit SHA (`sha_pinning_required`).
 - **Workflow permissions:** default `read`, with GitHub Actions unable to
   approve pull requests. Release Please uses its dedicated GitHub App token.
-- **Fork PR workflows:** disabled for private repos (no separate control
-  exists for public repos; their fork-PR approval policy is left as-is)
+- **Fork PR workflows:** disabled for private repos. A public repo runs
+  them, and its approval policy is set to *Require approval for all external
+  contributors* (`all_external_contributors`): a fork pull request from
+  anyone who is not a member or owner of the repository and not a member of
+  its organization waits for a maintainer before its workflows run, so it
+  cannot run the generated workflows, and spend Actions minutes or an API
+  key's credits, unseen. GitHub's default asks only first-time contributors.
+  Workflows triggered by `pull_request_target` always run; no generated
+  workflow uses that trigger. Definitions from
+  [Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository). Endpoint from
+  [GitHub Actions permissions](https://docs.github.com/en/rest/actions/permissions),
+  read 2026-10-24.
 - **Pull request creation:** limited to collaborators (users with write
   access) on a private repo; a public repo stays open to outside pull
   requests, which only someone with write access can merge. Dependabot still
@@ -35,6 +45,23 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   account every collaborator has write access, so the setting changes most on
   an organization's private repo, where read and triage roles exist.
 - **Dependabot alerts:** turned on, which Dependabot malware alerts need.
+- **Secret scanning and push protection** (public repos): turned on.
+  Both are free on a public repo, but the repository's `security_and_analysis`
+  settings report them disabled until they are turned on (seen on this
+  repository after it went public, 2026-10-24). Setting them needs admin
+  access to the repository
+  ([Update a repository](https://docs.github.com/en/rest/repos/repos#update-a-repository),
+  `security_and_analysis`, read 2026-10-24).
+- **CodeQL default setup** (public repos): configured, with GitHub's default
+  languages and query suite. It needs GitHub Actions enabled and analyses
+  the languages GitHub detects, workflows included
+  ([Update a code scanning default setup configuration](https://docs.github.com/en/rest/code-scanning/code-scanning#update-a-code-scanning-default-setup-configuration),
+  [Configuring default setup](https://docs.github.com/en/code-security/code-scanning/enabling-code-scanning/configuring-default-setup-for-code-scanning),
+  read 2026-10-24). On a repository that already runs CodeQL from a
+  workflow file (advanced setup), default setup turns that workflow off and
+  blocks its uploads; a required check that workflow reports then never
+  arrives. No generated workflow runs CodeQL, so this matters only for
+  `--configure-only`, which says so before it asks.
 - **Branch protection on `main`:** requires the relevant status checks to pass
   before merging, and requires a pull request with **zero** required approving
   reviews. That combination is deliberate: direct pushes to `main` are blocked
@@ -67,19 +94,22 @@ handled differently. Branch protection on `main` is never replaced: the script
 prints the required checks it finds and whether conversation resolution is
 required, and points to the runbook, because an existing repository's checks
 must come from its own pull requests, not from `--type`. The Actions settings
-(allowlist, SHA pinning, default token permissions and, for private
-repositories, fork PR controls) are compared with the generated policy; any
-difference is listed and applied only after you confirm, and
-`--non-interactive` lists it and leaves it unchanged. Pull request creation
-(private repositories) and Dependabot alerts are compared the same way, with
-their own confirmation, since limiting pull requests to collaborators stops
-outside contributors on a repository that takes them.
+(allowlist, SHA pinning, default token permissions and fork PR controls, or
+for a public repository its fork PR approval policy) are compared with the
+generated policy; any difference is listed and applied only after you
+confirm, and `--non-interactive` lists it and leaves it unchanged. Pull
+request creation (private repositories), Dependabot alerts, and secret
+scanning, push protection and CodeQL default setup (public repositories) are
+compared the same way, with their own confirmation, since limiting pull
+requests to collaborators stops outside contributors on a repository that
+takes them, and push protection blocks a push that carries a secret.
 
 These settings are applied one at a time and nothing is rolled back. If one
 fails after the files are pushed, the script lists the settings it applied and
 the ones it did not, and prints the `--configure-only` command that applies
-the rest. A failed pull request creation or Dependabot alerts setting is only
-reported, so the steps after it, branch protection included, still run.
+the rest. A failed pull request creation, Dependabot alerts, secret scanning
+or CodeQL setting is only reported, so the steps after it, branch protection
+included, still run.
 
 GitHub requires a paid plan for branch protection on **private**
 repositories. The script detects that case and reports it as manual follow-up

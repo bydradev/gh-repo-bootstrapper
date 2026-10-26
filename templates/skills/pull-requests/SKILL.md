@@ -94,8 +94,13 @@ merge-ready:
   otherwise invisible until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
   wrote or changed, and names the tool and model as `AGENTS.md` specifies.
-  Carry the squashed commits' trailers into the merge message. Merging a change
-  you did not write, such as a Dependabot PR, adds no trailer.
+  Carry the squashed commits' trailers into the merge message with their
+  addresses unchanged. Merging a change you did not write, such as a
+  Dependabot PR, adds no trailer. Never take the address for a trailer or
+  sign-off from the account the merge runs under, which a harness may give an
+  agent: it can be a private address, and the history keeps it. A sign-off of
+  your own uses a noreply address, such as GitHub's
+  `ID+login@users.noreply.github.com`.
 - **Rendered entries:** only `feat` (or its `feature` alias), `fix`, `perf`,
   and `revert` entries render: with no `changelog-sections` configured,
   release-please leaves the section list to the preset it depends on, whose

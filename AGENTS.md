@@ -168,7 +168,7 @@ npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_di
 rm -rf "$md_dir"
 npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc \
   "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
-python3 -I .github/scripts/check_public_content.py --range=origin/main..HEAD
+python3 -I .github/scripts/check_public_content.py --range=origin/main..HEAD --files=origin/main..HEAD
 ```
 
 ### Template-owned workflows
@@ -195,20 +195,28 @@ upstreams).
   projects, artifacts or chats) and no session, project or thread IDs. A
   commit keeps its `Co-Authored-By:` trailer and sign-off but carries no
   `Claude-Session:` trailer, whatever the harness adds.
+- No email address but a noreply one. A sign-off or trailer uses a GitHub
+  noreply address (`ID+login@users.noreply.github.com`) or a tool's
+  `noreply@` address, never the address of the account an agent works for,
+  which its harness may give it. An example address uses `example.com`.
 - No paths from an agent's machine or project storage (`/mnt/`, `/home/`,
-  `/root/`, `/Users/`, scratch folders); cite a report by its path in a
-  public repository, or not at all.
+  `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`, scratch folders);
+  cite a report by its path in a public repository, or not at all. An
+  example path names its user `you`, as in `/Users/you/`.
 - A PR body may open with a harness attribution block (the hidden
   `claude-projects-attribution` marker and its "Requested by" line). A squash
   message never carries it: write it as the PR title, the body without that
-  block, then the trailers.
+  block, then the trailers. The message reaches `main` with no PR run to
+  check it, so save it to a file and run the check on it with `--text`
+  before merging.
 - Before pushing, and before posting a PR body or a comment, run
-  `python3 -I .github/scripts/check_public_content.py` with `--range`,
-  `--title`, `--pr-body` or `--text`. It reads the private names from
-  `PRIVATE_REPO_NAMES` when the environment sets it, and never prints what it
-  matched. The `public-content` workflow runs it on every PR and every push
-  to `main`, after the text is already on GitHub: when it fails, reword, and
-  never bypass or weaken it.
+  `python3 -I .github/scripts/check_public_content.py` with `--range` and
+  `--files`, `--title`, `--pr-body` or `--text`. `--files` checks the lines
+  the commits add to files, except in the check's own script and tests. It
+  reads the private names from `PRIVATE_REPO_NAMES` when the environment
+  sets it, and never prints what it matched. The `public-content` workflow
+  runs it on every PR and every push to `main`, after the text is already
+  on GitHub: when it fails, reword, and never bypass or weaken it.
 
 ### Code review rules
 
@@ -223,5 +231,5 @@ upstreams).
   repository's `simple` copy of `review-guidelines` has no section for: apply
   Python review practice, and keep `bootstrap.py` on the standard library.
 - A PR's title, body, commits and files name no private repository and carry
-  no claude.ai link or `Claude-Session:` trailer (*Public repository
-  content*).
+  no claude.ai link, `Claude-Session:` trailer or email address but a
+  noreply one (*Public repository content*).

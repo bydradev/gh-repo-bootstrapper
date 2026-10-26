@@ -7,6 +7,15 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.21.2
+
+Every type: the `pull-requests` skill says a squash message carries the
+squashed commits' trailers with their addresses unchanged, and never takes
+the address for a trailer or sign-off from the account the merge runs
+under, which a harness may give an agent. `--check` reports
+`.agents/skills/pull-requests/SKILL.md` as `stale`, and `--adopt` updates
+it.
+
 ## Upgrading to 0.21.1
 
 Every type: the title check's user-visible step in `pr-title-check.yml`

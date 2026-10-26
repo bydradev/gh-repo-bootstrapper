@@ -226,6 +226,7 @@ SCREENSHOT_ROUTING = (
 # skill name for every type, so the reviewer agents can name it, with only its
 # stack section rendered per type.
 REVIEW_SKILL = _skill_path("review-guidelines")
+PULL_REQUESTS_SKILL = _skill_path("pull-requests")
 REVIEW_ROUTING = (
     "If `## Project specifics` in `AGENTS.md` names a repository-owned review skill "
     "or has a `### Code review rules` subsection, read it first; where it is narrower, it governs."
@@ -376,6 +377,12 @@ AGENTS_COMMON_REQUIREMENTS = (
     # A change that edits the reviewer's own rules is reviewed under the old ones.
     ("When it edits this skill, follow the base branch's copy", REVIEW_SKILL),
     ("If the base branch has none, as on a first adoption, follow the head copy.", REVIEW_SKILL),
+    # A harness may hand an agent the account's own address, which a squash
+    # message would then publish for good.
+    ("Carry the squashed commits' trailers into the merge message with their addresses unchanged.",
+     PULL_REQUESTS_SKILL),
+    ("Never take the address for a trailer or sign-off from the account the merge runs under",
+     PULL_REQUESTS_SKILL),
 )
 
 # Sentence each local-validation skill opens with, which routes agents to a

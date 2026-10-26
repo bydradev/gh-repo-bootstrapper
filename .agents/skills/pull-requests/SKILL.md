@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=2b9bdc26d1a993f015993a452d2f04d3d6872894a99ddde4fe59233976c3c6f8 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=63ed4d0510f1bdb9811a52c6e9812f4046a71b5fb098d87afcdf287ea348c0d5 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -95,8 +95,13 @@ merge-ready:
   otherwise invisible until the release PR is regenerated.
 - **Applicable trailers:** a trailer belongs to a commit an AI tool materially
   wrote or changed, and names the tool and model as `AGENTS.md` specifies.
-  Carry the squashed commits' trailers into the merge message. Merging a change
-  you did not write, such as a Dependabot PR, adds no trailer.
+  Carry the squashed commits' trailers into the merge message with their
+  addresses unchanged. Merging a change you did not write, such as a
+  Dependabot PR, adds no trailer. Never take the address for a trailer or
+  sign-off from the account the merge runs under, which a harness may give an
+  agent: it can be a private address, and the history keeps it. A sign-off of
+  your own uses a noreply address, such as GitHub's
+  `ID+login@users.noreply.github.com`.
 - **Rendered entries:** only `feat` (or its `feature` alias), `fix`, `perf`,
   and `revert` entries render: with no `changelog-sections` configured,
   release-please leaves the section list to the preset it depends on, whose

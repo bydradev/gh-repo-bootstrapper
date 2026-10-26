@@ -60,11 +60,14 @@ rebuild its tables of earlier releases.
 
 `.github/workflows/public-content.yml` runs
 `.github/scripts/check_public_content.py` on each pull request's title, body
-and commits, and on each push to `main`, for the private details that
-[`AGENTS.md`](../AGENTS.md) *Public repository content* rules out. It reads
-bare private repository names from the `PRIVATE_REPO_NAMES` repository
-secret, which pull requests from forks do not get, and prints where each
-finding is and its kind, never the matched text.
+and commits and the lines they add to files, and on each push to `main`, for
+the private details that [`AGENTS.md`](../AGENTS.md) *Public repository
+content* rules out: claude.ai links and session IDs, local paths, email
+addresses other than noreply ones, and repositories outside the public
+list. It leaves out the script and its own tests, which hold the patterns.
+It reads bare private repository names from the `PRIVATE_REPO_NAMES`
+repository secret, which pull requests from forks do not get, and prints
+where each finding is and its kind, never the matched text.
 
 ## Validator options
 

@@ -288,6 +288,24 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(out.count("::error"), 1, out)
         self.assertIn(f"commit {merge}, file a.md, line 5: a local or project-storage path", out)
 
+    def test_a_merge_that_renames_a_file_is_read_to_the_end(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base", {"a.md": "one\ntwo\nthree\n", "z.md": "end\n"})
+        self._git("switch", "-q", "-c", "topic")
+        self._commit("feat: topic", {"a.md": "one\ntwo\nthree\ntopic\n"})
+        self._git("switch", "-q", "main")
+        self._commit("refactor: rename", {"b.md": "one\ntwo\nthree\n"}, remove=["a.md"])
+        self._git("switch", "-q", "topic")
+        self._git("merge", "-q", "--no-commit", "main")
+        # The merge lists b.md with a letter per parent and one path, then z.md.
+        self._commit("Merge branch 'main' into topic", {
+            "b.md": "one\ntwo\nthree\ntopic\nby hand\n", "z.md": "end\nby hand /Volumes/Work\n"})
+        merge = self._git("rev-parse", "--short=7", "HEAD")
+        code, out = self._run("--files=main..topic")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("::error"), 1, out)
+        self.assertIn(f"commit {merge}, file z.md, line 2: a local or project-storage path", out)
+
     def test_files_needs_a_range(self):
         self._git("init", "-q", "-b", "main")
         self._commit("chore: base")

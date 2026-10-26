@@ -178,8 +178,9 @@ def changed_files(revision_range):
             if not status:
                 break
             place += 1
-            # A merge has a letter per parent and one path; a rename or copy two.
-            paths = [next(fields)] + ([next(fields)] if status[0] in "RC" else [])
+            # A merge has a letter per parent and one path, even for a rename;
+            # only a rename or copy in a plain commit, R or C with a score, has two.
+            paths = [next(fields)] + ([next(fields)] if re.fullmatch(r"[RC]\d+", status) else [])
             if set(status) == {"D"}:
                 continue
             added, columns, number = [], None, 0

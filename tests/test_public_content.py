@@ -207,6 +207,7 @@ class StepTests(unittest.TestCase):
         return self._step("Check the pull request's title, body and commits",
                           GITHUB_EVENT_PATH=str(event), BASE=base, HEAD=self.head)
 
+    @unittest.skipUnless(shutil.which("jq"), "needs jq")
     def test_pull_request_step(self):
         code, out = self._pr_step("fix: two", ATTRIBUTION + "\nfrom Orchard\n", self.base)
         self.assertEqual(code, 1, out)

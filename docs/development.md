@@ -133,8 +133,9 @@ tags, the validator prints a notice and skips them.
   to tell a skipped release from one that ran
 - the title check's user-visible step, in every generated `pr-title-check.yml`
   and this repository's own: one step after the title step, in the same job,
-  reading the pull request title and body only through its `env:`, never
-  through a `${{ }}` expression in its script
+  reading the pull request title and body from the event file
+  (`GITHUB_EVENT_PATH`), with no `env:` (the runner prints a step's env
+  values in its log) and never through a `${{ }}` expression in its script
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy, and its legacy-digest and

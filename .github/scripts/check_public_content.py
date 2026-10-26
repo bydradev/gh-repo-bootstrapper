@@ -9,7 +9,8 @@ machine or project storage, email addresses other than noreply ones,
 `bydradev/` and `bydraio/` repositories other than the public ones, and the
 bare names listed in the PRIVATE_REPO_NAMES environment variable (comma- or
 whitespace-separated; a repository secret in CI, an environment variable in a
-cloud environment).
+cloud environment). gh-agent-kit's `.github/scripts/public-content.mjs` is the
+same check in JavaScript: keep the two in step.
 
 It reports only where a match is and what kind it is, never the matched text,
 so its output cannot repeat a private name or act as a workflow command.
@@ -20,10 +21,11 @@ so its output cannot repeat a private name or act as a workflow command.
     check_public_content.py --pr-body FILE       a pull request body
     check_public_content.py --text FILE          any other text (a comment)
 
-`--files` reads from the merge base of BASE and HEAD, so lines the base
-gained since are not counted, and takes REV^! for one commit. It checks each
-added or changed file's path and added lines, but not this script or its
-tests, which hold every pattern and example it finds.
+`--files` reads each commit of the range, as `--range` does, so a line one
+commit adds and a later one removes is still found, and takes REV^! for one
+commit. It checks the path of each file a commit adds or changes and the
+lines it adds (for a merge, the lines that are in none of its parents), but
+not this script or its tests, which hold every pattern and example it finds.
 
 Options combine. Exits 1 when anything is found, 2 on a usage error. Uses
 only the standard library.
@@ -42,14 +44,17 @@ PUBLIC_REPOSITORIES = frozenset(
 PLACEHOLDER_REPOSITORIES = frozenset({"fixture"})
 
 # Any claude.ai link with a path is found, so a new link format is too; only
-# the generic footer link `https://claude.ai/code` stays allowed. A trailer or
-# marker is found with its value, so the rule that names it in backticks is
-# not. A path is found when something follows the folder: under /mnt/,
-# /workspace/, /root/, a home or user folder other than the runner's,
-# Homebrew's or the placeholder `you`, a macOS volume or temporary folder, a
-# Claude scratch folder, or a folder under `~/`.
+# the generic footer link `https://claude.ai/code`, the Claude Code installer
+# and its downloads host stay allowed. A trailer or marker is found with its
+# value, so the rule that names it in backticks is not. A path is found when
+# something follows the folder: under /mnt/, /workspace/, /root/, a home or
+# user folder other than the runner's, Homebrew's or the placeholder `you`, a
+# macOS volume or temporary folder, a Claude scratch folder, or a folder under
+# `~/`.
 PATTERNS = (
-    ("a claude.ai link", re.compile(r"claude\.ai/(?!code(?![\w/-]))[\w-]", re.I)),
+    ("a claude.ai link", re.compile(
+        r"(?<!downloads\.)claude\.ai/(?!code(?![\w/-])|install\.(?:sh|ps1|cmd)(?![\w/-]))[\w-]", re.I
+    )),
     ("a Claude-Session trailer", re.compile(r"Claude-Session:[ \t]*[^\s`]", re.I)),
     ("a project attribution marker", re.compile(r"claude-projects-attribution\s*:", re.I)),
     ("a session or thread ID", re.compile(r"\b(?:session|cse|cmsg|chan)_[A-Za-z0-9]{16,}")),
@@ -161,34 +166,36 @@ def file_range(value):
 
 
 def changed_files(revision_range):
-    """Yield (path, [(line number, text)]) for each file the range adds or changes, in diff order."""
-    if revision_range.endswith("^!"):
-        head = revision_range[:-2]
-        parents = git("rev-list", "--parents", "-n", "1", "--end-of-options", head).split()[1:]
-        base = parents[0] if parents else git("hash-object", "-t", "tree", os.devnull).strip()
-    else:
-        start, _, head = revision_range.partition("..")
-        base = git("merge-base", "--end-of-options", start, head).strip()
-    listing = git("diff", "--name-status", "-z", "--find-renames", "--diff-filter=d", base, head, "--")
-    fields = iter(listing.split("\0"))
-    for status in fields:
-        if not status:
-            break
-        paths = [next(fields)] + ([next(fields)] if status[0] in "RC" else [])
-        patch = git(
-            "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=0", "--find-renames",
-            base, head, "--", *paths,
-        )
-        added, number = [], None
-        # With no context lines, every line after the first hunk header that
-        # starts with + is an added line, even one that reads "+++".
-        for line in patch.split("\n"):
-            if line.startswith("@@"):
-                number = int(re.match(r"@@ -\S+ \+(\d+)", line)[1])
-            elif number is not None and line.startswith("+"):
-                added.append((number, line[1:]))
-                number += 1
-        yield paths[-1], added
+    """Yield (commit, place, path, [(line number, text)]) for each file a commit in the range adds or changes.
+
+    place is the file's place in `git show --format= --name-only COMMIT`.
+    """
+    for commit in git("rev-list", "--reverse", "--end-of-options", revision_range).split():
+        show = ("show", "--format=", "--no-color", "--no-ext-diff", "--no-textconv", "--find-renames", commit)
+        fields = iter(git(*show, "--name-status", "-z").split("\0"))
+        place = 0
+        for status in fields:
+            if not status:
+                break
+            place += 1
+            # A merge has a letter per parent and one path; a rename or copy two.
+            paths = [next(fields)] + ([next(fields)] if status[0] in "RC" else [])
+            if set(status) == {"D"}:
+                continue
+            added, columns, number = [], None, 0
+            # With no context lines, a hunk holds only changed lines, each led
+            # by a column per parent: + where the parent lacks the line, - where
+            # only the parent has it. A line every parent lacks is added, even
+            # one that reads "+++".
+            for line in git(*show, "--unified=0", "--", *paths).split("\n"):
+                header = re.match(r"(@@+) .*? \+(\d+)(?:,\d+)? \1", line)
+                if header:
+                    columns, number = len(header[1]) - 1, int(header[2])
+                elif columns and not line.startswith("\\") and "-" not in line[:columns]:
+                    if line[:columns] == "+" * columns:
+                        added.append((number, line[columns:]))
+                    number += 1
+            yield commit, place, paths[-1], added
 
 
 def main(argv=None):
@@ -219,14 +226,14 @@ def main(argv=None):
         findings += [f"{source}, line {number}: {kind}" for number, kind in scan(text, names, allow)]
     files = 0
     for revision_range in args.files:
-        for place, (path, added) in enumerate(changed_files(revision_range), 1):
+        for commit, place, path, added in changed_files(revision_range):
             if path in EXEMPT_FILES:
                 continue
             files += 1
             in_name = [kind for _, kind in scan(path, names)]
-            source = f"file {path}"
+            source = f"commit {commit[:7]}, file {path}"
             if in_name or not PRINTABLE_PATH.fullmatch(path):
-                source = f"changed file {place} (name not shown)"
+                source = f"commit {commit[:7]}, changed file {place} (name not shown)"
             findings += [f"{source}, name: {kind}" for kind in in_name]
             for number, line in added:
                 findings += [f"{source}, line {number}: {kind}" for _, kind in scan(line, names)]
@@ -237,10 +244,10 @@ def main(argv=None):
         print(
             f"{len(findings)} finding(s). Reword them as AGENTS.md *Public repository content* says; "
             "this check never prints the matched text. A changed file's number is its place in "
-            "`git diff --name-only --diff-filter=d BASE...HEAD`."
+            "`git show --format= --name-only COMMIT`."
         )
         return 1
-    print(f"No private details found in {len(sources)} text(s) and {files} changed file(s).")
+    print(f"No private details found in {len(sources)} text(s) and {files} file change(s).")
     return 0
 
 

@@ -217,6 +217,8 @@ upstreams).
   sets it, and never prints what it matched. The `public-content` workflow
   runs it on every PR and every push to `main`, after the text is already
   on GitHub: when it fails, reword, and never bypass or weaken it.
+  gh-agent-kit's `public-content.mjs` is the same check: a change to one
+  goes to the other too.
 
 ### Code review rules
 

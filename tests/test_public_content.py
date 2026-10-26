@@ -44,6 +44,7 @@ class ScanTests(unittest.TestCase):
             "https://claude.ai/public/artifacts/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b": "a claude.ai link",
             "start one at claude.ai/new": "a claude.ai link",
             "https://claude.ai/code/routines": "a claude.ai link",
+            "https://claude.ai/installer and claude.ai/install.sh/x": "a claude.ai link",
             "the report in /mnt/project-files/assessment/x.md": "a local or project-storage path",
             "see /home/alice/report.md": "a local or project-storage path",
             "(/mnt/data/report.md)": "a local or project-storage path",
@@ -94,6 +95,8 @@ class ScanTests(unittest.TestCase):
             "/home/runner/work is the runner's checkout",
             "/home/linuxbrew/.linuxbrew/bin/brew and GET /users/octocat",
             "https://example.com/mnt/data and https://claude.ai/code.",
+            "curl -fsSL https://claude.ai/install.sh | bash, or claude.ai/install.ps1",
+            "https://downloads.claude.ai/claude-code-releases/2.1.0/manifest.json",
             # A placeholder user, as in a usage message.
             r"/Users/you/code/my-app, /home/you/app or C:\Users\you\app",
             "a file in ~ such as ~/app-key.pem, or ~/My Projects/app",
@@ -229,36 +232,61 @@ class CommandLineTests(unittest.TestCase):
         }, remove=["gone.md"])
         code, out = self._run("--files=base..main")
         self.assertEqual(code, 1, out)
+        commit = self._git("rev-parse", "--short=7", "main")
         self.assertIn(
-            "::error title=Public repository content::file notes.md, line 4: a local or project-storage path", out
+            f"::error title=Public repository content::commit {commit}, file notes.md, line 4: "
+            "a local or project-storage path", out
         )
         # A file whose name has a finding is not named but numbered as
-        # `git diff --name-only` lists it; its lines are still checked.
-        self.assertIn("changed file 2 (name not shown), name: a private repository name", out)
-        self.assertIn("changed file 2 (name not shown), line 1: an email address other than a noreply one", out)
+        # `git show --name-only` lists it; its lines are still checked.
+        self.assertIn(f"commit {commit}, changed file 2 (name not shown), name: a private repository name", out)
+        self.assertIn(
+            f"commit {commit}, changed file 2 (name not shown), line 1: an email address other than a noreply one",
+            out,
+        )
         # Not the old line, the removed file, the image or the exempt files.
         self.assertEqual(out.count("::error"), 3, out)
         self.assertNotIn("sunrise", out)
         self.assertNotIn("sam", out.lower())
 
-    def test_files_are_read_from_the_merge_base(self):
-        # Lines main gains or loses after the branch point are not the branch's.
+    def test_files_are_read_commit_by_commit(self):
         self._git("init", "-q", "-b", "main")
         self._commit("chore: base", {"a.md": "from /home/alice/x\n"})
         self._git("switch", "-q", "-c", "topic")
         self._commit("feat: rename", {"b.md": "from /home/alice/x\n"}, remove=["a.md"])
         self._commit("feat: clean line", {"c.md": "nothing private\n"})
-        self._git("switch", "-q", "main")
-        self._commit("fix: drop the path", {"a.md": "clean\n"})
         code, out = self._run("--files=main..topic")
         self.assertEqual(code, 0, out)  # a rename adds no lines
-        self.assertIn("No private details found", out)
-        code, out = self._run("--files=topic^!", "--files=main^!")
-        self.assertEqual(code, 0, out)
-        self._commit("fix: add a path", {"a.md": "clean\nin /Volumes/Work\n"})
-        code, out = self._run("--files=main^!")
+        self.assertIn("No private details found in 0 text(s) and 2 file change(s).", out)
+        # A line one commit adds stays in that commit when a later one drops it.
+        self._commit("feat: add a path", {"c.md": "nothing private\nin /Volumes/Work\n"})
+        added = self._git("rev-parse", "--short=7", "HEAD")
+        self._commit("fix: drop it", {"c.md": "nothing private\n"})
+        code, out = self._run("--files=main..topic")
         self.assertEqual(code, 1, out)
-        self.assertIn("file a.md, line 2: a local or project-storage path", out)
+        self.assertEqual(out.count("::error"), 1, out)
+        self.assertIn(f"commit {added}, file c.md, line 2: a local or project-storage path", out)
+        code, out = self._run("--files=topic^!")
+        self.assertEqual(code, 0, out)
+
+    def test_a_merge_is_read_for_lines_no_parent_has(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base", {"a.md": "one\ntwo\n"})
+        self._git("switch", "-q", "-c", "topic")
+        self._commit("feat: topic", {"a.md": "one\ntwo\ntopic\n"})
+        self._git("switch", "-q", "main")
+        self._commit("fix: main", {"a.md": "main /Users/sam/x\none\ntwo\n", "m.md": "/Users/sam/y\n"})
+        self._git("switch", "-q", "topic")
+        self._git("merge", "-q", "--no-commit", "main")
+        # The merge brings main's lines, which main's own run checks, and
+        # adds one that neither side has.
+        (self.dir / "a.md").write_text("main /Users/sam/x\none\ntwo\ntopic\nby hand /Volumes/Work\n")
+        self._commit("Merge branch 'main' into topic")
+        merge = self._git("rev-parse", "--short=7", "HEAD")
+        code, out = self._run("--files=main..topic")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("::error"), 1, out)
+        self.assertIn(f"commit {merge}, file a.md, line 5: a local or project-storage path", out)
 
     def test_files_needs_a_range(self):
         self._git("init", "-q", "-b", "main")
@@ -316,7 +344,7 @@ class StepTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("body, line 4: a private repository name", out)
         self.assertRegex(out, r"commit [0-9a-f]{7}, line 3: a Claude-Session trailer")
-        self.assertIn("file notes.md, line 1: a local or project-storage path", out)
+        self.assertRegex(out, r"commit [0-9a-f]{7}, file notes\.md, line 1: a local or project-storage path")
         self.assertNotIn("Orchard", out)
         code, out = self._pr_step("fix: Orchard", ATTRIBUTION, self.head)
         self.assertEqual(code, 1, out)
@@ -333,7 +361,7 @@ class StepTests(unittest.TestCase):
         code, out = self._step(name, BEFORE=self.base, AFTER=self.head)
         self.assertEqual(code, 1, out)
         self.assertIn("a Claude-Session trailer", out)
-        self.assertIn("file notes.md, line 1: a local or project-storage path", out)
+        self.assertRegex(out, r"commit [0-9a-f]{7}, file notes\.md, line 1: a local or project-storage path")
         code, out = self._step(name, BEFORE="0" * 40, AFTER=self.head)
         self.assertEqual(code, 0, out)
         code, out = self._step(name, BEFORE="0" * 40, AFTER=self.base)  # a root commit

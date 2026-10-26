@@ -60,15 +60,14 @@ jobs:
       # a line of its own whether the change reaches users through a
       # release, and the answer must agree with whether Release Please will
       # release the squash commit. Body edits re-run this check. The script
-      # reads the pull request only from its env and prints none of its text
+      # reads the pull request only from the event file, not from step env,
+      # which the runner prints in the job log, and prints none of its text
       # but released types and the numbers of a Release-As version, so no
       # line of it can act as a workflow command.
       - name: Check the user-visible line
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-          BODY: ${{ github.event.pull_request.body }}
         run: |
           python3 -I - <<'PY'
+          import json
           import os
           import re
           import sys
@@ -407,8 +406,10 @@ jobs:
               sys.exit(1)
 
 
-          title = os.environ.get("TITLE", "")
-          body = os.environ.get("BODY", "").replace("\r\n", "\n").replace("\r", "\n")
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event:
+              pull_request = json.load(event).get("pull_request") or {}
+          title = pull_request.get("title") or ""
+          body = (pull_request.get("body") or "").replace("\r\n", "\n").replace("\r", "\n")
           answers = {m[1].lower() for m in map(ANSWER.fullmatch, body.split("\n")) if m}
           how = (
               "Add a line to the pull request body that reads exactly User-visible: yes when the "

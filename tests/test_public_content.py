@@ -1,6 +1,7 @@
 """The public-content check: what it finds, what it lets through, and that it never prints the match."""
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -199,14 +200,28 @@ class StepTests(unittest.TestCase):
         )
         return result.returncode, result.stdout + result.stderr
 
+    def _pr_step(self, title, body, base):
+        # The step reads the title and body from the event file, not env.
+        event = Path(self._tmp.name) / "event.json"
+        event.write_text(json.dumps({"pull_request": {"title": title, "body": body}}), encoding="utf-8")
+        return self._step("Check the pull request's title, body and commits",
+                          GITHUB_EVENT_PATH=str(event), BASE=base, HEAD=self.head)
+
+    @unittest.skipUnless(shutil.which("jq"), "needs jq")
     def test_pull_request_step(self):
-        name = "Check the pull request's title, body and commits"
-        code, out = self._step(name, TITLE="fix: two", BODY=ATTRIBUTION + "\nfrom Orchard\n", BASE=self.base, HEAD=self.head)
+        code, out = self._pr_step("fix: two", ATTRIBUTION + "\nfrom Orchard\n", self.base)
         self.assertEqual(code, 1, out)
         self.assertIn("body, line 4: a private repository name", out)
         self.assertRegex(out, r"commit [0-9a-f]{7}, line 3: a Claude-Session trailer")
         self.assertNotIn("Orchard", out)
-        code, out = self._step(name, TITLE="fix: two", BODY=ATTRIBUTION, BASE=self.head, HEAD=self.head)
+        code, out = self._pr_step("fix: Orchard", ATTRIBUTION, self.head)
+        self.assertEqual(code, 1, out)
+        self.assertIn("title, line 1: a private repository name", out)
+        self.assertNotIn("Orchard", out)
+        code, out = self._pr_step("fix: two", ATTRIBUTION, self.head)
+        self.assertEqual(code, 0, out)
+        # A pull request opened with no description has a null body.
+        code, out = self._pr_step("fix: two", None, self.head)
         self.assertEqual(code, 0, out)
 
     def test_push_step(self):

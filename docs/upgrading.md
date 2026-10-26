@@ -7,6 +7,17 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.21.1
+
+Every type: the title check's user-visible step in `pr-title-check.yml`
+reads the pull request title and body from the event file instead of its
+`env:`. The runner prints a step's env values in the job log, so each run
+kept a copy of the body as it was when the run fired, public in a public
+repository. The check itself is unchanged and no action pin changes:
+`--check` reports `pr-title-check.yml` as `stale`, and `--adopt` updates
+it. Logs of earlier runs still hold those copies; deleting the runs is the
+only way to remove them.
+
 ## Upgrading to 0.21.0
 
 A new public repository gets three more settings: secret scanning with push

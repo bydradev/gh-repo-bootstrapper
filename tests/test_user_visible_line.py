@@ -1,5 +1,6 @@
 """The title check's user-visible step, run as GitHub runs it."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -29,11 +30,14 @@ class UserVisibleLineTests(unittest.TestCase):
     SCRIPT = _script(TEMPLATE.read_text())
 
     def _run(self, title, body):
-        # GitHub's default shell for a run step on Linux.
-        with tempfile.TemporaryDirectory() as tmp:
+        # GitHub's default shell for a run step on Linux; the runner writes
+        # the event file outside the workspace.
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as runner:
+            event = Path(runner) / "event.json"
+            event.write_text(json.dumps({"pull_request": {"title": title, "body": body}}), encoding="utf-8")
             result = subprocess.run(
                 ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", self.SCRIPT],
-                env={"PATH": os.environ["PATH"], "TITLE": title, "BODY": body},
+                env={"PATH": os.environ["PATH"], "GITHUB_EVENT_PATH": str(event)},
                 cwd=tmp, capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(os.listdir(tmp), [], "the script must not write files")
@@ -77,6 +81,12 @@ class UserVisibleLineTests(unittest.TestCase):
     def assertDoesNotRelease(self, title, body):
         self.assertPasses(title, body + "\n\nUser-visible: no")
         self.assertFails(title, body + "\n\nUser-visible: yes", "will not release this change")
+
+    def test_a_pull_request_with_no_description_is_asked_for_the_line(self):
+        # GitHub sends a null body when the description is empty.
+        code, out = self._run("fix: x", None)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("::error title=User-visible line::", out)
 
     def test_an_answer_that_agrees_with_the_title_type_passes(self):
         for title in ("feat: add a flag", "fix(cli): stop crashing", "perf: cache renders", "revert: drop the flag"):
@@ -472,10 +482,12 @@ class UserVisibleStepCheckTests(unittest.TestCase):
     def test_a_changed_step_fails(self):
         for edit, needle in (
             (lambda t: t.replace("Check the user-visible line", "Check the body", 1), "exactly once"),
-            (lambda t: t.replace('os.environ.get("BODY", "")', '"""${{ github.event.pull_request.body }}"""', 1),
+            (lambda t: t.replace('pull_request.get("body")', '"""${{ github.event.pull_request.body }}"""', 1),
              "without ${{ }} expressions"),
-            (lambda t: t.replace("          TITLE: ${{ github.event.pull_request.title }}\n", "", 1),
-             "must set exactly env"),
+            (lambda t: t.replace("      - name: Check the user-visible line\n",
+                                 "      - name: Check the user-visible line\n        env:\n"
+                                 "          TITLE: ${{ github.event.pull_request.title }}\n", 1),
+             "must not set env"),
             (lambda t: t.replace("      - name: Check the user-visible line\n",
                                  "      - name: Check the user-visible line\n        shell: sh\n", 1),
              "must not set shell"),

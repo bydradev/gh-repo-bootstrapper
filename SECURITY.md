@@ -40,8 +40,8 @@ The most useful things to report:
 - A generated workflow that grants more `GITHUB_TOKEN` scope than it needs, is
   triggerable by an untrusted fork PR, or interpolates untrusted input into a
   `run:` block.
-- Repository configuration applied by `configure_repo()` that is weaker than the
-  README describes.
+- Repository configuration applied by `configure_repo()` that is weaker than
+  [GitHub settings](docs/github-settings.md) describes.
 
 Findings in the *generated* templates matter as much as findings in the
 bootstrapper: those files are copied into every repository this tool creates.

@@ -58,6 +58,26 @@ repository's own.
 Both check out the full history and tags, which the validator needs to
 rebuild its tables of earlier releases.
 
+`.github/workflows/pr-title-check.yml` runs `validate-title` on each pull
+request: the title must be a Conventional Commit subject, and the body's
+`User-visible:` line must agree with what Release Please will do with the
+title and body. It is the template's copy, kept byte-identical to
+`templates/pr-title-check.yml`, and skips merged, Release Please and
+Dependabot pull requests.
+
+`.github/workflows/dco.yml` runs `sign-off` on each pull request from an
+outside contributor: every commit needs a `Signed-off-by:` trailer with its
+author's email, as [`CONTRIBUTING.md`](../CONTRIBUTING.md) asks. Pull
+requests from the owner, members, collaborators and bots skip it.
+
+CodeQL runs through GitHub's default setup, configured in the repository's
+settings rather than a workflow file: it analyses the Actions workflows,
+JavaScript and Python on each pull request and push to `main`, and weekly.
+
+`validate-templates`, `python-floor`, `validate-title`, `sign-off` and
+`public-content` are the required checks on `main`; a skipped run counts as
+passed.
+
 `.github/workflows/public-content.yml` runs
 `.github/scripts/check_public_content.py` on each pull request's title, body
 and commits, and on each push to `main`, for the private details that

@@ -5,15 +5,20 @@ decisions and when they were made, and anything deliberately not done yet.
 `AGENTS.md` holds the durable rules; status that can go stale belongs here.
 Date each entry, and delete it once it no longer applies.
 
-## Releases and adoption (2026-10-24)
+## Releases and adoption (2026-10-26)
 
-v0.20.0 (2026-10-23) is the latest release. It adds three settings to new
-repositories: pull request creation limited to collaborators on private
+v0.21.1 (2026-10-26) is the latest release: the title check reads the pull
+request's title and body from the event file instead of its step env
+([Upgrading to 0.21.1](upgrading.md#upgrading-to-0211)). v0.21.0
+(2026-10-25) gives new public repositories secret scanning with push
+protection, CodeQL default setup and the fork pull request approval policy,
+and keeps a managed block of `.gitignore` and `.prettierignore` in step on
+adopt ([Upgrading to 0.21.0](upgrading.md#upgrading-to-0210)). v0.20.0
+(2026-10-23) added pull request creation limited to collaborators on private
 repositories, Dependabot alerts, and conversation resolution in the branch
-protection on `main` ([Upgrading to 0.20.0](upgrading.md#upgrading-to-0200)).
-Generated repositories take each release in an adoption round, one
-`chore: adopt gh-repo-bootstrapper <version>` pull request per repository;
-the 0.20.0 round has not started and waits for the operator.
+protection on `main`. Generated repositories take each release in an
+adoption round, one `chore: adopt gh-repo-bootstrapper <version>` pull
+request per repository; gh-agent-kit adopted 0.21.1 on 2026-10-26.
 
 ## Documentation (2026-10-24)
 

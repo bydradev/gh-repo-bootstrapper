@@ -4605,8 +4605,9 @@ def selected_action_patterns(repo_type: str) -> list:
 # contributor, which GitHub defines as someone who is not a member or owner of
 # the repository and not a member of its organization ("Managing GitHub
 # Actions settings for a repository", read 2026-10-24). An outside pull
-# request then cannot run the generated workflows, and spend Actions minutes
-# or an API key's credits, before a maintainer has looked at it.
+# request then cannot run the generated workflows, and use the repository's
+# runners and Actions minutes, before a maintainer has looked at it. Its runs
+# get no secrets either way.
 FORK_PR_APPROVAL_POLICY = "all_external_contributors"
 
 

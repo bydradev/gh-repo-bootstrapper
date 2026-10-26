@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.0...v0.21.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **templates:** read the pull request from the event file in the title check ([#191](https://github.com/bydradev/gh-repo-bootstrapper/issues/191)) ([085d662](https://github.com/bydradev/gh-repo-bootstrapper/commit/085d66213a1723b29d8547237579890473aa4057))
+
 ## [0.21.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.20.1...v0.21.0) (2026-10-25)
 
 

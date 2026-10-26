@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=e769bc58cd20e3a4b7c43472106787baef11c775c211d7681384b6b3014ccde4 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=22940c2bc550147ee99e14fba1e286e6eae20506182eef7fec64473f7845bd80 -->
 
 # Review guidelines
 
@@ -196,9 +196,13 @@ ordering.
 jobs never check out, build or run pull request code, and treat artefacts from
 pull request runs as untrusted. No `${{ github.event.* }}` or other
 attacker-controlled value is interpolated into `run:` or a `github-script`
-`script:`; pass it through `env:`. Jobs keep timeouts, and no
-`continue-on-error` or always-false `if:` hides a failure. Job and check names
-that branch protection requires do not change.
+`script:`. A short value such as a number, ref or SHA goes through `env:`, but
+a script reads free text such as a title, body or comment from the event file
+(`$GITHUB_EVENT_PATH`, or `context.payload` in `github-script`), because the
+runner prints each step's env values in its log, where a later edit of the
+text never reaches. Jobs keep timeouts, and no `continue-on-error` or
+always-false `if:` hides a failure. Job and check names that branch protection
+requires do not change.
 
 **Dependencies.** Each new dependency is needed, maintained, compatibly
 licensed, and proportionate in size and runtime cost. Manifests and lockfiles

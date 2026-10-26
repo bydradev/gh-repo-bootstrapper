@@ -7,6 +7,15 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.21.2
+
+Every type: the `review-guidelines` skill tells reviewers that a workflow
+reads free text such as a pull request title, body or comment from the event
+file, and passes only short values such as numbers and SHAs through `env:`,
+whose values the runner prints in the job log. `--check` reports
+`.agents/skills/review-guidelines/SKILL.md` as `stale`, and `--adopt`
+updates it. Nothing else changes.
+
 ## Upgrading to 0.21.1
 
 Every type: the title check's user-visible step in `pr-title-check.yml`

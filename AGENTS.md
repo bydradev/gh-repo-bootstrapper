@@ -276,7 +276,9 @@ dated status and links to issues rather than restating them. The rules:
   the `--type` and flags, which `validate_templates.py` checks against
   `bootstrap.py`. An install also writes the kit's forms, so in the same
   change restore `.github/ISSUE_TEMPLATE/config.yml` and delete the kit's
-  `bug.yml` and `task.yml`.
+  `bug.yml` and `task.yml`. The Bug Report and Feature Request forms
+  pre-apply the kit's type labels (`bug`, `feature`); a Question keeps
+  `question`, and triage reads it like any other issue.
 - `.github/scripts/sync-labels.sh` creates the label set; run it after
   adding a label to the `github-issue-triage` table.
 

@@ -7,14 +7,15 @@ Date each entry, and delete it once it no longer applies.
 
 ## gh-agent-kit (2026-10-27)
 
-gh-agent-kit v0.1.0 is installed, with the settings in
+gh-agent-kit v0.3.1 is installed, with the settings in
 `.github/gh-agent-kit.yml` that the operator chose for every kit repository
 on 2026-10-27: `pr-review` reviews each push to a pull request,
 `security-scan` scans a pull request when it opens, `issue-triage` triages
 issues, and `kit-update-check` opens an issue when a newer kit release is
-out. They run beside Codex Cloud's reviews and gate nothing. This repository
-keeps its own issue forms (`AGENTS.md`, *Work tracking*). The operator
-added the `ANTHROPIC_API_KEY` secret and the labels on 2026-10-27.
+out. They run beside Codex Cloud's reviews and gate nothing. The install
+keeps this repository's own issue forms (`--issue-forms=own`; `AGENTS.md`,
+*Work tracking*). The operator added the `ANTHROPIC_API_KEY` secret and the
+labels on 2026-10-27; the update from v0.1.0 that day changed no label.
 
 ## Releases and adoption (2026-10-27)
 

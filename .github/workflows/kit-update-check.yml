@@ -17,7 +17,9 @@ name: kit-update-check
 # edits to the kit's files are not this check's business; install.sh
 # --check shows them. It runs only when KIT_UPDATE_CHECK, a repository
 # variable or a line of .github/gh-agent-kit.yml (the settings job below),
-# is "on".
+# is "on"; "off" or unset leaves it off, and any other value fails the run.
+# A repository that keeps its own issue forms (the lock's issue_forms is
+# "own") is not told about the kit's files under .github/ISSUE_TEMPLATE/.
 #
 # The kit is fetched anonymously, as a public repository. A source the job
 # cannot read ends the run with a warning and no issue.
@@ -159,6 +161,17 @@ jobs:
               echo "::error::the setting $name must be one word or number, as the kit's setup guide lists ($from)"
               exit 1
             fi
+            # A switch takes only the values that name a state, so a typo
+            # fails the run instead of quietly leaving its workflow off.
+            case "$name" in
+              KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK) states="on off" ;;
+              *) states="" ;;
+            esac
+            if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then
+              echo "::error::the setting $name must be ${states// /, } or unset, not '$v' ($from)"
+              exit 1
+            fi
             echo "$name=$v" >> "$GITHUB_ENV"
             echo "FROM_$name=$from" >> "$GITHUB_ENV"
             echo "$name=${v:-(unset)} ($from)"
@@ -192,7 +205,6 @@ jobs:
         id: check
         run: |
           lock=target/.github/gh-agent-kit.lock
-          [ -f "$lock" ] || lock=target/.github/agent-kit.lock
           if [ -L "$lock" ] || [ ! -f "$lock" ]; then
             echo "::notice::no .github/gh-agent-kit.lock in this repository; nothing to check"
             exit 0
@@ -244,11 +256,17 @@ jobs:
             mapfile -t before < <(manifest "$ref")
             mapfile -t was < <(jq -r '.paths[]?' "$lock")
             mapfile -t seeds < <(jq -r '.seeds[]?' "$lock")
+            # install.sh --issue-forms=own installs none of the kit's files
+            # under .github/ISSUE_TEMPLATE/, so none of them counts.
+            own_forms=$(jq -r '.issue_forms // "kit"' "$lock")
+            skip() { [ "$own_forms" = own ] && [[ "$1" == .github/ISSUE_TEMPLATE/* ]]; }
             entry() { kit ls-tree "$1" -- "$2" | cut -f 1; }
             has() { local x; for x in "${@:2}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
             for line in "${now[@]}"; do
               p=${line#seed }
-              if ! has "$p" "${was[@]}"; then
+              if skip "$p"; then
+                continue
+              elif ! has "$p" "${was[@]}"; then
                 echo "added      $p" >> "$report"
               elif [ "$line" = "$p" ] && [ "$(entry "$ref" "$p")" != "$(entry "$release" "$p")" ]; then
                 echo "updated    $p" >> "$report"
@@ -260,7 +278,7 @@ jobs:
               fi
             done
             for p in "${was[@]}"; do
-              if ! has "$p" "${now[@]#seed }" && ! has "$p" "${seeds[@]}"; then
+              if ! skip "$p" && ! has "$p" "${now[@]#seed }" && ! has "$p" "${seeds[@]}"; then
                 echo "removed    $p" >> "$report"
               fi
             done

@@ -244,16 +244,17 @@ dated status and links to issues rather than restating them. The rules:
   finding is a claim handled as `fresh-eyes-review` *Handling findings*
   says. The Claude reviewer follows `github-pr-review` and the scanner
   `github-security-scan`; the settings `KIT_REVIEW_MODE` and
-  `KIT_SECURITY_SCAN` (`open`, `push` or unset) set when each runs, and
-  `KIT_ISSUE_TRIAGE=on` turns triage on (unset, triage stays off); the
-  other `KIT_*` settings set each workflow's model, effort, turn and time
-  budgets and size limits. A setting is a repository variable or a line
-  of `.github/gh-agent-kit.yml`, read from the default branch, and a
-  variable wins; never put a secret in that file. The kit's
+  `KIT_SECURITY_SCAN` (`open`, `push`, `off` or unset) set when each
+  runs, and `KIT_ISSUE_TRIAGE=on` turns triage on (`off` or unset, triage
+  stays off; any other value fails the run); the other `KIT_*` settings
+  set each workflow's model, effort, turn and time budgets and size
+  limits. A setting is a repository variable or a line of
+  `.github/gh-agent-kit.yml`, read from the default branch, and a variable
+  wins; never put a secret in that file. The kit's
   [`docs/setup.md`](https://github.com/bydradev/gh-agent-kit/blob/main/docs/setup.md)
   lists them with their defaults and ranges; the workflows' own mentions
-  of `docs/setup.md` mean that file. All three workflows need the
-  `ANTHROPIC_API_KEY` repository secret, except a review, scan or triage
+  of `docs/setup.md` mean that file. The review, scan and triage
+  workflows need the `ANTHROPIC_API_KEY` repository secret, except one
   whose `KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` or
   `KIT_TRIAGE_PROVIDER` is `opencode-go`, which needs `OPENCODE_API_KEY`
   instead.
@@ -262,23 +263,31 @@ dated status and links to issues rather than restating them. The rules:
   the commit `.github/gh-agent-kit.lock` names (the kit's `docs/setup.md`,
   *Updates*). Updating is the operator's call: never run `install.sh` for
   it unasked.
+- Dependabot's bumps to the action pins in the kit's workflows are merged
+  like any other; the next install writes the release's pins back (the
+  kit's `docs/setup.md`, *Updates*).
 - The workflows, the MCP server, the skills they follow and the label
   script are installed from
   [bydradev/gh-agent-kit](https://github.com/bydradev/gh-agent-kit)
   by its `install.sh`; `.github/gh-agent-kit.lock` names the kit commit. Change
   them in the kit and re-install, not here, except
-  `.github/security-review-instructions.md`, which is this repository's own.
+  `.github/security-review-instructions.md`, which is this repository's own,
+  and Dependabot's pin bumps (above).
   `validate_templates.py` skips the kit's workflows in its checks of this
   repository's own, except for pinned actions, but only those its
   `KIT_WORKFLOWS` names: an update that adds a workflow adds it there in
   the same change.
 - This repository keeps its own issue forms: its Bug Report form asks for
   the `--type` and flags, which `validate_templates.py` checks against
-  `bootstrap.py`. An install also writes the kit's forms, so in the same
-  change restore `.github/ISSUE_TEMPLATE/config.yml` and delete the kit's
-  `bug.yml` and `task.yml`. The Bug Report and Feature Request forms
-  pre-apply the kit's type labels (`bug`, `feature`); a Question keeps
-  `question`, and triage reads it like any other issue.
+  `bootstrap.py`. The kit is installed with `--issue-forms=own`, which
+  the lock records (`"issue_forms": "own"`), so an install or update
+  leaves `.github/ISSUE_TEMPLATE/` alone without the option. Where the
+  kit's skills read an issue's *Acceptance criteria* field, or the kit Bug
+  form's *What should happen*, a Feature Request's *Proposed behaviour* and
+  the *Expected* part of a Bug Report's *What happened?* stand in for
+  them. The Bug Report and Feature Request forms pre-apply the kit's type
+  labels (`bug`, `feature`); a Question keeps `question`, and triage reads
+  it like any other issue.
 - `.github/scripts/sync-labels.sh` creates the label set; run it after
   adding a label to the `github-issue-triage` table.
 

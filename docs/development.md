@@ -153,6 +153,11 @@ tags, the validator prints a notice and skips them.
   reading the pull request title and body from the event file
   (`GITHUB_EVENT_PATH`), with no `env:` (the runner prints a step's env
   values in its log) and never through a `${{ }}` expression in its script
+- gh-agent-kit's workflows in this repository, the files its
+  `.github/gh-agent-kit.lock` lists apart from seeds, only for pinned actions:
+  the kit tests them and its `install.sh` replaces them on every update, so
+  the other checks of this repository's own workflows skip them. A lock that
+  is missing, unreadable or names another source exempts nothing
 - no generated file describing the retired provider-deploy or production e2e
   lanes
 - the bootstrapper's own runbook copy, and its legacy-digest and

@@ -7,6 +7,16 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.21.3
+
+Every type: a comment in `pr-title-check.yml` says when Dependabot
+capitalises its pull request titles. It copies the case of the last
+Dependabot commit on the default branch, and without one it guesses from
+recent commit messages, so squash-merge the first Dependabot pull request
+with a lowercase subject and later ones follow it. Only the comment
+changes: `--check` reports `pr-title-check.yml` as `stale`, and `--adopt`
+updates it.
+
 ## Upgrading to 0.21.2
 
 Every type: the `review-guidelines` skill tells reviewers that a workflow

@@ -44,14 +44,31 @@ class ScanTests(unittest.TestCase):
             "https://claude.ai/public/artifacts/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b": "a claude.ai link",
             "start one at claude.ai/new": "a claude.ai link",
             "https://claude.ai/code/routines": "a claude.ai link",
+            "https://claude.ai/installer and claude.ai/install.sh/x": "a claude.ai link",
             "the report in /mnt/project-files/assessment/x.md": "a local or project-storage path",
             "see /home/alice/report.md": "a local or project-storage path",
             "(/mnt/data/report.md)": "a local or project-storage path",
             "`/root/.claude/settings.json`": "a local or project-storage path",
             "in /Users/sam/GitHub": "a local or project-storage path",
             r"in C:\Users\sam\GitHub": "a local or project-storage path",
-            "see bydradev/secret-thing#12": "a bydradev repository outside the public list",
-            "https://github.com/bydradev/example-private": "a bydradev repository outside the public list",
+            "cd /workspace/repo && make": "a local or project-storage path",
+            "in /private/var/folders/xy/T/report.md": "a local or project-storage path",
+            "/var/folders/xy/T/tmp.1234": "a local or project-storage path",
+            "on /Volumes/Work/GitHub": "a local or project-storage path",
+            "Plan: `~/GitHub/.omo/plans/x.md`": "a local or project-storage path",
+            "see bydradev/secret-thing#12": "a bydradev or bydraio repository outside the public list",
+            "https://github.com/bydradev/example-private": "a bydradev or bydraio repository outside the public list",
+            "moved from bydraio/old-private-app": "a bydradev or bydraio repository outside the public list",
+            "from _bydradev/secret-thing_": "a bydradev or bydraio repository outside the public list",
+            "from __bydradev/secret-thing__.": "a bydradev or bydraio repository outside the public list",
+            "see _bydradev/gh-agent-kit_ and bydradev/secret-thing":
+                "a bydradev or bydraio repository outside the public list",
+            "https://github.com/bydradev/gh-agent-kit_": "a bydradev or bydraio repository outside the public list",
+            "a snake_case bydradev/gh-agent-kit_": "a bydradev or bydraio repository outside the public list",
+            "Signed-off-by: Sam <sam@mailbox.test>": "an email address other than a noreply one",
+            "write to Sam.Lee+github@corp.Mailbox.test.": "an email address other than a noreply one",
+            "[mail](mailto:sam@mailbox.test)": "an email address other than a noreply one",
+            "Co-Authored-By: Sam <noreply.sam@mailbox.test>": "an email address other than a noreply one",
             "ported from sunrise-app's baseline": "a private repository name",
             "as ORCHARD does": "a private repository name",
             "from _sunrise-app_": "a private repository name",
@@ -69,11 +86,32 @@ class ScanTests(unittest.TestCase):
             "bydradev/gh-agent-kit#72 and https://github.com/bydradev/gh-repo-bootstrapper.git",
             "see bydradev/gh-actions-dashboard#12",
             "the old name bydradev/github-agent-kit. still redirects",
+            "from _bydradev/gh-agent-kit_ and __bydraio/gh-repo-bootstrapper__.",
+            "[_bydradev/gh-actions-dashboard_](https://github.com/bydradev/gh-actions-dashboard)",
+            "_https://github.com/bydradev/gh-agent-kit.git_",
+            "notbydradev/secret-thing and x-bydraio/secret-thing are other owners",
             "a session_id field, a chan_ prefix",
             "orchards, sunrise-apps and the-sunrise-app",
             "/home/runner/work is the runner's checkout",
             "/home/linuxbrew/.linuxbrew/bin/brew and GET /users/octocat",
             "https://example.com/mnt/data and https://claude.ai/code.",
+            "curl -fsSL https://claude.ai/install.sh | bash, or claude.ai/install.ps1",
+            "https://downloads.claude.ai/claude-code-releases/2.1.0/manifest.json",
+            # A placeholder user, as in a usage message.
+            r"/Users/you/code/my-app, /home/you/app or C:\Users\you\app",
+            "a file in ~ such as ~/app-key.pem, or ~/My Projects/app",
+            "https://example.com/workspace/x and /private/var (a link)",
+            # Noreply addresses, example domains and the published contact.
+            "Co-Authored-By: Codex (GPT-5) <noreply@openai.com>, No-Reply@Mailbox.test",
+            "Signed-off-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+            "Signed-off-by: Sam <sam@example.com>, t@mail.example.org and a@example.net",
+            "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
+            # Package versions and decorators are not addresses, nor is an escape.
+            "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
+            r'files[HUB] + "\n@AGENTS.md\n"',
+            # The rule's own text names the prefixes and markers it rules out.
+            "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
+            "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",
         ):
             with self.subTest(text=text):
                 self.assertEqual(kinds(text), [])
@@ -127,13 +165,18 @@ class CommandLineTests(unittest.TestCase):
 
     def test_never_prints_the_matched_text(self):
         body = self.dir / "body.md"
-        body.write_text("Ported from sunrise-app.\nhttps://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV\n")
+        body.write_text(
+            "Ported from sunrise-app.\nhttps://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV\n"
+            "Signed-off-by: Sam <sam@mailbox.test>\n"
+        )
         code, out = self._run("--title=fix: port the sunrise-app fix", f"--pr-body={body}")
         self.assertEqual(code, 1, out)
         self.assertIn("::error title=Public repository content::title, line 1: a private repository name", out)
         self.assertIn("line 2: a claude.ai link", out)
+        self.assertIn("line 3: an email address other than a noreply one", out)
         self.assertNotIn("sunrise", out)
         self.assertNotIn("session_01", out)
+        self.assertNotIn("mailbox", out)
 
     def test_clean_text_passes(self):
         body = self.dir / "body.md"
@@ -165,6 +208,110 @@ class CommandLineTests(unittest.TestCase):
         code, out = self._run("--range=main^!")
         self.assertEqual(code, 0, out)
 
+    def _commit(self, message, files=(), remove=()):
+        for name, content in dict(files).items():
+            path = self.dir / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content) if isinstance(content, bytes) else path.write_text(content)
+        for name in remove:
+            self._git("rm", "-q", name)
+        self._git("add", "-A")
+        self._git("commit", "-q", "--allow-empty", "-m", message)
+
+    def test_checks_the_lines_a_range_adds_to_files(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base", {"notes.md": "old\nfrom /home/alice/old\n", "gone.md": "/Users/sam/x\n"})
+        self._git("tag", "base")
+        self._commit("feat: add", {
+            "notes.md": "old\nfrom /home/alice/old\nnew line\nsee /Users/sam/GitHub\n",
+            "docs/sunrise-app.md": "Signed-off-by: Sam <sam@mailbox.test>\n",
+            "logo.png": b"\x89PNG\x00/Users/sam/x\n",
+            # The check's own script and tests hold the patterns they find.
+            ".github/scripts/check_public_content.py": "# /Users/sam/x\n",
+            "tests/test_public_content.py": "# /Users/sam/x\n",
+        }, remove=["gone.md"])
+        code, out = self._run("--files=base..main")
+        self.assertEqual(code, 1, out)
+        commit = self._git("rev-parse", "--short=7", "main")
+        self.assertIn(
+            f"::error title=Public repository content::commit {commit}, file notes.md, line 4: "
+            "a local or project-storage path", out
+        )
+        # A file whose name has a finding is not named but numbered as
+        # `git show --name-only` lists it; its lines are still checked.
+        self.assertIn(f"commit {commit}, changed file 2 (name not shown), name: a private repository name", out)
+        self.assertIn(
+            f"commit {commit}, changed file 2 (name not shown), line 1: an email address other than a noreply one",
+            out,
+        )
+        # Not the old line, the removed file, the image or the exempt files.
+        self.assertEqual(out.count("::error"), 3, out)
+        self.assertNotIn("sunrise", out)
+        self.assertNotIn("sam", out.lower())
+
+    def test_files_are_read_commit_by_commit(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base", {"a.md": "from /home/alice/x\n"})
+        self._git("switch", "-q", "-c", "topic")
+        self._commit("feat: rename", {"b.md": "from /home/alice/x\n"}, remove=["a.md"])
+        self._commit("feat: clean line", {"c.md": "nothing private\n"})
+        code, out = self._run("--files=main..topic")
+        self.assertEqual(code, 0, out)  # a rename adds no lines
+        self.assertIn("No private details found in 0 text(s) and 2 file change(s).", out)
+        # A line one commit adds stays in that commit when a later one drops it.
+        self._commit("feat: add a path", {"c.md": "nothing private\nin /Volumes/Work\n"})
+        added = self._git("rev-parse", "--short=7", "HEAD")
+        self._commit("fix: drop it", {"c.md": "nothing private\n"})
+        code, out = self._run("--files=main..topic")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("::error"), 1, out)
+        self.assertIn(f"commit {added}, file c.md, line 2: a local or project-storage path", out)
+        code, out = self._run("--files=topic^!")
+        self.assertEqual(code, 0, out)
+
+    def test_a_merge_is_read_for_lines_no_parent_has(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base", {"a.md": "one\ntwo\n"})
+        self._git("switch", "-q", "-c", "topic")
+        self._commit("feat: topic", {"a.md": "one\ntwo\ntopic\n"})
+        self._git("switch", "-q", "main")
+        self._commit("fix: main", {"a.md": "main /Users/sam/x\none\ntwo\n", "m.md": "/Users/sam/y\n"})
+        self._git("switch", "-q", "topic")
+        self._git("merge", "-q", "--no-commit", "main")
+        # The merge brings main's lines, which main's own run checks, and
+        # adds one that neither side has.
+        (self.dir / "a.md").write_text("main /Users/sam/x\none\ntwo\ntopic\nby hand /Volumes/Work\n")
+        self._commit("Merge branch 'main' into topic")
+        merge = self._git("rev-parse", "--short=7", "HEAD")
+        code, out = self._run("--files=main..topic")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("::error"), 1, out)
+        self.assertIn(f"commit {merge}, file a.md, line 5: a local or project-storage path", out)
+
+    def test_a_merge_that_renames_a_file_is_read_to_the_end(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base", {"a.md": "one\ntwo\nthree\n", "z.md": "end\n"})
+        self._git("switch", "-q", "-c", "topic")
+        self._commit("feat: topic", {"a.md": "one\ntwo\nthree\ntopic\n"})
+        self._git("switch", "-q", "main")
+        self._commit("refactor: rename", {"b.md": "one\ntwo\nthree\n"}, remove=["a.md"])
+        self._git("switch", "-q", "topic")
+        self._git("merge", "-q", "--no-commit", "main")
+        # The merge lists b.md with a letter per parent and one path, then z.md.
+        self._commit("Merge branch 'main' into topic", {
+            "b.md": "one\ntwo\nthree\ntopic\nby hand\n", "z.md": "end\nby hand /Volumes/Work\n"})
+        merge = self._git("rev-parse", "--short=7", "HEAD")
+        code, out = self._run("--files=main..topic")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("::error"), 1, out)
+        self.assertIn(f"commit {merge}, file z.md, line 2: a local or project-storage path", out)
+
+    def test_files_needs_a_range(self):
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base")
+        code, out = self._run("--files=main")
+        self.assertEqual(code, 2, out)
+
 
 def _step(name):
     steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["public-content"]["steps"]
@@ -188,7 +335,9 @@ class StepTests(unittest.TestCase):
         self._git("init", "-q", "-b", "main")
         self._git("commit", "-q", "--allow-empty", "-m", "chore: base")
         self.base = self._git("rev-parse", "HEAD")
-        self._git("commit", "-q", "--allow-empty", "-m", "fix: one\n\nClaude-Session: https://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV")
+        (self.dir / "notes.md").write_text("in /home/alice/x\n")
+        self._git("add", "notes.md")
+        self._git("commit", "-q", "-m", "fix: one\n\nClaude-Session: https://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV")
         self._git("commit", "-q", "--allow-empty", "-m", "fix: two\n\nCo-Authored-By: A <a@example.com>")
         self.head = self._git("rev-parse", "HEAD")
 
@@ -213,6 +362,7 @@ class StepTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("body, line 4: a private repository name", out)
         self.assertRegex(out, r"commit [0-9a-f]{7}, line 3: a Claude-Session trailer")
+        self.assertRegex(out, r"commit [0-9a-f]{7}, file notes\.md, line 1: a local or project-storage path")
         self.assertNotIn("Orchard", out)
         code, out = self._pr_step("fix: Orchard", ATTRIBUTION, self.head)
         self.assertEqual(code, 1, out)
@@ -229,7 +379,10 @@ class StepTests(unittest.TestCase):
         code, out = self._step(name, BEFORE=self.base, AFTER=self.head)
         self.assertEqual(code, 1, out)
         self.assertIn("a Claude-Session trailer", out)
+        self.assertRegex(out, r"commit [0-9a-f]{7}, file notes\.md, line 1: a local or project-storage path")
         code, out = self._step(name, BEFORE="0" * 40, AFTER=self.head)
+        self.assertEqual(code, 0, out)
+        code, out = self._step(name, BEFORE="0" * 40, AFTER=self.base)  # a root commit
         self.assertEqual(code, 0, out)
 
 
@@ -244,5 +397,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(runs), 2)
         for step in runs:
             self.assertIn(".github/scripts/check_public_content.py", step["run"])
+            self.assertRegex(step["run"], r'--files="\$(BASE\.\.\$HEAD|range)"')
             self.assertEqual(step["env"]["PRIVATE_REPO_NAMES"], "${{ secrets.PRIVATE_REPO_NAMES }}")
         self.assertEqual(workflow["permissions"], {"contents": "read"})
+
+
+class RepositoryTests(unittest.TestCase):
+    """Every tracked file passes, so editing a line of one never trips the check."""
+
+    def test_tracked_files_pass(self):
+        try:
+            listed = subprocess.run(
+                ["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True, text=True
+            ).stdout
+        except (OSError, subprocess.CalledProcessError):
+            self.skipTest("not a git checkout")
+        found = {}
+        for name in filter(None, listed.split("\0")):
+            path = ROOT / name
+            if name in check.EXEMPT_FILES or path.is_symlink() or not path.is_file():
+                continue
+            data = path.read_bytes()
+            if b"\0" in data:
+                continue
+            for number, kind in check.scan(name + "\n" + data.decode("utf-8", "replace"), []):
+                found.setdefault(name, []).append((number - 1, kind))  # line 0 is the name
+        self.assertEqual(found, {})

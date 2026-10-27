@@ -1,8 +1,8 @@
 name: public-content
 
 # This repository is public: its pull requests' titles, bodies and commits,
-# and every commit on main, must not carry the private details AGENTS.md
-# *Public repository content* rules out. The check runs after the text is on
+# every commit on main, and the lines they add to files must not carry the
+# private details AGENTS.md *Public repository content* rules out. The check runs after the text is on
 # GitHub, so it keeps a miss out of main rather than out of the pull request;
 # agents run the same script before they push or post. It is this
 # repository's own workflow, not a template, and generates nothing.
@@ -47,7 +47,7 @@ jobs:
           title=$(jq -r '.pull_request.title' "$GITHUB_EVENT_PATH")
           jq -j '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/body.md"
           python3 -I .github/scripts/check_public_content.py \
-            --title="$title" --pr-body="$RUNNER_TEMP/body.md" --range="$BASE..$HEAD"
+            --title="$title" --pr-body="$RUNNER_TEMP/body.md" --range="$BASE..$HEAD" --files="$BASE..$HEAD"
       # A squash message is written at merge, after the pull request's last
       # run, so each push to main is checked too. A finding here cannot be
       # undone without rewriting history; it shows which merge to learn from.
@@ -63,4 +63,4 @@ jobs:
           else
             range="$AFTER^!"
           fi
-          python3 -I .github/scripts/check_public_content.py --range="$range"
+          python3 -I .github/scripts/check_public_content.py --range="$range" --files="$range"

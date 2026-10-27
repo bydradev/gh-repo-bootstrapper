@@ -12,9 +12,10 @@ on:
 # straight from the pull request's own tree — attacker-controlled code by design,
 # as in any CI. That is safe only while the token stays read-only. Fork PRs get a
 # read-only token automatically; declaring it makes the guarantee explicit and
-# covers same-repo branch PRs too. bootstrap.py applies GitHub's fork-PR
-# hardening API to private repos only, so once this repo is public that setting
-# is not available to reapply here.
+# covers same-repo branch PRs too. A public repository runs fork PR
+# workflows. On a public repository it configures, bootstrap.py sets the fork
+# pull request approval policy so that an external contributor's run waits
+# for a maintainer; the read-only token is what limits a run once approved.
 permissions:
   contents: read
 

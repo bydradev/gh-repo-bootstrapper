@@ -16,10 +16,17 @@ out. They run beside Codex Cloud's reviews and gate nothing. This repository
 keeps its own issue forms (`AGENTS.md`, *Work tracking*). The operator
 added the `ANTHROPIC_API_KEY` secret and the labels on 2026-10-27.
 
-## Releases and adoption (2026-10-26)
+## Releases and adoption (2026-10-27)
 
-v0.21.1 (2026-10-26) is the latest release: the title check reads the pull
-request's title and body from the event file instead of its step env
+v0.21.3 (2026-10-27) is the latest release: a comment in
+`pr-title-check.yml` says when Dependabot capitalises its pull request
+titles ([Upgrading to 0.21.3](upgrading.md#upgrading-to-0213)). v0.21.2
+(2026-10-27) has the `review-guidelines` skill tell reviewers to read free
+text from the event file, and the `pull-requests` skill keep the merging
+account's email address out of squash messages
+([Upgrading to 0.21.2](upgrading.md#upgrading-to-0212)). v0.21.1
+(2026-10-26) has the title check read the pull request's title and body
+from the event file instead of its step env
 ([Upgrading to 0.21.1](upgrading.md#upgrading-to-0211)). v0.21.0
 (2026-10-25) gives new public repositories secret scanning with push
 protection, CodeQL default setup and the fork pull request approval policy,
@@ -29,7 +36,7 @@ adopt ([Upgrading to 0.21.0](upgrading.md#upgrading-to-0210)). v0.20.0
 repositories, Dependabot alerts, and conversation resolution in the branch
 protection on `main`. Generated repositories take each release in an
 adoption round, one `chore: adopt gh-repo-bootstrapper <version>` pull
-request per repository; gh-agent-kit adopted 0.21.1 on 2026-10-26.
+request per repository; gh-agent-kit adopted 0.21.3 on 2026-10-27.
 
 ## Documentation (2026-10-24)
 

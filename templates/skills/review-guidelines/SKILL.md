@@ -195,9 +195,13 @@ ordering.
 jobs never check out, build or run pull request code, and treat artefacts from
 pull request runs as untrusted. No `${{ github.event.* }}` or other
 attacker-controlled value is interpolated into `run:` or a `github-script`
-`script:`; pass it through `env:`. Jobs keep timeouts, and no
-`continue-on-error` or always-false `if:` hides a failure. Job and check names
-that branch protection requires do not change.
+`script:`. A short value such as a number, ref or SHA goes through `env:`, but
+a script reads free text such as a title, body or comment from the event file
+(`$GITHUB_EVENT_PATH`, or `context.payload` in `github-script`), because the
+runner prints each step's env values in its log, where a later edit of the
+text never reaches. Jobs keep timeouts, and no `continue-on-error` or
+always-false `if:` hides a failure. Job and check names that branch protection
+requires do not change.
 
 **Dependencies.** Each new dependency is needed, maintained, compatibly
 licensed, and proportionate in size and runtime cost. Manifests and lockfiles

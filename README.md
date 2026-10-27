@@ -154,8 +154,11 @@ existing local checkout in line with later templates. Neither contacts
 GitHub. `--check` is read-only and exits 1 on drift. `--adopt` writes missing
 files, updates files nobody edited since an earlier release wrote them (the
 template-owned files, which carry a stamp, and the `nextjs` baseline
-scripts), and rebuilds `AGENTS.md` around the repository's
-`## Project specifics`. It never overwrites a file the repository edited.
+scripts), rebuilds `AGENTS.md` around the repository's
+`## Project specifics`, and keeps a managed block of `.gitignore` (and of
+`.prettierignore` in `nextjs`) in step, adding it at the end when it is
+missing and leaving every line outside it as it is. It never overwrites a
+file the repository edited.
 Pass the `--type` and type options the repository was generated with.
 
 Before adopting a new release, read its notes in

@@ -377,6 +377,10 @@ AGENTS_COMMON_REQUIREMENTS = (
     # A change that edits the reviewer's own rules is reviewed under the old ones.
     ("When it edits this skill, follow the base branch's copy", REVIEW_SKILL),
     ("If the base branch has none, as on a first adoption, follow the head copy.", REVIEW_SKILL),
+    # The runner prints a step's env values in its log, so free text a
+    # contributor can edit later is read from the event file instead.
+    ("a script reads free text such as a title, body or comment from the event file", REVIEW_SKILL),
+    ("because the runner prints each step's env values in its log", REVIEW_SKILL),
     # A harness may hand an agent the account's own address, which a squash
     # message would then publish for good.
     ("Carry the squashed commits' trailers into the merge message with their addresses unchanged.",

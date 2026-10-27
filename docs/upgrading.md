@@ -9,6 +9,13 @@ repository has to do or decide.
 
 ## Upgrading to 0.21.2
 
+Every type: the `review-guidelines` skill tells reviewers that a workflow
+reads free text such as a pull request title, body or comment from the event
+file, and passes only short values such as numbers and SHAs through `env:`,
+whose values the runner prints in the job log. `--check` reports
+`.agents/skills/review-guidelines/SKILL.md` as `stale`, and `--adopt`
+updates it.
+
 Every type: the `pull-requests` skill says a squash message carries the
 squashed commits' trailers with their addresses unchanged, and never takes
 the address for a trailer or sign-off from the account the merge runs

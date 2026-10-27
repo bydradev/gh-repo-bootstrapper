@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.2...v0.21.3) (2026-10-27)
+
+
+### Bug Fixes
+
+* **templates:** explain when dependabot capitalises its pr titles ([#199](https://github.com/bydradev/gh-repo-bootstrapper/issues/199)) ([2f349b3](https://github.com/bydradev/gh-repo-bootstrapper/commit/2f349b30aebf6c3c557b26eac5e809c82c9448fb))
+
 ## [0.21.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.1...v0.21.2) (2026-10-27)
 
 

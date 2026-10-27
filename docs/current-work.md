@@ -16,12 +16,6 @@ out. They run beside Codex Cloud's reviews and gate nothing. This repository
 keeps its own issue forms (`AGENTS.md`, *Work tracking*). The operator
 added the `ANTHROPIC_API_KEY` secret and the labels on 2026-10-27.
 
-A repository variable wins over the file setting by setting, and this
-repository had `KIT_*` variables before the file existed (`KIT_REVIEW_MODE`
-at least: the review ran on #202 with no file on `main`). The operator
-deletes them once #202 merges, so the file governs; drop this paragraph
-then.
-
 ## Releases and adoption (2026-10-27)
 
 v0.21.3 (2026-10-27) is the latest release: a comment in

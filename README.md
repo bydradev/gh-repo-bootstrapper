@@ -189,11 +189,10 @@ files.
 ## Contributing
 
 Issues and pull requests are welcome, under the
-[code of conduct](CODE_OF_CONDUCT.md). Every commit in a pull request needs a
-Developer Certificate of Origin sign-off (`git commit -s`). See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the steps, [Development](docs/development.md)
-for the setup and checks, and [`AGENTS.md`](AGENTS.md) for the branch, commit
-and release conventions.
+[code of conduct](CODE_OF_CONDUCT.md). See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the steps,
+[Development](docs/development.md) for the setup and checks, and
+[`AGENTS.md`](AGENTS.md) for the branch, commit and release conventions.
 
 ## License
 

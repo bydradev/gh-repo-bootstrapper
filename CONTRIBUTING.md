@@ -31,39 +31,13 @@ Security issues go through private reporting instead; see
    push, and add or update tests for the behaviour you change.
    [docs/development.md](docs/development.md) covers the setup and what CI
    runs.
-5. Sign off every commit, as described below.
+5. If an AI tool helped write a commit, add the `Co-Authored-By:` trailer
+   that [AGENTS.md](AGENTS.md) describes. You are still responsible for the
+   change.
 
 The maintainer reviews every pull request and decides whether it is merged.
 Workflows on a first-time contributor's pull request may need the maintainer's
 approval before they run.
-
-### Sign off every commit
-
-Every commit in your pull request needs a `Signed-off-by:` line with your name
-and the email the commit is authored with. The line certifies the
-[Developer Certificate of Origin 1.1](https://developercertificate.org/): in
-short, that you wrote the change or otherwise have the right to submit it under
-this project's licences.
-
-```sh
-git commit -s    # sign off a new commit
-
-# Sign off the commits already on your branch, rebasing onto this repository's
-# main rather than your fork's:
-git remote add upstream https://github.com/bydradev/gh-repo-bootstrapper.git
-git fetch upstream
-git rebase --signoff upstream/main
-```
-
-After a rebase, force-push your branch. The `dco` check lists any commit that
-is still missing a sign-off. It checks every commit, merges included, so
-bring your branch up to date with the rebase above rather than GitHub's
-"Update branch" button or web conflict editor: the merge commits those make
-carry no sign-off.
-
-If an AI tool helped write a commit, add the `Co-Authored-By:` trailer that
-[AGENTS.md](AGENTS.md) describes. You still sign off, and you are still
-responsible for the change.
 
 ## Licence of contributions
 

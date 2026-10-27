@@ -9,8 +9,7 @@ information that would make exploitation easier.
 
 A proof of concept may be included in the private advisory when it is needed
 to reproduce and confirm the report. A suggested fix is welcome there too. A
-fix that is merged follows [`CONTRIBUTING.md`](CONTRIBUTING.md), including the
-sign-off on every commit.
+fix that is merged follows [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 The maintainer reads and answers reports as time allows, best effort, with
 no set response time, and keeps the reporter updated in the advisory until

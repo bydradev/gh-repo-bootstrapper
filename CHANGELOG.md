@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.1...v0.21.2) (2026-10-27)
+
+
+### Bug Fixes
+
+* **templates:** have reviewers read event text from the event file ([#194](https://github.com/bydradev/gh-repo-bootstrapper/issues/194)) ([9603611](https://github.com/bydradev/gh-repo-bootstrapper/commit/9603611926b2f5b3cc4e872612577f7879c67d2a))
+* **templates:** keep the account's email address out of merge messages ([#195](https://github.com/bydradev/gh-repo-bootstrapper/issues/195)) ([b927984](https://github.com/bydradev/gh-repo-bootstrapper/commit/b9279846f050b02971b84c733aea965d5c2076d5))
+
 ## [0.21.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.0...v0.21.1) (2026-10-26)
 
 

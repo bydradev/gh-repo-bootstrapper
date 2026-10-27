@@ -115,6 +115,13 @@ OWN_WORKFLOWS_DIR = Path(__file__).parent / ".github" / "workflows"
 # pinned. A seed in the lock is this repository's own once installed.
 KIT_LOCK_PATH = Path(__file__).parent / ".github" / "gh-agent-kit.lock"
 KIT_SOURCE = "github.com/bydradev/gh-agent-kit"
+# Only these, the kit's workflows as of its v0.1.0, are skipped, so a lock that
+# lists one of this repository's own workflows exempts it from nothing. A
+# workflow a later kit release adds is checked until it is added here.
+KIT_WORKFLOWS = frozenset(
+    f".github/workflows/{name}.yml"
+    for name in ("issue-triage", "kit-update-check", "pr-review", "security-scan")
+)
 
 BASELINE_DOCUMENT_REQUIREMENTS = {
     "docs/lint-baseline.md": (
@@ -2868,8 +2875,8 @@ def check_pr_template(label: str, files: dict) -> list:
     return []
 
 
-def _kit_owned_paths() -> frozenset:
-    """The paths gh-agent-kit's lock says the kit owns, seeds left out.
+def _kit_workflow_paths() -> frozenset:
+    """The kit's workflows that gh-agent-kit's lock says it installed, seeds left out.
 
     An absent, unreadable or foreign lock exempts nothing, so the kit's
     workflows then fail the own-workflow checks instead of passing unchecked."""
@@ -2885,11 +2892,11 @@ def _kit_owned_paths() -> frozenset:
     paths, seeds = lock.get("paths"), lock.get("seeds", [])
     if not all(isinstance(v, list) and all(isinstance(p, str) for p in v) for v in (paths, seeds)):
         return frozenset()
-    return frozenset(paths) - frozenset(seeds)
+    return (frozenset(paths) - frozenset(seeds)) & KIT_WORKFLOWS
 
 
 def _own_workflow_files(include_kit: bool = False) -> dict:
-    kit = frozenset() if include_kit else _kit_owned_paths()
+    kit = frozenset() if include_kit else _kit_workflow_paths()
     files = {}
     for path in OWN_WORKFLOWS_DIR.glob("*.yml"):
         name = f".github/workflows/{path.name}"

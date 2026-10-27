@@ -80,6 +80,11 @@ class KitWorkflowTests(unittest.TestCase):
                 self.assertIn(".github/workflows/pr-review.yml", validate_templates._own_workflow_files())
                 self.assertTrue([e for e in self.own_errors() if "pr-review.yml" in e])
 
+    def test_a_listed_workflow_that_is_not_the_kit_is_checked(self):
+        self.write_lock(paths=[".github/workflows/own.yml", ".github/workflows/pr-review.yml"])
+        self.assertEqual(set(validate_templates._own_workflow_files()), {".github/workflows/own.yml"})
+        self.assertTrue([e for e in self.own_errors() if "own.yml" in e])
+
     def test_a_seed_is_checked_as_this_repository_own(self):
         self.write_lock(seeds=[".github/workflows/pr-review.yml"])
         self.assertIn(".github/workflows/pr-review.yml", validate_templates._own_workflow_files())

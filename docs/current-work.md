@@ -5,6 +5,20 @@ decisions and when they were made, and anything deliberately not done yet.
 `AGENTS.md` holds the durable rules; status that can go stale belongs here.
 Date each entry, and delete it once it no longer applies.
 
+## gh-agent-kit (2026-10-27)
+
+gh-agent-kit v0.1.0 is installed, with the settings in
+`.github/gh-agent-kit.yml` that the operator chose for every kit repository
+on 2026-10-27: `pr-review` reviews each push to a pull request,
+`security-scan` scans a pull request when it opens, `issue-triage` triages
+issues, and `kit-update-check` opens an issue when a newer kit release is
+out. They run beside Codex Cloud's reviews and gate nothing. This repository
+keeps its own issue forms (`AGENTS.md`, *Work tracking*). Still the
+operator's: the `ANTHROPIC_API_KEY` repository secret and the labels
+(`.github/scripts/sync-labels.sh bydradev/gh-repo-bootstrapper`). Without
+the secret the review, scan and triage runs fail, and triage needs the
+labels. Delete this entry once both are in place.
+
 ## Releases and adoption (2026-10-26)
 
 v0.21.1 (2026-10-26) is the latest release: the title check reads the pull

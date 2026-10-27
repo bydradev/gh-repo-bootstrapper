@@ -13,11 +13,14 @@ on 2026-10-27: `pr-review` reviews each push to a pull request,
 `security-scan` scans a pull request when it opens, `issue-triage` triages
 issues, and `kit-update-check` opens an issue when a newer kit release is
 out. They run beside Codex Cloud's reviews and gate nothing. This repository
-keeps its own issue forms (`AGENTS.md`, *Work tracking*). Still the
-operator's: the `ANTHROPIC_API_KEY` repository secret and the labels
-(`.github/scripts/sync-labels.sh bydradev/gh-repo-bootstrapper`). Without
-the secret the review, scan and triage runs fail, and triage needs the
-labels. Delete this entry once both are in place.
+keeps its own issue forms (`AGENTS.md`, *Work tracking*). The operator
+added the `ANTHROPIC_API_KEY` secret and the labels on 2026-10-27.
+
+A repository variable wins over the file setting by setting, and this
+repository had `KIT_*` variables before the file existed (`KIT_REVIEW_MODE`
+at least: the review ran on #202 with no file on `main`). The operator
+deletes them once #202 merges, so the file governs; drop this paragraph
+then.
 
 ## Releases and adoption (2026-10-26)
 

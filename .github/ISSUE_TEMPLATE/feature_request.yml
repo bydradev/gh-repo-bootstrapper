@@ -1,7 +1,7 @@
 name: Feature Request
 description: Suggest a new capability, flag, or repo type for gh-repo-bootstrapper
 title: "[Feature]: "
-labels: ["enhancement"]
+labels: ["feature"]
 body:
   - type: markdown
     attributes:

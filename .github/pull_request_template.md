@@ -19,5 +19,4 @@ User-visible: yes or no
 ## Checklist
 
 - [ ] The title is a Conventional Commit subject, and the pull request makes one change
-- [ ] Every commit is signed off (`git commit -s`; see CONTRIBUTING.md)
 - [ ] Tests and docs are updated for the changed behaviour

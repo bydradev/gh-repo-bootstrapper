@@ -1,9 +1,9 @@
 # Development
 
 How to work on `bootstrap.py`, its templates and its validator. The
-contribution rules (issues first, one change per pull request, the DCO
-sign-off) are in [`CONTRIBUTING.md`](../CONTRIBUTING.md), and the branch,
-commit and release conventions in [`AGENTS.md`](../AGENTS.md).
+contribution rules (issues first, one change per pull request) are in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md), and the branch, commit and release
+conventions in [`AGENTS.md`](../AGENTS.md).
 
 `bootstrap.py` uses the standard library only. The validator and the tests
 need two development dependencies, PyYAML and pytest, listed in
@@ -65,18 +65,12 @@ title and body. It is the template's copy, kept byte-identical to
 `templates/pr-title-check.yml`, and skips merged, Release Please and
 Dependabot pull requests.
 
-`.github/workflows/dco.yml` runs `sign-off` on each pull request from an
-outside contributor: every commit needs a `Signed-off-by:` trailer with its
-author's email, as [`CONTRIBUTING.md`](../CONTRIBUTING.md) asks. Pull
-requests from the owner, members, collaborators and bots skip it.
-
 CodeQL runs through GitHub's default setup, configured in the repository's
 settings rather than a workflow file: it analyses the Actions workflows,
 JavaScript and Python on each pull request and push to `main`, and weekly.
 
-`validate-templates`, `python-floor`, `validate-title`, `sign-off` and
-`public-content` are the required checks on `main`; a skipped run counts as
-passed.
+`validate-templates`, `python-floor`, `validate-title` and `public-content`
+are the required checks on `main`; a skipped run counts as passed.
 
 `.github/workflows/public-content.yml` runs
 `.github/scripts/check_public_content.py` on each pull request's title, body

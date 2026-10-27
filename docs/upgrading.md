@@ -12,10 +12,11 @@ repository has to do or decide.
 Every type: a comment in `pr-title-check.yml` says when Dependabot
 capitalises its pull request titles. It copies the case of the last
 Dependabot commit on the default branch, and without one it guesses from
-recent commit messages, so squash-merge the first Dependabot pull request
-with a lowercase subject and later ones follow it. Only the comment
-changes: `--check` reports `pr-title-check.yml` as `stale`, and `--adopt`
-updates it.
+recent commit messages (dependabot-core's `pr_name_prefixer.rb` at
+`a08dcad`, read 2026-10-27), so squash-merge the first Dependabot pull
+request with a lowercase subject and later ones follow it. Only the
+comment changes: `--check` reports `pr-title-check.yml` as `stale`, and
+`--adopt` updates it.
 
 ## Upgrading to 0.21.2
 

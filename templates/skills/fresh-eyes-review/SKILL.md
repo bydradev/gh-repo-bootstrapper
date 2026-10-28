@@ -6,29 +6,18 @@ description: >-
 
 # Independent fresh-eyes review
 
-Before substantial changes are considered complete or ready for review, perform
-an independent fresh-eyes review of the resulting change.
-
-The review must be performed by a different agent or reviewer from the one that
-implemented the work. When model choice is available, prefer a stronger
-reasoning model and, where practical, a different model family from the
-implementation agent.
-
-Provide the reviewer with the user's requested outcome, relevant repository
-requirements and specifications, the resulting diff or changed files with
-their base and head commits, and available validation results; for a follow-up
-review, also the last report and the commits since. The reviewer should independently assess the change rather
-than rely on the implementing agent's conclusions.
-
-The reviewer follows the `review-guidelines` skill
-(`.agents/skills/review-guidelines/SKILL.md`): what to check, initial and
-follow-up reviews, severities P0 to P3, finding IDs, statuses and the report
-format.
-
-Perform fresh-eyes review at meaningful quality gates: after a substantial
-implementation phase before it is considered complete, and before a completed
-branch or pull request is declared ready for review. Do not require a new review
-for every small edit or intermediate push.
+A different agent or reviewer from the one that implemented the work reviews
+substantial changes at two gates: after a substantial implementation phase,
+before it is considered complete, and before a branch or pull request is
+declared ready for review; not every small edit or push. When model choice is
+available, prefer a stronger reasoning model and, where practical, another
+model family. Hand it the user's requested outcome, the relevant requirements
+and specifications, the diff or changed files with their base and head
+commits, and the validation results (for a follow-up review, also the last
+report and the commits since). It assesses the change independently, not by
+the implementer's conclusions, and follows the `review-guidelines` skill
+(`.agents/skills/review-guidelines/SKILL.md`) for what to check, severities,
+finding IDs, statuses and the report format.
 
 ## Handling findings
 

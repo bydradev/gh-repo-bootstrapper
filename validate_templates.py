@@ -213,11 +213,11 @@ def _skill_path(name: str) -> str:
 
 HUB = "AGENTS.md"
 # The screenshot process lives in the screenshot-review skill for the
-# configurations that generate one (nextjs and swift with --screenshots) and
-# inline in the hub for every other configuration. The privacy and pre-commit
-# visual-review gates are pinned to the hub for every configuration: a gate
-# must not depend on loading a skill.
-SCREENSHOT_OWNER = "<screenshot-review skill, or the hub when none is generated>"
+# configurations that generate one (nextjs and swift with --screenshots);
+# every other hub points to the repository's own process. The privacy and
+# pre-commit visual-review gates are pinned to the hub for every
+# configuration, and the skill points at them: a gate must not depend on
+# loading a skill.
 # Pinned only where the skill is generated; the hub without it leaves them out.
 SCREENSHOT_SKILL_OWNER = "<screenshot-review skill, when generated>"
 # Pinned to the hub only where no skill is generated; the skill words it its own way.
@@ -338,10 +338,8 @@ AGENTS_COMMON_REQUIREMENTS = (
     ("add a stop-and-ask line naming that command", _skill_path("verify-external-claims")),
     ("Do not send secrets, private source, or customer data to external services.", HUB),
     ("rely on an external claim or add, update, or follow a third-party skill", HUB),
-    (
-        "A successful screenshot-generation workflow means only that artifacts were produced; it is not visual approval.",
-        SCREENSHOT_OWNER,
-    ),
+    # The gates live in the hub for every configuration; the skill points at
+    # them rather than repeating them.
     *((phrase, HUB) for phrase in SCREENSHOT_GATES),
     ("Screenshot guidance is capability-conditional", SCREENSHOT_SKILL_OWNER),
     ("do not assume browser or native", SCREENSHOT_SKILL_OWNER),
@@ -527,7 +525,6 @@ OPENCODE_REVIEWER_FRONTMATTER = (
 )
 OPENCODE_REVIEWER_DESCRIPTION_RE = re.compile(r"description: [A-Za-z][ -9;-~]*")
 SCREENSHOT_SKILL = _skill_path("screenshot-review")
-SCREENSHOT_POINTER = "`docs/screenshot-review.md` (repository root)"
 BASELINE_SKILL = _skill_path("baseline-process")
 PROJECT_SPECIFICS_HEADING = "## Project specifics"
 NEXTJS_AGENT_RULES_END = "<!-- END:nextjs-agent-rules -->"
@@ -809,8 +806,6 @@ def render_markdown(out_dir: Path) -> int:
 def _owner_path(owner: str, files: dict) -> Optional[str]:
     """The file that must hold a phrase, or None where this render needs it nowhere."""
     skill = SCREENSHOT_SKILL in files
-    if owner == SCREENSHOT_OWNER:
-        return SCREENSHOT_SKILL if skill else HUB
     if owner == SCREENSHOT_SKILL_OWNER:
         return SCREENSHOT_SKILL if skill else None
     if owner == HUB_WITHOUT_SCREENSHOT_SKILL:
@@ -1296,15 +1291,11 @@ def check_screenshot_guidance(label: str, repo_type: str, files: dict, screensho
         errors.append(f"[{label}] missing {bootstrap.SCREENSHOT_REVIEW} for {repo_type}")
         return errors
 
-    # The screenshot-review skill, not the hub, points at the platform
-    # document by its repository-root path (check_markdown_links covers links).
+    # The platform document is for people; neither the hub nor the skill
+    # sends agents to it, since the skill holds everything it says.
     skill = files.get(SCREENSHOT_SKILL)
     if skill is None:
         errors.append(f"[{label}] missing {SCREENSHOT_SKILL} for {repo_type}")
-    elif SCREENSHOT_POINTER not in skill:
-        errors.append(
-            f"[{label}] {SCREENSHOT_SKILL} is missing its pointer {SCREENSHOT_POINTER!r}"
-        )
     if skill is not None:
         if SCREENSHOT_ROUTING not in " ".join(skill.split()):
             errors.append(f"[{label}] {SCREENSHOT_SKILL} is missing its routing {SCREENSHOT_ROUTING!r}")
@@ -4730,15 +4721,6 @@ def _structure_self_tests() -> list:
     moved[owner] = files[owner].replace(phrase, "", 1)
     moved[HUB] = files[HUB] + "\n" + phrase + "\n"
     expect("phrase outside its owner", check_agents_guidance("self-test:owner", moved), f"{owner} is missing")
-
-    # The screenshot-review skill must point at docs/screenshot-review.md.
-    unpointed = dict(files)
-    unpointed[SCREENSHOT_SKILL] = files[SCREENSHOT_SKILL].replace(SCREENSHOT_POINTER, "the guide", 1)
-    expect(
-        "screenshot skill without pointer",
-        check_screenshot_guidance("self-test:shot", "nextjs", unpointed, True),
-        "missing its pointer",
-    )
 
     # Skill links resolve from the skill's directory, hub links from the root:
     # a root-relative link in a skill fails, the same target rebased passes.

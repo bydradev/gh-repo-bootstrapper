@@ -125,6 +125,8 @@ verification copy.
   checked 2026-10-22.
 - Playwright CLI commands, flags, sessions and output paths: `@playwright/test`
   and `playwright-core` 1.64.0 help output, source and runs, checked 2026-10-22.
+- The CLI's skill file: absent from `playwright-core` 1.58.2 and 1.60.0
+  (no `lib/tools/skills/`), present from 1.62.0, checked 2026-10-22.
 - Trace modes, `outputDir`, flaky status and `failOnFlakyTests`: Playwright
   1.64.1 `playwright test --help` and type docs, checked 2026-10-22.
 - The `lint` script `create-next-app` writes: `create-next-app` 16.4.2,

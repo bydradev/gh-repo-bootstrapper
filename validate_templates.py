@@ -213,10 +213,11 @@ def _skill_path(name: str) -> str:
 
 HUB = "AGENTS.md"
 # The screenshot process lives in the screenshot-review skill for the
-# configurations that generate one (nextjs and swift with --screenshots) and
-# inline in the hub for every other configuration. The privacy and pre-commit
-# visual-review gates are pinned to the hub for every configuration: a gate
-# must not depend on loading a skill.
+# configurations that generate one (nextjs and swift with --screenshots);
+# every other hub points to the repository's own process. The privacy and
+# pre-commit visual-review gates are pinned to the hub for every
+# configuration, and the skill points at them: a gate must not depend on
+# loading a skill.
 # Pinned only where the skill is generated; the hub without it leaves them out.
 SCREENSHOT_SKILL_OWNER = "<screenshot-review skill, when generated>"
 # Pinned to the hub only where no skill is generated; the skill words it its own way.

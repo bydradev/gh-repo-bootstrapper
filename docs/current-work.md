@@ -17,6 +17,13 @@ keeps this repository's own issue forms (`--issue-forms=own`; `AGENTS.md`,
 *Work tracking*). The operator added the `ANTHROPIC_API_KEY` secret and the
 labels on 2026-10-27; the update from v0.1.0 that day changed no label.
 
+On 2026-10-28 the review, scan and triage moved to OpenCode Go, on its
+default model `deepseek-v4.1-flash`: `KIT_REVIEW_PROVIDER`,
+`KIT_SECURITY_PROVIDER` and `KIT_TRIAGE_PROVIDER` are `opencode-go` and
+`KIT_REVIEW_MAX_TURNS` is 120 in `.github/gh-agent-kit.yml`. The operator
+added the `OPENCODE_API_KEY` secret that day; `ANTHROPIC_API_KEY` stays
+set, unused while the providers are `opencode-go`.
+
 ## Releases and adoption (2026-10-27)
 
 v0.21.3 (2026-10-27) is the latest release: a comment in

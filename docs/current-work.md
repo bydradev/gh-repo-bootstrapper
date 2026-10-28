@@ -7,7 +7,7 @@ Date each entry, and delete it once it no longer applies.
 
 ## gh-agent-kit (2026-10-27)
 
-gh-agent-kit v0.3.1 is installed, with the settings in
+gh-agent-kit v0.4.0 is installed, with the settings in
 `.github/gh-agent-kit.yml` that the operator chose for every kit repository
 on 2026-10-27: `pr-review` reviews each push to a pull request,
 `security-scan` scans a pull request when it opens, `issue-triage` triages
@@ -16,6 +16,20 @@ out. They run beside Codex Cloud's reviews and gate nothing. The install
 keeps this repository's own issue forms (`--issue-forms=own`; `AGENTS.md`,
 *Work tracking*). The operator added the `ANTHROPIC_API_KEY` secret and the
 labels on 2026-10-27; the update from v0.1.0 that day changed no label.
+
+On 2026-10-28 the review, scan and triage moved to OpenCode Go, on its
+default model `deepseek-v4.1-flash`: `KIT_REVIEW_PROVIDER`,
+`KIT_SECURITY_PROVIDER` and `KIT_TRIAGE_PROVIDER` are `opencode-go` and
+`KIT_REVIEW_MAX_TURNS` is 120 in `.github/gh-agent-kit.yml`. The operator
+added the `OPENCODE_API_KEY` secret that day; `ANTHROPIC_API_KEY` stays
+set, unused while the providers are `opencode-go`.
+
+On 2026-10-28 the kit was updated to v0.4.0 (from v0.3.1). On OpenCode Go
+the review, scan and triage now run in OpenCode's CLI, since the runner
+follows the provider; before, they ran in Claude Code on Go. The triage
+and review skills set out their decision steps case by case, and a claim
+comment on an issue carries no session link. The install kept this
+repository's own issue forms, and no setting, secret or label changed.
 
 ## Releases and adoption (2026-10-27)
 

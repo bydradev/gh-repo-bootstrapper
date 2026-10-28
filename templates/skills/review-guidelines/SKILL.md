@@ -77,14 +77,11 @@ change again.
 
 1. **Find the last report.** Note its round, the head commit it reviewed, and
    each finding that is *Open* or *Partly fixed*.
-2. **Isolate the delta.** Diff the last reviewed head against the new head. If
-   history was rewritten, use
-   `git range-diff <old-base>..<old-head> <new-base>..<new-head>` to separate
-   the author's changes from the base's. `range-diff` ignores merge commits by
-   default, so read a base-branch merge with `git show --remerge-diff <merge>`
-   to see its conflict resolution. If you cannot run git, ask whoever started
-   the review for the delta. If the delta cannot be isolated, run a full
-   review.
+2. **Isolate the delta.** Diff the last reviewed head against the new head;
+   after a rewrite, separate the author's changes with `git range-diff`, and
+   read a base merge with `git show --remerge-diff <merge>`. Without git, ask
+   whoever started the review for the delta; if it cannot be isolated, run a
+   full review.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the

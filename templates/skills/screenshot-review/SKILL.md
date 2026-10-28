@@ -15,17 +15,8 @@ section of one, for screenshot or visual-review work, load it first. It holds
 this repository's capability boundaries and procedures, and baseline pointers
 where present. Where it is narrower than this skill, it governs.
 
-**Treat screenshot generation and visual approval as separate gates.** For
-changes affecting tracked screenshots or captured views, follow
-`docs/screenshot-review.md` (repository root) when this
-repository has it; otherwise follow the repository's documented
-screenshot-review process when present. A successful
-screenshot-generation workflow means only that artifacts were produced; it is
-not visual approval. Never capture live or private data, and do not commit
-regenerated assets until the required visual and privacy review has passed.
-
-For user-facing changes, verify the rendered or running product in addition to
-automated checks; tests alone do not establish visual or interaction quality.
+The hub's screenshot gates in *Definition of done* apply to every change
+below; this skill adds the review process.
 
 ## When the repository has a deterministic capture lane
 

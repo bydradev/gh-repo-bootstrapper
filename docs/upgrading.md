@@ -7,6 +7,17 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.22.0
+
+Every type: the `fresh-eyes-review`, `pull-requests`, `review-guidelines`
+and `verify-external-claims` skills are shorter and keep the same rules.
+Next.js: so is `local-validation-nextjs`. With `--screenshots`, the
+`screenshot-review` skill points to the hub's screenshot gates instead of
+repeating them, and no longer sends agents to `docs/screenshot-review.md`,
+which is still generated for people. Skill *Sources* sections give one line
+per claim. `--check` reports the changed skills as `stale`, and `--adopt`
+updates them; nothing else needs doing.
+
 ## Upgrading to 0.21.3
 
 Every type: a comment in `pr-title-check.yml` says when Dependabot

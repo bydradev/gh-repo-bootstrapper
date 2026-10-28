@@ -15,67 +15,39 @@ canonical hostnames, load `public-site-indexing` instead.
 
 ## Local browser-validation constraints
 
-When a local Playwright suite is present, treat a browser-launch failure before
-navigation (for example, macOS `MachPortRendezvousServer` /
-`bootstrap_check_in ... Permission denied`) as an environment or
-process-launch failure, not an application test failure. Preserve the exact
-output. Request the narrowest available permission elevation for the exact
-browser-test command; do not weaken agent-wide sandbox or host-execution policy.
-If elevation is unavailable or denied, report the constraint and use equivalent
-hosted CI evidence where available.
+None of the fixes below may become a persistent change: no shell-profile,
+OS file-limit, watcher, sandbox-policy, CI or Playwright-configuration
+change made only to get a local run through or a trace, and no change to
+the default E2E command, CI parallelism or coverage. When a fix does not work, keep the
+exact output and report the limitation instead of claiming the run passed.
 
-On macOS, use a temporary per-shell descriptor limit when starting a local
-Next.js development server:
+- **Browser launch fails before navigation** (for example macOS
+  `MachPortRendezvousServer` / `bootstrap_check_in ... Permission denied`):
+  an environment failure, not a test failure. Ask for the narrowest
+  elevation for that exact command; if it is unavailable or denied, use
+  hosted CI evidence where it exists.
+- **macOS and `next dev`:** prefix any command that starts `next dev`,
+  including a Playwright `webServer` that runs it (check
+  `playwright.config.ts`), with `ulimit -n 10240 &&` in the same shell. An
+  E2E suite that serves a production build does not need it. `next dev`
+  locks the build directory, so stop a manually started `next dev` before
+  an E2E suite that starts its own, and follow the repository's own docs on
+  ports and server lifecycle.
+- **`EMFILE: too many open files, watch`** despite the raised limit: run
+  `npm run test:e2e:local` when that script is available, otherwise
+  `npx playwright test --workers=1`. Check existing listeners on the E2E
+  ports first and never stop a process you cannot identify; keep
+  `.next/dev/logs/next-development.log` if present.
 
-```sh
-ulimit -n 10240 && npm run dev
-```
-
-The limit concerns `next dev`'s file watching, so it applies to any command
-that starts `next dev`, including a Playwright `webServer` that runs it (check
-`playwright.config.ts`), for example `ulimit -n 10240 && npx playwright test`.
-An E2E suite that serves a production build does not need it.
-
-This is a non-persistent per-shell setting. Do not add it to shell profiles,
-change system limits, change CI, or alter Playwright configuration. A generated
-repository owns its server lifecycle, ports, and test scripts, so follow its
-local documentation before combining a manual dev server with browser tests.
-`next dev` takes a lock in the project's build directory and refuses to start
-a second server for the same project, so stop a manually started `next dev`
-before running an E2E suite that starts its own.
-If Next.js or Watchpack still reports `EMFILE: too many open files, watch`,
-treat it as local host resource exhaustion. Run `npm run test:e2e:local` when that script is available.
-Otherwise, run the project's normal Playwright suite with one worker, for
-example `npx playwright test --workers=1`. Do not replace the default E2E
-command, disable parallel CI, reduce test coverage, or alter
-`playwright.config.ts` merely to accommodate a constrained host. Before
-retrying, inspect any existing local listeners on the E2E ports; do not
-terminate processes you cannot identify. If the raised limit does not resolve
-the failure, preserve the exact output and, if present,
-`.next/dev/logs/next-development.log` rather than claiming browser validation
-passed.
-
-Do not make persistent OS file-limit, watcher, or global sandbox-policy changes
-solely to resolve a local validation failure. If the serial command still fails,
-record the exact error and report the limitation rather than claiming the
-validation passed.
-
-Before re-running a failed local Playwright test, check `trace` and `retries`
-in `playwright.config.ts`. With `trace: "on-first-retry"` and no retries
-outside CI, a common setup, a local failure records nothing, because only a
-retry is traced, so the attempt that already failed cannot be recovered. Re-run
-with `--trace=retain-on-failure` so the next failure is traced rather than lost
-too, and run with it from the start when a failure must be diagnosable the
-first time. Prefer it to `--retries=1` for intermittent failures:
-`on-first-retry` traces the retry, not the attempt that failed. Do not change
-the Playwright configuration merely to obtain a trace.
-
-Playwright clears its output directory (`test-results/` by default) at the
-start of every run, so copy any failure output you need before re-running.
-When CI retries failed tests, a test that fails and then passes on a retry is
-reported as `flaky`, not failed, and the run stays green unless it is
-configured to fail on flaky tests (`failOnFlakyTests`); read the report's flaky
-count instead of treating a green run as proof nothing failed.
+Before re-running a failed local Playwright test, check `trace` and
+`retries` in `playwright.config.ts`. With `trace: "on-first-retry"` and no
+local retries, a common setup, a local failure records nothing, so re-run
+with `--trace=retain-on-failure` (from the start when the first failure
+must be diagnosable) rather than `--retries=1`, which traces only the
+retry. Playwright clears `test-results/` at the start of every run: copy
+what you need first. On CI, a test that fails and then passes on a retry is
+reported as `flaky`, not failed, and the run stays green unless
+`failOnFlakyTests` is set: read the flaky count.
 
 ## Agent browser checks
 
@@ -131,21 +103,13 @@ call in `release-please.yml`, for its current tiers:
 
 `test.yml` runs `npm run lint` as the scaffold defines it, and the lint baseline
 requires the `lint` script in `package.json` to run `eslint --max-warnings=0`
-with unused disable directives reported, which is the default since ESLint 9
-(`reportUnusedDisableDirectives: "warn"`). ESLint 8 reports them only when
-asked, such as with `--report-unused-disable-directives`, and a configuration
-that sets the option to `"off"` reports none. Without the flag, a warning does not fail lint locally
-or in CI, and without the reporting, an unused `eslint-disable` directive is no
-warning at all; either way a stale baseline row only surfaces at its review
-date. `create-next-app` generates a plain `eslint` script for its ESLint
-option, so check the script and the ESLint configuration before treating a green
-lint run as proof that no stale directive remains, and add the flag to the
-script in `package.json`, the one place both local runs and CI read. Keep the
-script's file target wide enough to cover every file
-`scripts/verify-baselines.mjs` scans (the JavaScript and TypeScript files
-outside `node_modules`, `.next` and the other directories it excludes); a
-narrowed target such as `eslint src` leaves a stale directive elsewhere
-unreported while its baseline row keeps passing.
+with unused disable directives reported (the default from ESLint 9; ESLint 8
+needs `--report-unused-disable-directives`, and a configuration that turns the
+option off reports none), over every file `scripts/verify-baselines.mjs`
+scans. Otherwise a stale baseline row keeps passing until its review date.
+`create-next-app` writes a plain `eslint` script, so check the script and the
+configuration, and add the flag in `package.json`, which local runs and CI
+both read.
 
 ## Worktrees
 
@@ -158,39 +122,12 @@ verification copy.
 ## Sources
 
 - `next dev` build-directory lock: Next.js 16.4.2 `dist/build/lockfile.js`,
-  `setup-dev-bundler.js` and `config-shared.js` (`lockDistDir` on by
-  default), checked 2026-10-22.
-- Playwright CLI: `@playwright/test` 1.64.0's `playwright cli --help`,
-  `cli open --help` (`--browser`, `--persistent`, `--profile`), `cli attach
-  --help` (`--cdp`, `--extension`), and `playwright test --help`
-  (`--debug` modes `inspector` and `cli`); `playwright-core` 1.64.0's
-  `resolveBrowserParam` (`chromium` maps to Playwright's Chromium build) and
-  `initWorkspace` (`cli install` copies the skill), and `playwright` 1.64.0's
-  `lib/mcp/test/browserBackend.js` (the printed `attach <name>` and the
-  session name for `-s`); runs on 2026-10-22 where `open` without `--browser`
-  looked for Google Chrome, `--debug=cli` printed the attach command, `-s`
-  drove the paused test, output landed in `.playwright-cli/` but a
-  `screenshot --filename=` file in the working directory, a second `open`
-  restarted the `default` session, and `--help` printed the skill path only
-  with `CLAUDECODE` or `COPILOT_CLI` set; `playwright-core` 1.58.2 and
-  1.60.0, which have no `lib/tools/skills/`, and 1.62.0, which has it; and
-  `playwright-core` 1.64.0's
-  `lib/tools/skills/playwright-cli/SKILL.md` (`gh --attach`) and
-  `playwright` 1.64.0's `lib/agents/playwright-test-healer.agent.md`
-  (`test.fixme()`), checked 2026-10-22.
-- Trace modes: the `--trace` choices in Playwright 1.64.1's
-  `playwright test --help`, checked 2026-10-22.
-- Output directory, flaky status, and `failOnFlakyTests`: Playwright 1.64.1's
-  `outputDir`, test-status, and `failOnFlakyTests` documentation in its
-  `types/test.d.ts` and `types/testReporter.d.ts`, checked 2026-10-22.
-- `lint` script of a new project: `create-next-app` 16.4.2 (npm `latest`,
-  published 2026-10-15), `dist/index.js`, which writes `lint: "eslint"` for the
-  ESLint option, checked 2026-10-22.
-- `--max-warnings` and the unused-directive default: the ESLint v9.x
-  command-line reference (`--max-warnings` exits with an error status above
-  the threshold) and rules reference (`reportUnusedDisableDirectives` defaults
-  to `"warn"`), eslint.org/docs/v9.x, and the ESLint v9.0.0 release post
-  ("Unused disable directives cause warnings by default", so earlier versions
-  did not), eslint.org/blog/2024/04/eslint-v9.0.0-released, and ESLint
-  10.13.0's `lib/config/default-config.js` (`reportUnusedDisableDirectives: 1`,
-  that is `"warn"`), checked 2026-10-22.
+  checked 2026-10-22.
+- Playwright CLI commands, flags, sessions and output paths: `@playwright/test`
+  and `playwright-core` 1.64.0 help output, source and runs, checked 2026-10-22.
+- Trace modes, `outputDir`, flaky status and `failOnFlakyTests`: Playwright
+  1.64.1 `playwright test --help` and type docs, checked 2026-10-22.
+- The `lint` script `create-next-app` writes: `create-next-app` 16.4.2,
+  checked 2026-10-22.
+- `--max-warnings` and the unused-directive default: ESLint v9 docs and v9.0.0
+  release post, and ESLint 10.13.0's default config, checked 2026-10-22.

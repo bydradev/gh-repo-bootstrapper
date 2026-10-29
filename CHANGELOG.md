@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.3...v0.22.0) (2026-10-28)
+
+
+### Features
+
+* trim the generated agent skills ([#208](https://github.com/bydradev/gh-repo-bootstrapper/issues/208)) ([2016503](https://github.com/bydradev/gh-repo-bootstrapper/commit/20165036f0014f0cddd1fb2cb4e9f91c23ba4765))
+
 ## [0.21.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.2...v0.21.3) (2026-10-27)
 
 

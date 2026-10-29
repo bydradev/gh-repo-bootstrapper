@@ -1,8 +1,8 @@
 {
   "source": "github.com/bydradev/gh-agent-kit",
-  "ref": "ebce1f0575974b180229605196656bcf418e585b",
+  "ref": "3b613bc8899c5258e2a06a0a6173df31d015a524",
   "dirty": false,
-  "installed": "2026-10-28T22:02:27Z",
+  "installed": "2026-10-29T01:06:55Z",
   "issue_forms": "own",
   "seeds": [".github/security-review-instructions.md"],
   "paths": [

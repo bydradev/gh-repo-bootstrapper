@@ -7,7 +7,7 @@ Date each entry, and delete it once it no longer applies.
 
 ## gh-agent-kit (2026-10-27)
 
-gh-agent-kit v0.4.0 is installed, with the settings in
+gh-agent-kit v0.4.1 is installed, with the settings in
 `.github/gh-agent-kit.yml` that the operator chose for every kit repository
 on 2026-10-27: `pr-review` reviews each push to a pull request,
 `security-scan` scans a pull request when it opens, `issue-triage` triages
@@ -30,6 +30,13 @@ follows the provider; before, they ran in Claude Code on Go. The triage
 and review skills set out their decision steps case by case, and a claim
 comment on an issue carries no session link. The install kept this
 repository's own issue forms, and no setting, secret or label changed.
+
+On 2026-10-29 the kit was updated to v0.4.1. When OpenCode Go turns a
+request away as at capacity, the review, scan and triage now wait the time
+the refusal names and carry on in the same session, up to three times in a
+step, and a run that ends in error prints the end of OpenCode's log. Triage
+also puts `.git` back in the checkout after its run. No setting, secret or
+label changed.
 
 ## Releases and adoption (2026-10-27)
 

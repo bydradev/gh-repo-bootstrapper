@@ -63,9 +63,9 @@ Full CI pipeline for Next.js applications.
   `User-visible: yes` or `User-visible: no` line in PR bodies that must agree
   with the title (see [Upgrading to 0.14.0](upgrading.md#upgrading-to-0140))
 - `release-please.yml`: test → release-please; deployment remains application-owned
-- `ci.yml`: runs the suite on every PR without the browser e2e lane; pushes
-  to `main` add Chromium, and the Release Please merge (or a manual dispatch of
-  `release-please.yml`) runs every Playwright project
+- `ci.yml`: runs the suite on every PR without the browser e2e lane;
+  `release-please.yml` runs the same on an ordinary push to `main`, and every
+  Playwright project on the Release Please merge (or a manual dispatch)
 - `test.yml`: reusable suite (enforced production advisory audit and baseline verification, lint, format check, typecheck, unit tests, production build, Playwright e2e)
 - `baseline-review.yml`: weekly, non-blocking summary of advisory review dates and Dependabot/document parity
 - `dependabot.yml`: weekly npm + GitHub Actions updates
@@ -147,8 +147,10 @@ option to `"off"` reports none. Add the flag to the scaffold's `lint` script and
 reporting on.
 
 The e2e job in `test.yml` also assumes two things of the scaffold's Playwright
-configuration: a project named `chromium`, which ordinary `main` pushes run
-alone (`--project=chromium`), and the HTML reporter enabled in CI, which
+configuration: a project named `chromium`, which a call with `e2e: true`
+and `full: false` runs alone (`--project=chromium`; the generated workflows
+make no such call, so it is there for a repository's own callers), and the
+HTML reporter enabled in CI, which
 writes the `playwright-report/` directory the job uploads. Without the HTML
 reporter the upload finds nothing and is skipped silently.
 

@@ -286,7 +286,7 @@ test("accepts a captured GitHub workflow-run payload and exits zero when healthy
   assert.deepEqual(
     requests.filter((request) => request.includes("release-please.yml/runs")),
     [
-      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=1",
+      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=20",
       "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=success&per_page=1",
     ],
   );
@@ -310,11 +310,82 @@ test("ignores a newer in-progress release run when determining release health", 
   assert.deepEqual(
     requests.filter((request) => request.includes("release-please.yml/runs")),
     [
-      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=1",
+      "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=completed&per_page=20",
       "/repos/bydradev/fixture/actions/workflows/release-please.yml/runs?status=success&per_page=1",
     ],
   );
 });
+
+function cancelledPush(message = "fix: ordinary change (#12)", extra = {}) {
+  return {
+    ...successfulRelease(),
+    id: 30230627999,
+    conclusion: "cancelled",
+    event: "push",
+    run_attempt: 1,
+    head_commit: { message },
+    ...extra,
+  };
+}
+
+test("looks past release runs a newer push cancelled", async () => {
+  const cancelled = cancelledPush();
+  const { code, output, requests } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    latestReleaseRuns: [cancelled, cancelled, successfulRelease()],
+    successfulReleaseRuns: [successfulRelease()],
+  });
+  assert.equal(code, 0);
+  assert.match(
+    output,
+    /Release pipeline: last successful `release-please\.yml` run completed successfully/,
+  );
+  assert.doesNotMatch(output, /concluded cancelled/);
+  // The jobs read are those of the run that was not cancelled.
+  assert.deepEqual(
+    requests.filter((request) => request.includes("/jobs")),
+    [
+      `/repos/bydradev/fixture/actions/runs/${successfulRelease().id}/jobs?filter=latest&per_page=100`,
+    ],
+  );
+});
+
+test("judges the latest release run when every run read was cancelled", async () => {
+  const cancelled = cancelledPush();
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    latestReleaseRuns: [cancelled, cancelled],
+    successfulReleaseRuns: [successfulRelease()],
+  });
+  assert.equal(code, 1);
+  assert.match(
+    output,
+    /Release pipeline: stale\. The latest completed `release-please\.yml` run concluded cancelled/,
+  );
+});
+
+for (const [label, run] of [
+  ["a release merge", cancelledPush("chore(main): release 1.2.0 (#13)")],
+  ["a dispatch", cancelledPush("fix: ordinary change (#12)", { event: "workflow_dispatch" })],
+  ["a re-run", cancelledPush("fix: ordinary change (#12)", { run_attempt: 2 })],
+  ["a run without its head commit", cancelledPush(undefined, { head_commit: null })],
+]) {
+  test(`reports a cancelled run of ${label} instead of looking past it`, async () => {
+    const { code, output } = await runFixture({
+      rows: [documented],
+      alerts: matchingAlert,
+      latestReleaseRuns: [run, successfulRelease()],
+      successfulReleaseRuns: [successfulRelease()],
+    });
+    assert.equal(code, 1);
+    assert.match(
+      output,
+      /Release pipeline: stale\. The latest completed `release-please\.yml` run concluded cancelled/,
+    );
+  });
+}
 
 test("reports both Dependabot parity directions and exits non-zero", async () => {
   const { code, output } = await runFixture({

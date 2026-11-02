@@ -12,6 +12,22 @@ const securityTxtPath = new URL("../public/.well-known/security.txt", import.met
 const now = new Date();
 const reviewWindowDays = 30;
 const releaseStaleDays = 14;
+// How many of the latest completed release-please.yml runs to read when
+// looking past the ones a newer push cancelled.
+const releaseRunsRead = 20;
+
+// A cancelled first attempt of an ordinary push run, which is what a newer
+// push to main cancels (release-please.yml, the test job's concurrency).
+function supersededPush(run) {
+  const message = run?.head_commit?.message;
+  return (
+    run?.conclusion === "cancelled" &&
+    run?.event === "push" &&
+    (run?.run_attempt ?? 1) === 1 &&
+    typeof message === "string" &&
+    !message.startsWith("chore(main): release")
+  );
+}
 const apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com";
 // The release job of the generated release-please.yml starts with this check.
 // While the Release Please App credentials are missing, or not available to the
@@ -479,10 +495,16 @@ async function main() {
   }
   try {
     const [latestRuns, successfulRuns] = await Promise.all([
-      releaseWorkflowRuns(repository, token, "status=completed&per_page=1"),
+      releaseWorkflowRuns(repository, token, `status=completed&per_page=${releaseRunsRead}`),
       releaseWorkflowRuns(repository, token, "status=success&per_page=1"),
     ]);
-    const latest = latestRuns[0];
+    // A newer push to main cancels an ordinary push's run, so the latest
+    // completed run is often a cancelled one that says nothing about the
+    // release. Judge the latest run that is not such a run. A cancelled
+    // release merge, dispatch or re-run still counts: a timeout or a manual
+    // cancel there can leave a release untagged. Only when every run read was
+    // a superseded push does the latest one count.
+    const latest = latestRuns.find((run) => !supersededPush(run)) ?? latestRuns[0];
     const jobs =
       latest?.conclusion === "success" ? await releaseRunJobs(repository, token, latest) : [];
     const result = releaseHealth(latest, successfulRuns[0], releaseEvidence(jobs));

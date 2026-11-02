@@ -1000,19 +1000,26 @@ class ReleaseGateGuardTests(unittest.TestCase):
         argv_file = Path(tmp.name) / "gh-argv"
         fake_gh = Path(tmp.name) / "gh"
         # Records each call's arguments; answers the compare call with how the
-        # pending merge relates to TESTED_SHA (abc123).
+        # pending merge relates to TESTED_SHA (abc123), and the runs call with
+        # how many runs for that merge have not completed (FAKE_RUNNING).
         fake_gh.write_text(
             "#!/bin/sh\n"
             'printf "%s\\0" "$@" >> "$ARGV_FILE"; printf "\\n" >> "$ARGV_FILE"\n'
             '[ -z "$FAKE_FAIL" ] || exit 1\n'
             'if [ "$1" = api ]; then\n'
             '  cat > /dev/null\n'  # would swallow the guard's remaining rows without </dev/null
-            '  [ -z "$FAKE_COMPARE_FAIL" ] || exit 1\n'
             '  case "$2" in\n'
-            '    */compare/abc123...fff999) echo ahead ;;\n'
-            '    */compare/abc123...def456) echo behind ;;\n'
-            '    */compare/abc123...0dd000) echo diverged ;;\n'
-            '    *) echo "unexpected compare: $2" >&2; exit 3 ;;\n'
+            '    */runs\\?head_sha=*)\n'
+            '      [ -z "$FAKE_RUNS_FAIL" ] || exit 1\n'
+            '      printf "%s\\n" "$FAKE_RUNNING" ;;\n'
+            '    */compare/*) [ -z "$FAKE_COMPARE_FAIL" ] || exit 1\n'
+            '      case "$2" in\n'
+            '        */compare/abc123...fff999) echo ahead ;;\n'
+            '        */compare/abc123...def456) echo behind ;;\n'
+            '        */compare/abc123...0dd000) echo diverged ;;\n'
+            '        *) echo "unexpected compare: $2" >&2; exit 3 ;;\n'
+            '      esac ;;\n'
+            '    *) echo "unexpected api call: $2" >&2; exit 3 ;;\n'
             '  esac\n'
             'else\n'
             '  printf "%s" "$FAKE_PENDING"\n'
@@ -1020,33 +1027,49 @@ class ReleaseGateGuardTests(unittest.TestCase):
         )
         fake_gh.chmod(0o755)
         output = Path(tmp.name) / "github-output"
-        # (pending rows, gh fails, exit code, release output or None when the step
-        # fails before it, commits compared, message expected in the log)
+        # (pending rows, gh fails, runs for an older merge that have not
+        # completed, exit code, release output or None when the step fails
+        # before it, commits compared, commits whose runs are listed, message
+        # expected in the log)
         cases = {
-            "no pending release": ("", False, 0, "false", [], None),
-            "pending release is this commit": ("71 abc123", False, 0, "true", [], None),
+            "no pending release": ("", False, "0", 0, "false", [], [], None),
+            "pending release is this commit": ("71 abc123", False, "0", 0, "true", [], [], None),
             "pending release is an older commit": (
-                "71 def456", False, 1, "false", ["def456"], "::error::Release PR #71 merged as def456"),
+                "71 def456", False, "0", 1, "false", ["def456"], ["def456"],
+                "::error::Release PR #71 merged as def456"),
+            "pending release is an older commit whose run is still going": (
+                "71 def456", False, "1", 0, "false", ["def456"], ["def456"],
+                "::notice::Release PR #71 merged as def456 before abc123, and a run for def456 is still going"),
+            "the runs answer is not a number": (
+                "71 def456", False, "null", 1, "false", ["def456"], ["def456"],
+                "::error::Release PR #71 merged as def456"),
             "pending release merged after this commit": (
-                "71 fff999", False, 0, "false", ["fff999"], "::notice::Release PR #71 merged as fff999"),
+                "71 fff999", False, "0", 0, "false", ["fff999"], [], "::notice::Release PR #71 merged as fff999"),
             "pending release on a diverged history": (
-                "71 0dd000", False, 1, "false", ["0dd000"], "::error::Release PR #71 merged as 0dd000"),
+                "71 0dd000", False, "1", 1, "false", ["0dd000"], [], "::error::Release PR #71 merged as 0dd000"),
             "this commit and an older one": (
-                "71 abc123\n72 def456", False, 1, "true", ["def456"], "::error::Release PR #72 merged as def456"),
+                "71 abc123\n72 def456", False, "0", 1, "true", ["def456"], ["def456"],
+                "::error::Release PR #72 merged as def456"),
+            "this commit and an older one whose run is still going": (
+                "71 abc123\n72 def456", False, "1", 1, "false", ["def456"], ["def456"],
+                "::error::More than one release PR is pending"),
             "a newer merge, then an older one": (
-                "71 fff999\n72 def456", False, 1, "false", ["fff999", "def456"],
+                "71 fff999\n72 def456", False, "0", 1, "false", ["fff999", "def456"], ["def456"],
                 "::error::Release PR #72 merged as def456"),
             "this commit and a newer one": (
-                "71 abc123\n72 fff999", False, 1, "false", ["fff999"], "::error::More than one release PR is pending"),
+                "71 abc123\n72 fff999", False, "0", 1, "false", ["fff999"], [],
+                "::error::More than one release PR is pending"),
             "a newer one and this commit": (
-                "71 fff999\n72 abc123", False, 1, "false", ["fff999"], "::error::More than one release PR is pending"),
-            "the gh query fails": ("", True, 1, None, [], None),
-            "the compare call fails": ("71 def456", "compare", 1, None, ["def456"], None),
+                "71 fff999\n72 abc123", False, "0", 1, "false", ["fff999"], [],
+                "::error::More than one release PR is pending"),
+            "the gh query fails": ("", True, "0", 1, None, [], [], None),
+            "the compare call fails": ("71 def456", "compare", "0", 1, None, ["def456"], [], None),
+            "the runs call fails": ("71 def456", "runs", "0", 1, None, ["def456"], ["def456"], None),
         }
         for repo_type in ("python", "nextjs"):
             guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
             self.assertEqual(guard.get("id"), "guard")
-            for label, (pending, fail, code, release, compared, message) in cases.items():
+            for label, (pending, fail, running, code, release, compared, listed, message) in cases.items():
                 with self.subTest(repo_type=repo_type, case=label):
                     output.write_text("")
                     argv_file.write_text("")
@@ -1058,16 +1081,25 @@ class ReleaseGateGuardTests(unittest.TestCase):
                             "PATH": f"{tmp.name}:/usr/bin:/bin", "ARGV_FILE": str(argv_file),
                             "FAKE_PENDING": pending, "FAKE_FAIL": "1" if fail is True else "",
                             "FAKE_COMPARE_FAIL": "1" if fail == "compare" else "",
+                            "FAKE_RUNS_FAIL": "1" if fail == "runs" else "",
+                            "FAKE_RUNNING": running,
                             "REPO": "octocat/sample", "TESTED_SHA": "abc123",
                             "GITHUB_OUTPUT": str(output),
                         },
                     )
                     self.assertEqual(result.returncode, code, result.stdout + result.stderr)
                     calls = [line.split("\0")[:-1] for line in argv_file.read_text().split("\n") if line]
-                    self.assertEqual(calls, [expected_argv] + [
-                        ["api", f"repos/octocat/sample/compare/abc123...{oid}", "--jq", ".status"]
-                        for oid in compared
-                    ])
+                    expected_calls = [expected_argv]
+                    for oid in compared:
+                        expected_calls.append(
+                            ["api", f"repos/octocat/sample/compare/abc123...{oid}", "--jq", ".status"])
+                        if oid in listed:
+                            expected_calls.append([
+                                "api",
+                                f"repos/octocat/sample/actions/workflows/release-please.yml/runs?head_sha={oid}",
+                                "--jq", '[.workflow_runs[] | select(.status != "completed")] | length',
+                            ])
+                    self.assertEqual(calls, expected_calls)
                     if message:
                         self.assertIn(message, result.stdout)
                     expected_output = "" if release is None else f"release={release}\n"
@@ -1762,7 +1794,8 @@ class ReleaseGuardTokenTests(unittest.TestCase):
                 if repo_type == "simple":
                     self.assertNotIn("permissions", job)
                 else:
-                    self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
+                    self.assertEqual(
+                        job["permissions"], {"actions": "read", "contents": "read", "pull-requests": "read"})
 
 
 if __name__ == "__main__":

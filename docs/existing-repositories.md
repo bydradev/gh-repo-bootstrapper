@@ -283,11 +283,12 @@ differently between releases (patch releases included;
 2026-10-21), and a reformatted workflow would be `local-modified`. `ci.yml`
 and `test.yml` stay formatted.
 
-The template's `release-please.yml` sets `concurrency.queue: max`, so a push
-no longer cancels the pending run of a release merge (unless 100 runs are
-already waiting; then re-run the cancelled one). actionlint 1.7.12 does not
-know that key yet, and in `nextjs` it also reports the `vulnerability-alerts:
-read` permission of `baseline-review.yml` as an unknown scope, although
+The template's `release-please.yml` sets `concurrency.queue: max` (on its
+`release-please` job in every type but `simple`, on the workflow in
+`simple`), so a push never cancels the pending release job of a release
+merge (unless 100 are already waiting; then re-run the cancelled one).
+actionlint 1.7.12 does not know that key yet, and in `nextjs` it also
+reports the `vulnerability-alerts: read` permission of `baseline-review.yml` as an unknown scope, although
 GitHub's workflow syntax reference lists it (checked 2026-10-09) and the
 weekly review needs it to read Dependabot alerts. A repository that runs
 actionlint ignores both for those files:

@@ -39,9 +39,10 @@ Checks performed on each generated file:
     must pin the operator-ruled configuration (strict False, enforce_admins
     True, a required PR with zero required approvals, no push restrictions,
     every conversation resolved) and contexts identical to required_status_checks(), for every repo type
-  - release-gated full-suite contract: rendered Python, Swift, and Rust
-    release-please.yml callers must select the full suite for manual dispatch
-    and for the Release Please release commit
+  - release-gated full-suite contract: rendered Next.js, Python, Swift, Rust
+    and Android release-please.yml callers must select the full suite for manual
+    dispatch and for the Release Please release commit, and nothing more for an
+    ordinary push (Next.js passes the same expression as `e2e`)
   - the word `secrets`: every generated workflow, and the bootstrapper's own,
     uses it only as a static secrets.NAME or a `secrets:` mapping key, as
     some generated repositories' raw-text workflow validators require
@@ -106,6 +107,20 @@ RELEASE_FULL_SUITE_EXPRESSION = (
     "${{ github.event_name == 'workflow_dispatch' || "
     "startsWith(github.event.head_commit.message, 'chore(main): release') }}"
 )
+# The gated release workflows set concurrency per job. The test job of an
+# ordinary push shares one group that a newer push cancels; a full run (the
+# release merge or a dispatch) gets a group of its own, keyed by the run id,
+# that nothing cancels. The release job of every run waits in one queue that
+# never cancels. GitHub refuses queue: max with cancel-in-progress: true in
+# one block (docs.github.com "Workflow syntax for GitHub Actions", checked
+# 2026-11-02), so the two cannot share a group.
+RELEASE_TEST_CONCURRENCY = {
+    "group": "release-please-test-${{ ("
+    + RELEASE_FULL_SUITE_EXPRESSION[4:-3]
+    + ") && github.run_id || 'push' }}",
+    "cancel-in-progress": True,
+}
+RELEASE_JOB_CONCURRENCY = {"group": "release-please", "cancel-in-progress": False, "queue": "max"}
 
 OWN_WORKFLOWS_DIR = Path(__file__).parent / ".github" / "workflows"
 # gh-agent-kit installs its workflows next to this repository's own and lists
@@ -1754,7 +1769,7 @@ def check_release_full_suite_contract(label: str, repo_type: str, files: dict) -
     dispatch into the cheap path, so validate the rendered caller value rather
     than only checking that the input exists.
     """
-    if repo_type not in ("python", "swift", "rust", "android"):
+    if repo_type not in ("nextjs", "python", "swift", "rust", "android"):
         return []
 
     path = ".github/workflows/release-please.yml"
@@ -1764,15 +1779,19 @@ def check_release_full_suite_contract(label: str, repo_type: str, files: dict) -
 
     try:
         workflow = yaml.safe_load(source) or {}
-        full = workflow["jobs"]["test"]["with"]["full"]
+        passed = workflow["jobs"]["test"]["with"]
+        if "full" not in passed:
+            raise KeyError("full")
     except (KeyError, TypeError, yaml.YAMLError) as exc:
         return [f"[{label}] {path} has no readable jobs.test.with.full contract — {exc}"]
 
-    if full != RELEASE_FULL_SUITE_EXPRESSION:
-        return [
-            f"[{label}] {path} jobs.test.with.full must be "
-            f"{RELEASE_FULL_SUITE_EXPRESSION!r}, got {full!r}"
-        ]
+    # Next.js also passes `e2e`, with the same value: an ordinary push runs
+    # the pull-request suite and leaves the browser suite to full runs.
+    expected = {"full": RELEASE_FULL_SUITE_EXPRESSION}
+    if repo_type == "nextjs":
+        expected["e2e"] = RELEASE_FULL_SUITE_EXPRESSION
+    if passed != expected:
+        return [f"[{label}] {path} jobs.test.with must be exactly {expected!r}, got {passed!r}"]
     return []
 
 
@@ -1962,12 +1981,13 @@ EXPECTED_JOB_PERMISSIONS = {
     RELEASE_PLEASE_JOB: None,
 }
 
-# The guard lists pull requests (Pull requests, read) and compares commits
-# (Contents, read) in the same repository. A job-level block replaces the
+# The guard lists pull requests (Pull requests, read), compares commits
+# (Contents, read) and lists the workflow runs of a pending release merge
+# (Actions, read) in the same repository. A job-level block replaces the
 # workflow's, so contents: read is stated again. Nothing here is write: the
 # App token, not GITHUB_TOKEN, is what release-please writes with.
 GATED_RELEASE_TYPES = ("nextjs", "python", "swift", "rust", "android")
-GATED_RELEASE_JOB_PERMISSIONS = {"contents": "read", "pull-requests": "read"}
+GATED_RELEASE_JOB_PERMISSIONS = {"actions": "read", "contents": "read", "pull-requests": "read"}
 
 
 def check_workflow_permissions(label: str, repo_type: str, files: dict) -> list:
@@ -2783,10 +2803,13 @@ github.event.pull_request.user.login != 'dependabot[bot]' &&
 # A workflow that runs on push and cancels in-progress runs gives each non-PR
 # run its own concurrency group, so no run on main shares a group: a shared
 # group cancels pending runs whatever cancel-in-progress says. Only
-# release-please.yml's own `release-please` group with cancel-in-progress:
-# false and queue: max is exempt: it serializes on purpose, and queue: max
-# keeps every pending run, so a release merge's own run is never replaced.
-# release-please.yml must keep exactly that block; leaving it out fails.
+# release-please.yml is exempt, with exactly one of two layouts; leaving its
+# blocks out fails. Without a test job (`simple`) the workflow keeps the
+# `release-please` group with cancel-in-progress: false and queue: max: it
+# serializes on purpose, and queue: max keeps every pending run, so a release
+# merge's own run is never replaced. With one, the workflow sets no group, and
+# the test and release jobs set RELEASE_TEST_CONCURRENCY and
+# RELEASE_JOB_CONCURRENCY: only an ordinary push's test job is ever cancelled.
 PUSH_CONCURRENCY_GROUP_RE = re.compile(
     r"[\w-]*\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| github\.run_id \}\}"
 )
@@ -2804,14 +2827,32 @@ def _workflow_hardening(label: str, files: dict) -> list:
         elif isinstance(triggers, list):
             triggers = dict.fromkeys(triggers)
         concurrency = workflow.get("concurrency")
-        serialized = (
-            path == ".github/workflows/release-please.yml"
-            and isinstance(concurrency, dict)
-            and concurrency.get("group") == "release-please"
-            and concurrency.get("cancel-in-progress") is False
-            and concurrency.get("queue") == "max"
-        )
-        if path == ".github/workflows/release-please.yml" and not serialized:
+        release = path == ".github/workflows/release-please.yml"
+        jobs = workflow.get("jobs") if isinstance(workflow.get("jobs"), dict) else {}
+        per_job = release and "test" in jobs
+        serialized = release and not per_job and concurrency == RELEASE_JOB_CONCURRENCY
+        if per_job:
+            test_job = jobs.get("test") if isinstance(jobs.get("test"), dict) else {}
+            release_job = jobs.get("release-please") if isinstance(jobs.get("release-please"), dict) else {}
+            if concurrency is not None:
+                errors.append(
+                    f"[{label}] {path} must set concurrency on its jobs, not the workflow, so a "
+                    f"newer push cancels only an ordinary push's test job"
+                )
+            if test_job.get("concurrency") != RELEASE_TEST_CONCURRENCY:
+                errors.append(
+                    f"[{label}] {path} job 'test' must set concurrency {RELEASE_TEST_CONCURRENCY!r}, "
+                    f"so a newer push cancels an ordinary push's tests and never a release merge's "
+                    f"or a dispatch's; got {test_job.get('concurrency')!r}"
+                )
+            if release_job.get("concurrency") != RELEASE_JOB_CONCURRENCY:
+                errors.append(
+                    f"[{label}] {path} job 'release-please' must serialize with concurrency group "
+                    f"release-please, cancel-in-progress: false and queue: max, or a newer push can "
+                    f"replace the pending release job of a release merge; got "
+                    f"{release_job.get('concurrency')!r}"
+                )
+        elif release and not serialized:
             # Checked whether or not a concurrency block is present: dropping
             # the whole block must fail too, not skip the push check below.
             errors.append(
@@ -2819,7 +2860,7 @@ def _workflow_hardening(label: str, files: dict) -> list:
                 f"release-please, cancel-in-progress: false and queue: max, or a newer "
                 f"push can replace the pending run for a release merge"
             )
-        elif "push" in triggers and concurrency is not None and not serialized:
+        elif "push" in triggers and concurrency is not None and not release:
             group = concurrency.get("group") if isinstance(concurrency, dict) else concurrency
             if not PUSH_CONCURRENCY_GROUP_RE.fullmatch(str(group)):
                 errors.append(
@@ -4234,7 +4275,7 @@ def run_self_tests() -> list:
     # standing write access the live-run test proved unnecessary.
     # `simple` declares no block, so any block fails; a gated release declares
     # only its guard's reads, so the same write fails as a drift from them.
-    release_job_reads = "    permissions:\n      contents: read\n      pull-requests: read\n"
+    release_job_reads = "    permissions:\n      actions: read\n      contents: read\n      pull-requests: read\n"
     for repo_type in ("nextjs", "python", "swift", "rust", "android", "simple"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
@@ -4242,7 +4283,9 @@ def run_self_tests() -> list:
         workflow = files[".github/workflows/release-please.yml"]
         if repo_type in GATED_RELEASE_TYPES:
             workflow = workflow.replace(
-                release_job_reads, "    permissions:\n      contents: write\n      pull-requests: read\n", 1
+                release_job_reads,
+                "    permissions:\n      actions: read\n      contents: write\n      pull-requests: read\n",
+                1,
             )
             needle = "must grant exactly"
         else:
@@ -4258,12 +4301,14 @@ def run_self_tests() -> list:
                 f"as expected: {result}"
             )
 
-    # Case 29i: the guard reads pull requests and commits with the workflow
-    # token, so a gated release's job declares exactly contents: read and
-    # pull-requests: read. A job-level block replaces the workflow's, so the
-    # two ways to break it that a glance would miss are keeping only the new
-    # line (the guard then cannot compare commits) and dropping the block (the
-    # guard then cannot list pull requests, and a release PR is never tagged).
+    # Case 29i: the guard reads pull requests, commits and workflow runs with
+    # the workflow token, so a gated release's job declares exactly
+    # actions: read, contents: read and pull-requests: read. A job-level block
+    # replaces the workflow's, so the ways to break it that a glance would miss
+    # are keeping only one line (the guard then cannot compare commits or list
+    # pull requests), dropping the block (a release PR is then never tagged)
+    # and the block before 0.24.0 (the guard then cannot tell that an earlier
+    # release merge's run is still going, and fails a later push's run).
     for repo_type in GATED_RELEASE_TYPES:
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
@@ -4272,6 +4317,8 @@ def run_self_tests() -> list:
             ("no block", "", "declares no permissions block"),
             ("only pull-requests", "    permissions:\n      pull-requests: read\n", "must grant exactly"),
             ("only contents", "    permissions:\n      contents: read\n", "must grant exactly"),
+            ("no actions read",
+             "    permissions:\n      contents: read\n      pull-requests: read\n", "must grant exactly"),
             ("pull-requests write",
              "    permissions:\n      contents: read\n      pull-requests: write\n", "must grant exactly"),
             ("an extra scope", release_job_reads + "      issues: read\n", "must grant exactly"),
@@ -4470,21 +4517,34 @@ def run_self_tests() -> list:
         errors.append("self-test 'spaced scheme' leaked shell quoting into prose")
 
     # Case 37: every release-gated generated repository type must keep manual
-    # dispatch on the full suite, not only the Release Please merge commit.
+    # dispatch on the full suite, not only the Release Please merge commit, and
+    # Next.js must not run e2e on an ordinary push (`e2e: true`, as before 0.24.0).
     release_only = "${{ startsWith(github.event.head_commit.message, 'chore(main): release') }}"
-    for repo_type in ("python", "swift", "rust", "android"):
+    mutations = [(repo_type, f"full: \"{RELEASE_FULL_SUITE_EXPRESSION}\"", f"full: \"{release_only}\"")
+                 for repo_type in ("nextjs", "python", "swift", "rust", "android")]
+    mutations += [
+        ("nextjs", f"e2e: \"{RELEASE_FULL_SUITE_EXPRESSION}\"", f"e2e: \"{release_only}\""),
+        ("nextjs", f"e2e: \"{RELEASE_FULL_SUITE_EXPRESSION}\"", "e2e: true"),
+        ("nextjs", f"      e2e: \"{RELEASE_FULL_SUITE_EXPRESSION}\"\n", ""),
+        ("python", f"      full: \"{RELEASE_FULL_SUITE_EXPRESSION}\"\n",
+         f"      full: \"{RELEASE_FULL_SUITE_EXPRESSION}\"\n      e2e: true\n"),
+    ]
+    for repo_type, old, new in mutations:
         cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         files = bootstrap.generate_files(dict(cfg))
         mutated = dict(files)
-        mutated[".github/workflows/release-please.yml"] = files[
-            ".github/workflows/release-please.yml"
-        ].replace(RELEASE_FULL_SUITE_EXPRESSION, release_only, 1)
+        source = files[".github/workflows/release-please.yml"]
+        if source.count(old) != 1:
+            errors.append(f"self-test '{repo_type} release-only contract' cannot find {old!r}")
+            continue
+        mutated[".github/workflows/release-please.yml"] = source.replace(old, new, 1)
         result = check_release_full_suite_contract(
             f"self-test:{repo_type} release-only contract", repo_type, mutated
         )
-        if not any("jobs.test.with.full must be" in e for e in result):
+        if not any("jobs.test.with must be exactly" in e for e in result):
             errors.append(
-                f"self-test '{repo_type} release-only contract' did not fail as expected: {result}"
+                f"self-test '{repo_type} release-only contract' did not fail as expected "
+                f"for {new!r}: {result}"
             )
 
     # Case 38: workspace guidance fails closed — a missing per-type mechanism,

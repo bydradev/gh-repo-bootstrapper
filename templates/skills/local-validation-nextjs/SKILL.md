@@ -98,8 +98,8 @@ As generated, CI validates in three tiers. This repository owns
 call in `release-please.yml`, for its current tiers:
 
 - **Pull requests (`ci.yml`):** fast validation (the `build` job only: production advisory audit, baseline verification, lint, format check, typecheck, unit tests, production build) with browser E2E skipped.
-- **Push to `main` (`release-please.yml`):** the build suite plus a slim desktop-only Chromium E2E pass (`--project=chromium`).
-- **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** the full validation suite, including every Playwright project.
+- **Ordinary push to `main` (`release-please.yml`):** the same `build` job as a pull request, browser E2E skipped. A newer push cancels it.
+- **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** the full validation suite, including every Playwright project. Nothing cancels it.
 
 `test.yml` runs `npm run lint` as the scaffold defines it, and the lint baseline
 requires the `lint` script in `package.json` to run `eslint --max-warnings=0`

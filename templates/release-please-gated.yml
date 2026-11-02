@@ -18,17 +18,12 @@ on:
 permissions:
   contents: read
 
-# Runs on main go one at a time, roughly in the order they start waiting
-# (GitHub does not guarantee it). queue: max keeps every waiting run (up to
-# 100) instead of the default, where a newer push cancels the one still
-# pending, so the run for a release merge gets to test and tag it. Past 100
-# waiting runs GitHub cancels new ones; re-run a cancelled release merge's run.
-# Source: docs.github.com "Workflow syntax for GitHub Actions", concurrency,
-# checked 2026-10-15. actionlint 1.7.12 does not know the key yet.
-concurrency:
-  group: release-please
-  cancel-in-progress: false
-  queue: max
+# Concurrency is set per job, not here: a newer push to main cancels the test
+# job of an ordinary push, while the release job of every run waits its turn
+# and is never cancelled. GitHub refuses queue: max together with
+# cancel-in-progress: true in one block, so the two need separate groups.
+# Source: docs.github.com "Workflow syntax for GitHub Actions"
+# (concurrency, jobs.<job_id>.concurrency), checked 2026-11-02.
 
 jobs:
   # `full` is true for a manual dispatch and for the commit that is the
@@ -37,11 +32,30 @@ jobs:
   # for every other push to main. The Swift suite runs only swift-format lint
   # when `full` is false and reserves xcodebuild test for full runs (pull
   # requests pass false too, so the Xcode lane runs only on a dispatch or the
-  # release merge); the Python and Rust suites ignore `full` and run every check
-  # on every push. Either way this job must pass before release-please runs, so
-  # a failing suite blocks the release.
+  # release merge); the Android suite runs its fast checks when `full` is false
+  # and `./gradlew check` when it is true; the Python and Rust suites ignore
+  # `full` and run every check on every push. Either way this job must pass
+  # before release-please runs, so a failing suite blocks the release.
   test:
     uses: ./.github/workflows/test.yml
+    # An ordinary push to main joins one group, and the next ordinary push
+    # cancels its test job, waiting or in progress; that run's release job
+    # then does not run, and the run concludes cancelled. A re-run of an older
+    # ordinary push joins the same group and cancels a newer push's tests. A
+    # release merge and a manual dispatch each get a group of their own (the
+    # run id), so no push cancels them: the release merge's own run tests it
+    # and tags it. A release merge is recognised by its commit message, so
+    # keep release-please's "chore(main): release" title when merging it. A
+    # cancelled run is still billed for the minutes it used, and its commit
+    # gets no test results, so deploy the newest commit on main. Concurrency
+    # is one of the keys a job that calls a reusable workflow can set.
+    # Source: docs.github.com "Workflow syntax for GitHub Actions"
+    # (jobs.<job_id>.concurrency) and "Reusing workflow configurations"
+    # (supported keywords for jobs that call a reusable workflow), checked
+    # 2026-11-02.
+    concurrency:
+      group: "release-please-test-${{ (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(main): release')) && github.run_id || 'push' }}"
+      cancel-in-progress: true
     with:
       full: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(main): release') }}"
 
@@ -49,15 +63,32 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The guard step below lists pull requests and compares commits with the
-    # workflow token, not the App token, so this job reads both. A job-level
-    # block replaces the workflow's, so contents: read is repeated here.
+    # The release jobs of all runs go one at a time, roughly in the order they
+    # start waiting (GitHub does not guarantee it), and queue: max keeps every
+    # waiting one (up to 100) instead of the default, where a newer one
+    # cancels the one still pending. Past 100 GitHub cancels new ones; re-run
+    # a cancelled release merge's run. Test jobs of different runs overlap, so
+    # a later push's release job can come before that of an earlier release
+    # merge; the guard below then leaves the release to that merge's own run.
     # Source: docs.github.com "Workflow syntax for GitHub Actions"
-    # (permissions); "Forming calls with GraphQL" (the data read decides the
-    # permission; gh pr list --label searches through GraphQL); and the REST
-    # reads of the same data, "List pull requests" (Pull requests, read) and
-    # "Compare two commits" (Contents, read), checked 2026-10-21.
+    # (jobs.<job_id>.concurrency), checked 2026-11-02. actionlint 1.7.12 does
+    # not know the queue key yet.
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
+      queue: max
+    # The guard step below lists pull requests, compares commits and lists
+    # workflow runs with the workflow token, not the App token, so this job
+    # reads all three. A job-level block replaces the workflow's, so
+    # contents: read is repeated here. Source: docs.github.com "Workflow syntax
+    # for GitHub Actions" (permissions); "Forming calls with GraphQL" (the data
+    # read decides the permission; gh pr list --label searches through
+    # GraphQL); and the REST reads of the same data, "List pull requests" (Pull
+    # requests, read) and "Compare two commits" (Contents, read), checked
+    # 2026-10-21; "List workflow runs for a workflow" (Actions, read, in
+    # "Permissions required for GitHub Apps"), checked 2026-11-02.
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
@@ -105,9 +136,10 @@ jobs:
       # A release PR whose merge failed `test` keeps its "autorelease: pending"
       # label, and release-please would tag that untested merge on the next
       # passing push. Refuse when the pending release merge is older than this
-      # commit, and let release-please tag only on that merge's own run, so a
-      # release PR merged while this run is in flight waits for its own tested
-      # run. This assumes one release PR at a time, which release-please keeps for
+      # commit and no run for it is still going, and let release-please tag only
+      # on that merge's own run: a release PR merged after this commit, or
+      # before it while its own run is still testing it, waits for that run.
+      # This assumes one release PR at a time, which release-please keeps for
       # the single-package config generated here (it opens no release PR while a
       # merged one is pending). Never label a PR "autorelease: pending" by hand,
       # and rework this guard before moving to a multi-package config. The guard
@@ -127,23 +159,36 @@ jobs:
           while read -r number oid; do
             [ -n "$number" ] || continue
             if [ "$oid" != "$TESTED_SHA" ]; then
-              # A release merged after this commit is still queued behind this
-              # run; its own run tests and releases it.
+              # A release merged after this commit has its own run, which tests
+              # and releases it.
               order=$(gh api "repos/$REPO/compare/$TESTED_SHA...$oid" --jq .status </dev/null)
               if [ "$order" = "ahead" ]; then
                 echo "::notice::Release PR #$number merged as $oid after $TESTED_SHA; that commit's own run releases it."
-                newer=true
+                other=true
                 continue
               fi
-              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA). If the workflow run for $oid is still queued, let it finish: it tests and releases that merge. Re-run it if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
+              # Test jobs of different runs overlap, so this run can get here
+              # while the run of an earlier release merge is still testing it.
+              # That run then tests and releases its merge. Any run of this
+              # workflow on that commit that has not completed counts.
+              if [ "$order" = "behind" ]; then
+                running=$(gh api "repos/$REPO/actions/workflows/release-please.yml/runs?head_sha=$oid" \
+                  --jq '[.workflow_runs[] | select(.status != "completed")] | length' </dev/null)
+                if [ "$running" -gt 0 ] 2>/dev/null; then
+                  echo "::notice::Release PR #$number merged as $oid before $TESTED_SHA, and a run for $oid is still going; that run tests and releases it."
+                  other=true
+                  continue
+                fi
+              fi
+              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA), and no run for $oid is still going. Re-run the run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
               status=1
               continue
             fi
             release=true
           done <<< "$pending"
           # release-please tags every pending merge at once, so it must not run
-          # while a newer, untested one is pending too.
-          if [ "${release:-false}" = true ] && [ -n "${newer:-}" ]; then
+          # while another, untested one is pending too.
+          if [ "${release:-false}" = true ] && [ -n "${other:-}" ]; then
             echo "::error::More than one release PR is pending, and release-please would tag them all, including a merge this run did not test. Leave 'autorelease: pending' on one of them and re-run that merge's own workflow run."
             release=false
             status=1

@@ -78,6 +78,9 @@ NOREPLY_LOCAL_PARTS = frozenset({"noreply", "no-reply"})
 NOREPLY_DOMAINS = ("users.noreply.github.com", "example.com", "example.org", "example.net")
 PUBLISHED_ADDRESSES = frozenset({"github@bydra.dev", "git@github.com"})
 
+# Only this complete literal line exempts its email; it does not verify authorship.
+DEPENDABOT_FOOTER = "Signed-off-by: dependabot[bot] <support@github.com>"
+
 # The check's own script and tests hold every pattern and example it finds.
 EXEMPT_FILES = frozenset({".github/scripts/check_public_content.py", "tests/test_public_content.py"})
 # A changed file's path is printed only when it has no finding and only these
@@ -116,7 +119,7 @@ def private_address(local, domain):
 
 def scan(text, names, allow_attribution=False):
     """Return (line number, kind) for each finding in text, in order."""
-    lines = text.splitlines()
+    lines = re.split(r"\r?\n", text)
     skip = 0
     if allow_attribution and len(lines) >= 2 and all(
         pattern.fullmatch(line.strip()) for pattern, line in zip(ATTRIBUTION, lines)
@@ -138,7 +141,9 @@ def scan(text, names, allow_attribution=False):
             if repository not in PUBLIC_REPOSITORIES | PLACEHOLDER_REPOSITORIES:
                 kinds.append("a bydradev or bydraio repository outside the public list")
                 break
-        if any(private_address(*match.groups()) for match in EMAIL.finditer(line)):
+        if line != DEPENDABOT_FOOTER and any(
+            private_address(*match.groups()) for match in EMAIL.finditer(line)
+        ):
             kinds.append("an email address other than a noreply one")
         if any(pattern.search(line) for _, pattern in names):
             kinds.append("a private repository name")
@@ -148,8 +153,8 @@ def scan(text, names, allow_attribution=False):
 
 def git(*args):
     return subprocess.run(
-        ["git", *args], check=True, capture_output=True, encoding="utf-8", errors="replace"
-    ).stdout
+        ["git", *args], check=True, capture_output=True
+    ).stdout.decode("utf-8", "replace")
 
 
 def commits(revision_range):
@@ -188,13 +193,15 @@ def changed_files(revision_range):
             # by a column per parent: + where the parent lacks the line, - where
             # only the parent has it. A line every parent lacks is added, even
             # one that reads "+++".
-            for line in git(*show, "--unified=0", "--", *paths).split("\n"):
+            diff_lines = git(*show, "--unified=0", "--", *paths).split("\n")
+            for index, line in enumerate(diff_lines):
                 header = re.match(r"(@@+) .*? \+(\d+)(?:,\d+)? \1", line)
                 if header:
                     columns, number = len(header[1]) - 1, int(header[2])
                 elif columns and not line.startswith("\\") and "-" not in line[:columns]:
                     if line[:columns] == "+" * columns:
-                        added.append((number, line[columns:]))
+                        ending = "" if diff_lines[index + 1].startswith("\\ No newline") else "\n"
+                        added.append((number, line[columns:] + ending))
                     number += 1
             yield commit, place, paths[-1], added
 
@@ -217,8 +224,8 @@ def main(argv=None):
         print("PRIVATE_REPO_NAMES is not set, so bare private repository names were not checked.")
 
     sources = [("title", title, False) for title in args.title]
-    sources += [("body", open(path, encoding="utf-8").read(), True) for path in args.pr_body]
-    sources += [(f"text {path}", open(path, encoding="utf-8").read(), False) for path in args.text]
+    sources += [("body", open(path, encoding="utf-8", newline="").read(), True) for path in args.pr_body]
+    sources += [(f"text {path}", open(path, encoding="utf-8", newline="").read(), False) for path in args.text]
     for revision_range in args.ranges:
         sources += [(f"commit {sha[:7]}", message, False) for sha, message in commits(revision_range)]
 

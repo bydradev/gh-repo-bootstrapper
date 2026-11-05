@@ -116,6 +116,30 @@ class ScanTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(kinds(text), [])
 
+    def test_exact_public_footer_only(self):
+        footer = "Signed-off-by: dependabot[bot] <support@github.com>"
+        for text in (footer, footer + "\n", footer + "\r\n", "update\n\n" + footer,
+                     footer + "\n" + footer):
+            self.assertEqual(kinds(text), [])
+        near = [" " + footer, footer + " ", "\t" + footer, footer + "\t",
+                footer.lower(), footer.replace("dependabot", "otherbot"),
+                footer.replace("github.com", "github.org"), footer.replace("support", "Support"),
+                footer.replace(": ", ":  "), footer.replace("[bot]", ""),
+                footer.replace("github.com", "GITHUB.COM"), "`" + footer + "`",
+                "support@github.com", footer + " <sam@mailbox.test>",
+                "sam@mailbox.test " + footer, footer + "\r", footer + "\u2028",
+                footer + "\v", footer + "\x85", footer + "\x00"]
+        for text in near:
+            with self.subTest(text=text):
+                self.assertIn("an email address other than a noreply one", kinds(text))
+        for forbidden in ("sam@mailbox.test", "Claude-Session: x", "from sunrise-app",
+                          "bydradev/secret-thing", "/Users/sam/x"):
+            self.assertEqual(kinds(footer + "\n" + forbidden), kinds(forbidden))
+            self.assertEqual(kinds(forbidden + "\n" + footer), kinds(forbidden))
+            self.assertTrue(kinds(footer + " " + forbidden))
+        # The exception does not bypass independent configured-name checks.
+        self.assertEqual(kinds(footer, names="dependabot"), ["a private repository name"])
+
     def test_reports_line_numbers(self):
         found = check.scan("ok\n\nClaude-Session: x\n", [], False)
         self.assertEqual(found, [(3, "a Claude-Session trailer")])
@@ -184,6 +208,43 @@ class CommandLineTests(unittest.TestCase):
         code, out = self._run("--title=docs: say what changes", f"--pr-body={body}")
         self.assertEqual(code, 0, out)
         self.assertNotIn("::error", out)
+
+    def test_public_footer_entrypoints(self):
+        footer = "Signed-off-by: dependabot[bot] <support@github.com>"
+        body = self.dir / "body.md"
+        for ending in ("\n", "\r\n"):
+            body.write_bytes(("update" + ending + footer + ending).encode())
+            for option in ("--text", "--pr-body"):
+                code, out = self._run(f"{option}={body}")
+                self.assertEqual(code, 0, out)
+            body.write_text(footer + "\nsam@mailbox.test\n")
+            code, out = self._run(f"--pr-body={body}")
+            self.assertEqual(code, 1, out)
+            self.assertIn("line 2: an email address", out)
+            self.assertNotIn("mailbox", out)
+        body.unlink()
+        self._git("init", "-q", "-b", "main")
+        self._commit("chore: base")
+        self._git("tag", "base")
+        self._commit("build: update\n\n" + footer, {"notes.md": (footer + "\r\n").encode()})
+        code, out = self._run("--range=base..main", "--files=base..main")
+        self.assertEqual(code, 0, out)
+        for suffix, expected in (("", 0), ("\r", 1), ("\v", 1), ("\u2028", 1)):
+            content = (footer + suffix).encode()
+            self._commit("test: line endings", {"notes.md": content})
+            code, out = self._run("--files=HEAD^!")
+            self.assertEqual(code, expected, out)
+            body.write_bytes(content)
+            for option in ("--text", "--pr-body"):
+                code, out = self._run(f"{option}={body}")
+                self.assertEqual(code, expected, out)
+            body.unlink()
+        self._commit("build: update\n\n" + footer + "\nsam@mailbox.test",
+                     {"notes.md": footer + "\nsam@mailbox.test\n"})
+        code, out = self._run("--range=HEAD^!", "--files=HEAD^!")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out.count("::error"), 2, out)
+        self.assertNotIn("mailbox", out)
 
     def test_says_when_no_names_are_set(self):
         code, out = self._run("--title=docs: x", names="")

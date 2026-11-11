@@ -3114,7 +3114,7 @@ class ManagedBlockTests(unittest.TestCase):
         self.assertIn("managed block: missing; not LF-terminated UTF-8 text, so add it by hand", out.getvalue())
 
     def test_type_specific_gitignore_lines_go_before_the_block(self):
-        for repo_type, line in (("rust", "/target/"), ("swift", "*.xcodeproj/")):
+        for repo_type, line in (("rust", "/target/"), ("swift", "*.xcodeproj/"), ("android", "local.properties")):
             with self.subTest(repo_type=repo_type):
                 gitignore = bootstrap.generate_files(
                     {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App",

@@ -1,0 +1,51 @@
+name: test
+
+# Reusable Android test suite.
+# Called by ci.yml on PRs and by release-please.yml on pushes to main.
+on:
+  workflow_call:
+    inputs:
+      full:
+        description: >-
+          Accepted for caller-contract parity with the Swift test suite, which
+          runs xcodebuild test only when `full` is true. This suite has no such
+          lane (checks run in one ubuntu-latest job), so nothing is gated on it
+          and every run is the full suite. Do not delete it as unused:
+          release-please.yml passes `full`, and an undeclared input fails the
+          workflow at parse time with "Invalid input, full is not defined in the
+          referenced workflow".
+        type: boolean
+        default: true
+
+# The suite only needs to read the repository. Without this block the called
+# workflow inherits the caller's permissions, and a called workflow can only
+# ever narrow what it inherits, never widen it, so an explicit block here is
+# the only way to guarantee build scripts and tests never run with more than
+# read, regardless of what a caller grants itself now or in the future.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require an Android application scaffold
+        run: |
+          if [ ! -f gradlew ]; then
+            echo "::error::No Gradle wrapper found (gradlew missing). Add the application scaffold and wrapper before shipping."
+            exit 1
+          fi
+          if [ ! -x gradlew ]; then
+            echo "::error::Gradle wrapper gradlew is not executable."
+            exit 1
+          fi
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Run checks
+        run: ./gradlew check

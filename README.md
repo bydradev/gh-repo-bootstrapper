@@ -5,7 +5,7 @@ workflows, Release Please, Dependabot, an `AGENTS.md` and skills for coding
 agents, and the GitHub settings that hold them together. It keeps existing
 repositories in line with later templates too.
 
-- **Five repository types:** `nextjs`, `python`, `swift`, `rust` and
+- **Six repository types:** `nextjs`, `python`, `android`, `swift`, `rust` and
   `simple` (release only), each with its own CI.
 - **GitHub settings:** squash-merge only, branch protection on `main`, a
   restricted Actions policy with SHA-pinned actions, and Release Please on its
@@ -48,7 +48,7 @@ storing those two values with them.
 | Flag | Description |
 |---|---|
 | `--name TEXT` | Repository name (lowercase letters, digits, hyphens), or a relative/absolute path ending in one; created in the current directory by default |
-| `--type nextjs\|python\|swift\|rust\|simple` | Repository type |
+| `--type nextjs\|python\|android\|swift\|rust\|simple` | Repository type |
 | `--org TEXT` | GitHub org or user (default: authenticated user) |
 | `--private` / `--public` | Visibility (default: private) |
 | `--postgres` | Add PostgreSQL 16 service to test workflow (nextjs only) |
@@ -80,6 +80,9 @@ storing those two values with them.
 
 # Python library
 ./bootstrap.py --name my-tool --type python --public
+
+# Android app
+./bootstrap.py --name my-android-app --type android
 
 # Rust service or library
 ./bootstrap.py --name my-service --type rust
@@ -136,6 +139,7 @@ export RELEASE_PLEASE_CLIENT_ID="..."
 |---|---|---|---|
 | `nextjs` | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots` |
 | `python` | Python packages and tools | ruff format check, ruff, mypy, pytest | none |
+| `android` | Android applications | `./gradlew check` (formatting, lint, unit tests) | none |
 | `swift` | Xcode apps | `swift-format` lint on every PR; `xcodebuild test` on release merges | `--scheme` (required), `--destination`, `--xcodegen`, `--screenshots` |
 | `rust` | crates and workspaces | `cargo fmt --check`, clippy, `cargo test` | none |
 | `simple` | scripts, docs, anything without a test suite | none: Release Please only | none |

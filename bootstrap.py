@@ -151,6 +151,7 @@ TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "python": _GENERAL_SKILLS + ("local-validation-python",),
     "rust": _GENERAL_SKILLS + ("local-validation-rust",),
     "swift": _GENERAL_SKILLS + ("local-validation-swift",),
+    "android": _GENERAL_SKILLS,
     "nextjs": _GENERAL_SKILLS + (
         "local-validation-nextjs", "baseline-process", "public-site-indexing",
     ),
@@ -984,6 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
             Types:
               nextjs   Full CI + optional PostgreSQL tests
               python   Python CI (ruff / mypy / pytest) + gated Release Please
+              android  Android CI (host checks) + gated Release Please
               swift    Swift/Xcode CI (xcodebuild test) + gated Release Please
               rust     Rust CI (fmt / clippy / cargo test) + gated Release Please
               simple   Release Please only (no tests)
@@ -991,6 +993,7 @@ def build_parser() -> argparse.ArgumentParser:
             Examples:
               ./bootstrap.py
               ./bootstrap.py --name my-app --type nextjs --public
+              ./bootstrap.py --name my-app --type android
               ./bootstrap.py --name my-tool --type python --org my-org
               ./bootstrap.py --name my-app --type swift --scheme MyApp
               ./bootstrap.py --name my-app --type swift --scheme MyApp --xcodegen
@@ -1004,7 +1007,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--name", help="Repository name, or a relative/absolute path ending in one "
                    "(default: created in the current directory)")
-    p.add_argument("--type", choices=["nextjs", "simple", "python", "swift", "rust"],
+    p.add_argument("--type", choices=["nextjs", "simple", "python", "android", "swift", "rust"],
                    dest="repo_type", help="Repository type")
     p.add_argument("--org", help="GitHub org or user (default: authenticated user)")
     vis = p.add_mutually_exclusive_group()
@@ -1463,7 +1466,7 @@ def gather_config(args) -> dict:
         if ni:
             _die("--type is required in --non-interactive mode")
         print("\nRepository type:")
-        repo_type = prompt_choice("Select type", ["nextjs", "python", "swift", "rust", "simple"])
+        repo_type = prompt_choice("Select type", ["nextjs", "python", "android", "swift", "rust", "simple"])
 
     # --- owner ---
     owner = args.org
@@ -1654,7 +1657,7 @@ def required_status_checks(repo_type: str) -> list:
     """
     if repo_type == "nextjs":
         return ["validate-title", "test / build", "test / e2e"]
-    elif repo_type in ("python", "swift", "rust"):
+    elif repo_type in ("python", "swift", "rust", "android"):
         return ["validate-title", "test / test"]
     else:
         return ["validate-title"]
@@ -1795,6 +1798,12 @@ def generate_files(cfg: dict) -> dict:
         # exists. The generated AGENTS.md says when to add it.
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
 
+    elif repo_type == "android":
+        files[".github/workflows/release-please.yml"] = _load("release-please-gated.yml")
+        files[".github/workflows/ci.yml"] = _load("ci.yml")
+        files[".github/workflows/test.yml"] = _load("test-android.yml")
+        files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
+
     else:  # simple
         files[".github/workflows/release-please.yml"] = _load("release-please-simple.yml")
         files[".github/dependabot.yml"] = _load("dependabot-actions-only.yml")
@@ -1844,6 +1853,8 @@ def generate_files(cfg: dict) -> dict:
             .replace("__DESTINATION_EXAMPLE__", _DESTINATION_EXAMPLES[destination])
             .replace("__DESTINATION_KIND__", destination)
         )
+    elif repo_type == "android":
+        tooling = _load("AGENTS-android-commands.md")
     files["CLAUDE.md"] = _load("CLAUDE.md")
     agents = _load("AGENTS.md")
     agents = _compose(agents, "TYPE_PREAMBLE", preamble)
@@ -1866,6 +1877,18 @@ def generate_files(cfg: dict) -> dict:
         gitignore = _before_managed_block(gitignore, "# XcodeGen output (project.yml is the source of truth)\n*.xcodeproj/\n")
     if repo_type == "rust":
         gitignore = _before_managed_block(gitignore, "# Rust build output\n/target/\n")
+    if repo_type == "android":
+        gitignore = _before_managed_block(
+            gitignore,
+            "# Android local SDK, build and signing output\n"
+            ".gradle/\n"
+            "build/\n"
+            "local.properties\n"
+            ".cxx/\n"
+            "captures/\n"
+            "*.jks\n"
+            "*.keystore\n",
+        )
     files[".gitignore"] = gitignore
     files["release-please-config.json"] = _release_please_config(name, repo_type)
     files[".release-please-manifest.json"] = json.dumps({".": "0.1.0"}, indent=2) + "\n"

@@ -17,9 +17,12 @@ Add the Android application scaffold and Gradle wrapper before shipping:
 1. Initialise the application scaffold with a compatible Gradle wrapper (`gradlew`).
 2. Add your application build configuration (`settings.gradle.kts`, `build.gradle.kts`).
 3. Ensure JDK 17 is configured for Gradle builds and local verification.
-4. When Jetpack Compose is enabled, apply the AGP Compose Preview configuration:
+4. When Jetpack Compose is enabled under Android Gradle Plugin (AGP) 9.5.1,
+   apply the verified Compose Preview configuration in the application scaffold:
    set `android.onlyEnableUnitTestForTheTestedBuildType=false` in `gradle.properties`
    and `testOptions.unitTests.isIncludeAndroidResources = true` in `app/build.gradle.kts`.
+   Projects adopting other AGP versions should verify whether their toolchain
+   requires these settings.
 
 ## Local development
 

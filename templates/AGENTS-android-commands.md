@@ -10,12 +10,10 @@ Run the checks your change affects before pushing:
 ./gradlew assembleDebug  # debug build
 ```
 
-The application scaffold and Gradle wrapper are owned by the repository. Keep
-local SDK configuration in `local.properties` (uncommitted) and run Gradle
-commands through `./gradlew`.
+The application scaffold and Gradle wrapper are repository-owned. Keep local SDK
+configuration in `local.properties` (uncommitted) and run via `./gradlew`.
 
-When Jetpack Compose is enabled, ensure Compose Preview settings are configured
-in the application scaffold: set
+When Compose Preview is used under AGP 9.5.1, set
 `android.onlyEnableUnitTestForTheTestedBuildType=false` in `gradle.properties`
 and `testOptions.unitTests.isIncludeAndroidResources = true` in
-`app/build.gradle.kts`.
+`app/build.gradle.kts`. Other AGP versions should verify if still required.

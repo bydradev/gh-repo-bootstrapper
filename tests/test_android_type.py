@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 import bootstrap
 
 
@@ -279,28 +281,25 @@ class AndroidWorkflowScaffoldContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
+    def _extract_workflow_steps(self):
+        files = _render_android("fixture-app")
+        workflow = yaml.safe_load(files[".github/workflows/test.yml"])
+        return workflow["jobs"]["test"]["steps"]
+
     def test_b1_ac3_workflow_fails_when_scaffold_absent(self):
         # In a repository without gradlew:
         # The scaffold guard step must fail clearly with an informative error message.
         empty_repo = self.root / "empty-android-repo"
         empty_repo.mkdir()
 
-        # Extract the scaffold guard step from test-android.yml
-        test_yml = bootstrap._load("test-android.yml")
-        self.assertIn("Require an Android application scaffold", test_yml)
-        self.assertIn("No Gradle wrapper found (gradlew missing)", test_yml)
+        steps = self._extract_workflow_steps()
+        guard_step = next(
+            s for s in steps if s.get("name") == "Require an Android application scaffold"
+        )
+        guard_script = guard_step["run"]
+        self.assertIn("No Gradle wrapper found (gradlew missing)", guard_script)
 
-        # Run the guard script in the empty directory
-        guard_script = """
-if [ ! -f gradlew ]; then
-  echo "::error::No Gradle wrapper found (gradlew missing). Add the application scaffold and wrapper before shipping."
-  exit 1
-fi
-if [ ! -x gradlew ]; then
-  echo "::error::Gradle wrapper gradlew is not executable."
-  exit 1
-fi
-"""
+        # Run the extracted guard script in the empty directory (missing gradlew)
         proc = subprocess.run(
             ["sh", "-c", guard_script],
             cwd=str(empty_repo),
@@ -311,7 +310,8 @@ fi
         self.assertIn("No Gradle wrapper found (gradlew missing)", proc.stdout)
 
         # When gradlew exists but is not executable
-        (empty_repo / "gradlew").write_text("#!/bin/sh\nexit 0\n")
+        (empty_repo / "gradlew").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (empty_repo / "gradlew").chmod(0o644)
         proc_not_exec = subprocess.run(
             ["sh", "-c", guard_script],
             cwd=str(empty_repo),
@@ -327,27 +327,30 @@ fi
 
         # Supply minimal application scaffold: executable gradlew supporting check
         gradlew = fixture_repo / "gradlew"
-        gradlew.write_text("""#!/bin/sh
+        gradlew.write_text(
+            """#!/bin/sh
 if [ "$1" = "check" ]; then
   echo "BUILD SUCCESSFUL"
   exit 0
 fi
 echo "unknown argument: $1" >&2
 exit 1
-""")
+""",
+            encoding="utf-8",
+        )
         gradlew.chmod(0o755)
 
-        # Execute guard step
-        guard_script = """
-if [ ! -f gradlew ]; then
-  echo "::error::No Gradle wrapper found (gradlew missing). Add the application scaffold and wrapper before shipping."
-  exit 1
-fi
-if [ ! -x gradlew ]; then
-  echo "::error::Gradle wrapper gradlew is not executable."
-  exit 1
-fi
-"""
+        steps = self._extract_workflow_steps()
+        guard_step = next(
+            s for s in steps if s.get("name") == "Require an Android application scaffold"
+        )
+        guard_script = guard_step["run"]
+
+        check_step = next(s for s in steps if s.get("name") == "Run checks")
+        check_cmd = check_step["run"]
+        self.assertEqual(check_cmd, "./gradlew check")
+
+        # Execute extracted guard step
         guard_proc = subprocess.run(
             ["sh", "-c", guard_script],
             cwd=str(fixture_repo),
@@ -356,9 +359,9 @@ fi
         )
         self.assertEqual(guard_proc.returncode, 0)
 
-        # Execute declared app-side command: ./gradlew check
+        # Execute extracted app-side check step
         check_proc = subprocess.run(
-            ["./gradlew", "check"],
+            ["sh", "-c", check_cmd],
             cwd=str(fixture_repo),
             capture_output=True,
             text=True,

@@ -882,7 +882,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                     self.assertIsNone(notice)
         cfg, out = config("--type", "python", "--screenshots")
         self.assertEqual((cfg["screenshots"], cfg["screenshots_found"]), (False, []))
-        self.assertIn("--screenshots is only used with --type nextjs or swift; ignoring", out)
+        self.assertIn(bootstrap.SCREENSHOTS_IGNORED.removeprefix("warning: "), out)
 
     def test_stamped_screenshot_skill_is_never_deleted_without_the_flag(self):
         skill = bootstrap.SCREENSHOT_FILES[0]
@@ -1566,7 +1566,7 @@ class ExistingRepositoryTests(unittest.TestCase):
                        "scheme": "App", "screenshots": screenshots}
                 files = bootstrap.generate_files(cfg)
                 agents = " ".join(files["AGENTS.md"].split())
-                on = screenshots and repo_type in ("nextjs", "swift")
+                on = screenshots and repo_type in bootstrap.SCREENSHOT_TYPES
                 self.assertEqual(bootstrap.screenshot_review(cfg), on)
                 for paths in (files, bootstrap.template_owned_paths(cfg)):
                     self.assertEqual(skill in paths, on)

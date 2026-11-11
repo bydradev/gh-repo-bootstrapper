@@ -151,7 +151,7 @@ TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
     "python": _GENERAL_SKILLS + ("local-validation-python",),
     "rust": _GENERAL_SKILLS + ("local-validation-rust",),
     "swift": _GENERAL_SKILLS + ("local-validation-swift",),
-    "android": _GENERAL_SKILLS,
+    "android": _GENERAL_SKILLS + ("local-validation-android",),
     "nextjs": _GENERAL_SKILLS + (
         "local-validation-nextjs", "baseline-process", "public-site-indexing",
     ),
@@ -161,10 +161,10 @@ TEMPLATE_SKILLS: dict[str, tuple[str, ...]] = {
 # and --adopt also turn it on for a repository of these types that already has
 # either file, so its stamped copies are updated rather than deleted.
 SCREENSHOT_REVIEW_SKILL = "screenshot-review"
-SCREENSHOT_TYPES = ("nextjs", "swift")
+SCREENSHOT_TYPES = ("nextjs", "swift", "android")
 SCREENSHOT_FILES = (f".agents/skills/{SCREENSHOT_REVIEW_SKILL}/SKILL.md", SCREENSHOT_REVIEW)
 SCREENSHOTS_QUESTION = "Add the screenshot-review skill and doc (for a screenshot capture lane)?"
-SCREENSHOTS_IGNORED = "warning: --screenshots is only used with --type nextjs or swift; ignoring"
+SCREENSHOTS_IGNORED = "warning: --screenshots is only used with --type nextjs, swift, or android; ignoring"
 _TEMPLATE_AGENTS = {
     ".claude/agents/fresh-eyes-reviewer.md": "agents/claude-fresh-eyes-reviewer.md",
     ".opencode/agents/fresh-eyes-reviewer.md": "agents/opencode-fresh-eyes-reviewer.md",
@@ -1025,7 +1025,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Generate the Xcode project from project.yml in CI (swift only)")
     p.add_argument("--screenshots", action="store_true",
                    help="Add the screenshot-review skill and docs/screenshot-review.md, for a "
-                        "repository with a screenshot capture lane (nextjs and swift only)")
+                        "repository with a screenshot capture lane (nextjs, swift, and android only)")
     p.add_argument("--configure-only", action="store_true",
                    help="Apply GitHub configuration to an existing repo (skip file generation)")
     existing = p.add_mutually_exclusive_group()
@@ -1554,6 +1554,19 @@ def gather_config(args) -> dict:
         if not ni and not args.screenshots:
             screenshots = prompt_yn(SCREENSHOTS_QUESTION, default=False)
 
+    elif repo_type == "android":
+        if args.postgres:
+            print("warning: --postgres is only used with --type nextjs; ignoring")
+        if args.scheme:
+            print("warning: --scheme is only used with --type swift; ignoring")
+        if args.destination:
+            print("warning: --destination is only used with --type swift; ignoring")
+        if args.xcodegen:
+            print("warning: --xcodegen is only used with --type swift; ignoring")
+        screenshots = args.screenshots
+        if not ni and not args.screenshots:
+            screenshots = prompt_yn(SCREENSHOTS_QUESTION, default=False)
+
     else:  # python, rust, simple
         if args.postgres:
             print("warning: --postgres is only used with --type nextjs; ignoring")
@@ -1710,6 +1723,7 @@ _TYPE_SKILL_ROWS = {
     "swift": ("| run local validation | `local-validation-swift` |\n",),
     "rust": ("| run local validation | `local-validation-rust` |\n",),
     "python": ("| run local validation | `local-validation-python` |\n",),
+    "android": ("| run local validation | `local-validation-android` |\n",),
 }
 _SCREENSHOT_SKILL_ROW = "| change screenshots or captured views | `screenshot-review` |\n"
 

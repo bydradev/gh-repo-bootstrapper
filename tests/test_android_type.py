@@ -1,4 +1,4 @@
-"""Tests for the Android repository type (Package B1)."""
+"""Tests for the Android repository type (Packages B1 and B2)."""
 
 import contextlib
 import io
@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 import bootstrap
+import validate_templates
 
 
 def _git(repo: Path, *args):
@@ -325,16 +326,28 @@ class AndroidWorkflowScaffoldContractTests(unittest.TestCase):
         fixture_repo = self.root / "fixture-android-repo"
         fixture_repo.mkdir()
 
-        # Supply minimal application scaffold: executable gradlew supporting check
+        # Supply minimal application scaffold: executable gradlew supporting all lanes
         gradlew = fixture_repo / "gradlew"
         gradlew.write_text(
             """#!/bin/sh
-if [ "$1" = "check" ]; then
-  echo "BUILD SUCCESSFUL"
-  exit 0
-fi
-echo "unknown argument: $1" >&2
-exit 1
+case "$*" in
+  "check")
+    echo "FULL VALIDATION SUCCESSFUL"
+    exit 0
+    ;;
+  "spotlessCheck lintDebug testDebugUnitTest")
+    echo "FAST CHECKS SUCCESSFUL"
+    exit 0
+    ;;
+  "connectedCheck")
+    echo "DEVICE CHECKS SUCCESSFUL"
+    exit 0
+    ;;
+  *)
+    echo "unknown arguments: $*" >&2
+    exit 1
+    ;;
+esac
 """,
             encoding="utf-8",
         )
@@ -346,9 +359,17 @@ exit 1
         )
         guard_script = guard_step["run"]
 
-        check_step = next(s for s in steps if s.get("name") == "Run checks")
-        check_cmd = check_step["run"]
-        self.assertEqual(check_cmd, "./gradlew check")
+        fast_step = next(s for s in steps if s.get("name") == "Run fast checks")
+        fast_cmd = fast_step["run"]
+        self.assertEqual(fast_cmd, "./gradlew spotlessCheck lintDebug testDebugUnitTest")
+
+        full_step = next(s for s in steps if s.get("name") == "Run full validation")
+        full_cmd = full_step["run"]
+        self.assertEqual(full_cmd, "./gradlew check")
+
+        device_step = next(s for s in steps if s.get("name") == "Run device checks")
+        device_cmd = device_step["run"]
+        self.assertEqual(device_cmd, "./gradlew connectedCheck")
 
         # Execute extracted guard step
         guard_proc = subprocess.run(
@@ -359,15 +380,360 @@ exit 1
         )
         self.assertEqual(guard_proc.returncode, 0)
 
-        # Execute extracted app-side check step
-        check_proc = subprocess.run(
-            ["sh", "-c", check_cmd],
+        # Execute extracted fast checks step
+        fast_proc = subprocess.run(
+            ["sh", "-c", fast_cmd],
             cwd=str(fixture_repo),
             capture_output=True,
             text=True,
         )
-        self.assertEqual(check_proc.returncode, 0)
-        self.assertIn("BUILD SUCCESSFUL", check_proc.stdout)
+        self.assertEqual(fast_proc.returncode, 0)
+        self.assertIn("FAST CHECKS SUCCESSFUL", fast_proc.stdout)
+
+        # Execute extracted full validation step
+        full_proc = subprocess.run(
+            ["sh", "-c", full_cmd],
+            cwd=str(fixture_repo),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(full_proc.returncode, 0)
+        self.assertIn("FULL VALIDATION SUCCESSFUL", full_proc.stdout)
+
+        # Execute extracted device checks step
+        device_proc = subprocess.run(
+            ["sh", "-c", device_cmd],
+            cwd=str(fixture_repo),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(device_proc.returncode, 0)
+        self.assertIn("DEVICE CHECKS SUCCESSFUL", device_proc.stdout)
+
+
+class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
+    def test_b2_ac1_hub_byte_budget_with_and_without_screenshots(self):
+        # Without screenshots
+        files_no_shots = bootstrap.generate_files({
+            "name": "sample-android",
+            "repo_type": "android",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": False,
+        })
+        hub_no = files_no_shots["AGENTS.md"]
+        size_no = len(validate_templates._hub_generated_part(hub_no).encode())
+        self.assertLessEqual(size_no, validate_templates.HUB_BUDGET_BYTES)
+        budget_errors_no = validate_templates.check_hub_budget("android-no-shots", files_no_shots)
+        self.assertEqual(budget_errors_no, [])
+
+        # With screenshots
+        files_shots = bootstrap.generate_files({
+            "name": "sample-android",
+            "repo_type": "android",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": True,
+        })
+        hub_shots = files_shots["AGENTS.md"]
+        size_shots = len(validate_templates._hub_generated_part(hub_shots).encode())
+        self.assertLessEqual(size_shots, validate_templates.HUB_BUDGET_BYTES)
+        budget_errors_shots = validate_templates.check_hub_budget("android-shots", files_shots)
+        self.assertEqual(budget_errors_shots, [])
+
+    def test_b2_ac1_local_validation_android_skill_content_and_guidance(self):
+        files = _render_android("sample-android")
+        skill_path = ".agents/skills/local-validation-android/SKILL.md"
+        self.assertIn(skill_path, files)
+        content = files[skill_path]
+
+        # Valid frontmatter
+        data, err = validate_templates._frontmatter(content)
+        self.assertIsNone(err)
+        self.assertEqual(data["name"], "local-validation-android")
+        self.assertTrue(data["description"])
+
+        # Tooling commands covered
+        for cmd in ("spotlessCheck", "lintDebug", "test", "check", "connectedCheck"):
+            self.assertIn(cmd, content)
+
+        # CI tiers covered
+        self.assertIn("CI validation tiers", content)
+        self.assertIn("fast checks", content)
+        self.assertIn("full validation", content)
+        self.assertIn("device checks", content)
+
+        # Safeguards covered: lifecycle, cancellation, state, persistence, permissions, API 35–37
+        for topic in (
+            "Lifecycle and state",
+            "Structured concurrency and cancellation",
+            "Persistence and storage",
+            "Runtime permissions and privacy",
+            "API 35–37 verification",
+        ):
+            self.assertIn(topic, content)
+
+        # Compose Preview workaround under AGP 9.5.1
+        self.assertIn("android.onlyEnableUnitTestForTheTestedBuildType=false", content)
+        self.assertIn("testOptions.unitTests.isIncludeAndroidResources = true", content)
+        self.assertIn("AGP 9.5.1", content)
+
+        # Symlink mirror for Claude Code
+        cfg = {
+            "name": "sample-android",
+            "repo_type": "android",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": False,
+        }
+        links = bootstrap.generate_links(cfg)
+        self.assertIn(".claude/skills/local-validation-android", links)
+        self.assertEqual(
+            links[".claude/skills/local-validation-android"],
+            "../../.agents/skills/local-validation-android",
+        )
+
+    def test_b2_ac1_review_guidelines_stack_section_coverage(self):
+        files = _render_android("sample-android")
+        review_skill = files[".agents/skills/review-guidelines/SKILL.md"]
+        self.assertIn("### Android", review_skill)
+        for req in (
+            "Lifecycle and state",
+            "Concurrency",
+            "cancellation",
+            "Persistence and storage",
+            "KeyStore",
+            "Permissions and privacy",
+            "Compatibility and API verification",
+            "API 35, 36",
+            "37 targets",
+        ):
+            self.assertIn(req, review_skill)
+
+
+class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
+    def test_b2_ac2_routing_structure_and_gate_conditions(self):
+        files = _render_android("sample-android")
+        test_yml = yaml.safe_load(files[".github/workflows/test.yml"])
+        steps = test_yml["jobs"]["test"]["steps"]
+
+        # Wrapper guard: unconditional and blocking
+        wrapper_step = next(s for s in steps if s.get("name") == "Require an executable Gradle wrapper")
+        self.assertNotIn("if", wrapper_step)
+        self.assertFalse(wrapper_step.get("continue-on-error", False))
+
+        # Setup Java: unconditional and blocking
+        java_step = next(s for s in steps if str(s.get("uses", "")).startswith("actions/setup-java@"))
+        self.assertNotIn("if", java_step)
+        self.assertFalse(java_step.get("continue-on-error", False))
+
+        # Fast checks: runs on !inputs.full
+        fast_step = next(s for s in steps if s.get("name") == "Run fast checks")
+        self.assertEqual(fast_step["run"], "./gradlew spotlessCheck lintDebug testDebugUnitTest")
+        self.assertEqual(fast_step["if"], "${{ !inputs.full }}")
+        self.assertFalse(fast_step.get("continue-on-error", False))
+
+        # Full validation: runs on inputs.full
+        full_step = next(s for s in steps if s.get("name") == "Run full validation")
+        self.assertEqual(full_step["run"], "./gradlew check")
+        self.assertEqual(full_step["if"], "${{ inputs.full }}")
+        self.assertFalse(full_step.get("continue-on-error", False))
+
+        # Device checks: runs on inputs.device
+        device_step = next(s for s in steps if s.get("name") == "Run device checks")
+        self.assertEqual(device_step["run"], "./gradlew connectedCheck")
+        self.assertEqual(device_step["if"], "${{ inputs.device }}")
+        self.assertFalse(device_step.get("continue-on-error", False))
+
+        # Caller contracts
+        ci_yml = yaml.safe_load(files[".github/workflows/ci.yml"])
+        self.assertEqual(ci_yml["jobs"]["test"]["with"]["full"], False)
+
+        rp_yml = yaml.safe_load(files[".github/workflows/release-please.yml"])
+        self.assertEqual(
+            rp_yml["jobs"]["test"]["with"]["full"],
+            validate_templates.RELEASE_FULL_SUITE_EXPRESSION,
+        )
+        self.assertEqual(rp_yml["jobs"]["release-please"]["needs"], "test")
+
+        # Required status check context
+        self.assertEqual(
+            bootstrap.required_status_checks("android"),
+            ["validate-title", "test / test"],
+        )
+
+    def test_b2_ac2_negative_workflow_routing_contract_failures(self):
+        # 1. Dropping condition on fast checks step fails check_workflow_gates
+        files1 = _render_android("sample-android")
+        test1 = yaml.safe_load(files1[".github/workflows/test.yml"])
+        fast = next(s for s in test1["jobs"]["test"]["steps"] if "spotlessCheck" in str(s.get("run", "")))
+        del fast["if"]
+        files1[".github/workflows/test.yml"] = yaml.safe_dump(test1)
+        errs1 = validate_templates.check_workflow_gates("test", "android", files1)
+        self.assertTrue(any("must be gated on !inputs.full" in e for e in errs1))
+
+        # 2. Dropping condition on full validation step fails check_workflow_gates
+        files2 = _render_android("sample-android")
+        test2 = yaml.safe_load(files2[".github/workflows/test.yml"])
+        full = next(s for s in test2["jobs"]["test"]["steps"] if s.get("run") == "./gradlew check")
+        del full["if"]
+        files2[".github/workflows/test.yml"] = yaml.safe_dump(test2)
+        errs2 = validate_templates.check_workflow_gates("test", "android", files2)
+        self.assertTrue(any("must be gated on inputs.full" in e for e in errs2))
+
+        # 3. Dropping condition on device checks step fails check_workflow_gates
+        files3 = _render_android("sample-android")
+        test3 = yaml.safe_load(files3[".github/workflows/test.yml"])
+        dev = next(s for s in test3["jobs"]["test"]["steps"] if "connectedCheck" in str(s.get("run", "")))
+        del dev["if"]
+        files3[".github/workflows/test.yml"] = yaml.safe_dump(test3)
+        errs3 = validate_templates.check_workflow_gates("test", "android", files3)
+        self.assertTrue(any("must be gated on inputs.device" in e for e in errs3))
+
+        # 4. Inverting fast check condition fails check_workflow_gates
+        files4 = _render_android("sample-android")
+        test4 = yaml.safe_load(files4[".github/workflows/test.yml"])
+        fast4 = next(s for s in test4["jobs"]["test"]["steps"] if "spotlessCheck" in str(s.get("run", "")))
+        fast4["if"] = "${{ inputs.full }}"
+        files4[".github/workflows/test.yml"] = yaml.safe_dump(test4)
+        errs4 = validate_templates.check_workflow_gates("test", "android", files4)
+        self.assertTrue(any("must be gated on !inputs.full" in e for e in errs4))
+
+        # 5. Making wrapper guard conditional fails check_workflow_gates
+        files5 = _render_android("sample-android")
+        test5 = yaml.safe_load(files5[".github/workflows/test.yml"])
+        wrap = next(s for s in test5["jobs"]["test"]["steps"] if s.get("name") == "Require an executable Gradle wrapper")
+        wrap["if"] = "${{ inputs.full }}"
+        files5[".github/workflows/test.yml"] = yaml.safe_dump(test5)
+        errs5 = validate_templates.check_workflow_gates("test", "android", files5)
+        self.assertTrue(any("must be unconditional and blocking" in e for e in errs5))
+
+        # 6. Altering release full suite expression fails check_release_full_suite_contract
+        files6 = _render_android("sample-android")
+        rp6 = yaml.safe_load(files6[".github/workflows/release-please.yml"])
+        rp6["jobs"]["test"]["with"]["full"] = False
+        files6[".github/workflows/release-please.yml"] = yaml.safe_dump(rp6)
+        errs6 = validate_templates.check_release_full_suite_contract("test", "android", files6)
+        self.assertTrue(any("must be" in e for e in errs6))
+
+        # 7. Dropping needs: test on release-please fails check_workflow_gates
+        files7 = _render_android("sample-android")
+        rp7 = yaml.safe_load(files7[".github/workflows/release-please.yml"])
+        del rp7["jobs"]["release-please"]["needs"]
+        files7[".github/workflows/release-please.yml"] = yaml.safe_dump(rp7)
+        errs7 = validate_templates.check_workflow_gates("test", "android", files7)
+        self.assertTrue(any("must need 'test'" in e for e in errs7))
+
+
+class AndroidB2ScreenshotOptionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_b2_ac3_generation_with_screenshots(self):
+        cfg = {
+            "name": "shot-android",
+            "repo_type": "android",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": True,
+        }
+        files = bootstrap.generate_files(cfg)
+
+        # docs/screenshot-review.md is generated
+        self.assertIn("docs/screenshot-review.md", files)
+        doc = files["docs/screenshot-review.md"]
+        self.assertIn("## Android projects", doc)
+        self.assertIn("Formatter:", doc)
+        self.assertIn("Emulator selection:", doc)
+        self.assertIn("Fixture isolation:", doc)
+        self.assertIn("Artifact-review boundaries:", doc)
+
+        # screenshot-review skill is generated
+        skill_path = ".agents/skills/screenshot-review/SKILL.md"
+        self.assertIn(skill_path, files)
+
+        # Symlink mirror is generated
+        links = bootstrap.generate_links(cfg)
+        self.assertIn(".claude/skills/screenshot-review", links)
+
+        # AGENTS.md points to screenshot-review skill
+        agents = files["AGENTS.md"]
+        self.assertIn("| change screenshots or captured views | `screenshot-review` |", agents)
+        self.assertIn("Load `screenshot-review` for the full process.", agents)
+
+    def test_b2_ac3_generation_without_screenshots(self):
+        cfg = {
+            "name": "noshot-android",
+            "repo_type": "android",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": False,
+        }
+        files = bootstrap.generate_files(cfg)
+        self.assertNotIn("docs/screenshot-review.md", files)
+        self.assertNotIn(".agents/skills/screenshot-review/SKILL.md", files)
+        links = bootstrap.generate_links(cfg)
+        self.assertNotIn(".claude/skills/screenshot-review", links)
+        agents = files["AGENTS.md"]
+        self.assertNotIn("`screenshot-review`", agents)
+
+    def test_b2_ac3_dry_run_with_screenshots(self):
+        cfg = {
+            "name": "dry-android",
+            "repo_dir": self.root / "dry-repo",
+            "repo_type": "android",
+            "owner": "test-owner",
+            "private": True,
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": True,
+        }
+        files = bootstrap.generate_files(cfg)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bootstrap.print_dry_run(cfg, files)
+        output = out.getvalue()
+        self.assertIn("Screenshot review: True", output)
+        self.assertIn("docs/screenshot-review.md", output)
+        self.assertIn(".agents/skills/screenshot-review/SKILL.md", output)
+
+    def test_b2_ac3_adoption_with_screenshots(self):
+        repo_dir = self.root / "adopt-shots-repo"
+        repo_dir.mkdir()
+        _git(repo_dir, "init", "-q")
+        _git(repo_dir, "config", "user.name", "Test User")
+        _git(repo_dir, "config", "user.email", "user@example.com")
+
+        # Initial commit
+        (repo_dir / "build.gradle.kts").write_text("// App build\n", encoding="utf-8")
+        _git(repo_dir, "add", "-A")
+        _git(repo_dir, "commit", "-q", "-m", "Initial")
+
+        cfg = {
+            "name": "adopt-shots-repo",
+            "repo_dir": repo_dir,
+            "repo_type": "android",
+            "owner": "test-owner",
+            "private": True,
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+            "screenshots": True,
+        }
+        files = bootstrap.generate_files(cfg)
+        actions = bootstrap.adopt_repository(repo_dir, files)
+
+        self.assertTrue((repo_dir / "docs" / "screenshot-review.md").is_file())
+        self.assertTrue((repo_dir / ".agents" / "skills" / "screenshot-review" / "SKILL.md").is_file())
+        self.assertTrue((repo_dir / ".agents" / "skills" / "local-validation-android" / "SKILL.md").is_file())
 
 
 if __name__ == "__main__":

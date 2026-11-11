@@ -7,15 +7,19 @@ on:
     inputs:
       full:
         description: >-
-          Accepted for caller-contract parity with the Swift test suite, which
-          runs xcodebuild test only when `full` is true. This suite has no such
-          lane (checks run in one ubuntu-latest job), so nothing is gated on it
-          and every run is the full suite. Do not delete it as unused:
-          release-please.yml passes `full`, and an undeclared input fails the
-          workflow at parse time with "Invalid input, full is not defined in the
-          referenced workflow".
+          Run full validation (./gradlew check) when true. false runs fast checks
+          (./gradlew spotlessCheck lintDebug testDebugUnitTest). ci.yml passes false
+          for pull requests, and release-please.yml passes false for ordinary pushes
+          to main. release-please.yml passes true for a manual dispatch and for
+          the commit that is the Release Please PR merging.
         type: boolean
         default: true
+      device:
+        description: >-
+          Run connected device checks (./gradlew connectedCheck) when true. Requires
+          a running emulator or connected device. Default is false.
+        type: boolean
+        default: false
 
 # The suite only needs to read the repository. Without this block the called
 # workflow inherits the caller's permissions, and a called workflow can only
@@ -47,5 +51,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Run checks
+      - name: Run fast checks
+        if: ${{ !inputs.full }}
+        run: ./gradlew spotlessCheck lintDebug testDebugUnitTest
+      - name: Run full validation
+        if: ${{ inputs.full }}
         run: ./gradlew check
+      - name: Run device checks
+        if: ${{ inputs.device }}
+        run: ./gradlew connectedCheck

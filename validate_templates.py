@@ -458,7 +458,15 @@ AGENTS_TYPE_REQUIREMENTS = {
             LOCAL_VALIDATION_ROUTING,
         )
     ),
-    "android": (),
+    "android": tuple(
+        (phrase, _skill_path("local-validation-android"))
+        for phrase in (
+            "Do not copy `.gradle/` or `app/build/` into a new worktree",
+            "Ensure `local.properties` exists in each worktree pointing to the local `sdk.dir`",
+            "leaves `versionName` and `versionCode` in `app/build.gradle.kts` under application ownership",
+            LOCAL_VALIDATION_ROUTING,
+        )
+    ),
     "simple": (),
 }
 
@@ -549,10 +557,12 @@ SCREENSHOT_HEADINGS = (
 SCREENSHOT_PLATFORM_HEADINGS = {
     "nextjs": "## Next.js/browser-capable projects",
     "swift": "## Swift/native projects",
+    "android": "## Android projects",
 }
 SCREENSHOT_PLATFORM_FORBIDDEN = {
     "nextjs": ("xcodebuild", "swift-format", "simulator"),
     "swift": ("playwright", "chromium", "npm run", "browser capture"),
+    "android": ("xcodebuild", "swift-format", "playwright", "npm run"),
 }
 SCREENSHOT_FORBIDDEN_INVENTED_TOOLING = (
     "npm run screenshot",
@@ -697,16 +707,18 @@ def configurations():
         },
     )
 
-    yield (
-        "android",
-        {
-            "name": "sample-app",
-            "repo_type": "android",
-            "postgres": False,
-            "scheme": "",
-            "destination": "",
-        },
-    )
+    for screenshots in (True, False):
+        yield (
+            f"android screenshots={screenshots}",
+            {
+                "name": "sample-app",
+                "repo_type": "android",
+                "postgres": False,
+                "scheme": "",
+                "destination": "",
+                "screenshots": screenshots,
+            },
+        )
 
     yield (
         "simple",
@@ -2552,7 +2564,7 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
 
     test = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
     test_jobs = test.get("jobs", {}) or {}
-    if repo_type in ("python", "rust", "android"):
+    if repo_type in ("python", "rust"):
         suite = test_jobs.get("test") or {}
         if "if" in suite:
             errors.append(f"[{label}] {repo_type} test.yml job 'test' must not be conditional")
@@ -2560,7 +2572,7 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
         commands = (
             PYTHON_SUITE_COMMANDS
             if repo_type == "python"
-            else (RUST_SUITE_STEPS[1:] if repo_type == "rust" else ["./gradlew check"])
+            else RUST_SUITE_STEPS[1:]
         )
         for command in commands:
             matching = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == command]
@@ -2568,6 +2580,51 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 errors.append(f"[{label}] {repo_type} suite step {command!r} must run exactly once")
             elif "if" in matching[0] or matching[0].get("continue-on-error", False) is not False:
                 errors.append(f"[{label}] {repo_type} suite step {command!r} must be unconditional and blocking")
+    if repo_type == "android":
+        suite = test_jobs.get("test") or {}
+        if "if" in suite:
+            errors.append(f"[{label}] android test.yml job 'test' must not be conditional")
+        steps = suite.get("steps") or []
+        wrapper_steps = [s for s in steps if isinstance(s, dict) and s.get("name") == "Require an executable Gradle wrapper"]
+        if len(wrapper_steps) != 1:
+            errors.append(f"[{label}] android suite step 'Require an executable Gradle wrapper' must exist exactly once")
+        elif "if" in wrapper_steps[0] or wrapper_steps[0].get("continue-on-error", False) is not False:
+            errors.append(f"[{label}] android suite step 'Require an executable Gradle wrapper' must be unconditional and blocking")
+        java_steps = [s for s in steps if isinstance(s, dict) and str(s.get("uses", "")).startswith("actions/setup-java@")]
+        if len(java_steps) != 1:
+            errors.append(f"[{label}] android suite step actions/setup-java must exist exactly once")
+        elif "if" in java_steps[0] or java_steps[0].get("continue-on-error", False) is not False:
+            errors.append(f"[{label}] android suite step actions/setup-java must be unconditional and blocking")
+        fast_cmd = "./gradlew spotlessCheck lintDebug testDebugUnitTest"
+        fast_steps = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == fast_cmd]
+        if len(fast_steps) != 1:
+            errors.append(f"[{label}] android suite fast checks step {fast_cmd!r} must exist exactly once")
+        else:
+            cond = str(fast_steps[0].get("if", "")).strip()
+            if cond not in ("${{ !inputs.full }}", "!inputs.full"):
+                errors.append(f"[{label}] android suite fast checks step must be gated on !inputs.full, got {cond!r}")
+            if fast_steps[0].get("continue-on-error", False) is not False:
+                errors.append(f"[{label}] android suite fast checks step must not set continue-on-error")
+        full_cmd = "./gradlew check"
+        full_steps = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == full_cmd]
+        if len(full_steps) != 1:
+            errors.append(f"[{label}] android suite full validation step {full_cmd!r} must exist exactly once")
+        else:
+            cond = str(full_steps[0].get("if", "")).strip()
+            if cond not in ("${{ inputs.full }}", "inputs.full"):
+                errors.append(f"[{label}] android suite full validation step must be gated on inputs.full, got {cond!r}")
+            if full_steps[0].get("continue-on-error", False) is not False:
+                errors.append(f"[{label}] android suite full validation step must not set continue-on-error")
+        device_cmd = "./gradlew connectedCheck"
+        device_steps = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == device_cmd]
+        if len(device_steps) != 1:
+            errors.append(f"[{label}] android suite device checks step {device_cmd!r} must exist exactly once")
+        else:
+            cond = str(device_steps[0].get("if", "")).strip()
+            if cond not in ("${{ inputs.device }}", "inputs.device"):
+                errors.append(f"[{label}] android suite device checks step must be gated on inputs.device, got {cond!r}")
+            if device_steps[0].get("continue-on-error", False) is not False:
+                errors.append(f"[{label}] android suite device checks step must not set continue-on-error")
     if repo_type == "python":
         errors += _python_manifest_guard_errors(label, (test_jobs.get("test") or {}).get("steps") or [])
         install = "\n".join(
@@ -3525,7 +3582,7 @@ def run_self_tests() -> list:
     # Case 6b: screenshot guidance is composed only for browser-capable and
     # native configurations with --screenshots, and each safety/structure
     # guard fails closed when its source is mutated.
-    for repo_type in ("nextjs", "swift"):
+    for repo_type in ("nextjs", "swift", "android"):
         cfg = shot_cfgs[(repo_type, True)]
         files = bootstrap.generate_files(dict(cfg))
         result = check_screenshot_guidance(f"self-test:{repo_type} screenshot guidance", repo_type, files, True)
@@ -3561,7 +3618,7 @@ def run_self_tests() -> list:
             errors.append(f"self-test '{repo_type} unreplaced screenshot marker' did not fail as expected")
 
         platform_leak = dict(files)
-        leak = "xcodebuild" if repo_type == "nextjs" else "browser capture"
+        leak = "xcodebuild" if repo_type in ("nextjs", "android") else "browser capture"
         platform_leak[bootstrap.SCREENSHOT_REVIEW] += f"\n{leak}\n"
         result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, platform_leak, True)
         if not any("leaks" in e for e in result):
@@ -4986,6 +5043,21 @@ def _structure_self_tests() -> list:
                r"( *)for tool in [^\n]*\n[^\n]*\n *done\n",
                lambda m: f"{m.group(1)}# ruff==0.17.1 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
                t, count=1)), "pinned fallback loop")
+    expect("android fast checks without condition",
+           gates("android", test, lambda w: step(w, "test", lambda s: "spotlessCheck" in str(s.get("run", ""))).pop("if")),
+           "must be gated on !inputs.full")
+    expect("android full validation without condition",
+           gates("android", test, lambda w: step(w, "test", lambda s: s.get("run") == "./gradlew check").pop("if")),
+           "must be gated on inputs.full")
+    expect("android device checks without condition",
+           gates("android", test, lambda w: step(w, "test", lambda s: "connectedCheck" in str(s.get("run", ""))).pop("if")),
+           "must be gated on inputs.device")
+    expect("android wrapper guard conditional",
+           gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require an executable Gradle wrapper")
+                 .update({"if": "${{ inputs.full }}"})), "must be unconditional and blocking")
+    expect("conditional android test job",
+           gates("android", test, lambda w: w["jobs"]["test"].update({"if": "github.event_name == 'push'"})),
+           "job 'test' must not be conditional")
 
     # The manifest guard stops the pip cache from throwing on a repository with
     # nothing to hash; it must exist, come first, fail the job, and hash what

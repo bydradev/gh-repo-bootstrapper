@@ -18,9 +18,9 @@ Each type generates these skills:
 | Skill (`.agents/skills/<name>/SKILL.md`) | Types |
 |---|---|
 | `pull-requests`, `worktrees-and-scratch`, `verify-external-claims`, `fresh-eyes-review`, `review-guidelines`, `delegation` | all |
-| `screenshot-review` | `nextjs`, `swift`, with `--screenshots` |
+| `screenshot-review` | `nextjs`, `swift`, `android`, with `--screenshots` |
 | `baseline-process`, `public-site-indexing` | `nextjs` |
-| `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python` |
+| `local-validation-<type>` | `nextjs`, `swift`, `rust`, `python`, `android` |
 
 `screenshot-review` carries the shared review process for a deterministic
 capture lane (image classes, complete-set review, acceptance criteria, promotion

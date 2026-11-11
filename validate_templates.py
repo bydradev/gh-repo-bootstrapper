@@ -2615,16 +2615,6 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 errors.append(f"[{label}] android suite full validation step must be gated on inputs.full, got {cond!r}")
             if full_steps[0].get("continue-on-error", False) is not False:
                 errors.append(f"[{label}] android suite full validation step must not set continue-on-error")
-        device_cmd = "./gradlew connectedCheck"
-        device_steps = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == device_cmd]
-        if len(device_steps) != 1:
-            errors.append(f"[{label}] android suite device checks step {device_cmd!r} must exist exactly once")
-        else:
-            cond = str(device_steps[0].get("if", "")).strip()
-            if cond not in ("${{ inputs.device }}", "inputs.device"):
-                errors.append(f"[{label}] android suite device checks step must be gated on inputs.device, got {cond!r}")
-            if device_steps[0].get("continue-on-error", False) is not False:
-                errors.append(f"[{label}] android suite device checks step must not set continue-on-error")
     if repo_type == "python":
         errors += _python_manifest_guard_errors(label, (test_jobs.get("test") or {}).get("steps") or [])
         install = "\n".join(
@@ -5049,9 +5039,6 @@ def _structure_self_tests() -> list:
     expect("android full validation without condition",
            gates("android", test, lambda w: step(w, "test", lambda s: s.get("run") == "./gradlew check").pop("if")),
            "must be gated on inputs.full")
-    expect("android device checks without condition",
-           gates("android", test, lambda w: step(w, "test", lambda s: "connectedCheck" in str(s.get("run", ""))).pop("if")),
-           "must be gated on inputs.device")
     expect("android wrapper guard conditional",
            gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require an executable Gradle wrapper")
                  .update({"if": "${{ inputs.full }}"})), "must be unconditional and blocking")

@@ -1,6 +1,6 @@
 ---
 name: local-validation-android
-description: "Use before running local validation in this Android repository: `./gradlew spotlessCheck`, `./gradlew lintDebug`, `./gradlew test`, `./gradlew connectedCheck`, `./gradlew check`, or worktrees and emulator runs. Covers CI validation tiers (fast Linux vs full validation vs device checks), safeguards for lifecycle, cancellation, state, persistence, permissions, and API 35–37 verification, worktree Gradle locks, and versioning."
+description: "Use before running local validation in this Android repository: `./gradlew spotlessCheck`, `./gradlew lintDebug`, `./gradlew test`, `./gradlew connectedCheck`, `./gradlew check`, or worktrees and emulator runs. Covers CI validation tiers (fast PR checks vs full release validation), local device verification, safeguards for lifecycle, cancellation, state, persistence, permissions, and API 35–37 verification, worktree Gradle locks, and versioning."
 ---
 
 # Local validation for Android
@@ -33,7 +33,7 @@ The standard repository checks execute through the Gradle wrapper (`./gradlew`):
   `./gradlew connectedDebugAndroidTest`) executes instrumentation tests against a
   booted emulator or attached physical device.
 
-## CI validation tiers
+## CI validation tiers and local device checks
 
 As generated, CI validates in tiers via `.github/workflows/test.yml` (called by
 `ci.yml` and `release-please.yml`):
@@ -41,15 +41,16 @@ As generated, CI validates in tiers via `.github/workflows/test.yml` (called by
 - **Pull requests (`ci.yml`) and ordinary pushes to `main`:** run fast checks
   (`full: false`): wrapper verification, JDK 17 setup, and
   `./gradlew spotlessCheck lintDebug testDebugUnitTest` on `ubuntu-latest`.
-  Connected device checks are skipped in PR fast checks; verify device tests
-  locally or on demand before landing changes affecting device contracts.
 - **Release Please merge (`chore(main): release`) and manual dispatch of
   `release-please.yml`:** run full validation (`full: true`): wrapper
   verification, JDK 17 setup, and `./gradlew check`. The release PR merges and
   tags only after full validation passes.
-- **Device checks (`device: true`):** runs `./gradlew connectedCheck`. When
-  invoking `test.yml` manually or in specialized device workflows, pass
-  `device: true` with a provisioned emulator or runner.
+- **Connected device checks:** `./gradlew connectedCheck` (or
+  `./gradlew connectedDebugAndroidTest`) is repository-owned and executed
+  as an explicit local verification lane against a booted emulator or attached
+  device. Standard CI runners do not provide a running emulator or connected
+  device; verify device contracts locally before landing changes that touch
+  UI, lifecycle, persistence, permissions, or API 35–37 integration.
 
 ## Android safeguards and review focus
 

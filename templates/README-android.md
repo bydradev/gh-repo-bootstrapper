@@ -48,11 +48,13 @@ Run Gradle tasks through the wrapper:
 
 ## Verification
 
-CI runs these checks on every pull request:
+CI runs fast checks on every pull request:
 
 ```sh
-./gradlew check
+./gradlew spotlessCheck lintDebug testDebugUnitTest
 ```
+
+Full validation (`./gradlew check`) runs before releases.
 
 ## Project guide
 

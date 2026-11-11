@@ -14,13 +14,6 @@ on:
           the commit that is the Release Please PR merging.
         type: boolean
         default: true
-      device:
-        description: >-
-          Run connected device checks (./gradlew connectedCheck) when true. Callers
-          must provision and boot an emulator or connect a device before connectedCheck
-          runs. Default is false.
-        type: boolean
-        default: false
 
 # The suite only needs to read the repository. Without this block the called
 # workflow inherits the caller's permissions, and a called workflow can only
@@ -58,6 +51,3 @@ jobs:
       - name: Run full validation
         if: ${{ inputs.full }}
         run: ./gradlew check
-      - name: Run device checks
-        if: ${{ inputs.device }}
-        run: ./gradlew connectedCheck

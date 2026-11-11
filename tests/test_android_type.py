@@ -367,10 +367,6 @@ esac
         full_cmd = full_step["run"]
         self.assertEqual(full_cmd, "./gradlew check")
 
-        device_step = next(s for s in steps if s.get("name") == "Run device checks")
-        device_cmd = device_step["run"]
-        self.assertEqual(device_cmd, "./gradlew connectedCheck")
-
         # Execute extracted guard step
         guard_proc = subprocess.run(
             ["sh", "-c", guard_script],
@@ -399,16 +395,6 @@ esac
         )
         self.assertEqual(full_proc.returncode, 0)
         self.assertIn("FULL VALIDATION SUCCESSFUL", full_proc.stdout)
-
-        # Execute extracted device checks step
-        device_proc = subprocess.run(
-            ["sh", "-c", device_cmd],
-            cwd=str(fixture_repo),
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(device_proc.returncode, 0)
-        self.assertIn("DEVICE CHECKS SUCCESSFUL", device_proc.stdout)
 
 
 class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
@@ -542,16 +528,15 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         self.assertEqual(full_step["if"], "${{ inputs.full }}")
         self.assertFalse(full_step.get("continue-on-error", False))
 
-        # Device checks: runs on inputs.device
-        device_step = next(s for s in steps if s.get("name") == "Run device checks")
-        self.assertEqual(device_step["run"], "./gradlew connectedCheck")
-        self.assertEqual(device_step["if"], "${{ inputs.device }}")
-        self.assertFalse(device_step.get("continue-on-error", False))
-
-        # Device input description clarifies caller provisioning requirement
+        # Workflow inputs: declares inputs.full only (device checks are local)
         triggers = validate_templates._triggers(test_yml)
-        device_input = triggers["workflow_call"]["inputs"]["device"]
-        self.assertIn("provision and boot an emulator or connect a device", device_input["description"])
+        declared_inputs = triggers["workflow_call"]["inputs"]
+        self.assertIn("full", declared_inputs)
+        self.assertNotIn("device", declared_inputs)
+
+        # Step count: fast checks and full validation are the only check steps
+        run_steps = [s for s in steps if "run" in s and s.get("name") != "Require an executable Gradle wrapper"]
+        self.assertEqual(len(run_steps), 2)
 
         # Caller contracts
         ci_yml = yaml.safe_load(files[".github/workflows/ci.yml"])
@@ -589,14 +574,14 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         errs2 = validate_templates.check_workflow_gates("test", "android", files2)
         self.assertTrue(any("must be gated on inputs.full" in e for e in errs2))
 
-        # 3. Dropping condition on device checks step fails check_workflow_gates
+        # 3. Adding continue-on-error to full validation fails check_workflow_gates
         files3 = _render_android("sample-android")
         test3 = yaml.safe_load(files3[".github/workflows/test.yml"])
-        dev = next(s for s in test3["jobs"]["test"]["steps"] if "connectedCheck" in str(s.get("run", "")))
-        del dev["if"]
+        full3 = next(s for s in test3["jobs"]["test"]["steps"] if s.get("run") == "./gradlew check")
+        full3["continue-on-error"] = True
         files3[".github/workflows/test.yml"] = yaml.safe_dump(test3)
         errs3 = validate_templates.check_workflow_gates("test", "android", files3)
-        self.assertTrue(any("must be gated on inputs.device" in e for e in errs3))
+        self.assertTrue(any("must not set continue-on-error" in e for e in errs3))
 
         # 4. Inverting fast check condition fails check_workflow_gates
         files4 = _render_android("sample-android")

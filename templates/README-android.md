@@ -8,6 +8,11 @@
 | Status | Initial setup |
 | Toolchain | Android SDK (API 37 compile/target, API 35 min), JDK 17, Gradle 9.6.0 |
 
+Toolchain compatibility verified on 2026-11-07 against primary documentation:
+[Android Gradle Plugin 9.5 release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes),
+[Android 17 SDK setup guide](https://developer.android.com/about/versions/17/setup-sdk),
+and [Gradle releases](https://services.gradle.org/versions/all).
+
 ## Start here
 
 The bootstrapper supplies repository infrastructure, but deliberately leaves
@@ -18,11 +23,12 @@ Add the Android application scaffold and Gradle wrapper before shipping:
 2. Add your application build configuration (`settings.gradle.kts`, `build.gradle.kts`).
 3. Ensure JDK 17 is configured for Gradle builds and local verification.
 4. When Jetpack Compose is enabled under Android Gradle Plugin (AGP) 9.5.1,
-   apply the verified Compose Preview configuration in the application scaffold:
-   set `android.onlyEnableUnitTestForTheTestedBuildType=false` in `gradle.properties`
-   and `testOptions.unitTests.isIncludeAndroidResources = true` in `app/build.gradle.kts`.
-   Projects adopting other AGP versions should verify whether their toolchain
-   requires these settings.
+   local Q1 toolchain testing found that Compose Preview task realization
+   requires setting `android.onlyEnableUnitTestForTheTestedBuildType=false` in
+   `gradle.properties` and `testOptions.unitTests.isIncludeAndroidResources = true`
+   in `app/build.gradle.kts`. (This pair is an isolated workaround finding from
+   local testing rather than official guidance.) Projects adopting other AGP
+   versions should verify whether their toolchain requires these settings.
 
 ## Local development
 

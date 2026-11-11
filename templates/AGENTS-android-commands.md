@@ -10,10 +10,12 @@ Run the checks your change affects before pushing:
 ./gradlew assembleDebug  # debug build
 ```
 
-The application scaffold and Gradle wrapper are repository-owned. Keep local SDK
-configuration in `local.properties` (uncommitted) and run via `./gradlew`.
+The application scaffold and wrapper are repository-owned. Keep local SDK
+paths in `local.properties` (uncommitted) and run via `./gradlew`.
 
-When Compose Preview is used under AGP 9.5.1, set
+When Compose Preview is used under AGP 9.5.1, local Q1 testing found task
+realization requires setting
 `android.onlyEnableUnitTestForTheTestedBuildType=false` in `gradle.properties`
 and `testOptions.unitTests.isIncludeAndroidResources = true` in
-`app/build.gradle.kts`. Other AGP versions should verify if still required.
+`app/build.gradle.kts` (an isolated local test finding, not official guidance).
+Toolchain sources verified 2026-11-07; see README.md.

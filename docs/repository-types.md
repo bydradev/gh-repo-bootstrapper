@@ -267,9 +267,8 @@ CI pipeline and reusable infrastructure for Android applications.
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
 - `ci.yml`: runs the test suite on every PR
-- `test.yml`: checks for the application scaffold and Gradle wrapper, sets up
-  JDK 17, and runs `./gradlew check`; fails clearly until the application
-  scaffold and wrapper exist
+- `test.yml`: checks for an executable Gradle wrapper, sets up JDK 17, and runs
+  `./gradlew check`; fails clearly until gradlew exists and is executable
 - `dependabot.yml`: GitHub Actions updates only
 - `.gitignore`: ignores local SDK configuration (`local.properties`), Gradle
   user/project caches (`.gradle/`), build outputs (`build/`, `.cxx/`,

@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Require an Android application scaffold
+      - name: Require an executable Gradle wrapper
         run: |
           if [ ! -f gradlew ]; then
             echo "::error::No Gradle wrapper found (gradlew missing). Add the application scaffold and wrapper before shipping."

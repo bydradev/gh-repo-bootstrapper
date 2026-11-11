@@ -294,7 +294,7 @@ class AndroidWorkflowScaffoldContractTests(unittest.TestCase):
 
         steps = self._extract_workflow_steps()
         guard_step = next(
-            s for s in steps if s.get("name") == "Require an Android application scaffold"
+            s for s in steps if s.get("name") == "Require an executable Gradle wrapper"
         )
         guard_script = guard_step["run"]
         self.assertIn("No Gradle wrapper found (gradlew missing)", guard_script)
@@ -342,7 +342,7 @@ exit 1
 
         steps = self._extract_workflow_steps()
         guard_step = next(
-            s for s in steps if s.get("name") == "Require an Android application scaffold"
+            s for s in steps if s.get("name") == "Require an executable Gradle wrapper"
         )
         guard_script = guard_step["run"]
 

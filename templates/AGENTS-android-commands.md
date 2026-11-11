@@ -13,7 +13,7 @@ Run the checks your change affects before pushing:
 The application scaffold and wrapper are repository-owned. Keep local SDK
 paths in `local.properties` (uncommitted) and run via `./gradlew`.
 
-When Compose Preview is used under AGP 9.5.1, local Q1 testing found task
+When Compose Preview is used under AGP 9.5.1, local testing found task
 realization requires setting
 `android.onlyEnableUnitTestForTheTestedBuildType=false` in `gradle.properties`
 and `testOptions.unitTests.isIncludeAndroidResources = true` in

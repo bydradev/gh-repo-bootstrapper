@@ -548,6 +548,11 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         self.assertEqual(device_step["if"], "${{ inputs.device }}")
         self.assertFalse(device_step.get("continue-on-error", False))
 
+        # Device input description clarifies caller provisioning requirement
+        triggers = validate_templates._triggers(test_yml)
+        device_input = triggers["workflow_call"]["inputs"]["device"]
+        self.assertIn("provision and boot an emulator or connect a device", device_input["description"])
+
         # Caller contracts
         ci_yml = yaml.safe_load(files[".github/workflows/ci.yml"])
         self.assertEqual(ci_yml["jobs"]["test"]["with"]["full"], False)

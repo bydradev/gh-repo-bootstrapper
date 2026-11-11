@@ -16,8 +16,9 @@ on:
         default: true
       device:
         description: >-
-          Run connected device checks (./gradlew connectedCheck) when true. Requires
-          a running emulator or connected device. Default is false.
+          Run connected device checks (./gradlew connectedCheck) when true. Callers
+          must provision and boot an emulator or connect a device before connectedCheck
+          runs. Default is false.
         type: boolean
         default: false
 

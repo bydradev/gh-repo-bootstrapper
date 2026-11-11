@@ -12,6 +12,10 @@
   unencrypted local storage, or log statements.
 - **Permissions and privacy.** Runtime permissions are requested in context with
   clear rationale, and denied and permanently denied states are handled.
+- **Compatibility and API verification.** Verify behavior across API 35, 36,
+  and 37 targets, including edge-to-edge enforcement, predictive Back gestures,
+  and 16 KB page-size compatibility. Fallbacks and version checks are tested on
+  each supported API level.
 - **Time and locale.** Date and time operations use `java.time` with injected
   `Clock` and `ZoneId`, never fixed millisecond arithmetic or assumed system
   defaults, and survive time zone and daylight-saving changes.

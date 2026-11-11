@@ -217,13 +217,15 @@ class ConfigureRepoTests(unittest.TestCase):
 
         self.assertFalse({"vercel", "cloudflare", "vercel_token", "cloudflare_api_token"} & config.keys())
 
-    def test_screenshots_flag_is_used_for_nextjs_and_swift_only(self):
+    def test_screenshots_flag_is_used_for_nextjs_swift_and_android_only(self):
         base = ["bootstrap.py", "--name", "sample", "--org", "octocat", "--non-interactive", "--dry-run"]
         cases = {
             ("nextjs",): False,
             ("nextjs", "--screenshots"): True,
             ("swift", "--scheme", "App"): False,
             ("swift", "--scheme", "App", "--screenshots"): True,
+            ("android",): False,
+            ("android", "--screenshots"): True,
             ("python", "--screenshots"): False,
             ("simple", "--screenshots"): False,
         }
@@ -234,11 +236,15 @@ class ConfigureRepoTests(unittest.TestCase):
                         contextlib.redirect_stdout(out):
                     config = bootstrap.gather_config(bootstrap.parse_args())
                 self.assertIs(config["screenshots"], expected)
-                ignored = "--screenshots is only used with --type nextjs or swift; ignoring"
-                self.assertEqual(ignored in out.getvalue(), repo_type not in ("nextjs", "swift"))
+                ignored = "--screenshots is only used with --type nextjs, swift, or android; ignoring"
+                self.assertEqual(ignored in out.getvalue(), repo_type not in ("nextjs", "swift", "android"))
 
     def test_interactive_runs_ask_about_screenshots_with_no_as_the_default(self):
-        for repo_type, flags in (("nextjs", []), ("swift", ["--scheme", "App", "--destination", "macos"])):
+        for repo_type, flags in (
+            ("nextjs", []),
+            ("swift", ["--scheme", "App", "--destination", "macos"]),
+            ("android", []),
+        ):
             with self.subTest(repo_type=repo_type):
                 asked = {}
 

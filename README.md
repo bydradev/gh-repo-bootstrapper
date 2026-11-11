@@ -55,7 +55,7 @@ storing those two values with them.
 | `--scheme TEXT` | Xcode scheme name for `xcodebuild test` (swift only) |
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
-| `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs and swift only) |
+| `--screenshots` | Add the `screenshot-review` skill and `docs/screenshot-review.md`, for a repository with a screenshot capture lane (nextjs, swift and android only) |
 | `--configure-only` | Apply GitHub config to an existing repo, skip file generation. Leaves branch protection unchanged and asks before changing the Actions policy, pull request creation, Dependabot alerts, secret scanning or CodeQL default setup (see [GitHub settings](docs/github-settings.md)). Cannot be combined with `--dry-run` |
 | `--dry-run` | Print all files that would be created without doing anything. The owner lookup is skipped in dry-run: without `--org`, an interactive run asks for the owner, and a `--non-interactive` run uses a placeholder owner, since nothing downstream contacts GitHub. Piping the output to `head` or a pager is fine: the run ends quietly with exit 0 when the reader closes the pipe, and with an error status when a `--non-interactive` run's options are refused |
 | `--non-interactive` | Fail instead of prompting for missing options |
@@ -139,7 +139,7 @@ export RELEASE_PLEASE_CLIENT_ID="..."
 |---|---|---|---|
 | `nextjs` | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots` |
 | `python` | Python packages and tools | ruff format check, ruff, mypy, pytest | none |
-| `android` | Android applications | `./gradlew check` (formatting, lint, unit tests) | none |
+| `android` | Android applications | fast checks on PRs; `./gradlew check` on release merges | `--screenshots` |
 | `swift` | Xcode apps | `swift-format` lint on every PR; `xcodebuild test` on release merges | `--scheme` (required), `--destination`, `--xcodegen`, `--screenshots` |
 | `rust` | crates and workspaces | `cargo fmt --check`, clippy, `cargo test` | none |
 | `simple` | scripts, docs, anything without a test suite | none: Release Please only | none |

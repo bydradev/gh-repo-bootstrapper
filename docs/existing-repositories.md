@@ -257,7 +257,7 @@ changes:
 - the generated skills;
 - the two reviewer agents;
 - `docs/branch-protection-runbook.md`;
-- `docs/screenshot-review.md` (`nextjs` and `swift`, with `--screenshots`);
+- `docs/screenshot-review.md` (`nextjs`, `swift`, and `android`, with `--screenshots`);
 - `.github/workflows/pr-title-check.yml`;
 - `.github/workflows/release-please.yml`;
 - `.github/workflows/baseline-review.yml` (`nextjs`).

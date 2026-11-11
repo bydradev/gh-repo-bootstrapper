@@ -14,7 +14,7 @@ additional files and README guidance for that type.
 |---|---|---|---|
 | [`nextjs`](#nextjs) | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots` |
 | [`python`](#python) | Python packages and tools | ruff format check, ruff, mypy, pytest | none |
-| [`android`](#android) | Android applications | `./gradlew check` on PRs; gated Release Please | none |
+| [`android`](#android) | Android applications | fast checks on PRs; full `./gradlew check` on release merges; local device checks | `--screenshots` |
 | [`swift`](#swift) | Xcode apps | `swift-format` lint on every PR; `xcodebuild test` on release merges | `--scheme` (required), `--destination`, `--xcodegen`, `--screenshots` |
 | [`rust`](#rust) | crates and workspaces | `cargo fmt --check`, clippy, `cargo test` | none |
 | [`simple`](#simple) | scripts, docs, anything without a test suite | none: Release Please only | none |
@@ -266,9 +266,16 @@ CI pipeline and reusable infrastructure for Android applications.
 - `pr-title-check.yml`
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
-- `ci.yml`: runs the test suite on every PR
+- `ci.yml`: runs the test suite on every PR (calling `test.yml` with `full: false` for fast checks)
 - `test.yml`: checks for an executable Gradle wrapper, sets up JDK 17, and runs
-  `./gradlew check`; fails clearly until gradlew exists and is executable
+  fast checks (`./gradlew spotlessCheck lintDebug testDebugUnitTest` when `full: false`)
+  or full validation (`./gradlew check` when `full: true`); fails clearly until gradlew exists and is executable
+- `local-validation-android` skill: guidance for Gradle tasks, CI tiers, safeguards
+  (lifecycle, cancellation, state, persistence, permissions, API 35–37), local device checks
+  (`./gradlew connectedCheck`), worktrees, and AGP 9.5.1 Compose Preview workaround settings
+- `--screenshots`: adds `docs/screenshot-review.md` (Android screenshot guidance, deterministic AVD
+  selection, Compose Preview layout snapshots, fixture isolation, and review boundaries)
+  and the `screenshot-review` skill
 - `dependabot.yml`: GitHub Actions updates only
 - `.gitignore`: ignores local SDK configuration (`local.properties`), Gradle
   user/project caches (`.gradle/`), build outputs (`build/`, `.cxx/`,

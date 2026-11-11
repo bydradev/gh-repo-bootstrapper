@@ -109,7 +109,7 @@ class GatherConfigTests(Session):
     def test_a_nextjs_session_asks_every_question_and_repeats_a_bad_answer(self):
         code, out, _, answers, _ = self.gather([], [
             "Bad Name", "apps/my-app",   # name: refused, then a path
-            "6", "one", "1",             # type: out of range, not a number, nextjs
+            "7", "one", "1",             # type: out of range, not a number, nextjs
             "2",                         # owner: the organization
             "maybe", "y",                # public: not y or n, then yes
             "y", "",                     # Postgres yes, screenshots by default no
@@ -122,7 +122,7 @@ class GatherConfigTests(Session):
                          ("acme", False, True, False))
         self.assertEqual((cfg["release_please_client_id"], cfg["release_please_app_key"]), ("client-id", ""))
         self.assertIn("Must be lowercase letters, digits, and hyphens only", out)
-        self.assertEqual(out.count("Enter a number from 1 to 5."), 2)
+        self.assertEqual(out.count("Enter a number from 1 to 6."), 2)
         self.assertIn("  1. octocat\n  2. acme\n", out)
         self.assertIn("Please enter y or n.", out)
         self.assertIn("(skipped)", out)

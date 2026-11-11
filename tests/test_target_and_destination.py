@@ -144,11 +144,11 @@ class TargetAndDestinationTests(unittest.TestCase):
 
     def test_a_choice_without_a_default_still_needs_a_number(self):
         code, cfg, out, _, questions, _ = self.gather(
-            ["--name", "app", "--org", "octocat", "--private"], ["", "5", "", ""])
+            ["--name", "app", "--org", "octocat", "--private"], ["", "6", "", ""])
         self.assertIsNone(code)
         self.assertEqual(cfg["repo_type"], "simple")
-        self.assertIn("Enter a number from 1 to 5.", out)
-        self.assertEqual(questions[:2], ["Select type (1-5): ", "Select type (1-5): "])
+        self.assertIn("Enter a number from 1 to 6.", out)
+        self.assertEqual(questions[:2], ["Select type (1-6): ", "Select type (1-6): "])
 
 
 if __name__ == "__main__":

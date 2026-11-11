@@ -204,6 +204,11 @@ README_REQUIREMENTS = {
         "## Verification",
         "cargo clippy --workspace --all-targets -- -D warnings",
     ),
+    "android": (
+        "## Start here",
+        "## Local development",
+        "## Verification",
+    ),
     "simple": ("## Start here", "## Project guide"),
 }
 
@@ -250,6 +255,7 @@ REVIEW_STACK_HEADINGS = {
     "python": "### Python",
     "rust": "### Rust",
     "swift": "### Swift",
+    "android": "### Android",
     "simple": "### Docs, configuration and release-only repositories",
 }
 
@@ -452,6 +458,7 @@ AGENTS_TYPE_REQUIREMENTS = {
             LOCAL_VALIDATION_ROUTING,
         )
     ),
+    "android": (),
     "simple": (),
 }
 
@@ -684,6 +691,17 @@ def configurations():
         {
             "name": "sample-service",
             "repo_type": "rust",
+            "postgres": False,
+            "scheme": "",
+            "destination": "",
+        },
+    )
+
+    yield (
+        "android",
+        {
+            "name": "sample-app",
+            "repo_type": "android",
             "postgres": False,
             "scheme": "",
             "destination": "",
@@ -1196,6 +1214,10 @@ def check_workspace_guidance(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] .gitignore is missing {entry!r}")
     if repo_type == "rust" and "/target/" not in gitignore.splitlines():
         errors.append(f"[{label}] Rust .gitignore is missing Cargo build output '/target/'")
+    if repo_type == "android":
+        for entry in (".gradle/", "local.properties", "*.keystore", "*.jks"):
+            if entry not in gitignore.splitlines():
+                errors.append(f"[{label}] Android .gitignore is missing {entry!r}")
     if repo_type == "nextjs":
         for entry in AGENT_BROWSER_GITIGNORE_ENTRIES:
             if entry not in gitignore.splitlines():
@@ -1720,7 +1742,7 @@ def check_release_full_suite_contract(label: str, repo_type: str, files: dict) -
     dispatch into the cheap path, so validate the rendered caller value rather
     than only checking that the input exists.
     """
-    if repo_type not in ("python", "swift", "rust"):
+    if repo_type not in ("python", "swift", "rust", "android"):
         return []
 
     path = ".github/workflows/release-please.yml"
@@ -1932,7 +1954,7 @@ EXPECTED_JOB_PERMISSIONS = {
 # (Contents, read) in the same repository. A job-level block replaces the
 # workflow's, so contents: read is stated again. Nothing here is write: the
 # App token, not GITHUB_TOKEN, is what release-please writes with.
-GATED_RELEASE_TYPES = ("nextjs", "python", "swift", "rust")
+GATED_RELEASE_TYPES = ("nextjs", "python", "swift", "rust", "android")
 GATED_RELEASE_JOB_PERMISSIONS = {"contents": "read", "pull-requests": "read"}
 
 
@@ -2498,7 +2520,7 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
 
     release = yaml.safe_load(files.get(".github/workflows/release-please.yml", "")) or {}
     release_jobs = release.get("jobs", {}) or {}
-    if repo_type in ("nextjs", "python", "swift", "rust"):
+    if repo_type in ("nextjs", "python", "swift", "rust", "android"):
         needs = (release_jobs.get("release-please") or {}).get("needs")
         if "test" not in ([needs] if isinstance(needs, str) else (needs or [])):
             errors.append(f"[{label}] release-please.yml job 'release-please' must need 'test'")
@@ -2530,12 +2552,16 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
 
     test = yaml.safe_load(files.get(".github/workflows/test.yml", "")) or {}
     test_jobs = test.get("jobs", {}) or {}
-    if repo_type in ("python", "rust"):
+    if repo_type in ("python", "rust", "android"):
         suite = test_jobs.get("test") or {}
         if "if" in suite:
             errors.append(f"[{label}] {repo_type} test.yml job 'test' must not be conditional")
         steps = suite.get("steps") or []
-        commands = PYTHON_SUITE_COMMANDS if repo_type == "python" else RUST_SUITE_STEPS[1:]
+        commands = (
+            PYTHON_SUITE_COMMANDS
+            if repo_type == "python"
+            else (RUST_SUITE_STEPS[1:] if repo_type == "rust" else ["./gradlew check"])
+        )
         for command in commands:
             matching = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == command]
             if len(matching) != 1:
@@ -3043,6 +3069,7 @@ EXPECTED_PROTECTION_CONTEXTS = {
     "python": ["validate-title", "test / test"],
     "swift": ["validate-title", "test / test"],
     "rust": ["validate-title", "test / test"],
+    "android": ["validate-title", "test / test"],
     "simple": ["validate-title"],
 }
 
@@ -3586,7 +3613,7 @@ def run_self_tests() -> list:
         if not any("missing its pointer 'Load" in e for e in result):
             errors.append(f"self-test '{repo_type} --screenshots without skill' did not fail as expected: {result}")
 
-    for repo_type in ("nextjs", "swift", "python", "rust", "simple"):
+    for repo_type in ("nextjs", "swift", "python", "rust", "android", "simple"):
         files = bootstrap.generate_files(dict(shot_cfgs[(repo_type, False)]))
         result = check_screenshot_guidance(f"self-test:{repo_type} platform separation", repo_type, files, False)
         if result:
@@ -4036,7 +4063,7 @@ def run_self_tests() -> list:
     # back to inheriting whatever its caller grants — which can change out
     # from under it later even if the caller happens to be read-only today.
     # Absence must fail regardless of the caller's current scope.
-    for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "android", "simple"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
@@ -4053,7 +4080,7 @@ def run_self_tests() -> list:
     # restoring the exact exposure #10 removed — the write-scoped token reaches
     # pip/pytest/xcodebuild again, this time by declaration rather than by
     # inheritance. Both the caller and the suite must be rejected.
-    for repo_type in ("nextjs", "python", "swift", "rust"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "android"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
@@ -4122,7 +4149,7 @@ def run_self_tests() -> list:
     # `simple` declares no block, so any block fails; a gated release declares
     # only its guard's reads, so the same write fails as a drift from them.
     release_job_reads = "    permissions:\n      contents: read\n      pull-requests: read\n"
-    for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "android", "simple"):
         files = bootstrap.generate_files(
             next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         )
@@ -4359,7 +4386,7 @@ def run_self_tests() -> list:
     # Case 37: every release-gated generated repository type must keep manual
     # dispatch on the full suite, not only the Release Please merge commit.
     release_only = "${{ startsWith(github.event.head_commit.message, 'chore(main): release') }}"
-    for repo_type in ("python", "swift", "rust"):
+    for repo_type in ("python", "swift", "rust", "android"):
         cfg = next(cfg for _, cfg in configurations() if cfg["repo_type"] == repo_type)
         files = bootstrap.generate_files(dict(cfg))
         mutated = dict(files)
@@ -4855,7 +4882,7 @@ def _structure_self_tests() -> list:
            gates("simple", title, lambda w: w["jobs"]["validate-title"].update({"if": TITLE_SKIP_CONDITION.replace(
                "'release-please--') &&", "'release-please--') ||").replace("'Bot' &&", "'Bot' ||")})),
            "without requiring a bot PR")
-    for repo_type in ("nextjs", "python", "swift", "rust", "simple"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "android", "simple"):
         expect(f"gates on a clean {repo_type} render", gates(repo_type), None)
     expect("release without needs: test",
            gates("python", release, lambda w: w["jobs"]["release-please"].pop("needs")), "must need 'test'")
@@ -4933,7 +4960,7 @@ def _structure_self_tests() -> list:
                  .pop("if")), "'Refuse to tag an untested release merge' must run only")
     # The guard only reads: it runs with the workflow token, so the App token
     # (contents and pull requests: write) reaches release-please alone.
-    for repo_type in ("nextjs", "python", "swift", "rust"):
+    for repo_type in ("nextjs", "python", "swift", "rust", "android"):
         expect(f"{repo_type} guard that reads with the App token",
                gates(repo_type, release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
                      .update({"GH_TOKEN": "${{ steps.app-token.outputs.token }}"})), "must read with the workflow token")

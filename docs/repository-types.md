@@ -14,6 +14,7 @@ additional files and README guidance for that type.
 |---|---|---|---|
 | [`nextjs`](#nextjs) | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots` |
 | [`python`](#python) | Python packages and tools | ruff format check, ruff, mypy, pytest | none |
+| [`android`](#android) | Android applications | `./gradlew check` on PRs; gated Release Please | none |
 | [`swift`](#swift) | Xcode apps | `swift-format` lint on every PR; `xcodebuild test` on release merges | `--scheme` (required), `--destination`, `--xcodegen`, `--screenshots` |
 | [`rust`](#rust) | crates and workspaces | `cargo fmt --check`, clippy, `cargo test` | none |
 | [`simple`](#simple) | scripts, docs, anything without a test suite | none: Release Please only | none |
@@ -257,6 +258,31 @@ generated `local-validation-rust` skill tells agents to share one
 `CARGO_TARGET_DIR` per repository across worktrees, so each worktree does not
 build its own multi-gigabyte `target/`. It lives beside those worktrees and is
 deleted with the last of them.
+
+## `android`
+
+CI pipeline and reusable infrastructure for Android applications.
+
+- `pr-title-check.yml`
+- `release-please.yml`: test gate → release-please (no deploy); refuses to
+  tag a release merge whose own test run failed
+- `ci.yml`: runs the test suite on every PR
+- `test.yml`: checks for an executable Gradle wrapper, sets up JDK 17, and runs
+  `./gradlew check`; fails clearly until gradlew exists and is executable
+- `dependabot.yml`: GitHub Actions updates only
+- `.gitignore`: ignores local SDK configuration (`local.properties`), Gradle
+  user/project caches (`.gradle/`), build outputs (`build/`, `.cxx/`,
+  `captures/`), and signing keys (`*.jks`, `*.keystore`)
+- `README.md`: project starter with setup instructions, Gradle commands, and
+  Compose Preview workaround guidance
+- `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
+
+Release Please uses the `simple` release type, as for Python, Swift, and Rust:
+it maintains the changelog, tags, and releases.
+
+The bootstrapper supplies repository infrastructure, but deliberately leaves
+application source, Gradle build files, and wrapper files under application
+ownership.
 
 ## `simple`
 

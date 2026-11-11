@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.23.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.22.0...v0.23.0) (2026-11-11)
+
+
+### Features
+
+* add android repository type ([#216](https://github.com/bydradev/gh-repo-bootstrapper/issues/216)) ([3019b5b](https://github.com/bydradev/gh-repo-bootstrapper/commit/3019b5b9b98dc4a494f4efa19220987777fa553f))
+* add android validation and review support ([#218](https://github.com/bydradev/gh-repo-bootstrapper/issues/218)) ([757c10f](https://github.com/bydradev/gh-repo-bootstrapper/commit/757c10f21edefe19a9cd7623a7bb302024bdf272))
+
 ## [0.22.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.21.3...v0.22.0) (2026-10-28)
 
 

@@ -7,6 +7,20 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.23.2
+
+Android: the generated guidance no longer assumes one app's SDK levels. The
+`local-validation-android` skill and the Android section of
+`review-guidelines` check behavior from the app's own `minSdk` to its
+`targetSdk` instead of API 35 to 37. They point to keys in the Android
+Keystore and say not to add Jetpack Security's deprecated
+`EncryptedSharedPreferences`. With `--screenshots`, `docs/screenshot-review.md`
+names no particular emulator or app data. These files are template-owned:
+`--check` reports them as `stale`, and `--adopt` updates them. The generated
+README's toolchain row now names the app's own SDK levels; `README.md`
+belongs to the repository, so `--adopt` keeps it (`kept`, and `differs` in
+`--check`). Edit that row by hand if you like; nothing depends on it.
+
 ## Upgrading to 0.23.1
 
 Android: a newly generated `test.yml` checks that `spotlessCheck` exists, after

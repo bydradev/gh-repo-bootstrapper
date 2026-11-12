@@ -15,13 +15,13 @@ before adding an image to version control:
   Gradle files, not image assets or capture outputs. Formatter checks must pass
   cleanly without corrupting test data fixtures or baseline manifests.
 - **Emulator selection:** When connected captures run against a virtual
-  device, select a pinned, deterministic AVD (for example, a headless API 37
-  device such as `Pixel_10_Pro`) with known screen dimensions, density, and
+  device, select a pinned, deterministic AVD (a named device profile and system
+  image API level, run headless) with known screen dimensions, density, and
   system settings (theme, font scale). Avoid testing against unpinned or ad-hoc
   physical devices whose system state differs.
 - **Fixture isolation:** Drive captures from reproducible, synthetic
   in-memory or sandbox fixture data. Never run captures against live user
-  mailboxes, production credentials, or real personal information.
+  accounts or data, production credentials, or real personal information.
 - **Artifact-review boundaries:** Screenshot generation and visual approval are
   separate gates. A passing capture command or `./gradlew connectedCheck` proves
   only that artifacts were produced; it is not visual or privacy approval. Keep

@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import re
 import subprocess
 import tempfile
 import unittest
@@ -513,13 +514,13 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
         self.assertIn("full validation", content)
         self.assertIn("device checks", content)
 
-        # Safeguards covered: lifecycle, cancellation, state, persistence, permissions, API 35–37
+        # Safeguards covered: lifecycle, cancellation, state, persistence, permissions, API levels
         for topic in (
             "Lifecycle and state",
             "Structured concurrency and cancellation",
             "Persistence and storage",
             "Runtime permissions and privacy",
-            "API 35–37 verification",
+            "API-level compatibility",
         ):
             self.assertIn(topic, content)
 
@@ -544,6 +545,35 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
             "../../.agents/skills/local-validation-android",
         )
 
+    def test_guidance_fits_any_app(self):
+        # The guidance takes the app's own SDK range and names no device or
+        # data of one app, and never recommends the deprecated security-crypto API.
+        for screenshots in (False, True):
+            files = bootstrap.generate_files({
+                "name": "sample-android",
+                "repo_type": "android",
+                "postgres": False,
+                "scheme": "",
+                "destination": "",
+                "screenshots": screenshots,
+            })
+            for path, content in files.items():
+                if not isinstance(content, str):
+                    continue
+                for text in ("35–37", "minimum SDK", "Pixel_10_Pro", "mailbox", "message contents"):
+                    self.assertNotIn(text, content, f"{path} names {text!r}")
+                # A fixed API level may appear only in a dated source line.
+                for line in content.splitlines():
+                    if not re.search(r"checked \d{4}-\d{2}-\d{2}", line):
+                        self.assertNotRegex(line, r"\bAPI 3\d\b", f"{path} fixes an API level: {line!r}")
+                # Each paragraph that names the deprecated API must rule it out.
+                for paragraph in re.split(r"\n\s*\n|\n(?=\s*[-*] )", content):
+                    if "EncryptedSharedPreferences" in paragraph:
+                        self.assertRegex(
+                            paragraph, r"(Do not add|does not add)[^.]*EncryptedSharedPreferences",
+                            f"{path} mentions EncryptedSharedPreferences other than to rule it out",
+                        )
+
     def test_b2_ac1_review_guidelines_stack_section_coverage(self):
         files = _render_android("sample-android")
         review_skill = files[".agents/skills/review-guidelines/SKILL.md"]
@@ -553,11 +583,10 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
             "Concurrency",
             "cancellation",
             "Persistence and storage",
-            "KeyStore",
+            "Android Keystore",
             "Permissions and privacy",
             "Compatibility and API verification",
-            "API 35, 36",
-            "37 targets",
+            "`minSdk` to its `targetSdk`",
         ):
             self.assertIn(req, review_skill)
 

@@ -272,7 +272,7 @@ CI pipeline and reusable infrastructure for Android applications.
   fast checks (`./gradlew spotlessCheck lintDebug testDebugUnitTest` when `full: false`)
   or full validation (`./gradlew check` when `full: true`); fails clearly until gradlew exists and is executable
 - `local-validation-android` skill: guidance for Gradle tasks, CI tiers, safeguards
-  (lifecycle, cancellation, state, persistence, permissions, API 35–37), local device checks
+  (lifecycle, cancellation, state, persistence, permissions, API-level compatibility), local device checks
   (`./gradlew connectedCheck`), worktrees, and AGP 9.5.1 Compose Preview workaround settings
 - `--screenshots`: adds `docs/screenshot-review.md` (Android screenshot guidance, deterministic AVD
   selection, Compose Preview layout snapshots, fixture isolation, and review boundaries)

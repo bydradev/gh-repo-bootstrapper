@@ -1,6 +1,6 @@
 ---
 name: local-validation-android
-description: "Use before running local validation in this Android repository: `./gradlew spotlessCheck`, `./gradlew lintDebug`, `./gradlew test`, `./gradlew connectedCheck`, `./gradlew check`, or worktrees and emulator runs. Covers CI validation tiers (fast PR checks vs full release validation), local device verification, safeguards for lifecycle, cancellation, state, persistence, permissions, and API 35–37 verification, worktree Gradle locks, and versioning."
+description: "Use before running local validation in this Android repository: `./gradlew spotlessCheck`, `./gradlew lintDebug`, `./gradlew test`, `./gradlew connectedCheck`, `./gradlew check`, or worktrees and emulator runs. Covers CI validation tiers (fast PR checks vs full release validation), local device verification, safeguards for lifecycle, cancellation, state, persistence, permissions, and API-level compatibility, worktree Gradle locks, and versioning."
 ---
 
 # Local validation for Android
@@ -53,7 +53,7 @@ As generated, CI validates in tiers via `.github/workflows/test.yml` (called by
   as an explicit local verification lane against a booted emulator or attached
   device. Standard CI runners do not provide a running emulator or connected
   device; verify device contracts locally before landing changes that touch
-  UI, lifecycle, persistence, permissions, or API 35–37 integration.
+  UI, lifecycle, persistence, permissions, or API-level behaviour.
 
 ## Android safeguards and review focus
 
@@ -76,19 +76,24 @@ engineering safeguards:
 - **Persistence and storage:** Database queries and file system access must run
   off the main thread. Database schema migrations must be tested and
   transactional. Credentials, session tokens, and cryptographic keys must be
-  secured using the Android KeyStore or encrypted preferences (`EncryptedSharedPreferences`),
-  never in plain preferences, unencrypted local files, or logs.
+  secured with keys held in the Android Keystore system, never in plain
+  preferences, unencrypted local files, or logs. Do not add Jetpack Security's
+  `EncryptedSharedPreferences` or other `security-crypto` APIs to new code:
+  AndroidX deprecated them in favour of platform APIs and direct use of the
+  Android Keystore.
 - **Runtime permissions and privacy:** Request runtime permissions in context
   with clear rationale, never eagerly on launch. Handle both one-time denial and
   permanent denial ("Don't ask again") states gracefully by disabling dependent
   features or guiding users to system settings. Do not log personal data,
-  message contents, or tokens.
-- **API 35–37 verification:** Verify behavior across the supported API range
-  (minimum SDK 35, target/compile SDK 37). Account for platform changes across
-  Android 15 (API 35), Android 16 (API 36), and Android 17 (API 37), including
-  edge-to-edge layout enforcement, predictive Back gesture animations, 16 KB
-  memory page-size alignment, and background execution limits. Verify fallbacks
-  on both emulators and target devices.
+  user content, or tokens.
+- **API-level compatibility:** Verify behavior across the app's supported
+  range, from its `minSdk` to its `targetSdk` (both in the app's Gradle build).
+  Guard newer APIs with version checks, and test the fallbacks at the lowest
+  supported level. Before raising `targetSdk`, read the behaviour changes for
+  apps that target the new version, such as edge-to-edge layout and predictive
+  Back. Each new Android release also brings changes for all apps, whatever
+  they target, such as 16 KB page sizes for native code. Verify on emulators
+  or devices at the levels a change touches.
 
 ## Compose Preview under AGP 9.5.1
 
@@ -127,5 +132,6 @@ preparing release candidates, or configure `extra-files` in
 
 - Gradle wrapper verification: [Gradle wrapper documentation](https://docs.gradle.org/current/userguide/gradle_wrapper.html), checked 2026-11-07.
 - AGP 9.5.1 and Compose Preview test options: local qualification testing and [AGP 9.5 release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes), checked 2026-11-07.
-- Android SDK platform compatibility (API 35–37): [Android 17 SDK setup guide](https://developer.android.com/about/versions/17/setup-sdk), checked 2026-11-07.
+- Android SDK setup for the newest platform: [Android 17 SDK setup guide](https://developer.android.com/about/versions/17/setup-sdk), checked 2026-11-07.
+- `security-crypto` deprecation (1.1.0-alpha07, 2025-04-09, and 1.1.0-beta01): [AndroidX Security releases](https://developer.android.com/jetpack/androidx/releases/security), checked 2026-11-12.
 - Release Please `simple` release type: Google Release Please v17 schema, checked 2026-10-21.

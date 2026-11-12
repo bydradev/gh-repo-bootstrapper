@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.1...v0.23.2) (2026-11-12)
+
+
+### Bug Fixes
+
+* **templates:** fit the android guidance to any app ([#221](https://github.com/bydradev/gh-repo-bootstrapper/issues/221)) ([d7931f3](https://github.com/bydradev/gh-repo-bootstrapper/commit/d7931f355eb84e82fe4d73cbf2d0f6077f119f29))
+
 ## [0.23.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.0...v0.23.1) (2026-11-12)
 
 

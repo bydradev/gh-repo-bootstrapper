@@ -693,6 +693,20 @@ class ExistingRepositoryTests(unittest.TestCase):
         code, out = self._main("--check", str(self.repo), "--type", "swift", "--scheme", "App")
         self.assertEqual(code, 0, out)
 
+    def test_an_android_repository_keeps_and_updates_its_screenshot_files_without_the_flag(self):
+        expected = _render("android", screenshots=True)
+        skill, doc = bootstrap.SCREENSHOT_FILES
+        self._write_repo({**expected, skill: self._older_skill(expected[skill])})
+        code, out = self._main("--adopt", str(self.repo), "--type", "android", "--non-interactive")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"the template's {skill} and {doc}; pass --screenshots to silence this.", out)
+        self.assertIn(f"updated  {skill}", out)
+        self.assertNotIn("  deleted  ", out)
+        for rel in (skill, doc):
+            self.assertEqual((self.repo / rel).read_text(), expected[rel])
+        code, out = self._main("--check", str(self.repo), "--type", "android")
+        self.assertEqual(code, 0, out)
+
     def test_deleting_edited_screenshot_files_needs_the_flag_to_regenerate_them(self):
         files = _render("nextjs", screenshots=True)
         skill, doc = bootstrap.SCREENSHOT_FILES

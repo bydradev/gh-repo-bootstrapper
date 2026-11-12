@@ -67,7 +67,7 @@ material into a repository-owned skill.
 Pass the same type options the repository was generated with (`--postgres` for
 Next.js, `--scheme`, `--destination`, and `--xcodegen` for Swift), or the
 workflows they shape report as drift. `--screenshots` is the exception: a
-`nextjs` or `swift` repository that already has the template's copy of
+`nextjs`, `swift` or `android` repository that already has the template's copy of
 `.agents/skills/screenshot-review/SKILL.md` or `docs/screenshot-review.md` is
 treated as using it, and the report says so, so `--adopt` keeps and updates
 those files without the flag. The template's copy is a file whose stamp,

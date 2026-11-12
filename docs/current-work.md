@@ -38,27 +38,21 @@ step, and a run that ends in error prints the end of OpenCode's log. Triage
 also puts `.git` back in the checkout after its run. No setting, secret or
 label changed.
 
-## Releases and adoption (2026-10-27)
+## Releases and adoption (2026-11-12)
 
-v0.21.3 (2026-10-27) is the latest release: a comment in
-`pr-title-check.yml` says when Dependabot capitalises its pull request
-titles ([Upgrading to 0.21.3](upgrading.md#upgrading-to-0213)). v0.21.2
-(2026-10-27) has the `review-guidelines` skill tell reviewers to read free
-text from the event file, and the `pull-requests` skill keep the merging
-account's email address out of squash messages
-([Upgrading to 0.21.2](upgrading.md#upgrading-to-0212)). v0.21.1
-(2026-10-26) has the title check read the pull request's title and body
-from the event file instead of its step env
-([Upgrading to 0.21.1](upgrading.md#upgrading-to-0211)). v0.21.0
-(2026-10-25) gives new public repositories secret scanning with push
-protection, CodeQL default setup and the fork pull request approval policy,
-and keeps a managed block of `.gitignore` and `.prettierignore` in step on
-adopt ([Upgrading to 0.21.0](upgrading.md#upgrading-to-0210)). v0.20.0
-(2026-10-23) added pull request creation limited to collaborators on private
-repositories, Dependabot alerts, and conversation resolution in the branch
-protection on `main`. Generated repositories take each release in an
-adoption round, one `chore: adopt gh-repo-bootstrapper <version>` pull
-request per repository; gh-agent-kit adopted 0.21.3 on 2026-10-27.
+v0.23.3 is the latest release. v0.23.0 (2026-11-11) added
+`--type android`, and changed nothing for the other types. v0.23.1 to
+v0.23.3 fix the Android type: its pull request checks stop with a clear
+error when the Spotless plugin is missing, its guidance fits any app
+instead of one app's SDK levels, and its `test.yml` validates the Gradle
+wrapper and caches Gradle
+([Upgrading to 0.23.3](upgrading.md#upgrading-to-0233)). v0.22.0
+(2026-10-28) shortened the generated skills. Generated repositories take
+each release in an adoption round, one `chore: adopt gh-repo-bootstrapper
+<version>` pull request per repository; gh-agent-kit adopted 0.22.0 on
+2026-10-29. No adoption round has run since, because 0.23.x changes only
+the Android type. Older releases are in the
+[changelog](../CHANGELOG.md) and [Upgrading](upgrading.md).
 
 ## Documentation (2026-10-24)
 

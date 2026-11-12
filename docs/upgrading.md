@@ -56,6 +56,12 @@ not needs the plugin for its pull request checks to pass, and can take the
 the `v0.23.1` tag and paste it into `.github/workflows/test.yml` right after
 the `actions/setup-java` step.
 
+## Upgrading to 0.23.0
+
+Android: `--type android` is new. The other types generate the same files
+as 0.22.0, so `--check` reports nothing to change and `--adopt` changes
+nothing.
+
 ## Upgrading to 0.22.0
 
 Every type: the `fresh-eyes-review`, `pull-requests`, `review-guidelines`

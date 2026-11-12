@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.2...v0.23.3) (2026-11-12)
+
+
+### Bug Fixes
+
+* **templates:** validate the android gradle wrapper and cache gradle ([#224](https://github.com/bydradev/gh-repo-bootstrapper/issues/224)) ([fc2f8b2](https://github.com/bydradev/gh-repo-bootstrapper/commit/fc2f8b216ddc019a5f4d09dc77f53841241eaa2d))
+
 ## [0.23.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.1...v0.23.2) (2026-11-12)
 
 

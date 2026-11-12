@@ -267,7 +267,8 @@ CI pipeline and reusable infrastructure for Android applications.
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
 - `ci.yml`: runs the test suite on every PR (calling `test.yml` with `full: false` for fast checks)
-- `test.yml`: checks for an executable Gradle wrapper, sets up JDK 17, and runs
+- `test.yml`: checks for an executable Gradle wrapper, sets up JDK 17, checks
+  that the Spotless plugin's `spotlessCheck` task exists, and runs
   fast checks (`./gradlew spotlessCheck lintDebug testDebugUnitTest` when `full: false`)
   or full validation (`./gradlew check` when `full: true`); fails clearly until gradlew exists and is executable
 - `local-validation-android` skill: guidance for Gradle tasks, CI tiers, safeguards
@@ -280,7 +281,8 @@ CI pipeline and reusable infrastructure for Android applications.
 - `.gitignore`: ignores local SDK configuration (`local.properties`), Gradle
   user/project caches (`.gradle/`), build outputs (`build/`, `.cxx/`,
   `captures/`), and signing keys (`*.jks`, `*.keystore`)
-- `README.md`: project starter with setup instructions, Gradle commands, and
+- `README.md`: project starter with setup instructions (including applying the
+  Spotless Gradle plugin, which the fast checks need), Gradle commands, and
   Compose Preview workaround guidance
 - `docs/branch-protection-runbook.md`: operational runbook for PRs blocked by required status checks
 

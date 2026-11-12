@@ -2595,8 +2595,22 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] android suite step actions/setup-java must exist exactly once")
         elif "if" in java_steps[0] or java_steps[0].get("continue-on-error", False) is not False:
             errors.append(f"[{label}] android suite step actions/setup-java must be unconditional and blocking")
+        # The fast checks need the Spotless plugin, which a new Android project
+        # does not have: the guard names the fix before the checks fail on it.
+        spotless_name = "Require the Spotless format check"
+        spotless_steps = [s for s in steps if isinstance(s, dict) and s.get("name") == spotless_name]
+        if len(spotless_steps) != 1:
+            errors.append(f"[{label}] android suite step {spotless_name!r} must exist exactly once")
+        elif "if" in spotless_steps[0] or spotless_steps[0].get("continue-on-error", False) is not False:
+            errors.append(f"[{label}] android suite step {spotless_name!r} must be unconditional and blocking")
+        elif "./gradlew --quiet help --task spotlessCheck" not in str(spotless_steps[0].get("run", "")):
+            errors.append(f"[{label}] android suite step {spotless_name!r} must look for the spotlessCheck task")
         fast_cmd = "./gradlew spotlessCheck lintDebug testDebugUnitTest"
         fast_steps = [s for s in steps if isinstance(s, dict) and str(s.get("run", "")).strip() == fast_cmd]
+        if len(spotless_steps) == 1 and len(fast_steps) == 1 and steps.index(spotless_steps[0]) > steps.index(fast_steps[0]):
+            errors.append(f"[{label}] android suite step {spotless_name!r} must come before the fast checks")
+        if len(spotless_steps) == 1 and len(java_steps) == 1 and steps.index(spotless_steps[0]) < steps.index(java_steps[0]):
+            errors.append(f"[{label}] android suite step {spotless_name!r} must come after actions/setup-java")
         if len(fast_steps) != 1:
             errors.append(f"[{label}] android suite fast checks step {fast_cmd!r} must exist exactly once")
         else:
@@ -5034,7 +5048,7 @@ def _structure_self_tests() -> list:
                lambda m: f"{m.group(1)}# ruff==0.17.1 mypy==2.4.0 pytest==9.1.1\n{m.group(1)}pip install ruff mypy pytest\n",
                t, count=1)), "pinned fallback loop")
     expect("android fast checks without condition",
-           gates("android", test, lambda w: step(w, "test", lambda s: "spotlessCheck" in str(s.get("run", ""))).pop("if")),
+           gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Run fast checks").pop("if")),
            "must be gated on !inputs.full")
     expect("android full validation without condition",
            gates("android", test, lambda w: step(w, "test", lambda s: s.get("run") == "./gradlew check").pop("if")),
@@ -5042,6 +5056,27 @@ def _structure_self_tests() -> list:
     expect("android wrapper guard conditional",
            gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require an executable Gradle wrapper")
                  .update({"if": "${{ inputs.full }}"})), "must be unconditional and blocking")
+    expect("android spotless guard conditional",
+           gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require the Spotless format check")
+                 .update({"if": "${{ !inputs.full }}"})), "'Require the Spotless format check' must be unconditional")
+    expect("android spotless guard removed",
+           gates("android", test, lambda w: w["jobs"]["test"]["steps"].remove(
+               step(w, "test", lambda s: s.get("name") == "Require the Spotless format check"))),
+           "'Require the Spotless format check' must exist exactly once")
+    expect("android spotless guard that may fail",
+           gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require the Spotless format check")
+                 .update({"continue-on-error": True})), "'Require the Spotless format check' must be unconditional")
+    expect("android spotless guard that does not look for the task",
+           gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require the Spotless format check")
+                 .update({"run": "true\n"})), "must look for the spotlessCheck task")
+    expect("android spotless guard before setup-java",
+           gates("android", test, lambda w: w["jobs"]["test"]["steps"].insert(1, w["jobs"]["test"]["steps"].pop(
+               w["jobs"]["test"]["steps"].index(step(w, "test", lambda s: s.get("name") == "Require the Spotless format check"))))),
+           "must come after actions/setup-java")
+    expect("android spotless guard after the fast checks",
+           gates("android", test, lambda w: w["jobs"]["test"]["steps"].append(w["jobs"]["test"]["steps"].pop(
+               w["jobs"]["test"]["steps"].index(step(w, "test", lambda s: s.get("name") == "Require the Spotless format check"))))),
+           "must come before the fast checks")
     expect("conditional android test job",
            gates("android", test, lambda w: w["jobs"]["test"].update({"if": "github.event_name == 'push'"})),
            "job 'test' must not be conditional")

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.0...v0.23.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **templates:** stop android pr checks clearly when spotless is missing ([#219](https://github.com/bydradev/gh-repo-bootstrapper/issues/219)) ([417d7fc](https://github.com/bydradev/gh-repo-bootstrapper/commit/417d7fcb170f001a5ac4bdc331c484f835b6aa01))
+
 ## [0.23.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.22.0...v0.23.0) (2026-11-11)
 
 

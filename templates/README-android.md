@@ -22,7 +22,11 @@ Add the Android application scaffold and Gradle wrapper before shipping:
 1. Initialise the application scaffold with a compatible Gradle wrapper (`gradlew`).
 2. Add your application build configuration (`settings.gradle.kts`, `build.gradle.kts`).
 3. Ensure JDK 17 is configured for Gradle builds and local verification.
-4. When Jetpack Compose is enabled under Android Gradle Plugin (AGP) 9.5.1,
+4. Apply the [Spotless](https://plugins.gradle.org/plugin/com.diffplug.spotless)
+   Gradle plugin (`com.diffplug.spotless`) with a Kotlin formatter such as
+   ktfmt. CI runs `./gradlew spotlessCheck` on every pull request and stops
+   with an error until the task exists.
+5. When Jetpack Compose is enabled under Android Gradle Plugin (AGP) 9.5.1,
    local testing found that Compose Preview task realization
    requires setting `android.onlyEnableUnitTestForTheTestedBuildType=false` in
    `gradle.properties` and `testOptions.unitTests.isIncludeAndroidResources = true`

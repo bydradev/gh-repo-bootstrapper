@@ -45,6 +45,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # The fast checks run spotlessCheck, which exists only once the Spotless
+      # Gradle plugin is applied. Gradle's own error for a missing task names no
+      # fix, so look for the task first and say what to add. Any other Gradle
+      # failure prints its output and fails here as it would in the checks.
+      - name: Require the Spotless format check
+        run: |
+          if ! output=$(./gradlew --quiet help --task spotlessCheck 2>&1); then
+            printf '%s\n' "$output"
+            if printf '%s\n' "$output" | grep -q "Task 'spotlessCheck' not found"; then
+              echo "::error::No spotlessCheck task found. Apply the Spotless Gradle plugin (com.diffplug.spotless) to the application's build, as README.md's Start here describes."
+            else
+              echo "::error::Gradle failed while looking for the spotlessCheck task; see its output above."
+            fi
+            exit 1
+          fi
       - name: Run fast checks
         if: ${{ !inputs.full }}
         run: ./gradlew spotlessCheck lintDebug testDebugUnitTest

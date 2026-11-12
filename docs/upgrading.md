@@ -7,6 +7,22 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.23.1
+
+Android: a newly generated `test.yml` checks that `spotlessCheck` exists, after
+`actions/setup-java` and before the checks, and stops with an error that
+names the Spotless Gradle plugin (`com.diffplug.spotless`) when it does not.
+It runs for full validation too. The generated README's *Start here* now
+lists applying that plugin, which the fast checks always needed. The
+`local-validation-android` skill is template-owned: `--check` reports it as
+`stale`, and `--adopt` updates it. `test.yml` and `README.md` belong to the
+repository, so `--adopt` reports them as `kept` and `--check` as `differs`.
+A repository that already applies Spotless needs nothing else. One that does
+not needs the plugin for its pull request checks to pass, and can take the
+`Require the Spotless format check` step from `templates/test-android.yml` at
+the `v0.23.1` tag and paste it into `.github/workflows/test.yml` right after
+the `actions/setup-java` step.
+
 ## Upgrading to 0.22.0
 
 Every type: the `fresh-eyes-review`, `pull-requests`, `review-guidelines`

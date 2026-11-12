@@ -17,7 +17,8 @@ device constraints, and CI validation tiers.
 The standard repository checks execute through the Gradle wrapper (`./gradlew`):
 
 - **Format check:** `./gradlew spotlessCheck` checks Kotlin formatting (configured
-  via Spotless and ktfmt). Run `./gradlew spotlessApply` to automatically format
+  via Spotless and ktfmt). The task exists only when the application's build
+  applies the Spotless Gradle plugin; CI stops with an error until it does. Run `./gradlew spotlessApply` to automatically format
   source files. Never circumvent formatter checks with manual escapes or
   suppression comments.
 - **Lint:** `./gradlew lintDebug` performs static analysis of Android resources,
@@ -39,11 +40,13 @@ As generated, CI validates in tiers via `.github/workflows/test.yml` (called by
 `ci.yml` and `release-please.yml`):
 
 - **Pull requests (`ci.yml`) and ordinary pushes to `main`:** run fast checks
-  (`full: false`): wrapper verification, JDK 17 setup, and
+  (`full: false`): wrapper verification, JDK 17 setup, a check that the
+  `spotlessCheck` task exists, and
   `./gradlew spotlessCheck lintDebug testDebugUnitTest` on `ubuntu-latest`.
 - **Release Please merge (`chore(main): release`) and manual dispatch of
   `release-please.yml`:** run full validation (`full: true`): wrapper
-  verification, JDK 17 setup, and `./gradlew check`. The release PR merges and
+  verification, JDK 17 setup, the same `spotlessCheck` task check, and
+  `./gradlew check`. The release PR merges and
   tags only after full validation passes.
 - **Connected device checks:** `./gradlew connectedCheck` (or
   `./gradlew connectedDebugAndroidTest`) is repository-owned and executed

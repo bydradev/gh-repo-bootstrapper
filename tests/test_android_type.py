@@ -331,6 +331,10 @@ class AndroidWorkflowScaffoldContractTests(unittest.TestCase):
         gradlew.write_text(
             """#!/bin/sh
 case "$*" in
+  "--quiet help --task spotlessCheck")
+    echo "Detailed task information for spotlessCheck"
+    exit 0
+    ;;
   "check")
     echo "FULL VALIDATION SUCCESSFUL"
     exit 0
@@ -376,6 +380,17 @@ esac
         )
         self.assertEqual(guard_proc.returncode, 0)
 
+        spotless_script = next(
+            s for s in steps if s.get("name") == "Require the Spotless format check"
+        )["run"]
+        spotless_proc = subprocess.run(
+            ["bash", "-e", "-c", spotless_script],
+            cwd=str(fixture_repo),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(spotless_proc.returncode, 0, spotless_proc.stdout + spotless_proc.stderr)
+
         # Execute extracted fast checks step
         fast_proc = subprocess.run(
             ["sh", "-c", fast_cmd],
@@ -395,6 +410,53 @@ esac
         )
         self.assertEqual(full_proc.returncode, 0)
         self.assertIn("FULL VALIDATION SUCCESSFUL", full_proc.stdout)
+
+
+class AndroidSpotlessGuardTests(unittest.TestCase):
+    """The Spotless guard names the missing plugin, and passes other Gradle failures through."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        workflow = yaml.safe_load(_render_android("fixture-app")[".github/workflows/test.yml"])
+        self.script = next(
+            s for s in workflow["jobs"]["test"]["steps"]
+            if s.get("name") == "Require the Spotless format check"
+        )["run"]
+
+    def _run_with_gradlew(self, body):
+        gradlew = self.repo / "gradlew"
+        gradlew.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        gradlew.chmod(0o755)
+        # GitHub runs a run: step with bash -e on ubuntu-latest.
+        return subprocess.run(
+            ["bash", "-e", "-c", self.script], cwd=str(self.repo), capture_output=True, text=True
+        )
+
+    def test_passes_when_the_task_exists(self):
+        proc = self._run_with_gradlew('[ "$*" = "--quiet help --task spotlessCheck" ] || exit 9\necho ok\n')
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("::error::", proc.stdout)
+
+    def test_names_the_plugin_when_the_task_is_missing(self):
+        # Gradle 8.14.3's wording, checked 2026-11-12 on a project without Spotless.
+        proc = self._run_with_gradlew(
+            "echo \"* What went wrong:\" >&2\n"
+            "echo \"    Task 'spotlessCheck' not found in root project 'app' and its subprojects.\" >&2\n"
+            "exit 1\n"
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Task 'spotlessCheck' not found", proc.stdout)
+        self.assertIn("::error::No spotlessCheck task found", proc.stdout)
+        self.assertIn("com.diffplug.spotless", proc.stdout)
+
+    def test_reports_any_other_gradle_failure_as_it_is(self):
+        proc = self._run_with_gradlew("echo 'SDK location not found.' >&2\nexit 1\n")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("SDK location not found.", proc.stdout)
+        self.assertIn("::error::Gradle failed while looking for the spotlessCheck task", proc.stdout)
+        self.assertNotIn("com.diffplug.spotless", proc.stdout)
 
 
 class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
@@ -535,8 +597,15 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         self.assertNotIn("device", declared_inputs)
 
         # Step count: fast checks and full validation are the only check steps
-        run_steps = [s for s in steps if "run" in s and s.get("name") != "Require an executable Gradle wrapper"]
+        guards = ("Require an executable Gradle wrapper", "Require the Spotless format check")
+        run_steps = [s for s in steps if "run" in s and s.get("name") not in guards]
         self.assertEqual(len(run_steps), 2)
+
+        # Spotless guard: unconditional, blocking, and before the fast checks
+        spotless_step = next(s for s in steps if s.get("name") == "Require the Spotless format check")
+        self.assertNotIn("if", spotless_step)
+        self.assertFalse(spotless_step.get("continue-on-error", False))
+        self.assertLess(steps.index(spotless_step), steps.index(fast_step))
 
         # Caller contracts
         ci_yml = yaml.safe_load(files[".github/workflows/ci.yml"])
@@ -559,7 +628,7 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         # 1. Dropping condition on fast checks step fails check_workflow_gates
         files1 = _render_android("sample-android")
         test1 = yaml.safe_load(files1[".github/workflows/test.yml"])
-        fast = next(s for s in test1["jobs"]["test"]["steps"] if "spotlessCheck" in str(s.get("run", "")))
+        fast = next(s for s in test1["jobs"]["test"]["steps"] if s.get("name") == "Run fast checks")
         del fast["if"]
         files1[".github/workflows/test.yml"] = yaml.safe_dump(test1)
         errs1 = validate_templates.check_workflow_gates("test", "android", files1)
@@ -586,7 +655,7 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         # 4. Inverting fast check condition fails check_workflow_gates
         files4 = _render_android("sample-android")
         test4 = yaml.safe_load(files4[".github/workflows/test.yml"])
-        fast4 = next(s for s in test4["jobs"]["test"]["steps"] if "spotlessCheck" in str(s.get("run", "")))
+        fast4 = next(s for s in test4["jobs"]["test"]["steps"] if s.get("name") == "Run fast checks")
         fast4["if"] = "${{ inputs.full }}"
         files4[".github/workflows/test.yml"] = yaml.safe_dump(test4)
         errs4 = validate_templates.check_workflow_gates("test", "android", files4)

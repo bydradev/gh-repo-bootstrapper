@@ -6,11 +6,12 @@
 | Detail | Value |
 |---|---|
 | Status | Initial setup |
-| Toolchain | Android SDK (API 37 compile/target, API 35 min), JDK 17, Gradle 9.6.0 |
+| Toolchain | Android SDK (the app's own `compileSdk`, `targetSdk` and `minSdk`), JDK 17, the Gradle version the app's AGP needs |
 
-Toolchain compatibility verified on 2026-11-07 against primary documentation:
-[Android Gradle Plugin 9.5 release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes),
-[Android 17 SDK setup guide](https://developer.android.com/about/versions/17/setup-sdk),
+The templates were checked on 2026-11-07 against the
+[Android Gradle Plugin 9.5 release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes)
+(Gradle 9.6.0 or later and JDK 17 for AGP 9.5), the
+[Android 17 SDK setup guide](https://developer.android.com/about/versions/17/setup-sdk)
 and [Gradle releases](https://services.gradle.org/versions/all).
 
 ## Start here

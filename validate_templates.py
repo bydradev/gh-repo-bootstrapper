@@ -2484,7 +2484,8 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
     other check green.
     """
     errors = []
-    # Every generated pattern is `owner/repo@*`: the repository must match exactly.
+    # Every generated pattern is `owner/repo@*` or `owner/repo/path@*`: the
+    # action, path included, must match exactly.
     allowed_actions = {p.removesuffix("@*") for p in bootstrap.selected_action_patterns(repo_type)}
     for path in _workflow_paths(files):
         workflow = yaml.safe_load(files[path]) or {}
@@ -2595,6 +2596,30 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
             errors.append(f"[{label}] android suite step actions/setup-java must exist exactly once")
         elif "if" in java_steps[0] or java_steps[0].get("continue-on-error", False) is not False:
             errors.append(f"[{label}] android suite step actions/setup-java must be unconditional and blocking")
+        # gradle-wrapper.jar is a binary a pull request can swap: validate it
+        # against Gradle's checksums before any step runs it.
+        validation_steps = [
+            s for s in steps
+            if isinstance(s, dict) and str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@")
+        ]
+        if len(validation_steps) != 1:
+            errors.append(f"[{label}] android suite step gradle/actions/wrapper-validation must exist exactly once")
+        elif "if" in validation_steps[0] or validation_steps[0].get("continue-on-error", False) is not False:
+            errors.append(f"[{label}] android suite step gradle/actions/wrapper-validation must be unconditional and blocking")
+        elif validation_steps[0].get("with"):
+            # min-wrapper-count: 0 or allow-checksums would let an unknown JAR through.
+            errors.append(f"[{label}] android suite step gradle/actions/wrapper-validation must keep its default inputs")
+        else:
+            runs_gradle = re.compile(r"(?:^|[\s;&|(`])(?:\./gradlew|(?:ba)?sh\s+(?:\./)?gradlew)\b")
+            first_gradle = next(
+                (i for i, s in enumerate(steps) if isinstance(s, dict) and (
+                    runs_gradle.search(str(s.get("run", "")))
+                    or (str(s.get("uses", "")).startswith("gradle/actions/")
+                        and s is not validation_steps[0]))),
+                None,
+            )
+            if first_gradle is not None and steps.index(validation_steps[0]) > first_gradle:
+                errors.append(f"[{label}] android suite step gradle/actions/wrapper-validation must come before any step that runs gradlew")
         # The fast checks need the Spotless plugin, which a new Android project
         # does not have: the guard names the fix before the checks fail on it.
         spotless_name = "Require the Spotless format check"
@@ -5056,6 +5081,28 @@ def _structure_self_tests() -> list:
     expect("android wrapper guard conditional",
            gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require an executable Gradle wrapper")
                  .update({"if": "${{ inputs.full }}"})), "must be unconditional and blocking")
+    expect("android wrapper validation removed",
+           gates("android", test, lambda w: w["jobs"]["test"]["steps"].remove(
+               step(w, "test", lambda s: str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@")))),
+           "gradle/actions/wrapper-validation must exist exactly once")
+    expect("android wrapper validation conditional",
+           gates("android", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@"))
+                 .update({"if": "${{ inputs.full }}"})), "gradle/actions/wrapper-validation must be unconditional")
+    expect("android wrapper validation that may fail",
+           gates("android", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@"))
+                 .update({"continue-on-error": True})), "gradle/actions/wrapper-validation must be unconditional")
+    expect("android wrapper validation after gradlew runs",
+           gates("android", test, lambda w: w["jobs"]["test"]["steps"].append(w["jobs"]["test"]["steps"].pop(
+               w["jobs"]["test"]["steps"].index(step(w, "test", lambda s: str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@")))))),
+           "must come before any step that runs gradlew")
+    expect("android wrapper validation with inputs",
+           gates("android", test, lambda w: step(w, "test", lambda s: str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@"))
+                 .update({"with": {"min-wrapper-count": "0"}})), "must keep its default inputs")
+    expect("android wrapper validation after bash gradlew",
+           gates("android", test, lambda w: w["jobs"]["test"]["steps"].insert(
+               w["jobs"]["test"]["steps"].index(step(w, "test", lambda s: str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@"))),
+               {"name": "Early build", "run": "bash gradlew help"})),
+           "must come before any step that runs gradlew")
     expect("android spotless guard conditional",
            gates("android", test, lambda w: step(w, "test", lambda s: s.get("name") == "Require the Spotless format check")
                  .update({"if": "${{ !inputs.full }}"})), "'Require the Spotless format check' must be unconditional")

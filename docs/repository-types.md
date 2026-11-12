@@ -267,8 +267,10 @@ CI pipeline and reusable infrastructure for Android applications.
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
   tag a release merge whose own test run failed
 - `ci.yml`: runs the test suite on every PR (calling `test.yml` with `full: false` for fast checks)
-- `test.yml`: checks for an executable Gradle wrapper, sets up JDK 17, checks
-  that the Spotless plugin's `spotlessCheck` task exists, and runs
+- `test.yml`: checks for an executable Gradle wrapper, validates
+  `gradle-wrapper.jar` against Gradle's published checksums
+  (`gradle/actions/wrapper-validation`), sets up JDK 17 with the Gradle
+  cache, checks that the Spotless plugin's `spotlessCheck` task exists, and runs
   fast checks (`./gradlew spotlessCheck lintDebug testDebugUnitTest` when `full: false`)
   or full validation (`./gradlew check` when `full: true`); fails clearly until gradlew exists and is executable
 - `local-validation-android` skill: guidance for Gradle tasks, CI tiers, safeguards

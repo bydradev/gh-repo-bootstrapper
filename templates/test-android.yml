@@ -41,10 +41,19 @@ jobs:
             echo "::error::Gradle wrapper gradlew is not executable."
             exit 1
           fi
+      # Every later step runs gradle-wrapper.jar, a binary a pull request can
+      # change without a reviewer reading it. This checks each one in the
+      # repository against Gradle's published checksums, and fails when there
+      # is none.
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      # cache: gradle restores Gradle's dependency cache and the wrapper's
+      # Gradle distribution, keyed on the build files and
+      # gradle-wrapper.properties.
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
       # The fast checks run spotlessCheck, which exists only once the Spotless
       # Gradle plugin is applied. Gradle's own error for a missing task names no
       # fix, so look for the task first and say what to add. Any other Gradle

@@ -7,6 +7,25 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.23.3
+
+Android: a newly generated `test.yml` validates `gradle-wrapper.jar` against
+Gradle's published checksums with `gradle/actions/wrapper-validation`, right
+after the check for an executable `gradlew`, so a pull request that swaps
+the wrapper JAR fails before any Gradle task runs. It also passes
+`cache: gradle` to `actions/setup-java`, which caches Gradle's dependencies
+and the wrapper's Gradle distribution between runs. The
+`local-validation-android` skill is template-owned: `--check` reports it as
+`stale`, and `--adopt` updates it. `test.yml` belongs to the repository, so
+`--adopt` keeps it (`kept`, and `differs` in `--check`). To take the change,
+copy the `gradle/actions/wrapper-validation` step and the `cache: gradle`
+line from `templates/test-android.yml` at the `v0.23.3` tag into
+`.github/workflows/test.yml`. The repository's Actions policy must allow the
+action: run `--configure-only`, which adds
+`gradle/actions/wrapper-validation@*` to the allowed actions, or add that
+pattern under *Settings > Actions > General*. Without it, GitHub refuses
+to start the workflow, because it uses an action the policy does not allow.
+
 ## Upgrading to 0.23.2
 
 Android: the generated guidance no longer assumes one app's SDK levels. The

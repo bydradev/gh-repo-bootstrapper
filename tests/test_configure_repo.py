@@ -148,8 +148,11 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertEqual(tracked(other), "")
 
     def test_selected_actions_excludes_provider_actions(self):
-        rust_only = ["dtolnay/rust-toolchain@*", "Swatinem/rust-cache@*"]
-        for repo_type in ("simple", "python", "nextjs", "swift", "rust"):
+        extras = {
+            "rust": ["dtolnay/rust-toolchain@*", "Swatinem/rust-cache@*"],
+            "android": ["gradle/actions/wrapper-validation@*"],
+        }
+        for repo_type in ("simple", "python", "nextjs", "swift", "rust", "android"):
             with self.subTest(repo_type=repo_type):
                 calls = []
 
@@ -168,7 +171,7 @@ class ConfigureRepoTests(unittest.TestCase):
                 payload = json.loads(kwargs["input"].decode())
                 self.assertEqual(
                     payload["patterns_allowed"],
-                    ["amannn/action-semantic-pull-request@*"] + (rust_only if repo_type == "rust" else []),
+                    ["amannn/action-semantic-pull-request@*"] + extras.get(repo_type, []),
                 )
 
     def test_rust_allowlist_covers_every_third_party_action_it_renders(self):
@@ -181,6 +184,17 @@ class ConfigureRepoTests(unittest.TestCase):
         allowed = {p.removesuffix("@*") for p in bootstrap.selected_action_patterns("rust")}
         self.assertIn("Swatinem/rust-cache", third_party)
         # googleapis is a Marketplace verified creator; everything else needs a pattern.
+        self.assertEqual(third_party - {"googleapis/release-please-action"}, allowed)
+
+    def test_android_allowlist_covers_every_third_party_action_it_renders(self):
+        files = bootstrap.generate_files({**self._config(), "repo_type": "android", "name": "sample"})
+        used = set()
+        for path, text in files.items():
+            if path.startswith(".github/workflows/"):
+                used |= set(re.findall(r"uses:\s*([\w.-]+/[\w./-]+)@", text))
+        third_party = {action for action in used if not action.startswith("actions/")}
+        allowed = {p.removesuffix("@*") for p in bootstrap.selected_action_patterns("android")}
+        self.assertIn("gradle/actions/wrapper-validation", third_party)
         self.assertEqual(third_party - {"googleapis/release-please-action"}, allowed)
 
     def test_nextjs_render_is_provider_free_and_preserves_postgres(self):

@@ -602,10 +602,21 @@ class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):
         self.assertNotIn("if", wrapper_step)
         self.assertFalse(wrapper_step.get("continue-on-error", False))
 
-        # Setup Java: unconditional and blocking
+        # Wrapper validation: pinned, unconditional, blocking, before Java and every gradlew run
+        validation_step = next(
+            s for s in steps if str(s.get("uses", "")).startswith("gradle/actions/wrapper-validation@")
+        )
+        self.assertRegex(validation_step["uses"], r"@[0-9a-f]{40}$")
+        self.assertNotIn("if", validation_step)
+        self.assertFalse(validation_step.get("continue-on-error", False))
+        self.assertGreater(steps.index(validation_step), steps.index(wrapper_step))
+
+        # Setup Java: unconditional and blocking, with the Gradle cache
         java_step = next(s for s in steps if str(s.get("uses", "")).startswith("actions/setup-java@"))
         self.assertNotIn("if", java_step)
         self.assertFalse(java_step.get("continue-on-error", False))
+        self.assertEqual(java_step["with"]["cache"], "gradle")
+        self.assertLess(steps.index(validation_step), steps.index(java_step))
 
         # Fast checks: runs on !inputs.full
         fast_step = next(s for s in steps if s.get("name") == "Run fast checks")

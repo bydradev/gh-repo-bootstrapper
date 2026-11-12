@@ -4629,11 +4629,17 @@ def selected_action_patterns(repo_type: str) -> list:
     """Third-party actions the generated workflows use outside the verified-creator rule.
 
     `verified_allowed` covers only GitHub Marketplace verified creators, which are
-    organizations; these actions are user-owned, so each needs an explicit pattern.
+    organizations; these actions are user-owned, or their owner's verification is
+    not established here, so each needs an explicit pattern.
     """
     patterns = ["amannn/action-semantic-pull-request@*"]
     if repo_type == "rust":
         patterns += ["dtolnay/rust-toolchain@*", "Swatinem/rust-cache@*"]
+    if repo_type == "android":
+        # A pattern uses "the same syntax used in the workflow", so it keeps
+        # the action's path ("Managing GitHub Actions settings for a
+        # repository", read 2026-11-12).
+        patterns += ["gradle/actions/wrapper-validation@*"]
     return patterns
 
 

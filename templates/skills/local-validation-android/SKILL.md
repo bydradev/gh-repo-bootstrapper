@@ -40,12 +40,14 @@ As generated, CI validates in tiers via `.github/workflows/test.yml` (called by
 `ci.yml` and `release-please.yml`):
 
 - **Pull requests (`ci.yml`) and ordinary pushes to `main`:** run fast checks
-  (`full: false`): wrapper verification, JDK 17 setup, a check that the
+  (`full: false`): wrapper checks (an executable `gradlew`, and
+  `gradle-wrapper.jar` validated against Gradle's published checksums),
+  JDK 17 setup with the Gradle cache, a check that the
   `spotlessCheck` task exists, and
   `./gradlew spotlessCheck lintDebug testDebugUnitTest` on `ubuntu-latest`.
 - **Release Please merge (`chore(main): release`) and manual dispatch of
-  `release-please.yml`:** run full validation (`full: true`): wrapper
-  verification, JDK 17 setup, the same `spotlessCheck` task check, and
+  `release-please.yml`:** run full validation (`full: true`): the same
+  wrapper checks and JDK 17 setup, the same `spotlessCheck` task check, and
   `./gradlew check`. The release PR merges and
   tags only after full validation passes.
 - **Connected device checks:** `./gradlew connectedCheck` (or
@@ -131,6 +133,7 @@ preparing release candidates, or configure `extra-files` in
 ## Sources
 
 - Gradle wrapper verification: [Gradle wrapper documentation](https://docs.gradle.org/current/userguide/gradle_wrapper.html), checked 2026-11-07.
+- Wrapper JAR validation: [`gradle/actions` wrapper-validation](https://github.com/gradle/actions/tree/v6.4.1/wrapper-validation) v6.4.1; Gradle cache: [`actions/setup-java`](https://github.com/actions/setup-java/tree/v6.1.0) v6.1.0 `cache: gradle`; both checked 2026-11-12.
 - AGP 9.5.1 and Compose Preview test options: local qualification testing and [AGP 9.5 release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes), checked 2026-11-07.
 - Android SDK setup for the newest platform: [Android 17 SDK setup guide](https://developer.android.com/about/versions/17/setup-sdk), checked 2026-11-07.
 - `security-crypto` deprecation (1.1.0-alpha07, 2025-04-09, and 1.1.0-beta01): [AndroidX Security releases](https://developer.android.com/jetpack/androidx/releases/security), checked 2026-11-12.

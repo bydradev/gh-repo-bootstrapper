@@ -19,7 +19,9 @@ Beyond file generation, the script applies GitHub configuration to the repo:
   actions, plus an explicit allowlist for `amannn/action-semantic-pull-request`
   (used by `pr-title-check.yml`) and, for `--type rust`, `dtolnay/rust-toolchain`
   and `Swatinem/rust-cache` (used by `test.yml`; both are user-owned, so the
-  verified-creator rule does not cover them). Every action must also be pinned
+  verified-creator rule does not cover them). For `--type android` it allows
+  `gradle/actions/wrapper-validation` (used by `test.yml`), so the check does
+  not depend on the action's Marketplace status. Every action must also be pinned
   to a full commit SHA (`sha_pinning_required`).
 - **Workflow permissions:** default `read`, with GitHub Actions unable to
   approve pull requests. Release Please uses its dedicated GitHub App token.

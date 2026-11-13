@@ -93,7 +93,7 @@ deletes a `.claude/skills` link to a skill folder that is missing.
 
 ## CI validation tiers
 
-As generated, CI validates in three tiers. This repository owns
+As generated, CI runs one of two suites, chosen by the trigger. This repository owns
 `.github/workflows/ci.yml` and `test.yml`, so check them, and the `test.yml`
 call in `release-please.yml`, for its current tiers:
 

@@ -44,9 +44,13 @@ things in the repository's own files before adopting:
   checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks),
   checked 2026-11-02). Pull requests are unchanged.
 
-`--check` reports `release-please.yml` (and, for `nextjs`, an unchanged
-`scripts/review-baselines.mjs` and its test) as `stale`, and `--adopt`
-updates them. The actionlint exception under [Prettier and
+`--check` reports `docs/branch-protection-runbook.md` as `stale` in every
+type, `release-please.yml` in every type but `simple`, and, for `nextjs`,
+the `local-validation-nextjs` and `review-guidelines` skills and an
+unchanged `scripts/review-baselines.mjs` and its test; `--adopt` updates
+them. The Next.js `test.yml` and `README.md` change only in comments and
+prose to match; they belong to the repository, so `--adopt` keeps them.
+The actionlint exception under [Prettier and
 actionlint](existing-repositories.md#prettier-and-actionlint) still matches.
 
 ## Upgrading to 0.23.3

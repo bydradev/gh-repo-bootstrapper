@@ -113,8 +113,8 @@ tags, the validator prints a notice and skips them.
 - workflow token scopes: every generated workflow declaring `permissions:`
   explicitly, with `ci.yml` and `test.yml` pinned to exactly `contents: read`
   and no write scope outside `release-please.yml`, whose release job declares
-  exactly `contents: read` and `pull-requests: read` in the types with a gated
-  release (for the untested-merge guard) and no block of its own in `simple`
+  exactly `actions: read`, `contents: read` and `pull-requests: read` in the
+  types with a gated release (for the untested-merge guard) and no block of its own in `simple`
 - rendered Release Please config *values*, not just that the JSON parses
 - the branch-protection payload, the runbook (its pinned rules, and no
   incident run IDs, SHAs or timestamps), and the Next.js lint/advisory

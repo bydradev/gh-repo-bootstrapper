@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.3...v0.24.0) (2026-11-13)
+
+
+### Features
+
+* cancel superseded main runs and skip e2e on ordinary pushes ([#227](https://github.com/bydradev/gh-repo-bootstrapper/issues/227)) ([44fcc5f](https://github.com/bydradev/gh-repo-bootstrapper/commit/44fcc5f327c7e30b2d9aa359c814b4b8ca20d915))
+
 ## [0.23.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.2...v0.23.3) (2026-11-12)
 
 

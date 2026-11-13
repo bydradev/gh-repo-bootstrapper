@@ -305,6 +305,53 @@ class ReleaseQueueTests(unittest.TestCase):
         self.assertIn("queue: max", errors[0])
 
 
+class ReleaseJobConcurrencyTests(unittest.TestCase):
+    """A release workflow with a test job cancels only an ordinary push's tests."""
+
+    PATH = ".github/workflows/release-please.yml"
+
+    def _workflow(self, repo_type):
+        cfg = {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+        body = validate_templates.bootstrap.generate_files(cfg)[self.PATH]
+        return validate_templates.yaml.safe_load(body)
+
+    def _errors(self, workflow):
+        body = validate_templates.yaml.safe_dump(workflow)
+        return validate_templates._workflow_hardening("t", {self.PATH: body})
+
+    def test_the_rendered_gated_workflows_pass(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "android", "simple"):
+            with self.subTest(repo_type=repo_type):
+                self.assertEqual(self._errors(self._workflow(repo_type)), [])
+
+    def test_a_full_run_gets_a_group_of_its_own(self):
+        group = validate_templates.RELEASE_TEST_CONCURRENCY["group"]
+        self.assertIn("github.run_id", group)
+        self.assertIn(validate_templates.RELEASE_FULL_SUITE_EXPRESSION[4:-3], group)
+
+    def test_each_drift_fails(self):
+        queued = validate_templates.RELEASE_JOB_CONCURRENCY
+        cases = {
+            "a workflow-level group too": lambda w: w.update(concurrency=dict(queued)),
+            "the test job never cancels": lambda w: w["jobs"]["test"]["concurrency"].update(
+                {"cancel-in-progress": False}),
+            "every run shares the test group": lambda w: w["jobs"]["test"]["concurrency"].update(
+                {"group": "release-please-test"}),
+            "no test job group": lambda w: w["jobs"]["test"].pop("concurrency"),
+            "the release job queue is single": lambda w: w["jobs"]["release-please"]["concurrency"].update(
+                {"queue": "single"}),
+            "no release job group": lambda w: w["jobs"]["release-please"].pop("concurrency"),
+            "the release job cancels": lambda w: w["jobs"]["release-please"]["concurrency"].update(
+                {"cancel-in-progress": True}),
+        }
+        for repo_type in ("nextjs", "python"):
+            for label, mutate in cases.items():
+                with self.subTest(repo_type=repo_type, case=label):
+                    workflow = self._workflow(repo_type)
+                    mutate(workflow)
+                    self.assertEqual(len(self._errors(workflow)), 1)
+
+
 class SecretsWordTests(unittest.TestCase):
     PATH = ".github/workflows/release-please.yml"
 

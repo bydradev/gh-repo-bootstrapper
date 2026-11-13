@@ -14,9 +14,10 @@ checks: read it with the commands below, never from another repository.
   and Rust, not the job name inside `test.yml`.
 - Release Please uses this repository's GitHub App token, so its PRs start
   checks without approval; the workflow's own `GITHUB_TOKEN` only reads
-  (`contents: read`, plus `pull-requests: read` on the release job of a
-  repository whose release waits for tests, for the guard that lists merged
-  release pull requests). The operator sets variable
+  (`contents: read`, plus `pull-requests: read` and `actions: read` on the
+  release job of a repository whose release waits for tests, for the guard
+  that lists merged release pull requests and the runs of an earlier release
+  merge). The operator sets variable
   `RELEASE_PLEASE_CLIENT_ID` and secret `RELEASE_PLEASE_APP_KEY`; never put
   either in source, logs, issues or pull requests. Trust release automation
   once its first release PR reports every required check.

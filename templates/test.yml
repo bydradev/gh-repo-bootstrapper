@@ -2,19 +2,23 @@ name: test
 
 # Reusable test suite (lint, format check, typecheck, unit tests, production
 # build, e2e). Called by ci.yml on PRs and by release-please.yml on pushes to
-# main, where it gates the release tag.
+# main, where it gates the release tag. release-please.yml passes `e2e` and
+# `full` as false for an ordinary push and true for the release merge and a
+# manual dispatch.
 on:
   workflow_call:
     inputs:
       full:
         description: >-
-          Run the full suite including browser e2e. Used when merging a Release Please PR.
+          Run the full suite including browser e2e. Used when merging a Release
+          Please PR and for a manual dispatch of release-please.yml.
         type: boolean
         default: false
       e2e:
         description: >-
-          Run browser e2e tests. When false, skips all e2e jobs (used on PRs
-          for fast feedback). When true, runs chromium e2e (used for ordinary main pushes).
+          Run browser e2e tests. When false, skips all e2e jobs unless `full`
+          is set (pull requests and ordinary main pushes pass false for fast
+          feedback). When true without `full`, runs chromium e2e only.
         type: boolean
         default: false
 
@@ -49,8 +53,9 @@ jobs:
       - run: npm run build
 
   # Browser e2e suite, kept as its own job so a browser flake never masks a
-  # lint/typecheck regression. Skipped for PRs (see `e2e` above); runs on main
-  # pushes and on the Release Please PR merge.
+  # lint/typecheck regression. Skipped for PRs and ordinary main pushes (see
+  # `e2e` above); runs on the Release Please PR merge and a manual dispatch of
+  # release-please.yml.
   e2e:
     if: ${{ inputs.e2e || inputs.full }}
     runs-on: ubuntu-latest

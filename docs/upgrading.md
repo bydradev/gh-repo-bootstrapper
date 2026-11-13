@@ -7,6 +7,52 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.24.0
+
+Every type but `simple`: `release-please.yml` sets concurrency on its jobs
+instead of the workflow. A newer push to `main` cancels the `test` job of an
+ordinary push, waiting or in progress, and with it that run's release job;
+the run of a release merge and a manual dispatch each get a group of their
+own, so no push cancels them. The release jobs of all runs still go one at a
+time (`queue: max`). A cancelled run is billed for the minutes it used and
+leaves its commit without test results, so deploy the newest commit on
+`main`. A release merge is recognised by its `chore(main): release` commit
+message, as before, so keep that title when merging a release PR, or the next
+push can cancel its tests. Because test jobs of different runs now overlap,
+the untested-merge guard lets a later push's run pass while the run of an earlier release merge
+is still going, instead of failing it; the release job reads workflow runs
+for that (`actions: read`). The weekly baseline review (`nextjs`) looks past
+ordinary push runs a newer push cancelled; a cancelled release merge, dispatch
+or re-run still reports `stale`.
+
+Next.js: an ordinary push to `main` passes `e2e: false` and `full: false`,
+so it runs what a pull request runs, and the browser suite runs only on the
+release merge and on a manual dispatch of `release-please.yml`. Check three
+things in the repository's own files before adopting:
+
+- A deploy gate that requires check runs such as `test / e2e` on the commit
+  it ships no longer finds them on an ordinary `main` commit. Dispatch
+  `release-please.yml` on `main` first: it runs the full suite and reports
+  each job as `test / <job>`, as a push does. A direct dispatch of
+  `test.yml` reports the jobs without the `test /` prefix, so it does not
+  satisfy such a gate. Say so in the repository's deployment docs.
+- `test.yml` jobs that are not gated on `inputs.e2e` or `inputs.full` keep
+  running on every push to `main`. Gate the expensive ones on `inputs.full`
+  if a pull request already covers them.
+- Required checks bound to jobs skipped by their `if:` still pass: a job
+  skipped that way reports success ([Troubleshooting required status
+  checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks),
+  checked 2026-11-02). Pull requests are unchanged.
+
+`--check` reports `docs/branch-protection-runbook.md` as `stale` in every
+type, `release-please.yml` in every type but `simple`, and, for `nextjs`,
+the `local-validation-nextjs` and `review-guidelines` skills and an
+unchanged `scripts/review-baselines.mjs` and its test; `--adopt` updates
+them. The Next.js `test.yml` and `README.md` change only in comments and
+prose to match; they belong to the repository, so `--adopt` keeps them.
+The actionlint exception under [Prettier and
+actionlint](existing-repositories.md#prettier-and-actionlint) still matches.
+
 ## Upgrading to 0.23.3
 
 Android: a newly generated `test.yml` validates `gradle-wrapper.jar` against

@@ -22,7 +22,8 @@
 - **Indexing.** Changes to `robots.txt`, the sitemap, `noindex` or canonical
   hosts are intended (`public-site-indexing`).
 - **Tests and baselines.** `local-validation-nextjs` says which suites run on
-  pull requests; as generated, pull requests skip browser E2E, so E2E changes
-  need local or `main` evidence. A new row in `docs/lint-baseline.md` or
+  pull requests; as generated, pull requests and ordinary pushes to `main`
+  skip browser E2E, so E2E changes need local evidence or a passing release
+  merge or manual dispatch of `release-please.yml`. A new row in `docs/lint-baseline.md` or
   `docs/advisory-baseline.md` follows `baseline-process`, and a baseline never
   grows just to pass.

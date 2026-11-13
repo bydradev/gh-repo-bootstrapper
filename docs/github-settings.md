@@ -123,8 +123,9 @@ Release Please runs via a GitHub App rather than the default `GITHUB_TOKEN` so
 it can open PRs that trigger other workflows. In every type but `simple`, the
 untested-merge guard before it reads with the workflow's `GITHUB_TOKEN`, and the
 App token goes only to `release-please-action`. The guard lists merged release
-pull requests with `gh pr list --label`, which searches through GraphQL, and
-compares commits. No docs page states the permission that search needs (the
+pull requests with `gh pr list --label`, which searches through GraphQL,
+compares commits, and lists the `release-please.yml` runs of an earlier
+release merge to see whether one is still going. No docs page states the permission that search needs (the
 REST search endpoint for issues and pull requests requires none,
 [Search issues and pull requests](https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests),
 read 2026-10-22), so the release job declares `contents: read` and
@@ -132,8 +133,11 @@ read 2026-10-22), so the release job declares `contents: read` and
 ([List pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests),
 [Compare two commits](https://docs.github.com/en/rest/commits/commits#compare-two-commits),
 checked 2026-10-21). That is inferred, and has not yet been run on a private
-repository. A job-level block replaces the workflow's, so both are listed. You
-will need to supply:
+repository. Listing a workflow's runs needs `actions: read`
+([Permissions required for fine-grained personal access tokens](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens),
+*Actions*, read 2026-11-13), so the release job declares that too. A
+job-level block replaces the workflow's, so both are listed. You will need to
+supply:
 
 - `RELEASE_PLEASE_CLIENT_ID`: set as a GitHub variable
 - `RELEASE_PLEASE_APP_KEY`: set as a GitHub secret

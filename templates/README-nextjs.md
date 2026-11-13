@@ -63,10 +63,12 @@ npm run build
 npm run test:e2e
 ```
 
-CI runs them in three tiers. Pull requests run every check above except the
-browser suite. Ordinary pushes to `main` add the Chromium browser project. The
-Release Please merge runs the full suite, including every Playwright project.
-A green pull request therefore does not mean the browser suite passed; run
+CI runs them in two tiers. Pull requests and ordinary pushes to `main` run
+every check above except the browser suite. The Release Please merge, and a
+manual dispatch of `release-please.yml`, run the full suite, including every
+Playwright project. A newer push to `main` cancels the tests of an ordinary
+push still running, never those of a release merge or a dispatch. A green pull
+request or `main` commit therefore does not mean the browser suite passed; run
 `npm run test:e2e` locally for changes to browser-facing UI or interactions.
 
 `npm run lint:fix` and `npm run format` fix lint and formatting.

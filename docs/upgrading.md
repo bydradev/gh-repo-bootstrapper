@@ -7,6 +7,14 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.24.2
+
+Comments only: the `nextjs` `release-please.yml` now says that the
+repository's own `test.yml` decides which jobs an ordinary push to `main`
+runs, and that a manual dispatch for a deploy's check runs applies only to a
+repository whose deploy does not run the suite itself. `--check` reports the
+file `stale`, and `--adopt` updates it; nothing else needs doing.
+
 ## Upgrading to 0.24.1
 
 Three template-owned jobs move from `ubuntu-latest` to `ubuntu-slim`, a

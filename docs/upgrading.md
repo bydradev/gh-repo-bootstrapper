@@ -10,8 +10,9 @@ repository has to do or decide.
 ## Upgrading to 0.24.3
 
 Every type: the `pull-requests` skill's *User-visible* bullet says that a
-bare `BREAKING-CHANGE:` ending the body (an empty footer) does not mean
-`yes`: the title check fails either answer, as it already did. `--check`
+bare `BREAKING-CHANGE:` with only footers after it (an empty footer) does not
+mean `yes`: unless something else releases the change, the title check fails
+either answer, as it already did. `--check`
 reports `.agents/skills/pull-requests/SKILL.md` as `stale`, and `--adopt`
 updates it; nothing else needs doing.
 

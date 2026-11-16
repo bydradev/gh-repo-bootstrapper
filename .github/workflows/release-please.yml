@@ -18,7 +18,11 @@ concurrency:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    # ubuntu-slim: one CPU at a third of ubuntu-latest's per-minute price
+    # (docs.github.com, "Actions runner pricing" and "GitHub-hosted runners
+    # reference", read 2026-11-16); this job only calls the GitHub API, well
+    # inside slim's 15-minute job limit.
+    runs-on: ubuntu-slim
     timeout-minutes: 15
     steps:
       # As in the release-please templates: when the RELEASE_PLEASE_CLIENT_ID

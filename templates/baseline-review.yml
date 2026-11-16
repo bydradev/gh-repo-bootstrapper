@@ -12,7 +12,11 @@ permissions:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    # ubuntu-slim: one CPU at a third of ubuntu-latest's per-minute price
+    # (docs.github.com, "Actions runner pricing" and "GitHub-hosted runners
+    # reference", read 2026-11-16); this weekly job installs from the lockfile
+    # and reads the API, well inside slim's 15-minute job limit.
+    runs-on: ubuntu-slim
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

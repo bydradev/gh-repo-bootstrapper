@@ -61,7 +61,11 @@ jobs:
 
   release-please:
     needs: test
-    runs-on: ubuntu-latest
+    # ubuntu-slim: one CPU at a third of ubuntu-latest's per-minute price
+    # (docs.github.com, "Actions runner pricing" and "GitHub-hosted runners
+    # reference", read 2026-11-16); this job only calls the GitHub API, well
+    # inside slim's 15-minute job limit.
+    runs-on: ubuntu-slim
     timeout-minutes: 15
     # The release jobs of all runs go one at a time, roughly in the order they
     # start waiting (GitHub does not guarantee it), and queue: max keeps every

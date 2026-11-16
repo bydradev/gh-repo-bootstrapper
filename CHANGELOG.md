@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.0...v0.24.1) (2026-11-16)
+
+
+### Performance Improvements
+
+* run the title check, release job and baseline review on ubuntu-slim ([#231](https://github.com/bydradev/gh-repo-bootstrapper/issues/231)) ([1186f0f](https://github.com/bydradev/gh-repo-bootstrapper/commit/1186f0f20d6ab78e556718d44acc157397b8626e))
+
 ## [0.24.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.3...v0.24.0) (2026-11-13)
 
 

@@ -283,6 +283,10 @@ differently between releases (patch releases included;
 2026-10-21), and a reformatted workflow would be `local-modified`. `ci.yml`
 and `test.yml` stay formatted.
 
+The template's `pr-title-check.yml`, `release-please.yml` and
+`baseline-review.yml` run on `ubuntu-slim`, a label actionlint knows from
+1.7.9.
+
 The template's `release-please.yml` sets `concurrency.queue: max` (on its
 `release-please` job in every type but `simple`, on the workflow in
 `simple`), so a push never cancels the pending release job of a release

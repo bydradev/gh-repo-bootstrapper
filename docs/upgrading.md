@@ -7,6 +7,37 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.24.3
+
+Every type: the `pull-requests` skill's *User-visible* bullet says that a
+bare `BREAKING-CHANGE:` with only footers after it (an empty footer) does not
+mean `yes`: unless something else releases the change, the title check fails
+either answer, as it already did. `--check`
+reports `.agents/skills/pull-requests/SKILL.md` as `stale`, and `--adopt`
+updates it; nothing else needs doing.
+
+## Upgrading to 0.24.2
+
+Comments only: the `nextjs` `release-please.yml` now says that the
+repository's own `test.yml` decides which jobs an ordinary push to `main`
+runs, and that a manual dispatch for a deploy's check runs applies only to a
+repository whose deploy does not run the suite itself. `--check` reports the
+file `stale`, and `--adopt` updates it; nothing else needs doing.
+
+## Upgrading to 0.24.1
+
+Three template-owned jobs move from `ubuntu-latest` to `ubuntu-slim`, a
+one-CPU runner billed at a third of the standard Linux runner's per-minute
+price ([Actions runner
+pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing),
+checked 2026-11-16): `validate-title` in `pr-title-check.yml` (every type),
+the `release-please` job in `release-please.yml` (every type) and the weekly
+`review` job in `baseline-review.yml` (`nextjs`). `--check` reports those
+files `stale`, and `--adopt` updates them; nothing else needs doing. Job
+names are unchanged, so required checks keep matching. A private repository
+sees these jobs billed under the `actions_linux_slim` SKU. A repository that
+runs actionlint needs 1.7.9 or later, which knows the `ubuntu-slim` label.
+
 ## Upgrading to 0.24.0
 
 Every type but `simple`: `release-please.yml` sets concurrency on its jobs

@@ -27,11 +27,13 @@ merge-ready:
   merges, CI, tests, refactors and tooling, typed `docs`, `chore`,
   `refactor`, `test`, `build` or `ci`. The required title check reads the
   body as Release Please does, so an extra entry of a released type or a
-  `BREAKING-CHANGE:` token anywhere in the body also means `yes`. It also
-  fails a body Release Please would misread: a release or `Release-As:`
-  version that only a closing footer gives, a line that GitHub's 72-column
-  rewrap would start with a call such as `f(x`, a scope with no text or a
-  parenthesis inside it, a `<details>` tag in a released entry. Its message
+  `BREAKING-CHANGE:` token anywhere in the body also means `yes`, except a
+  bare one with only footers after it (an empty footer), which fails either
+  answer unless something else releases. It also fails a body Release Please
+  would misread: a release or `Release-As:` version that only a closing
+  footer gives, a line that GitHub's 72-column rewrap would start with a call
+  such as `f(x`, a scope with no text or a parenthesis inside it, a
+  `<details>` tag in a released entry. Its message
   names the fix; follow it rather than rewording around it. Keep the
   `BEGIN_COMMIT_OVERRIDE` marker out of prose (Release Please replaces the
   commit with what follows it), and write a `Release-As:` version as

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.24.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.2...v0.24.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* name the empty breaking-change footer in the user-visible rule ([#236](https://github.com/bydradev/gh-repo-bootstrapper/issues/236)) ([5c8f47d](https://github.com/bydradev/gh-repo-bootstrapper/commit/5c8f47d424ae4cb5040eb9a1ffa1cee4038d50d5))
+
+## [0.24.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.1...v0.24.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* correct what the nextjs release workflow says a main push runs ([#233](https://github.com/bydradev/gh-repo-bootstrapper/issues/233)) ([85721a8](https://github.com/bydradev/gh-repo-bootstrapper/commit/85721a84d9164a5899be2c3a2809f89de3a6e60f))
+
+## [0.24.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.0...v0.24.1) (2026-11-16)
+
+
+### Performance Improvements
+
+* run the title check, release job and baseline review on ubuntu-slim ([#231](https://github.com/bydradev/gh-repo-bootstrapper/issues/231)) ([1186f0f](https://github.com/bydradev/gh-repo-bootstrapper/commit/1186f0f20d6ab78e556718d44acc157397b8626e))
+
 ## [0.24.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.23.3...v0.24.0) (2026-11-13)
 
 

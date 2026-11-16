@@ -33,7 +33,11 @@ jobs:
       !(startsWith(github.head_ref, 'release-please--') &&
         github.event.pull_request.user.type == 'Bot' &&
         github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
+    # ubuntu-slim: one CPU at a third of ubuntu-latest's per-minute price
+    # (docs.github.com, "Actions runner pricing" and "GitHub-hosted runners
+    # reference", read 2026-11-16); this job runs one JavaScript action and a
+    # Python script, well inside slim's 15-minute job limit.
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Validate PR title

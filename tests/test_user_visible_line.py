@@ -122,6 +122,8 @@ class UserVisibleLineTests(unittest.TestCase):
         for body in (
             "Prose.\n\nBREAKING CHANGE:",
             "Prose.\n\nBREAKING CHANGE:\nRefs: #1",
+            "Prose.\n\nBREAKING-CHANGE:",
+            "Prose.\n\nBREAKING-CHANGE:\nRefs: #1",
             "Prose.\nBREAKING CHANGE: the flag is gone\n\nRefs: #1\nBREAKING CHANGE:",
             "Prose.\n\nRefs: the BREAKING-CHANGE: token",
             "Prose ending BREAKING-CHANGE:",

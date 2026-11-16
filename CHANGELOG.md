@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.2...v0.24.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* name the empty breaking-change footer in the user-visible rule ([#236](https://github.com/bydradev/gh-repo-bootstrapper/issues/236)) ([5c8f47d](https://github.com/bydradev/gh-repo-bootstrapper/commit/5c8f47d424ae4cb5040eb9a1ffa1cee4038d50d5))
+
 ## [0.24.2](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.1...v0.24.2) (2026-11-16)
 
 

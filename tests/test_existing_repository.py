@@ -1629,7 +1629,12 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "stale")
         actions = {path: action for action, path, _ in bootstrap.adopt_repository(self.repo, files)}
         self.assertEqual(actions[rel], "updated")
-        self.assertEqual((self.repo / rel).read_text(), files[rel])
+        # Adopt keeps the repository's own action pin, so the released pin stays
+        # even after the template's pin moves on.
+        old_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", released.stdout)
+        new_pin = re.search(r"uses: (\S+)@(\S+) # (\S+)", files[rel])
+        expected = files[rel].replace(f"@{new_pin[2]} # {new_pin[3]}", f"@{old_pin[2]} # {old_pin[3]}", 1)
+        self.assertEqual((self.repo / rel).read_text(), expected)
         customised = released.stdout + "# our own step\n"
         self._write(rel, customised)
         self._commit_all()

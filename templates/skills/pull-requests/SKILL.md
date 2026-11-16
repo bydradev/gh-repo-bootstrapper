@@ -27,8 +27,9 @@ merge-ready:
   merges, CI, tests, refactors and tooling, typed `docs`, `chore`,
   `refactor`, `test`, `build` or `ci`. The required title check reads the
   body as Release Please does, so an extra entry of a released type or a
-  `BREAKING-CHANGE:` token anywhere in the body also means `yes`. It also
-  fails a body Release Please would misread: a release or `Release-As:`
+  `BREAKING-CHANGE:` token anywhere in the body also means `yes`, except a
+  bare one ending the body (an empty footer), which fails either answer. It
+  also fails a body Release Please would misread: a release or `Release-As:`
   version that only a closing footer gives, a line that GitHub's 72-column
   rewrap would start with a call such as `f(x`, a scope with no text or a
   parenthesis inside it, a `<details>` tag in a released entry. Its message

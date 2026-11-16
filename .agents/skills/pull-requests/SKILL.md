@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=d2c3ecc5af506976899c49f235573ced974f87545b4d9ae972395fc7dac995ca -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=2b59bb2be01546b51c6f8bad574ec732c4446ce5313e3b6c781434d5f9df72a6 -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -28,8 +28,9 @@ merge-ready:
   merges, CI, tests, refactors and tooling, typed `docs`, `chore`,
   `refactor`, `test`, `build` or `ci`. The required title check reads the
   body as Release Please does, so an extra entry of a released type or a
-  `BREAKING-CHANGE:` token anywhere in the body also means `yes`. It also
-  fails a body Release Please would misread: a release or `Release-As:`
+  `BREAKING-CHANGE:` token anywhere in the body also means `yes`, except a
+  bare one ending the body (an empty footer), which fails either answer. It
+  also fails a body Release Please would misread: a release or `Release-As:`
   version that only a closing footer gives, a line that GitHub's 72-column
   rewrap would start with a call such as `f(x`, a scope with no text or a
   parenthesis inside it, a `<details>` tag in a released entry. Its message

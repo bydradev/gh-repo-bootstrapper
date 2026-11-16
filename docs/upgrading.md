@@ -7,6 +7,14 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.24.3
+
+Every type: the `pull-requests` skill's *User-visible* bullet says that a
+bare `BREAKING-CHANGE:` ending the body (an empty footer) does not mean
+`yes`: the title check fails either answer, as it already did. `--check`
+reports `.agents/skills/pull-requests/SKILL.md` as `stale`, and `--adopt`
+updates it; nothing else needs doing.
+
 ## Upgrading to 0.24.2
 
 Comments only: the `nextjs` `release-please.yml` now says that the

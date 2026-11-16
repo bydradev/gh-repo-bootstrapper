@@ -19,17 +19,18 @@ jobs:
   # `full` and `e2e` are true for a manual dispatch and for the commit that is
   # the Release Please PR merging (its title/commit message is the fixed
   # "chore(main): release X.Y.Z" pattern release-please always uses), and
-  # false for every other push to main. An ordinary push therefore runs what a
-  # pull request runs (the generated suite's `build` job, with e2e skipped),
-  # and the release merge and a dispatch run the full suite, every Playwright
-  # project included. A job skipped by its `if:` reports success, so required
-  # checks bound to it still pass. Source: docs.github.com "Troubleshooting
-  # required status checks" (handling skipped but required checks), checked
-  # 2026-11-02. A deploy that needs the full suite's check runs on a commit
-  # other than a release merge gets them from a manual dispatch of this
-  # workflow on main, which reports them as `test / <job>`, as a push does. This
-  # job must pass before release-please runs, so a failing suite blocks the
-  # release.
+  # false for every other push to main. Which jobs run is decided by the job
+  # conditions in the repository's own test.yml: the generated suite runs only
+  # `build` on an ordinary push, as on a pull request, and the full suite,
+  # every Playwright project included, on the release merge and a dispatch. A
+  # job skipped by its `if:` reports success, so required checks bound to it
+  # still pass. Source: docs.github.com "Troubleshooting required status
+  # checks" (handling skipped but required checks), checked 2026-11-02. A
+  # repository that deploys a commit other than a release merge, and whose
+  # deploy needs the full suite's check runs without running the suite itself,
+  # can get them from a manual dispatch of this workflow on main, which reports
+  # them as `test / <job>`, as a push does. This job must pass before
+  # release-please runs, so a failing suite blocks the release.
   test:
     uses: ./.github/workflows/test.yml
     # An ordinary push to main joins one group, and the next ordinary push

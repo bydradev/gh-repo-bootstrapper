@@ -7,6 +7,15 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.24.4
+
+Every type: the `pull-requests` skill's *User-visible* bullet now names the
+empty-footer exception for both spellings of the breaking-change marker, the
+spaced one as well as the hyphenated one that 0.24.3 named. The title check
+already treated them alike and is unchanged. `--check` reports
+`.agents/skills/pull-requests/SKILL.md` as `stale`, and `--adopt` updates it;
+nothing else needs doing.
+
 ## Upgrading to 0.24.3
 
 Every type: the `pull-requests` skill's *User-visible* bullet says that a

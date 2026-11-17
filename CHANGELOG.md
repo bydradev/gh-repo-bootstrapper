@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.6](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.5...v0.24.6) (2026-11-17)
+
+
+### Bug Fixes
+
+* fail an extra entry that the squash block drops ([#250](https://github.com/bydradev/gh-repo-bootstrapper/issues/250)) ([6cc1277](https://github.com/bydradev/gh-repo-bootstrapper/commit/6cc127718daf85d85fa108bad3bef7cf688c6928))
+
 ## [0.24.5](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.4...v0.24.5) (2026-11-17)
 
 

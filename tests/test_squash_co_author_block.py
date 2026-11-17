@@ -162,16 +162,94 @@ class SquashCoAuthorBlockTests(unittest.TestCase):
         # marks, "!" on the title, and an override all keep the release a
         # breaking one after the block (release-please 17.6.0, checked
         # 2026-11-17). A "!" entry that is not among the trailing footers is
-        # not read at all, as written or after the block, and one with no
-        # subject gives no note, so the title's plain release passes.
+        # not read at all, as written or after the block, so the title's
+        # plain release passes.
         for title, body in (
             ("fix: x", "Prose.\n\nfeat: y\n\nBREAKING CHANGE: drops z"),
             ("fix: x", "Prose.\n\nBREAKING CHANGE: drops y"),
             ("fix!: x", "Prose."),
-            ("feat!: x", "Prose.\n\nfeat!: y"),
+            ("feat!: x", "Prose.\n\nfeat: y\n\nBREAKING CHANGE: drops z"),
             ("fix: x", self._override("fix: x", "Prose.\n\nfeat!: y")),
             ("fix: x", "Prose.\n\nfeat!: y\n\nMore prose."),
-            ("fix: x", "Prose.\n\nfeat!:"),
+        ):
+            with self.subTest(title=title, body=body):
+                self.assertPasses(title, f"{body}\n\nUser-visible: yes")
+
+    def test_an_entry_only_a_trailing_footer_gives_fails_either_answer(self):
+        # Under a title that releases on its own, an extra entry of a
+        # released type that only the body's trailing footers give is
+        # body text once the block follows, so it drops out of the
+        # changelog, and a feat's bump with it (release-please 17.6.0,
+        # checked 2026-11-17 for each of these titles and bodies).
+        for title, body, kinds in (
+            ("fix: x", "Prose.\n\nUser-visible: {}\nfeat: y", "feat entry as an extra changelog entry"),
+            ("fix: x", "Prose.\n\nFeat: y\n\nUser-visible: {}", "Feat entry as an extra changelog entry"),
+            ("fix!: x", "Prose.\n\nfeat!: y\n\nUser-visible: {}", "feat! entry as an extra changelog entry"),
+            ("feat!: x", "Prose.\n\nfeat!: y\n\nUser-visible: {}", "feat! entry as an extra changelog entry"),
+            ("fix: x", "Prose.\n\nfeat!:\n\nUser-visible: {}", "feat! entry as an extra changelog entry"),
+            ("fix: x", "Prose.\n\nfeature: y\n\nUser-visible: {}", "feature entry as an extra changelog entry"),
+            ("fix!: x", "Prose.\n\nchore!: y\n\nUser-visible: {}", "breaking entry as an extra changelog entry"),
+            ("perf: x", "Prose.\n\nUser-visible: {}\nfeat: y\nfix(api): z",
+             "feat and fix entries as extra changelog entries"),
+            ("perf: x", "Prose.\n\nUser-visible: {}\nfeat: y\nfix: z\nrevert: w",
+             "feat, fix and revert entries as extra changelog entries"),
+        ):
+            for answer in ("yes", "no"):
+                with self.subTest(title=title, body=body, answer=answer):
+                    self.assertFails(title, body.format(answer), f"Release Please reads the body's {kinds} only while")
+
+    def test_the_dropped_entry_message_fits_the_entry(self):
+        # A feat's bump is named only when a feat entry drops, and a
+        # breaking change lost with its entry is not told to move to the
+        # title, where the entry would still drop.
+        tail = "Give each entry a paragraph of its own"
+        self.assertFails("fix: x", "Prose.\n\nUser-visible: yes\nfeat: y", "and a feat entry's bump out of the version")
+        code, out = self._run("perf: x", "Prose.\n\nUser-visible: yes\nfix: y")
+        self.assertIn(tail, out)
+        self.assertNotIn("bump", out)
+        code, out = self._run("fix: x", "Prose.\n\nUser-visible: yes\nfeat!: y")
+        self.assertIn("reads this change as breaking only while", out)
+        self.assertNotIn("mark the title", out)
+        self.assertIn("mark the title with !", self._run("fix: x", "Prose.\n\nBREAKING CHANGE #12\n\nUser-visible: yes")[1])
+        # Under a feat title the bump stays; two entries of one type are
+        # still plural.
+        code, out = self._run("feat: x", "Prose.\n\nUser-visible: yes\nfeat: y")
+        self.assertIn("the body's feat entry as an extra changelog entry", out)
+        self.assertNotIn("bump", out)
+        self.assertFails("fix: x", "Prose.\n\nUser-visible: yes\nfeat: a\nfeat: b",
+                         "the body's feat entries as extra changelog entries")
+
+    def test_an_entry_the_rewrap_makes_names_the_rewrap(self):
+        # GitHub refills the long line, starting a line with "fix:", which
+        # is an entry only while it ends the squash commit (release-please
+        # 17.6.0 on the refilled text, checked 2026-11-17).
+        line = "The parser change keeps the old behaviour for every caller that passes fix: the docs say so"
+        self.assertFails("fix: x", f"Prose.\n\n{line}\n\nUser-visible: yes",
+                         "GitHub's 72-column rewrap for the squash commit starts a line of the body with a fix entry")
+        # A footer's indented continuation, read again as an entry, is the
+        # author's own line, not the rewrap's.
+        code, out = self._run("fix: x", "Prose.\n\nExample:\n\n    feat(api): add the endpoint\n\nUser-visible: yes")
+        self.assertIn("Release Please reads the body's feat entry as an extra changelog entry", out)
+        self.assertNotIn("rewrap", out)
+        # With an entry the author wrote, the rewrap is still named.
+        self.assertFails("fix: x", f"Prose.\n\n{line}\n\nUser-visible: yes\nfeat: z",
+                         "GitHub's 72-column rewrap starts a line with the fix one: break the long line")
+
+    def test_an_entry_the_block_keeps_passes(self):
+        # An entry that opens a paragraph with a lowercase type is a commit
+        # of its own wherever it stands, and a nested commit block, an
+        # override and a footer of another type read the same either way
+        # (release-please 17.6.0, checked 2026-11-17).
+        for title, body in (
+            ("fix: x", "Prose.\n\nfix: also y"),
+            ("fix: x", "Prose.\n\nfeat: y\n\nMore prose."),
+            ("fix!: x", "Prose.\n\nfeat: y\n\nBREAKING CHANGE: drops z"),
+            ("fix!: x", "Prose.\n\nchore: y\n\nBREAKING CHANGE: drops z"),
+            ("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfeat: y\nEND_NESTED_COMMIT"),
+            ("fix: x", "Prose.\n\nBEGIN_NESTED_COMMIT\nfeat!: y\nEND_NESTED_COMMIT"),
+            ("fix: x", self._override("fix: x", "Prose.\n\nfeat: y")),
+            ("fix: x", "Prose.\n\nchore: y"),
+            ("fix: x", "Prose.\n\nRefs: #1"),
         ):
             with self.subTest(title=title, body=body):
                 self.assertPasses(title, f"{body}\n\nUser-visible: yes")

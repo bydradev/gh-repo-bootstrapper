@@ -3,7 +3,7 @@ name: pull-requests
 description: >-
   Use before creating, editing, readying, or merging a pull request, writing a PR title, body, or squash-merge message, handling a Release Please PR, or unblocking a PR stuck on required checks. Covers squash-merge and Release Please changelog rules, CLI-authored bodies, which Co-Authored-By trailers a merge message carries, and the branch-protection runbook. Merge still requires explicit authorization.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=eb7e9613a3a658a28c09997c25cd2cef2685636fc310a474adc79cf61b7623c2 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=8ae17e35c619b2e2b9a4ef40ba0818839aae8d8aa3ad39a4ac28eb15e576eccb -->
 
 # Pull requests (squash-merge + Release Please)
 
@@ -33,8 +33,9 @@ merge-ready:
   (an empty footer), which fails either answer under any title: GitHub's
   default squash commit can make it a breaking change, so write the note
   after the colon or remove the marker. It also fails a body Release Please
-  would misread: a release or `Release-As:` version that only a closing
-  footer gives, a line that GitHub's 72-column rewrap would start with a call
+  would misread: a release, extra entry, breaking change or `Release-As:`
+  version that only a closing footer gives, a line that GitHub's 72-column
+  rewrap would start with a call
   such as `f(x`, a scope with no text or a parenthesis inside it, a
   `<details>` tag in a released entry. Its message
   names the fix; follow it rather than rewording around it. Keep the

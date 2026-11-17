@@ -74,6 +74,11 @@ OWNER_REPO = re.compile(r"(?<![A-Za-z0-9-])(?:bydradev|bydraio)/([A-Za-z0-9._-]+
 # the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 # login, not a person's. A backslash before it is an escape such as `\n`.
 EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
+# A URL's user information (scheme://user@host or scheme://user:password@host),
+# as tests of code that refuses credentials in URLs hold, is not an address:
+# a match whose text before it ends with this is skipped. mailto: has no //,
+# so an address after it is still found.
+URL_USERINFO = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://(?:[^\s/?#@:]*:)?$")
 NOREPLY_LOCAL_PARTS = frozenset({"noreply", "no-reply"})
 NOREPLY_DOMAINS = ("users.noreply.github.com", "example.com", "example.org", "example.net")
 PUBLISHED_ADDRESSES = frozenset({"github@bydra.dev", "git@github.com"})
@@ -142,7 +147,8 @@ def scan(text, names, allow_attribution=False):
                 kinds.append("a bydradev or bydraio repository outside the public list")
                 break
         if line != DEPENDABOT_FOOTER and any(
-            private_address(*match.groups()) for match in EMAIL.finditer(line)
+            not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
+            for match in EMAIL.finditer(line)
         ):
             kinds.append("an email address other than a noreply one")
         if any(pattern.search(line) for _, pattern in names):

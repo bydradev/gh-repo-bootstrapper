@@ -226,6 +226,11 @@ class SquashCoAuthorBlockTests(unittest.TestCase):
         line = "The parser change keeps the old behaviour for every caller that passes fix: the docs say so"
         self.assertFails("fix: x", f"Prose.\n\n{line}\n\nUser-visible: yes",
                          "GitHub's 72-column rewrap for the squash commit starts a line of the body with a fix entry")
+        # A footer's indented continuation, read again as an entry, is the
+        # author's own line, not the rewrap's.
+        code, out = self._run("fix: x", "Prose.\n\nExample:\n\n    feat(api): add the endpoint\n\nUser-visible: yes")
+        self.assertIn("Release Please reads the body's feat entry as an extra changelog entry", out)
+        self.assertNotIn("rewrap", out)
         # With an entry the author wrote, the rewrap is still named.
         self.assertFails("fix: x", f"Prose.\n\n{line}\n\nUser-visible: yes\nfeat: z",
                          "GitHub's 72-column rewrap starts a line with the fix one: break the long line")

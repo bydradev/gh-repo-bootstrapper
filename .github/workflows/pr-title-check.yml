@@ -563,8 +563,10 @@ jobs:
               )
           if dropped:
               one = sum(lost_entries.values()) == 1
-              # An entry no body line starts was made by GitHub's rewrap.
-              lines = body.split("\n")
+              # An entry no body line starts, even after its indent (a
+              # footer's continuation line is read again as a commit), was
+              # made by GitHub's rewrap.
+              lines = [line.lstrip() for line in body.split("\n")]
               wrapped_entries = {
                   (kind, mark, subject) for kind, mark, subject in lost_entries
                   if not any(line.startswith(kind) and subject in line for line in lines)

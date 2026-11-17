@@ -135,7 +135,13 @@ KIT_SOURCE = "github.com/bydradev/gh-agent-kit"
 # workflow a later kit release adds is checked until it is added here.
 KIT_WORKFLOWS = frozenset(
     f".github/workflows/{name}.yml"
-    for name in ("issue-triage", "kit-update-check", "pr-review", "security-scan")
+    for name in (
+        "issue-triage",
+        "kit-update-check",
+        "pr-issue-link",
+        "pr-review",
+        "security-scan",
+    )
 )
 
 BASELINE_DOCUMENT_REQUIREMENTS = {

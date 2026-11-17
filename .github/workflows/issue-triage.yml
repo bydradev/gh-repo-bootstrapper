@@ -62,7 +62,11 @@ jobs:
         github.event.issue.user.type != 'Bot' &&
         (github.event.action != 'labeled' || github.event.label.name == 'needs-triage') &&
         (github.event.action != 'opened' || !contains(github.event.issue.labels.*.name, 'needs-triage')))
-    runs-on: ubuntu-latest
+    # One CPU is enough for reading settings, at a third of the standard
+    # runner's per-minute price (GitHub's Actions runner pricing and
+    # GitHub-hosted runners reference, read 2026-11-16: ubuntu-slim is a
+    # 1-core container with gh, jq and bash, and stops a job at 15 minutes).
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     permissions:
       contents: read
@@ -105,7 +109,7 @@ jobs:
             KIT_SECURITY_MAX_FILES KIT_SECURITY_MAX_LINES
             KIT_ISSUE_TRIAGE KIT_TRIAGE_PROVIDER KIT_TRIAGE_RUNNER KIT_TRIAGE_MODEL
             KIT_TRIAGE_EFFORT KIT_TRIAGE_MAX_TURNS KIT_TRIAGE_TIMEOUT_MINUTES
-            KIT_UPDATE_CHECK
+            KIT_UPDATE_CHECK KIT_ISSUE_LINK_CHECK
           )
           file=.github/gh-agent-kit.yml
           # The file on the default branch (the contents API's default ref),
@@ -189,7 +193,7 @@ jobs:
             # fails the run instead of quietly leaving its workflow off.
             case "$name" in
               KIT_REVIEW_MODE | KIT_SECURITY_SCAN) states="push open off" ;;
-              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK) states="on off" ;;
+              KIT_ISSUE_TRIAGE | KIT_UPDATE_CHECK | KIT_ISSUE_LINK_CHECK) states="on off" ;;
               *) states="" ;;
             esac
             if [ -n "$states" ] && [ -n "$v" ] && [[ " $states " != *" $v "* ]]; then
@@ -479,7 +483,7 @@ jobs:
           gh api --paginate "repos/$REPO/issues?state=open&per_page=100" \
             --jq '.[] | select(.pull_request == null and .user.type != "Bot") | select(
                 (.labels | map(.name) | index("needs-triage")) != null
-                or ((.labels | map(.name)) - ["needs-triage","triaged","ready","in-progress","blocked","needs-operator"] | length) == (.labels | length)
+                or ((.labels | map(.name)) - ["needs-triage","triaged","in-progress","needs-operator"] | length) == (.labels | length)
                 or ((.labels | map(.name) | index("in-progress")) != null and (now - (.updated_at | fromdate)) > 7 * 86400)
               ) | .number' | sort -n > "$RUNNER_TEMP/candidates"
           : > "$DISPATCH_LOG"
@@ -888,14 +892,24 @@ jobs:
           # (after 16 s)" (2026-10-28). 1.19.3 retries a request whose error
           # it counts as retryable five times, about a minute of waiting in
           # all (its session retry policy), but on 2026-10-28 runs still
-          # ended on that refusal. So after a refusal the run carries on in
-          # the same session (--session), told why, with the steps it has
-          # left, after the wait the refusal names (a minute at most, half a
-          # minute when it names none), three times in the step at most. The
-          # refused step is left out of what the model is sent next, and the
-          # steps before it stay (1.19.3's message history). RESULT gets every
+          # ended on that refusal, and on 2026-10-29 a burst of runs was
+          # refused for several minutes, a run in a quieter spell too. So
+          # after a refusal the run carries on in the same session
+          # (--session), told why, with the steps it has left, after a wait
+          # of 60, 120 and then 180 s for each refusal in a row (or the
+          # seconds the refusal names, when longer). A refusal after a step
+          # was served starts the row again, so a long run that makes
+          # progress between refusals is not ended by them. The run carries
+          # on while the wait fits in the job's time limit, counted from the
+          # start of its first OpenCode step and less a reserve for the
+          # steps around it; past that it stops on the refusal. The refused
+          # step is left out of what the model is sent next, and the steps
+          # before it stay (1.19.3's message history). RESULT gets every
           # attempt's events; the exit status and errors are the last
           # attempt's.
+          started=${AGENT_KIT_STARTED:-$(date +%s)}
+          [ -n "${AGENT_KIT_STARTED:-}" ] || [ -z "${GITHUB_ENV:-}" ] || echo "AGENT_KIT_STARTED=$started" >> "$GITHUB_ENV"
+          reserve=300
           : > "$RESULT"
           refusals=0
           session=""
@@ -909,19 +923,31 @@ jobs:
             # One JSON event a line; anything else on stdout is left out.
             jq -cR 'fromjson? | objects' "$RUNNER_TEMP/opencode-attempt.jsonl" > "$RUNNER_TEMP/opencode-attempt-events.jsonl"
             cat "$RUNNER_TEMP/opencode-attempt-events.jsonl" >> "$RESULT"
-            # The seconds to wait when the attempt ended on that refusal.
+            # The seconds the refusal names (0 when it names none, an hour at
+            # most) when the attempt ended on that refusal; nothing otherwise.
             pause=$(jq -rs 'map(select(.type == "error")) | last // empty | .error | tostring
               | select(test("ttft_admission_refused|at capacity"))
-              | ((capture("after (?<s>[0-9]+) ?s\\b").s | tonumber) // 30) | if . > 60 then 60 else . end' \
+              | (capture("after (?<s>[0-9]+) ?s\\b").s | tonumber | if . > 3600 then 3600 else . end) // 0' \
               "$RUNNER_TEMP/opencode-attempt-events.jsonl")
             session=$(jq -rs 'map(.sessionID // empty | strings) | first // empty' "$RESULT")
             left=$(( KIT_TRIAGE_MAX_TURNS - $(jq -s 'map(select(.type == "step_start")) | length' "$RESULT") ))
-            if [ -z "$pause" ] || [ "$refusals" -ge 3 ] || [ -z "$session" ] || [ "$left" -le 0 ]; then
+            if [ -z "$pause" ] || [ -z "$session" ] || [ "$left" -le 0 ]; then
               break
             fi
+            # A step served in this attempt starts the row again.
+            if [ "$(jq -s 'map(select(.type == "step_finish")) | length' "$RUNNER_TEMP/opencode-attempt-events.jsonl")" -gt 0 ]; then
+              refusals=0
+            fi
             refusals=$((refusals + 1))
-            echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $pause s (refusal $refusals of the step's 3)"
-            sleep "$pause"
+            delay=$(( refusals < 3 ? refusals * 60 : 180 ))
+            [ "$pause" -le "$delay" ] || delay=$pause
+            remaining=$(( KIT_TRIAGE_TIMEOUT_MINUTES * 60 - reserve - ($(date +%s) - started) ))
+            if [ "$delay" -gt "$remaining" ]; then
+              echo "::warning::OpenCode Go turned a request away as at capacity, and a wait of $delay s would not fit in what KIT_TRIAGE_TIMEOUT_MINUTES leaves, so the run stops on the refusal"
+              break
+            fi
+            echo "::warning::OpenCode Go turned a request away as at capacity, so the run carries on in the same session in $delay s (refusal $refusals in a row)"
+            sleep "$delay"
             run_config=$(jq -c --argjson steps "$left" '.agent.build.steps = $steps' <<<"$config")
             resume=(--session "$session")
             text="OpenCode Go turned your last request away because it was at capacity, so your work stopped there. Carry on with the same task from where it stopped: the work you have done is in this session, so do not start again."
@@ -1027,9 +1053,12 @@ jobs:
                 :
               elif has in-progress && [ "$EVENT" != "workflow_dispatch" ]; then
                 exit 0
-              elif [ "$EVENT" = "workflow_dispatch" ] && ! has in-progress && { has agent:approved || has ready; }; then
-                # An approved plan nobody has claimed stands; a claimed one
-                # (agent:approved stays through the claim) gets the stale
+              elif [ "$EVENT" = "workflow_dispatch" ] && ! has in-progress \
+                && { has agent:approved || { has requested && has triaged; }; }; then
+                # An approved plan nobody has claimed stands, and so does the
+                # plan of an issue filed for work the operator asked for
+                # directly (requested), which needs no approval; a claimed
+                # one (agent:approved stays through the claim) gets the stale
                 # check below.
                 exit 0
               elif has in-progress && [ "$STALE" != "true" ]; then
@@ -1112,14 +1141,13 @@ jobs:
           # Both outcomes carry one type and one priority (the questions
           # path applies the bot's best reading; the re-triage after the
           # answer may change them).
-          [ "$(count 'bug|feature|chore|docs')" -eq 1 ] || fail "a triaged or needs-operator issue carries one type label"
+          [ "$(count 'bug|feature|chore')" -eq 1 ] || fail "a triaged or needs-operator issue carries one type label"
           [ "$(count 'P[0-3]')" -eq 1 ] || fail "a triaged or needs-operator issue carries one priority label"
           # needs-triage on an approved issue is the operator asking for a
           # fresh plan, so the old approval goes with it on labeled events
           # and on a dispatch of an issue that carried the label.
           if [ "$ACTION" = edited ] || [ "$ACTION" = reopened ] || [ "$ACTION" = labeled ] || [ "$RETRIAGE" = true ]; then
             has agent:approved && fail "agent:approved survived a $ACTION event"
-            has ready && fail "ready survived a $ACTION event"
           fi
           if [ "$ACTION" = "reopened" ] && has in-progress; then fail "in-progress survived a reopened event"; fi
       # The sweep ends successfully whether or not it dispatched anything.

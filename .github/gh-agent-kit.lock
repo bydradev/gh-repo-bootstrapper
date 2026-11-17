@@ -1,8 +1,8 @@
 {
   "source": "github.com/bydradev/gh-agent-kit",
-  "ref": "3b613bc8899c5258e2a06a0a6173df31d015a524",
+  "ref": "2d6bbf2a3177af794b8a39aa60618a364cb1f588",
   "dirty": false,
-  "installed": "2026-10-29T01:06:55Z",
+  "installed": "2026-11-17T08:59:20Z",
   "issue_forms": "own",
   "seeds": [".github/security-review-instructions.md"],
   "paths": [
@@ -10,6 +10,7 @@
     ".github/workflows/security-scan.yml",
     ".github/workflows/issue-triage.yml",
     ".github/workflows/kit-update-check.yml",
+    ".github/workflows/pr-issue-link.yml",
     ".github/scripts/mcp-server.mjs",
     ".github/scripts/sync-labels.sh",
     ".github/security-review-instructions.md",
@@ -17,6 +18,7 @@
     ".agents/skills/github-security-scan/SKILL.md",
     ".agents/skills/github-issue-triage/SKILL.md",
     ".agents/skills/github-issue-e2e/SKILL.md",
+    ".agents/skills/github-issue-file/SKILL.md",
     ".github/gh-agent-kit/LICENSE"
   ]
 }

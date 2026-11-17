@@ -5,16 +5,16 @@ decisions and when they were made, and anything deliberately not done yet.
 `AGENTS.md` holds the durable rules; status that can go stale belongs here.
 Date each entry, and delete it once it no longer applies.
 
-## gh-agent-kit (2026-10-27)
+## gh-agent-kit (2026-11-17)
 
-gh-agent-kit v0.4.1 is installed, with the settings in
+gh-agent-kit v0.5.0 is installed, with the settings in
 `.github/gh-agent-kit.yml` that the operator chose for every kit repository
 on 2026-10-27: `pr-review` reviews each push to a pull request,
 `security-scan` scans a pull request when it opens, `issue-triage` triages
 issues, and `kit-update-check` opens an issue when a newer kit release is
 out. They run beside Codex Cloud's reviews and gate nothing. The install
 keeps this repository's own issue forms (`--issue-forms=own`; `AGENTS.md`,
-*Work tracking*). The operator added the `ANTHROPIC_API_KEY` secret and the
+*Issue forms*). The operator added the `ANTHROPIC_API_KEY` secret and the
 labels on 2026-10-27; the update from v0.1.0 that day changed no label.
 
 On 2026-10-28 the review, scan and triage moved to OpenCode Go, on its
@@ -37,6 +37,17 @@ the refusal names and carry on in the same session, up to three times in a
 step, and a run that ends in error prints the end of OpenCode's log. Triage
 also puts `.git` back in the checkout after its run. No setting, secret or
 label changed.
+
+On 2026-11-17 the kit was updated to v0.5.0. A bug or feature the operator
+asks for directly now gets an issue first, labelled `requested`, filed with
+the new `github-issue-file` skill. The new `pr-issue-link` workflow checks
+that a pull request says `Closes #<n>` or `No issue:`; it stays off until
+`KIT_ISSUE_LINK_CHECK` is `on`, which is not set here. The labels go from 15
+to 13: `requested` is added, and `ready`, `blocked` and `docs` are dropped,
+which `.github/scripts/sync-labels.sh --migrate` applies once this update
+is on `main`. The installer now writes the *Work tracking* section of
+`AGENTS.md` between its markers; this repository's own lines moved to
+*Issue forms* and *Kit workflows in validation* after it.
 
 ## Releases and adoption (2026-11-12)
 

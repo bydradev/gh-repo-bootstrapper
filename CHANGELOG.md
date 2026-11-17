@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.5](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.4...v0.24.5) (2026-11-17)
+
+
+### Bug Fixes
+
+* fail a breaking change that the squash block makes a plain one ([#247](https://github.com/bydradev/gh-repo-bootstrapper/issues/247)) ([87a0a3b](https://github.com/bydradev/gh-repo-bootstrapper/commit/87a0a3be2a525082271db972548b5c7c7c454133))
+
 ## [0.24.4](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.3...v0.24.4) (2026-11-17)
 
 

@@ -1009,6 +1009,19 @@ class ReleaseGateGuardTests(unittest.TestCase):
                     "${{ steps.guard.outputs.release != 'true' }}",
                 )
 
+    def test_guard_reads_the_test_jobs_full_suite_expression(self):
+        for repo_type in ("nextjs", "python", "swift", "rust", "android"):
+            with self.subTest(repo_type=repo_type):
+                files = bootstrap.generate_files(
+                    {"name": "sample", "repo_type": repo_type, "postgres": False, "scheme": "App"}
+                )
+                workflow = yaml.safe_load(files[".github/workflows/release-please.yml"])
+                guard = next(
+                    step for step in workflow["jobs"]["release-please"]["steps"]
+                    if step.get("name") == self.GUARD
+                )
+                self.assertEqual(guard["env"]["FULL_SUITE"], workflow["jobs"]["test"]["with"]["full"])
+
     def test_guard_refuses_only_a_pending_merge_it_did_not_test(self):
         expected_argv = [
             "pr", "list", "--repo", "octocat/sample", "--state", "merged",
@@ -1085,6 +1098,27 @@ class ReleaseGateGuardTests(unittest.TestCase):
             "the gh query fails": ("", True, "0", 1, None, [], [], None),
             "the compare call fails": ("71 def456", "compare", "0", 1, None, ["def456"], [], None),
             "the runs call fails": ("71 def456", "runs", "0", 1, None, ["def456"], ["def456"], None),
+            "pending release is this commit, tested without the full suite": (
+                "71 abc123", False, "0", 1, "false", [], [],
+                "::error::Release PR #71 merged as abc123, which this run tested without the full suite"),
+            "pending release is this commit, full-suite value empty": (
+                "71 abc123", False, "0", 1, "false", [], [],
+                "::error::Release PR #71 merged as abc123, which this run tested without the full suite"),
+            "pending release is this commit, unexpected full-suite value": (
+                "71 abc123", False, "0", 1, "false", [], [],
+                "::error::Release PR #71 merged as abc123, which this run tested without the full suite"),
+            "no pending release, without the full suite": ("", False, "0", 0, "false", [], [], None),
+            "pending release merged after this commit, without the full suite": (
+                "71 fff999", False, "0", 0, "false", ["fff999"], [], "::notice::Release PR #71 merged as fff999"),
+        }
+        # FULL_SUITE is the test job's `full` expression, "true" unless a case
+        # says otherwise; any other value refuses to tag this commit.
+        full_suite = {
+            "pending release is this commit, tested without the full suite": "false",
+            "pending release is this commit, full-suite value empty": "",
+            "pending release is this commit, unexpected full-suite value": "True",
+            "no pending release, without the full suite": "false",
+            "pending release merged after this commit, without the full suite": "false",
         }
         for repo_type in ("python", "nextjs"):
             guard = next(step for step in self._steps(repo_type) if step.get("name") == self.GUARD)
@@ -1104,6 +1138,7 @@ class ReleaseGateGuardTests(unittest.TestCase):
                             "FAKE_RUNS_FAIL": "1" if fail == "runs" else "",
                             "FAKE_RUNNING": running,
                             "REPO": "octocat/sample", "TESTED_SHA": "abc123",
+                            "FULL_SUITE": full_suite.get(label, "true"),
                             "GITHUB_OUTPUT": str(output),
                         },
                     )

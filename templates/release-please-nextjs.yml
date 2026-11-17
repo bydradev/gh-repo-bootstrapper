@@ -143,8 +143,14 @@ jobs:
       # the single-package config generated here (it opens no release PR while a
       # merged one is pending). Never label a PR "autorelease: pending" by hand,
       # and rework this guard before moving to a multi-package config. The guard
-      # only reads, so it runs with the workflow token (see this job's
-      # permissions); the App token goes only to release-please.
+      # also refuses to tag this commit when this run did not use the full
+      # suite: a release merge whose commit message lost the "chore(main):
+      # release" title (an edited squash title or a merge commit) ran only the
+      # ordinary tier. FULL_SUITE is the test job's `full` expression, and any
+      # value but true refuses. A manual dispatch on main while that merge is
+      # still its newest commit uses the full suite and releases. The guard only
+      # reads, so it runs with the workflow token (see this job's permissions);
+      # the App token goes only to release-please.
       - name: Refuse to tag an untested release merge
         id: guard
         if: steps.credentials.outputs.configured == 'true'
@@ -152,6 +158,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           TESTED_SHA: ${{ github.sha }}
+          FULL_SUITE: "${{ github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore(main): release') }}"
         run: |
           pending=$(gh pr list --repo "$REPO" --state merged --label "autorelease: pending" \
             --json number,mergeCommit --jq '.[] | "\(.number) \(.mergeCommit.oid)"')
@@ -180,7 +187,13 @@ jobs:
                   continue
                 fi
               fi
-              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA), and no run for $oid is still going. Re-run the run for $oid if its failure was transient; otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
+              echo "::error::Release PR #$number merged as $oid, which this run did not test ($TESTED_SHA), and no run for $oid is still going. Re-run the run for $oid if its failure was transient and its commit message starts with 'chore(main): release' (a re-run tests on the same tier, so it cannot release a merge whose title was edited); otherwise remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
+              status=1
+              continue
+            fi
+            # This run tested the pending merge, but maybe not with the full suite.
+            if [ "$FULL_SUITE" != true ]; then
+              echo "::error::Release PR #$number merged as $oid, which this run tested without the full suite: its commit message does not start with 'chore(main): release' (an edited squash title or a merge commit). Dispatch release-please.yml on main while $oid is still its newest commit; that run uses the full suite and releases. If main has moved past $oid, remove the 'autorelease: pending' label from #$number to abandon that release, then fix forward."
               status=1
               continue
             fi

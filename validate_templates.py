@@ -2580,6 +2580,15 @@ def check_workflow_gates(label: str, repo_type: str, files: dict) -> list:
                 f"workflow token (GH_TOKEN: {RELEASE_GUARD_TOKEN}), not the App token that "
                 f"release-please writes with; got {(guards[0].get('env') or {}).get('GH_TOKEN')!r}"
             )
+        # The guard refuses to tag a merge this run tested without the full
+        # suite, so it must read the same expression the test job's `full`
+        # input uses (check_release_full_suite_contract pins that one).
+        if len(guards) == 1 and (guards[0].get("env") or {}).get("FULL_SUITE") != RELEASE_FULL_SUITE_EXPRESSION:
+            errors.append(
+                f"[{label}] release-please.yml step '{RELEASE_GUARD_STEP_ID}' must set FULL_SUITE to "
+                f"the test job's full-suite expression {RELEASE_FULL_SUITE_EXPRESSION!r}; got "
+                f"{(guards[0].get('env') or {}).get('FULL_SUITE')!r}"
+            )
     if ".github/workflows/release-please.yml" in files:
         errors += _release_credentials_errors(label, release_jobs.get("release-please"))
 
@@ -5113,6 +5122,15 @@ def _structure_self_tests() -> list:
     expect("guard without a token",
            gates("python", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
                  .pop("GH_TOKEN")), "must read with the workflow token")
+    expect("guard without the full-suite value",
+           gates("nextjs", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
+                 .pop("FULL_SUITE")), "must set FULL_SUITE")
+    expect("guard that reads only the dispatch half of the full-suite value",
+           gates("swift", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
+                 .update({"FULL_SUITE": "${{ github.event_name == 'workflow_dispatch' }}"})), "must set FULL_SUITE")
+    expect("guard that always reads the full suite",
+           gates("android", release, lambda w: step(w, "release-please", lambda s: s.get("id") == "guard")["env"]
+                 .update({"FULL_SUITE": "true"})), "must set FULL_SUITE")
     expect("guard that is gone",
            gates("rust", release, lambda w: w["jobs"]["release-please"]["steps"].remove(
                step(w, "release-please", lambda s: s.get("id") == "guard"))), "exactly one 'guard' step")

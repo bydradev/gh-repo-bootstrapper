@@ -128,6 +128,8 @@ async function runFixture({
   unfilteredReleaseRuns = latestReleaseRuns,
   successfulReleaseRuns = latestReleaseRuns,
   releaseJobs = [testJob, releaseJob("success")],
+  // Jobs for particular run ids; any other run gets releaseJobs.
+  jobsByRun = {},
   releaseJobPages,
   token = true,
   dependabotStatus = 200,
@@ -178,8 +180,14 @@ async function runFixture({
       );
       return;
     }
-    if (/^\/repos\/bydradev\/fixture\/actions\/runs\/\d+\/jobs$/.test(url.pathname)) {
+    const jobsPath = /^\/repos\/bydradev\/fixture\/actions\/runs\/(\d+)\/jobs$/.exec(url.pathname);
+    if (jobsPath) {
       response.statusCode = jobsStatus;
+      const runJobs = jobsByRun[jobsPath[1]];
+      if (runJobs) {
+        response.end(JSON.stringify({ total_count: runJobs.length, jobs: runJobs }));
+        return;
+      }
       if (!releaseJobPages) {
         response.end(JSON.stringify({ total_count: releaseJobs.length, jobs: releaseJobs }));
         return;
@@ -328,13 +336,31 @@ function cancelledPush(message = "fix: ordinary change (#12)", extra = {}) {
   };
 }
 
+// A newer push cancelled the run's tests, so its release job, which needs
+// them, never ran.
+const cancelledTestJob = {
+  ...testJob,
+  conclusion: "cancelled",
+  steps: [{ ...testJob.steps[0], conclusion: "success" }],
+};
+const supersededRunJobs = [
+  cancelledTestJob,
+  { ...releaseJob("skipped"), conclusion: "skipped", steps: [] },
+];
+
+function jobsUrl(run) {
+  return `/repos/bydradev/fixture/actions/runs/${run.id}/jobs?filter=latest&per_page=100`;
+}
+
 test("looks past release runs a newer push cancelled", async () => {
   const cancelled = cancelledPush();
+  const older = cancelledPush("fix: older change (#11)", { id: 30230627998 });
   const { code, output, requests } = await runFixture({
     rows: [documented],
     alerts: matchingAlert,
-    latestReleaseRuns: [cancelled, cancelled, successfulRelease()],
+    latestReleaseRuns: [cancelled, cancelled, older, successfulRelease()],
     successfulReleaseRuns: [successfulRelease()],
+    jobsByRun: { [cancelled.id]: supersededRunJobs, [older.id]: supersededRunJobs },
   });
   assert.equal(code, 0);
   assert.match(
@@ -342,13 +368,124 @@ test("looks past release runs a newer push cancelled", async () => {
     /Release pipeline: last successful `release-please\.yml` run completed successfully/,
   );
   assert.doesNotMatch(output, /concluded cancelled/);
-  // The jobs read are those of the run that was not cancelled.
+  // Each cancelled run's jobs are read once, then those of the run judged.
   assert.deepEqual(
     requests.filter((request) => request.includes("/jobs")),
-    [
-      `/repos/bydradev/fixture/actions/runs/${successfulRelease().id}/jobs?filter=latest&per_page=100`,
-    ],
+    [jobsUrl(cancelled), jobsUrl(older), jobsUrl(successfulRelease())],
   );
+});
+
+for (const [label, jobs] of [
+  ["no jobs at all", []],
+  ["no release job", [cancelledTestJob]],
+  [
+    "only a release job that was skipped",
+    [{ ...releaseJob("skipped"), conclusion: "skipped", steps: [] }],
+  ],
+  [
+    "a release job cancelled before any step started",
+    [cancelledTestJob, { ...releaseJob("skipped"), conclusion: "cancelled", steps: [] }],
+  ],
+  [
+    "a release job cancelled with its steps still queued",
+    [
+      cancelledTestJob,
+      {
+        ...releaseJob("skipped"),
+        conclusion: "cancelled",
+        steps: [{ number: 1, name: "Set up job", status: "queued", conclusion: null }],
+      },
+    ],
+  ],
+  [
+    "an inline test job that was cancelled",
+    [
+      { ...cancelledTestJob, name: "test" },
+      { ...releaseJob("skipped"), conclusion: "skipped" },
+    ],
+  ],
+]) {
+  test(`looks past a superseded push with ${label}`, async () => {
+    const cancelled = cancelledPush();
+    const { code, output } = await runFixture({
+      rows: [documented],
+      alerts: matchingAlert,
+      latestReleaseRuns: [cancelled, successfulRelease()],
+      successfulReleaseRuns: [successfulRelease()],
+      jobsByRun: { [cancelled.id]: jobs },
+    });
+    assert.equal(code, 0, output);
+    assert.doesNotMatch(output, /concluded cancelled/);
+  });
+}
+
+for (const [label, jobs] of [
+  [
+    "a release job cancelled after it started",
+    [
+      { ...testJob },
+      {
+        ...releaseJob("success"),
+        conclusion: "cancelled",
+        steps: [
+          { number: 1, name: "Set up job", status: "completed", conclusion: "success" },
+          {
+            number: 2,
+            name: "Check Release Please credentials",
+            status: "completed",
+            conclusion: "success",
+          },
+          { number: 3, name: "Generate GitHub App token", status: "in_progress", conclusion: null },
+        ],
+      },
+    ],
+  ],
+  [
+    "a release job cancelled while a test job was cancelled too",
+    [
+      cancelledTestJob,
+      {
+        ...releaseJob("success"),
+        conclusion: "cancelled",
+        steps: [{ number: 1, name: "Set up job", status: "completed", conclusion: "success" }],
+      },
+    ],
+  ],
+  [
+    "tests that passed and a release job that never ran",
+    [testJob, { ...releaseJob("skipped"), conclusion: "skipped", steps: [] }],
+  ],
+  ["only jobs that are not tests", [{ ...cancelledTestJob, name: "lint" }]],
+]) {
+  test(`reports a cancelled push with ${label} instead of looking past it`, async () => {
+    const cancelled = cancelledPush();
+    const { code, output } = await runFixture({
+      rows: [documented],
+      alerts: matchingAlert,
+      latestReleaseRuns: [cancelled, successfulRelease()],
+      successfulReleaseRuns: [successfulRelease()],
+      jobsByRun: { [cancelled.id]: jobs },
+    });
+    assert.equal(code, 1);
+    assert.match(
+      output,
+      /Release pipeline: stale\. The latest completed `release-please\.yml` run concluded cancelled/,
+    );
+  });
+}
+
+test("reports the release pipeline as undetermined when a cancelled run's jobs cannot be read", async () => {
+  const { code, output } = await runFixture({
+    rows: [documented],
+    alerts: matchingAlert,
+    // No other run is read, so only the cancelled run's jobs are.
+    latestReleaseRuns: [cancelledPush()],
+    successfulReleaseRuns: [successfulRelease()],
+    jobsStatus: 500,
+  });
+  assert.equal(code, 1);
+  assert.match(output, /Release pipeline: could not be determined/);
+  assert.doesNotMatch(output, /completed successfully at/);
 });
 
 test("judges the latest release run when every run read was cancelled", async () => {
@@ -358,6 +495,7 @@ test("judges the latest release run when every run read was cancelled", async ()
     alerts: matchingAlert,
     latestReleaseRuns: [cancelled, cancelled],
     successfulReleaseRuns: [successfulRelease()],
+    jobsByRun: { [cancelled.id]: supersededRunJobs },
   });
   assert.equal(code, 1);
   assert.match(
@@ -378,6 +516,9 @@ for (const [label, run] of [
       alerts: matchingAlert,
       latestReleaseRuns: [run, successfulRelease()],
       successfulReleaseRuns: [successfulRelease()],
+      // Even jobs that show a newer push cancelling its tests do not make
+      // such a run looked past.
+      jobsByRun: { [run.id]: supersededRunJobs },
     });
     assert.equal(code, 1);
     assert.match(

@@ -63,7 +63,9 @@ Full CI pipeline for Next.js applications.
 - `pr-title-check.yml`: Conventional Commits validation on PR titles, and a
   `User-visible: yes` or `User-visible: no` line in PR bodies that must agree
   with the title (see [Upgrading to 0.14.0](upgrading.md#upgrading-to-0140))
-- `release-please.yml`: test → release-please; deployment remains application-owned
+- `release-please.yml`: test → release-please; deployment remains application-owned;
+  refuses to tag a release merge whose own test run failed, or that its own run
+  tested without the full suite
 - `ci.yml`: runs the suite on every PR without the browser e2e lane;
   `release-please.yml` runs the same on an ordinary push to `main`, and every
   Playwright project on the Release Please merge (or a manual dispatch)
@@ -161,7 +163,8 @@ CI pipeline for Python projects.
 
 - `pr-title-check.yml`
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
-  tag a release merge whose own test run failed
+  tag a release merge whose own test run failed, or that its own run tested
+  without the full suite
 - `ci.yml`: runs the test suite on every PR
 - `test.yml`: ruff format check, ruff (lint), mypy (type check), pytest;
   fails with a clear error until the repository has a `pyproject.toml`, a
@@ -197,7 +200,8 @@ CI pipeline for Swift/Xcode projects.
 
 - `pr-title-check.yml`
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
-  tag a release merge whose own test run failed
+  tag a release merge whose own test run failed, or that its own run tested
+  without the full suite
 - `ci.yml`: runs the `swift-format` lint on every PR; `xcodebuild test` runs
   only on the Release Please merge and on a manual dispatch of
   `release-please.yml`, because macOS runners bill at a multiple of Linux ones
@@ -238,7 +242,8 @@ CI pipeline for Rust crates and workspaces.
 
 - `pr-title-check.yml`
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
-  tag a release merge whose own test run failed
+  tag a release merge whose own test run failed, or that its own run tested
+  without the full suite
 - `ci.yml`: runs the test suite on every PR
 - `test.yml`: `cargo fmt --check`, `cargo clippy -D warnings`, and
   `cargo test` across the workspace; fails with a clear error until a root
@@ -267,7 +272,8 @@ CI pipeline and reusable infrastructure for Android applications.
 
 - `pr-title-check.yml`
 - `release-please.yml`: test gate → release-please (no deploy); refuses to
-  tag a release merge whose own test run failed
+  tag a release merge whose own test run failed, or that its own run tested
+  without the full suite
 - `ci.yml`: runs the test suite on every PR (calling `test.yml` with `full: false` for fast checks)
 - `test.yml`: checks for an executable Gradle wrapper, validates
   `gradle-wrapper.jar` against Gradle's published checksums

@@ -17,12 +17,15 @@ const releaseStaleDays = 14;
 const releaseRunsRead = 20;
 
 // A cancelled first attempt of an ordinary push run, which is what a newer
-// push to main cancels (release-please.yml, the test job's concurrency).
+// push to main cancels (release-please.yml, the test job's concurrency). Its
+// jobs decide whether it is looked past (supersededJobs).
 function supersededPush(run) {
   const message = run?.head_commit?.message;
   return (
     run?.conclusion === "cancelled" &&
     run?.event === "push" &&
+    // A re-run is someone asking for evidence on that commit, so a cancelled
+    // re-run of an ordinary push is still reported, not looked past.
     (run?.run_attempt ?? 1) === 1 &&
     typeof message === "string" &&
     !message.startsWith("chore(main): release")
@@ -172,6 +175,36 @@ function releaseEvidence(jobs) {
     evidence.notStarted +
     Object.values(evidence.other).reduce((sum, count) => sum + count, 0);
   return evidence;
+}
+
+// Whether a superseded push's jobs show that a newer push cancelled its tests
+// before the release stage began: a `test` job (or one of the `test / <job>`
+// jobs of the suite it calls) was cancelled, and the `release-please` job is
+// absent, skipped, or cancelled before any of its steps started. A run that
+// lists no job but that release job, or no jobs at all, was cancelled before
+// anything started (a test job cancelled while it waited for its concurrency
+// group may never list the suite's jobs). Any other run, such as
+// one whose release job was cancelled by hand after it started, is reported.
+function supersededJobs(jobs) {
+  const releaseStarted = jobs.some((job) => {
+    if (job?.name !== releaseJobName || job.conclusion === "skipped") return false;
+    if (job.conclusion !== "cancelled") return true;
+    const steps = Array.isArray(job.steps) ? job.steps : [];
+    return steps.some(
+      (step) =>
+        !(step?.status === "queued" || step?.status === "pending") &&
+        !(step?.status === "completed" && step?.conclusion === "skipped"),
+    );
+  });
+  if (releaseStarted) return false;
+  // Only a release job that never started, or no jobs at all: nothing ran.
+  if (jobs.every((job) => job?.name === releaseJobName)) return true;
+  return jobs.some(
+    (job) =>
+      typeof job?.name === "string" &&
+      (job.name === "test" || job.name.startsWith("test / ")) &&
+      job.conclusion === "cancelled",
+  );
 }
 
 function unreleasedJobs({ skipped, notStarted, other }) {
@@ -498,15 +531,29 @@ async function main() {
       releaseWorkflowRuns(repository, token, `status=completed&per_page=${releaseRunsRead}`),
       releaseWorkflowRuns(repository, token, "status=success&per_page=1"),
     ]);
-    // A newer push to main cancels an ordinary push's run, so the latest
+    // A newer push to main cancels an ordinary push's tests, so the latest
     // completed run is often a cancelled one that says nothing about the
-    // release. Judge the latest run that is not such a run. A cancelled
-    // release merge, dispatch or re-run still counts: a timeout or a manual
-    // cancel there can leave a release untagged. Only when every run read was
-    // a superseded push does the latest one count.
-    const latest = latestRuns.find((run) => !supersededPush(run)) ?? latestRuns[0];
-    const jobs =
-      latest?.conclusion === "success" ? await releaseRunJobs(repository, token, latest) : [];
+    // release. Judge the latest run that is not such a run, reading each
+    // cancelled ordinary push's jobs first: it is looked past only when its
+    // tests were cancelled before its release job started (supersededJobs). A
+    // cancelled release merge, dispatch or re-run still counts: a timeout or a
+    // manual cancel there can leave a release untagged. Only when every run
+    // read was a superseded push does the latest one count. A failed jobs read
+    // throws, so the pipeline is reported as undetermined, never as healthy.
+    const jobsByRun = new Map();
+    const jobsOf = async (run) => {
+      if (!jobsByRun.has(run.id))
+        jobsByRun.set(run.id, await releaseRunJobs(repository, token, run));
+      return jobsByRun.get(run.id);
+    };
+    let latest;
+    for (const run of latestRuns) {
+      if (supersededPush(run) && supersededJobs(await jobsOf(run))) continue;
+      latest = run;
+      break;
+    }
+    latest ??= latestRuns[0];
+    const jobs = latest?.conclusion === "success" ? await jobsOf(latest) : [];
     const result = releaseHealth(latest, successfulRuns[0], releaseEvidence(jobs));
     lines.push(result.line);
     actionable ||= result.actionable;

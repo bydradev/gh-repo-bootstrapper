@@ -29,6 +29,27 @@ check after the update until its note is written or the marker removed. The
 skill's bullet says so. `--check` reports the workflow and the skill as
 `stale`, and `--adopt` updates them; nothing else needs doing.
 
+Every type but `simple`: the untested-merge guard in `release-please.yml`
+also refuses to tag a release merge that its own run tested without the full
+suite. That happens when the release PR is merged under an edited squash
+title or as a merge commit, so the commit message does not start with
+`chore(main): release`. The release job then fails with an error that says to
+dispatch `release-please.yml` on `main` while the merge is still its newest
+commit; the dispatched run uses the full suite and releases. In `python` and
+`rust`, whose suites run every check on every push, the guard refuses too,
+because it cannot see what the repository's own `test.yml` runs. A repository
+whose release workflow is `local-modified` keeps its own guard. `--check`
+reports `.github/workflows/release-please.yml` as `stale`, and `--adopt`
+updates it.
+
+Next.js: the weekly baseline review now reads the jobs of a cancelled
+ordinary push run before looking past it. It looks past the run only when a
+`test` job was cancelled and the `release-please` job never started, or when
+the run lists no other job; a run whose release job started and was then
+cancelled is reported as `stale`. A failed read of those jobs reports the
+pipeline as undetermined. `--check` reports `scripts/review-baselines.mjs` and
+`scripts/review-baselines.test.mjs` as `stale`, and `--adopt` updates them.
+
 ## Upgrading to 0.24.3
 
 Every type: the `pull-requests` skill's *User-visible* bullet says that a

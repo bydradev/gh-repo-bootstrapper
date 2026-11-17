@@ -157,7 +157,7 @@ tags, the validator prints a notice and skips them.
 - gh-agent-kit's workflows in this repository, only for pinned actions: the
   kit tests them and its `install.sh` replaces them on every update, so the
   other checks of this repository's own workflows skip them. Only the kit's
-  four workflows as of its v0.1.0 (`KIT_WORKFLOWS` in `validate_templates.py`)
+  five workflows as of its v0.5.0 (`KIT_WORKFLOWS` in `validate_templates.py`)
   are skipped, and only when `.github/gh-agent-kit.lock` lists them and not
   as seeds. A lock that is missing, unreadable or names another source
   exempts nothing, and a workflow a later kit release adds is checked until

@@ -130,7 +130,7 @@ OWN_WORKFLOWS_DIR = Path(__file__).parent / ".github" / "workflows"
 # pinned. A seed in the lock is this repository's own once installed.
 KIT_LOCK_PATH = Path(__file__).parent / ".github" / "gh-agent-kit.lock"
 KIT_SOURCE = "github.com/bydradev/gh-agent-kit"
-# Only these, the kit's workflows as of its v0.1.0, are skipped, so a lock that
+# Only these, the kit's workflows as of its v0.5.0, are skipped, so a lock that
 # lists one of this repository's own workflows exempts it from nothing. A
 # workflow a later kit release adds is checked until it is added here.
 KIT_WORKFLOWS = frozenset(

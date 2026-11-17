@@ -31,12 +31,9 @@ and review skills set out their decision steps case by case, and a claim
 comment on an issue carries no session link. The install kept this
 repository's own issue forms, and no setting, secret or label changed.
 
-On 2026-10-29 the kit was updated to v0.4.1. When OpenCode Go turns a
-request away as at capacity, the review, scan and triage now wait the time
-the refusal names and carry on in the same session, up to three times in a
-step, and a run that ends in error prints the end of OpenCode's log. Triage
-also puts `.git` back in the checkout after its run. No setting, secret or
-label changed.
+On 2026-10-29 the kit was updated to v0.4.1: a run that ends in error
+prints the end of OpenCode's log, and triage puts `.git` back in the
+checkout after its run. No setting, secret or label changed.
 
 On 2026-11-17 the kit was updated to v0.5.0. A bug or feature the operator
 asks for directly now gets an issue first, labelled `requested`, filed with
@@ -45,9 +42,14 @@ that a pull request says `Closes #<n>` or `No issue:`; it stays off until
 `KIT_ISSUE_LINK_CHECK` is `on`, which is not set here. The labels go from 15
 to 13: `requested` is added, and `ready`, `blocked` and `docs` are dropped,
 which `.github/scripts/sync-labels.sh --migrate` applies once this update
-is on `main`. The installer now writes the *Work tracking* section of
-`AGENTS.md` between its markers; this repository's own lines moved to
-*Issue forms* and *Kit workflows in validation* after it.
+is on `main`. When OpenCode Go turns a request away as at capacity, the
+review, scan and triage wait 60, 120 and then 180 seconds for each refusal
+in a row (or the time the refusal names, when longer), start the count
+again once a step is served, and stop when the wait would not fit the
+step's `KIT_*_TIMEOUT_MINUTES` less a 300-second reserve. The installer now
+writes the *Work tracking* section of `AGENTS.md` between its markers; this
+repository's own lines moved to *Issue forms* and *Kit workflows in
+validation* after it.
 
 ## Releases and adoption (2026-11-12)
 

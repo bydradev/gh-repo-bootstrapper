@@ -7,6 +7,27 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.24.6
+
+Every type: the title check (`.github/workflows/pr-title-check.yml`) now also
+fails a body whose extra changelog entry only its trailing footers give while
+the change still releases, such as `feat: subject` on the line after
+`User-visible: yes` under a `fix:` title. Release Please reads that footer as
+an extra entry while it ends the squash commit, but once GitHub's default
+squash commit adds its line of dashes and `Co-authored-by:` trailers it is
+body text: the entry drops out of the changelog, and a `feat` entry's bump out
+of the version. Before, the check failed this only when the entry was the
+change's only release. The message says what survives the block: the entry in
+a paragraph of its own, after a blank line and opening with a lowercase
+standard type (outside a nested commit block, Release Please reads no entry
+with a capital or `!`, nor a `feature:` one, wherever it stands), a breaking
+one written without `!` and followed by a `BREAKING CHANGE:` note, or the
+override block. When GitHub's 72-column rewrap is what starts a line with a
+type, the message says so. The `pull-requests` skill's *User-visible* bullet
+names these misreads too. A pull request open with such a body fails the check
+after the update until it is reworded. `--check` reports the workflow and the
+skill as `stale`, and `--adopt` updates them; nothing else needs doing.
+
 ## Upgrading to 0.24.5
 
 Every type: the title check (`.github/workflows/pr-title-check.yml`) now also
@@ -16,9 +37,10 @@ Release Please reads that entry as a breaking commit while it ends the squash
 commit, but once GitHub's default squash commit adds its line of dashes and
 `Co-authored-by:` trailers it is body text, and the release is a plain one.
 In the body, Release Please reads a `!` entry only as a trailing footer or in
-a nested commit block, so moving it up the body drops it instead; the check's message names what survives the block: a
-`BREAKING CHANGE:` note (after an entry such as `feat: subject`, it marks that
-entry), `!` on the title, or the override block. Before, the check failed this
+a nested commit block, so moving it up the body drops it instead; the check's
+message names what survives the block: a `BREAKING CHANGE:` note (after an
+entry such as `feat: subject`, it marks that entry), `!` on the title, or the
+override block. Before, the check failed this
 only under a title that releases nothing. A pull request open with such a body
 fails the check after the update until it is reworded. `--check` reports the
 workflow as `stale`, and `--adopt` updates it; nothing else needs doing.

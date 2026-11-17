@@ -78,6 +78,7 @@ jobs:
           import os
           import re
           import sys
+          from collections import Counter
 
           # Release Please releases when its changelog would have an entry:
           # a commit whose type, in any case, is feat, feature, fix, perf or
@@ -131,9 +132,10 @@ jobs:
           # Co-authored-by trailers (seen on most squashes with either on
           # the bootstrapper's own main, 2026-10-21 to 2026-10-22, though
           # not all). Release Please then reads the body's trailing
-          # footers as body text, so a release or a Release-As version
-          # that only one of them makes is lost, and a breaking-change
-          # token that gives no note as the body stands can give one.
+          # footers as body text, so a release, an extra entry, a breaking
+          # change or a Release-As version that only one of them makes is
+          # lost, and a breaking-change token that gives no note as the
+          # body stands can give one.
           CO_AUTHORS = "\n\n---------\n\nCo-authored-by: A <a@example.com>"
 
 
@@ -325,7 +327,10 @@ jobs:
               # its own, from the footer and its continuation lines, then the
               # message itself. Each is why it releases, or None, the text of
               # its first Release-As footer, or None, whether its entry in
-              # the changelog holds a <details> tag, and whether it is breaking.
+              # the changelog holds a <details> tag, whether it is breaking,
+              # and its changelog entry (its type, "!" and subject as written)
+              # when it has a released type or is marked breaking with "!",
+              # or None.
               body, found = parse(lines)
               made = []
               for footer, _, more in found:
@@ -334,9 +339,12 @@ jobs:
                       if (inner := HEADER.fullmatch(again[0])) and not any(map(UNPARSABLE.match, again[1:])):
                           made += commits(inner, again, False, origin)
               version = next((text for footer, text, _ in found if (footer[1] or "").lower() == "release-as"), None)
+              why = commit_releases(header, body, found, title, origin)
+              subject = header[3].strip()
+              marked = header[2] and subject and WORD.fullmatch(header[1])
+              entry = (header[1], header[2], subject) if header[1].lower() in RELEASED or marked else None
               return made + [(
-                  commit_releases(header, body, found, title, origin), version, details(header, body, found),
-                  commit_breaking(header, body, found, title),
+                  why, version, details(header, body, found), commit_breaking(header, body, found, title), entry,
               )]
 
 
@@ -352,8 +360,9 @@ jobs:
           def releases(title, body, fences, co_authors=False):
               # Why Release Please releases the change, or None; the first
               # problem that makes it drop a change or stop with an error;
-              # whether it cannot parse the title; the Release-As version; and
-              # whether a commit it releases is breaking. It reads the override as the
+              # whether it cannot parse the title; the Release-As version;
+              # whether a commit it releases is breaking; and its changelog
+              # entries, counted. It reads the override as the
               # pull request body holds it, or else the squash commit, with
               # GitHub's co-author block after the body when co_authors is set.
               override = body.split("BEGIN_COMMIT_OVERRIDE")[1:2]
@@ -368,7 +377,7 @@ jobs:
                       squash += CO_AUTHORS
                       numbers += [0] * CO_AUTHORS.count("\n")
                   source, place = f"{title}\n\n{squash}", lambda line: numbers[line - 2]
-              found, problem, title_lost, version, breaking = None, None, False, None, False
+              found, problem, title_lost, version, breaking, entries = None, None, False, None, False, Counter()
               for index, (text, offset) in enumerate(messages(source)):
                   lines = text.strip().split("\n")
                   header = HEADER.fullmatch(lines[0])
@@ -391,7 +400,8 @@ jobs:
                   broken = next((number for number, line in enumerate(lines[1:], 1) if UNPARSABLE.match(line)), None)
                   if broken is None:
                       found = found or reason
-                      breaking = breaking or any(broke for *_, broke in made)
+                      breaking = breaking or any(broke for *_, broke, _ in made)
+                      entries.update(entry for *_, entry in made if entry)
                       # Release Please reads the version in the first
                       # Release-As footer before it writes the changelog, and
                       # stops with an error when it cannot.
@@ -403,7 +413,7 @@ jobs:
                                   "stop with an error and open no release pull request. Write the version as "
                                   "numbers on the footer's own line, such as Release-As: 1.2.0."
                               )
-                      if any(why and html for why, _, html, _ in made) and problem is None:
+                      if any(why and html for why, _, html, *_ in made) and problem is None:
                           problem = (
                               "Release Please could not read back its release pull request once this change is "
                               "in it, so it would stop with an error or misread the release: the changelog keeps "
@@ -428,7 +438,7 @@ jobs:
                           "Break that line yourself into lines of at most 72 characters, which GitHub leaves as "
                           "written, so that none starts that way."
                       )
-              return found, problem, title_lost, version, breaking
+              return found, problem, title_lost, version, breaking, entries
 
 
           def fail(message):
@@ -448,15 +458,16 @@ jobs:
           )
           # Whether GitHub leaves a long line alone for a code fence or for
           # its indent, a release or a problem on either reading counts.
-          reason, problem, title_lost, version, breaking = releases(title.strip(), body, True)
+          reason, problem, title_lost, version, breaking, entries = releases(title.strip(), body, True)
           other = releases(title.strip(), body, False)
           reason, problem, version = reason or other[0], problem or other[1], version or other[3]
-          breaking = breaking or other[4]
+          breaking, entries = breaking or other[4], entries | other[5]
           # The same readings after GitHub's default co-author block.
           blocked = releases(title.strip(), body, True, True), releases(title.strip(), body, False, True)
           kept = blocked[0][0] or blocked[1][0]
           kept_version = blocked[0][3] or blocked[1][3]
           kept_breaking = blocked[0][4] or blocked[1][4]
+          kept_entries = blocked[0][5] | blocked[1][5]
           if answers - {"yes", "no"}:
               fail(f"A User-visible line must answer yes or no. {how}")
           if answers == {"yes", "no"}:
@@ -527,14 +538,71 @@ jobs:
           # it; a BREAKING CHANGE: note survives the block
           # (release-please 17.6.0's parseConventionalCommits, checked
           # 2026-11-17).
+          # An extra changelog entry that only the body's trailing footers
+          # give, while the change still releases: after the block it is
+          # body text, so the entry, and with it a feat's bump, drops out.
+          # Release Please splits a squash commit only at a blank line
+          # before a lowercase standard type (not feature) with no "!", so
+          # an entry written that way survives the block; one with a
+          # capital or "!" is dropped anywhere in the body outside a nested
+          # commit block (release-please 17.6.0's parseConventionalCommits,
+          # checked 2026-11-17). The message names a released type as
+          # written and any other entry only as breaking.
+          lost_entries = entries - kept_entries
+          dropped = sorted({
+              f"{kind}{mark}" if kind.lower() in RELEASED else "breaking" for kind, mark, _ in lost_entries
+          })
           if breaking and not kept_breaking:
               fail(
                   "Release Please reads this change as breaking only while the body's trailing "
                   f"footers end the squash commit. {block}, so the release is a plain one and the "
                   "breaking change drops out of the version and the changelog. Write it as a "
-                  "BREAKING CHANGE: note (after an entry such as feat: subject, it marks that entry), "
-                  "mark the title with !, or put the whole commit message in a "
-                  "BEGIN_COMMIT_OVERRIDE block."
+                  "BREAKING CHANGE: note (after an entry such as feat: subject, it marks that entry), " + (
+                      "" if dropped else "mark the title with !, "
+                  ) + "or put the whole commit message in a BEGIN_COMMIT_OVERRIDE block."
+              )
+          if dropped:
+              one = sum(lost_entries.values()) == 1
+              # An entry no body line starts was made by GitHub's rewrap.
+              lines = body.split("\n")
+              wrapped_entries = {
+                  (kind, mark, subject) for kind, mark, subject in lost_entries
+                  if not any(line.startswith(kind) and subject in line for line in lines)
+              }
+              wrapped = sorted({f"{kind}{mark}" if kind.lower() in RELEASED else "breaking" for kind, mark, _ in wrapped_entries})
+              listed = lambda items: items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+              # A feat's bump is lost only when no feat or breaking change
+              # is left after the block.
+              feats = {"feat", "feature"}
+              bump = (
+                  any(kind in feats for kind, *_ in lost_entries)
+                  and not any(kind in feats for kind, *_ in kept_entries) and not kept_breaking
+              )
+              extra = "an extra changelog entry" if one else "extra changelog entries"
+              ending = (
+                  f"only while the body's trailing footers end the squash commit. {block}, so "
+                  f"{'it drops' if one else 'they drop'} out of the changelog"
+                  + (", and a feat entry's bump out of the version. " if bump else ". ")
+              )
+              rewrap = (
+                  "break the long line yourself into lines of at most 72 characters, which GitHub "
+                  "leaves as written, so that none starts with a type and a colon"
+              )
+              if len(wrapped_entries) == len(lost_entries):
+                  fail(
+                      "GitHub's 72-column rewrap for the squash commit starts a line of the body with "
+                      f"{'a ' if one else ''}{listed(wrapped)} {'entry' if one else 'entries'}, which "
+                      f"Release Please reads as {extra} {ending}{rewrap[0].upper()}{rewrap[1:]}, or put the whole commit message "
+                      "in a BEGIN_COMMIT_OVERRIDE block."
+                  )
+              fail(
+                  f"Release Please reads the body's {listed(dropped)} {'entry' if one else 'entries'} as "
+                  f"{extra} {ending}Give each entry a paragraph of its own, after a blank line and opening "
+                  "with a lowercase standard type such as feat: subject (feature: is not one); for a "
+                  "breaking one, drop the ! and follow the entry with a BREAKING CHANGE: note. " + (
+                      f"GitHub's 72-column rewrap starts a line with the {listed(wrapped)} one: {rewrap}. "
+                      if wrapped_entries else ""
+                  ) + "Or put the whole commit message in a BEGIN_COMMIT_OVERRIDE block."
               )
           if answers == {"yes"} and not reason and title_lost:
               fail(

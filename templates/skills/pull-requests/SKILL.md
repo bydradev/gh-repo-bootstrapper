@@ -32,8 +32,9 @@ merge-ready:
   (an empty footer), which fails either answer under any title: GitHub's
   default squash commit can make it a breaking change, so write the note
   after the colon or remove the marker. It also fails a body Release Please
-  would misread: a release or `Release-As:` version that only a closing
-  footer gives, a line that GitHub's 72-column rewrap would start with a call
+  would misread: a release, extra entry, breaking change or `Release-As:`
+  version that only a closing footer gives, a line that GitHub's 72-column
+  rewrap would start with a call
   such as `f(x`, a scope with no text or a parenthesis inside it, a
   `<details>` tag in a released entry. Its message
   names the fix; follow it rather than rewording around it. Keep the

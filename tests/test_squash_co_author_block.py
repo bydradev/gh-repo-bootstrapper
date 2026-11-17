@@ -86,6 +86,58 @@ class SquashCoAuthorBlockTests(unittest.TestCase):
                     self.assertFails("docs: x", body.format(answer), "because the body has a "
                                      "breaking-change note only once GitHub's default squash commit adds")
 
+    def test_the_block_making_a_released_change_breaking_fails_either_answer(self):
+        # Under a title that releases on its own, a bare marker gives no
+        # note as the body stands, but after the block the release is a
+        # breaking one (release-please 17.6.0, checked 2026-11-16 for each
+        # of these titles, both spellings, and prose that ends in the
+        # hyphenated token).
+        needle = "reads this change as breaking only once GitHub's default squash commit adds"
+        for title in ("fix: x", "feat: x", "perf: x", "revert: x"):
+            for marker in ("BREAKING CHANGE", "BREAKING-CHANGE"):
+                for body in (
+                    f"Prose.\n\n{marker}:\n\nUser-visible: {{}}",
+                    f"Prose.\n\n{marker}:\nRefs: #1\n\nUser-visible: {{}}",
+                    f"Prose.\n\nUser-visible: {{}}\n{marker}:",
+                ):
+                    for answer in ("yes", "no"):
+                        with self.subTest(title=title, body=body, answer=answer):
+                            self.assertFails(title, body.format(answer), needle)
+            with self.subTest(title=title, body="prose ending in the token"):
+                self.assertFails(title, "Prose ending BREAKING-CHANGE:\n\nUser-visible: yes", needle)
+
+    def test_a_bare_marker_after_a_breaking_title_fails_either_answer(self):
+        # "!" makes the subject the note, but a bare footer marker replaces
+        # it with nothing, so the commit is not breaking as written and is
+        # once the block follows (release-please 17.6.0, checked
+        # 2026-11-16). Under docs!, which then releases nothing, the
+        # existing message for a release only the block makes applies.
+        for title, needle in (
+            ("fix!: x", "reads this change as breaking only once"),
+            ("feat!: x", "reads this change as breaking only once"),
+            ("docs!: x", "only once GitHub's default squash commit adds"),
+        ):
+            for body in ("Prose.\n\nBREAKING CHANGE:", "Prose.\n\nBREAKING-CHANGE:\nRefs: #1"):
+                for answer in ("yes", "no"):
+                    with self.subTest(title=title, body=body, answer=answer):
+                        self.assertFails(title, f"{body}\n\nUser-visible: {answer}", needle)
+
+    def test_a_breaking_change_the_block_leaves_alone_passes(self):
+        # A note after the colon, or "!" on the title with no empty marker
+        # to erase its subject note, is breaking with or without the block,
+        # and an override, which no block follows, keeps a bare marker an
+        # empty footer.
+        for title, body in (
+            ("fix!: x", "Prose."),
+            ("docs!: x", "Prose.\n\nRefs: #1"),
+            ("fix: x", "Prose.\n\nBREAKING CHANGE: drops x"),
+            ("feat: x", "Prose.\n\nBREAKING-CHANGE: drops x\nRefs: #1"),
+            ("fix: x", self._override("fix: x", "Prose.\n\nBREAKING CHANGE:")),
+            ("perf: x", self._override("perf: x", "Prose.\n\nBREAKING-CHANGE:\nRefs: #1")),
+        ):
+            with self.subTest(title=title, body=body):
+                self.assertPasses(title, f"{body}\n\nUser-visible: yes")
+
     def test_a_version_the_block_changes_fails(self):
         # Without the block the title's own footer sets 1.0.0; after it,
         # the nested commit's 2.0.0 is the first Release-As note.

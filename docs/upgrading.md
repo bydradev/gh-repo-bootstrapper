@@ -12,9 +12,22 @@ repository has to do or decide.
 Every type: the `pull-requests` skill's *User-visible* bullet now names the
 empty-footer exception for both spellings of the breaking-change marker, the
 spaced one as well as the hyphenated one that 0.24.3 named. The title check
-already treated them alike and is unchanged. `--check` reports
+already treated them alike, and changes as the next note says. `--check` reports
 `.agents/skills/pull-requests/SKILL.md` as `stale`, and `--adopt` updates it;
 nothing else needs doing.
+
+Every type: the title check (`.github/workflows/pr-title-check.yml`) now also
+fails a body that ends in a bare breaking-change marker, with nothing after
+its colon and only footers after it, under a title that releases on its own
+(`fix`, `feat`, `perf` or `revert`) or carries `!`. Release Please reads such
+a marker as an empty footer, which also erases the note a `!` title gives, but
+once GitHub's default squash commit adds its line of dashes and
+`Co-authored-by:` trailers it reads it as a breaking-change note, so the
+release would be a breaking one. Before, the check failed this only under a
+title that does not release, and took any `!` title as breaking. A pull request open with such a body fails the
+check after the update until its note is written or the marker removed. The
+skill's bullet says so. `--check` reports the workflow and the skill as
+`stale`, and `--adopt` updates them; nothing else needs doing.
 
 ## Upgrading to 0.24.3
 

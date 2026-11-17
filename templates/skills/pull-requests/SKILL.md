@@ -29,8 +29,9 @@ merge-ready:
   body as Release Please does, so an extra entry of a released type or a
   `BREAKING-CHANGE:` token anywhere in the body also means `yes`, except a
   bare `BREAKING CHANGE:` or `BREAKING-CHANGE:` with only footers after it
-  (an empty footer), which fails either answer unless something else
-  releases. It also fails a body Release Please
+  (an empty footer), which fails either answer under any title: GitHub's
+  default squash commit can make it a breaking change, so write the note
+  after the colon or remove the marker. It also fails a body Release Please
   would misread: a release or `Release-As:` version that only a closing
   footer gives, a line that GitHub's 72-column rewrap would start with a call
   such as `f(x`, a scope with no text or a parenthesis inside it, a

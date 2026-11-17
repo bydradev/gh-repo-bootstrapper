@@ -132,6 +132,14 @@ class UserVisibleLineTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertBlockRelease("docs: x", body, note)
         self.assertFooterRelease("docs: x", "Prose.\n\nci!: drop a job", "the body has a commit marked breaking")
+        # Under a released title the same bare markers pass as the body
+        # stands but make the release a breaking one after the block, so
+        # either answer fails there too (#240).
+        for body in ("Prose.\n\nBREAKING CHANGE:", "Prose.\n\nBREAKING-CHANGE:\nRefs: #1"):
+            for answer in ("yes", "no"):
+                with self.subTest(body=body, answer=answer):
+                    self.assertFails("fix: thing", f"{body}\n\nUser-visible: {answer}",
+                                     "reads this change as breaking only once")
         # With no subject, only a type of word characters is breaking.
         for body in ("Prose.\n\nBEGIN_NESTED_COMMIT\ndocs!:\nEND_NESTED_COMMIT",
                      "Prose.\n\nBEGIN_NESTED_COMMIT\nre-ref!: y\nEND_NESTED_COMMIT"):

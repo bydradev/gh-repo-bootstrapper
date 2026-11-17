@@ -47,8 +47,8 @@ ordinary push run before looking past it. It looks past the run only when a
 `test` job was cancelled and the `release-please` job never started, or when
 the run lists no other job; a run whose release job started and was then
 cancelled is reported as `stale`. A failed read of those jobs reports the
-pipeline as undetermined. `--check` reports `scripts/review-baselines.mjs` as
-`stale`, and `--adopt` updates it.
+pipeline as undetermined. `--check` reports `scripts/review-baselines.mjs` and
+`scripts/review-baselines.test.mjs` as `stale`, and `--adopt` updates them.
 
 ## Upgrading to 0.24.3
 

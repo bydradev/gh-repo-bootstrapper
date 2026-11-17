@@ -284,13 +284,14 @@ jobs:
               # Whether Release Please reads the commit as breaking: it has a
               # breaking-change note, which "!" gives as the subject unless an
               # empty footer marker replaces it, or it is an entry marked "!"
-              # whose type is of word characters, as commit_releases reads it.
+              # with a subject, whose type is of word characters: an entry's
+              # note is its subject, so an empty one gives none.
               note, _, hyphen = body_notes(body)
               note = note or bool(header[2] and header[3].strip())
               for footer, text, _ in found:
                   if footer[0].startswith(MARKERS):
                       note = bool(text)
-              if header[2] and not title and WORD.fullmatch(header[1]):
+              if header[2] and header[3].strip() and not title and WORD.fullmatch(header[1]):
                   return True
               return bool(note or hyphen)
 
@@ -517,6 +518,23 @@ jobs:
                   "one (a minor bump before 1.0.0 with bump-minor-pre-major, a major one from 1.0.0) "
                   "with that note as its entry. Write the note right after the marker's colon, remove "
                   "the marker, or put the whole commit message in a BEGIN_COMMIT_OVERRIDE block."
+              )
+          # The reverse: a breaking change that only the body's trailing
+          # footers give, such as an entry with a type and `!` there, which
+          # after the block is body text, so the release is a plain one.
+          # In the body, Release Please reads a `!` entry only as a trailing
+          # footer or in a nested commit block, so moving it up the body drops
+          # it; a BREAKING CHANGE: note survives the block
+          # (release-please 17.6.0's parseConventionalCommits, checked
+          # 2026-11-17).
+          if breaking and not kept_breaking:
+              fail(
+                  "Release Please reads this change as breaking only while the body's trailing "
+                  f"footers end the squash commit. {block}, so the release is a plain one and the "
+                  "breaking change drops out of the version and the changelog. Write it as a "
+                  "BREAKING CHANGE: note (after an entry such as feat: subject, it marks that entry), "
+                  "mark the title with !, or put the whole commit message in a "
+                  "BEGIN_COMMIT_OVERRIDE block."
               )
           if answers == {"yes"} and not reason and title_lost:
               fail(

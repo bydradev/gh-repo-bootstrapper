@@ -138,6 +138,44 @@ class SquashCoAuthorBlockTests(unittest.TestCase):
             with self.subTest(title=title, body=body):
                 self.assertPasses(title, f"{body}\n\nUser-visible: yes")
 
+    def test_a_breaking_change_only_a_trailing_footer_gives_fails_either_answer(self):
+        # An entry with a type and "!", or a breaking-change marker with a
+        # hash, among the trailing footers makes a breaking commit while it
+        # ends the squash commit and is body text once the block follows:
+        # the release is a plain one (release-please 17.6.0, checked
+        # 2026-11-17 for each of these titles and bodies).
+        needle = "reads this change as breaking only while the body's trailing footers end the squash commit"
+        for title in ("fix: x", "feat: x", "perf: x", "revert: x"):
+            for body in (
+                "Prose.\n\nfeat!: y\n\nUser-visible: {}",
+                "Prose.\n\nfeat!: y\nUser-visible: {}",
+                "Prose.\n\nUser-visible: {}\nfix(api)!: y",
+                "Prose.\n\nBREAKING CHANGE #12\n\nUser-visible: {}",
+                "Prose.\n\nUser-visible: {}\nBREAKING CHANGE #12",
+            ):
+                for answer in ("yes", "no"):
+                    with self.subTest(title=title, body=body, answer=answer):
+                        self.assertFails(title, body.format(answer), needle)
+
+    def test_a_breaking_change_the_block_keeps_passes(self):
+        # A BREAKING CHANGE: note, on its own or after an entry it then
+        # marks, "!" on the title, and an override all keep the release a
+        # breaking one after the block (release-please 17.6.0, checked
+        # 2026-11-17). A "!" entry that is not among the trailing footers is
+        # not read at all, as written or after the block, and one with no
+        # subject gives no note, so the title's plain release passes.
+        for title, body in (
+            ("fix: x", "Prose.\n\nfeat: y\n\nBREAKING CHANGE: drops z"),
+            ("fix: x", "Prose.\n\nBREAKING CHANGE: drops y"),
+            ("fix!: x", "Prose."),
+            ("feat!: x", "Prose.\n\nfeat!: y"),
+            ("fix: x", self._override("fix: x", "Prose.\n\nfeat!: y")),
+            ("fix: x", "Prose.\n\nfeat!: y\n\nMore prose."),
+            ("fix: x", "Prose.\n\nfeat!:"),
+        ):
+            with self.subTest(title=title, body=body):
+                self.assertPasses(title, f"{body}\n\nUser-visible: yes")
+
     def test_a_version_the_block_changes_fails(self):
         # Without the block the title's own footer sets 1.0.0; after it,
         # the nested commit's 2.0.0 is the first Release-As note.

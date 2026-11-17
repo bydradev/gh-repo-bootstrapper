@@ -135,7 +135,8 @@ tags, the validator prints a notice and skips them.
   `test` with no condition of its own; its release steps skipped, with a
   warning, only while the Release Please App credentials are missing; the
   release App token limited to contents and pull requests, with the
-  untested-merge guard reading with the workflow token instead; pinned
+  untested-merge guard reading with the workflow token instead, and reading
+  the `test` job's full-suite expression as `FULL_SUITE`; pinned
   fallback versions of the Python CI tools; and the step facts the README and
   `--help` state: `setup-node` and `setup-python` reading `.nvmrc` and
   `.python-version`, `npm ci` in every Next.js job that sets up Node, the

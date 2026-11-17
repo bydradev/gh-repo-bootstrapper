@@ -191,6 +191,21 @@ checked 2026-10-16). If the re-run still warns, or the run is too old, remove
 the `autorelease: pending` label from that release PR to abandon the release,
 then fix forward.
 
+The guard also refuses to tag a release merge that its own run tested without
+the full suite. The `test` job runs the full suite only on a manual dispatch
+and on a commit whose message starts with `chore(main): release`, so a release
+PR merged under an edited squash title or as a merge commit runs only the
+ordinary tier, and its release job fails with an error that says so. The
+`python` and `rust` suites ignore `full` and run every check on every push,
+but the guard cannot see what the repository's own `test.yml` runs, so it
+refuses there too. Dispatch `release-please.yml` on `main` while that merge is
+still its newest commit: the dispatched run uses the full suite and releases.
+A re-run of the merge's own run does not help, because it runs the same tier.
+If another push lands first, it can cancel that merge's tests, and its own
+run fails with the error for a merge it did not test; a re-run does not help
+there either. Once `main` has moved past the merge, remove the
+`autorelease: pending` label to abandon the release, then fix forward.
+
 If you skip them during setup, set them manually afterwards, reading the key
 from its file:
 

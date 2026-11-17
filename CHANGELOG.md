@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.24.4](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.3...v0.24.4) (2026-11-17)
+
+
+### Bug Fixes
+
+* fail a bare breaking-change marker under a releasing title ([#244](https://github.com/bydradev/gh-repo-bootstrapper/issues/244)) ([e160ff6](https://github.com/bydradev/gh-repo-bootstrapper/commit/e160ff6a0969ad9a22fee4eff1d9cf320c5259ec))
+* name both breaking-change markers in the empty-footer exception ([#241](https://github.com/bydradev/gh-repo-bootstrapper/issues/241)) ([5a79456](https://github.com/bydradev/gh-repo-bootstrapper/commit/5a794565cea7f1d07654359370616c151d29c8ec))
+* read a cancelled run's jobs before the weekly review looks past it ([7b360f8](https://github.com/bydradev/gh-repo-bootstrapper/commit/7b360f8f9aa33e0965bbd6b4340590014f22af3b))
+* refuse to tag a release merge tested without the full suite ([#245](https://github.com/bydradev/gh-repo-bootstrapper/issues/245)) ([7b360f8](https://github.com/bydradev/gh-repo-bootstrapper/commit/7b360f8f9aa33e0965bbd6b4340590014f22af3b))
+
 ## [0.24.3](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.2...v0.24.3) (2026-11-16)
 
 

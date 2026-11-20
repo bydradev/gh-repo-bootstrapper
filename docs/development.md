@@ -31,13 +31,15 @@ python -m pip install -r requirements-dev.txt
 
 ## Run the checks
 
-From the repository root with the development environment active, run
-[`.github/scripts/pre-push.sh`](../.github/scripts/pre-push.sh). It stops at
-the first failure. To run it with uv without activating an environment:
+From the repository root, run [`.github/scripts/pre-push.sh`](../.github/scripts/pre-push.sh)
+in the environment above, or use uv directly:
 
 ```sh
 uv run --with-requirements requirements-dev.txt .github/scripts/pre-push.sh
 ```
+
+The script stops on the first failure. If the outgoing-content scan cannot
+resolve `origin/main`, fetch the base branch and retry.
 
 ## What CI runs
 

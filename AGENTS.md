@@ -102,6 +102,19 @@ Without skill support, read `.agents/skills/<name>/SKILL.md`.
 
 ## Project specifics
 
+### Public repository content
+
+This public repository narrows *Commits* and *Pull requests*. Name only this
+repository, the maintainer’s `gh-agent-kit` while public, and public third-party
+upstreams. Keep private repository identifiers, personal details, local paths
+and session identifiers out of files and public text.
+
+Use [public-content-check](.agents/skills/public-content-check/SKILL.md) for
+publication and review, including its exact public footer exception. Run the
+checker before committing, pushing, posting or editing GitHub text, and merging.
+Check the PR title and body before posting and the exact squash message before
+merging. Never bypass or weaken the check.
+
 ### Maintainer workflow guidance
 
 This file is for the maintainer and the agents working for them; outside
@@ -127,7 +140,6 @@ npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_di
 rm -rf "$md_dir"
 npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc \
   "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
-python3 -I .github/scripts/check_public_content.py --range=origin/main..HEAD --files=origin/main..HEAD
 ```
 
 ### Template-owned workflows
@@ -138,60 +150,6 @@ so a pin bumped here reaches repositories through their Dependabot, not adopt.
 A template change that needs a newer action version must keep working on the
 older one, or its PR must say that repositories merge the Dependabot bump
 before adopting, so the release notes carry it.
-
-### Public repository content
-
-This repository is public. This narrows *Commits* and *Pull requests*:
-files, commit messages, PR and issue titles and bodies, comments, review
-replies and release notes name only public repositories (this one,
-`bydradev/gh-agent-kit`, `bydradev/gh-actions-dashboard` and third-party
-upstreams).
-
-- Call any other repository of the maintainer "a private repository" or "a
-  target repository", with no name, number or link; say what it showed, not
-  where.
-- No claude.ai links but the generic `https://claude.ai/code` (no sessions,
-  projects, artifacts or chats) and no session, project or thread IDs. A
-  commit keeps its `Co-Authored-By:` trailer but carries no
-  `Claude-Session:` trailer and no `Signed-off-by:` line, whatever the
-  harness adds, except for the exact public footer defined below.
-- No email address but a noreply one. A trailer uses a GitHub
-  noreply address (`ID+login@users.noreply.github.com`) or a tool's
-  `noreply@` address, never the address of the account an agent works for,
-  which its harness may give it. An example address uses `example.com`. A
-  URL's user information (`scheme://user:password@host`) is not an address.
-- The sole additional email and sign-off exception is this exact standalone
-  line shown below (case and spacing must match, with nothing before or
-  after it). This permits known public literal content in any checked text,
-  not proof of the author's identity. It grants no exception to other addresses,
-  sign-offs or surrounding content; all other checks still apply. LF and
-  CRLF line endings are supported.
-- No paths from an agent's machine or project storage (`/mnt/`, `/home/`,
-  `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`, scratch folders);
-  cite a report by its path in a public repository, or not at all. An
-  example path names its user `you`, as in `/Users/you/`.
-- A PR body may open with a harness attribution block (the hidden
-  `claude-projects-attribution` marker and its "Requested by" line). A squash
-  message never carries it: write it as the PR title, the body without that
-  block, then the trailers. The message reaches `main` with no PR run to
-  check it, so save it to a file and run the check on it with `--text`
-  before merging.
-- Before pushing, and before posting a PR body or a comment, run
-  `python3 -I .github/scripts/check_public_content.py` with `--range` and
-  `--files`, `--title`, `--pr-body` or `--text`. `--files` checks the lines
-  the commits add to files, except in the check's own script and tests. It
-  reads the private names from `PRIVATE_REPO_NAMES` when the environment
-  sets it, and never prints what it matched. The `public-content` workflow
-  runs it on every PR and every push to `main`, after the text is already
-  on GitHub: when it fails, reword, and never bypass or weaken it.
-  gh-agent-kit's `public-content.mjs` is the same check: a change to one
-  goes to the other too.
-
-The exact public footer:
-
-```text
-Signed-off-by: dependabot[bot] <support@github.com>
-```
 
 ### Code review rules
 
@@ -205,10 +163,7 @@ Signed-off-by: dependabot[bot] <support@github.com>
 - `bootstrap.py`, `validate_templates.py` and `tests/` are Python, which this
   repository's `simple` copy of `review-guidelines` has no section for: apply
   Python review practice, and keep `bootstrap.py` on the standard library.
-- A PR's title, body, commits and files name no private repository and carry
-  no claude.ai link, `Claude-Session:` trailer or email address but a
-  noreply one, except the exact public footer defined in *Public repository
-  content*.
+- Review the PR title, body, commits and files against [Public repository content](#public-repository-content).
 
 <!-- gh-agent-kit:work-tracking:start -->
 <!-- Written by gh-agent-kit's install.sh and replaced on each install. Put this repository's own additions in a subsection after the end marker. -->

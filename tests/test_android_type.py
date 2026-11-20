@@ -569,7 +569,7 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
         for term in (
             "Lifecycle and state", "process-death", "SavedStateHandle",
             "Concurrency and cancellation", "subtasks as child coroutines",
-            "cancel with the operation", "work owned by the ViewModel",
+            "cancel with the operation", "owner's explicit scope", "work owned by the ViewModel",
             "stale results", "Persistence and storage",
             "transactional migrations", "Android Keystore", "Permissions and privacy",
             "permanent denial", "API compatibility", "`minSdk` to its `targetSdk`",

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.25.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.6...v0.25.0) (2026-11-20)
+
+
+### Features
+
+* shorten the generated agent hub ([50bac57](https://github.com/bydradev/gh-repo-bootstrapper/commit/50bac577055cab19df5cdbfc0bbd2a5dbde40aed))
+* shorten the generated review checklist and sample report ([f144a83](https://github.com/bydradev/gh-repo-bootstrapper/commit/f144a83c79cacffe9379f6ea71766af3089f1f22))
+
+
+### Bug Fixes
+
+* **android:** consolidate validation guidance ([c30ba5c](https://github.com/bydradev/gh-repo-bootstrapper/commit/c30ba5c1008c0288a2a8a26de0a48718c07aaf63))
+* **android:** keep subtasks within their operation ([aa29528](https://github.com/bydradev/gh-repo-bootstrapper/commit/aa2952862f24f8d4db005d3648e845d2ca3ed45f))
+* clarify when a rebased change needs another review ([11be32b](https://github.com/bydradev/gh-repo-bootstrapper/commit/11be32b64348773f4600aeb417a2b8e8f54719e8))
+* clarify when one independent review covers both gates ([1dd5dae](https://github.com/bydradev/gh-repo-bootstrapper/commit/1dd5dae4614fad37cf7557a1cdb07ef984798424))
+* **nextjs:** simplify local validation guidance ([0d9052c](https://github.com/bydradev/gh-repo-bootstrapper/commit/0d9052c7026063999e00fd21710b55e5791d0a92))
+* require complete review coverage before a rebase addendum ([7e62625](https://github.com/bydradev/gh-repo-bootstrapper/commit/7e626251e9598e9997fd4cfeb9471e1aba3bdbf6))
+* withhold a new agent hub until its commit skill is ready ([2420b10](https://github.com/bydradev/gh-repo-bootstrapper/commit/2420b1063507184eff14bfe9bf0789b67c9e5791))
+
 ## [0.24.6](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.5...v0.24.6) (2026-11-17)
 
 

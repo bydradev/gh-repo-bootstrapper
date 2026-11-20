@@ -1,6 +1,6 @@
 ---
 name: local-validation-nextjs
-description: "Use before running local validation in this Next.js repository: lint, format, typecheck, unit tests, the production build, `next dev`, Playwright E2E, or driving a browser against a local server. Covers browser-launch sandbox failures, the macOS descriptor limit for `next dev` and when it applies, `EMFILE` fallbacks, Playwright traces and flaky results, the Playwright CLI for agent browser checks, the CI validation tiers as generated and where to check them, and how a worktree gets its dependencies."
+description: Use before local Next.js checks, builds, dev servers, Playwright E2E or browser inspection.
 ---
 
 # Local validation for Next.js
@@ -8,116 +8,95 @@ description: "Use before running local validation in this Next.js repository: li
 If `## Project specifics` in `AGENTS.md` names a repository-owned validation
 skill, load it first; where it is narrower, it governs.
 
-The commands to run before pushing are in the `## Tooling` section of
-`AGENTS.md`. This skill covers what to do when they misbehave locally, and how
-CI runs them as generated. For `robots.txt`, the sitemap, `noindex`, or
+Find pre-push commands under `## Tooling` in
+`AGENTS.md`. For `robots.txt`, the sitemap, `noindex`, or
 canonical hostnames, load `public-site-indexing` instead.
 
 ## Local browser-validation constraints
 
-None of the fixes below may become a persistent change: no shell-profile,
-OS file-limit, watcher, sandbox-policy, CI or Playwright-configuration
-change made only to get a local run through or a trace, and no change to
-the default E2E command, CI parallelism or coverage. When a fix does not work, keep the
-exact output and report the limitation instead of claiming the run passed.
+Keep workarounds local to the command. Leave shell profiles, OS limits, watchers,
+sandbox policy, Playwright config, default E2E commands, CI configuration
+(including parallelism) and coverage intact. If blocked, report the exact error.
 
-- **Browser launch fails before navigation** (for example macOS
-  `MachPortRendezvousServer` / `bootstrap_check_in ... Permission denied`):
-  an environment failure, not a test failure. Ask for the narrowest
-  elevation for that exact command; if it is unavailable or denied, use
-  hosted CI evidence where it exists.
-- **macOS and `next dev`:** prefix any command that starts `next dev`,
-  including a Playwright `webServer` that runs it (check
-  `playwright.config.ts`), with `ulimit -n 10240 &&` in the same shell. An
-  E2E suite that serves a production build does not need it. `next dev`
-  locks the build directory, so stop a manually started `next dev` before
-  an E2E suite that starts its own, and follow the repository's own docs on
-  ports and server lifecycle.
-- **`EMFILE: too many open files, watch`** despite the raised limit: run
+- **Launch denied before navigation.** For sandbox errors such as
+  `MachPortRendezvousServer` permission denied, request the narrowest elevation for the
+  exact browser command. If unavailable or denied, use equivalent hosted CI
+  evidence where available and report the local launch failure.
+- **Starting `next dev` on macOS.** Prefix the command with
+  `ulimit -n 10240 &&` in the same shell, including when Playwright starts
+  `next dev` via `webServer` in `playwright.config.ts`. Production builds
+  need no prefix. Follow the repository's port and server instructions and
+  stop a manually started `next dev` before the suite starts its own.
+- **Still seeing `EMFILE: too many open files, watch`?** Check E2E port
+  listeners first. Never stop an unidentified process. Keep
+  `.next/dev/logs/next-development.log` if present. Run
   `npm run test:e2e:local` when that script is available, otherwise
-  `npx playwright test --workers=1`. Check existing listeners on the E2E
-  ports first and never stop a process you cannot identify; keep
-  `.next/dev/logs/next-development.log` if present.
-
-Before re-running a failed local Playwright test, check `trace` and
-`retries` in `playwright.config.ts`. With `trace: "on-first-retry"` and no
-local retries, a common setup, a local failure records nothing, so re-run
-with `--trace=retain-on-failure` (from the start when the first failure
-must be diagnosable) rather than `--retries=1`, which traces only the
-retry. Playwright clears `test-results/` at the start of every run: copy
-what you need first. On CI, a test that fails and then passes on a retry is
-reported as `flaky`, not failed, and the run stays green unless
-`failOnFlakyTests` is set: read the flaky count.
+  `npx playwright test --workers=1`.
+- **Need a trace of a failure?** Before rerunning, save relevant artifacts
+  from Playwright's output directory (default `test-results/`), which the
+  next run clears. Check `trace` and `retries` in `playwright.config.ts`.
+  With `on-first-retry`, zero retries gives no trace and `--retries=1`
+  traces only the retry. Use `--trace=retain-on-failure` from the first
+  attempt you need to diagnose.
+- **Passed on retry in CI?** The test is reported as `flaky`, not failed.
+  Check the flaky count even on a green run. `failOnFlakyTests` makes these
+  results fail the run.
 
 ## Agent browser checks
 
-To look at a running page yourself when `@playwright/test` is installed, use
-the CLI it ships, `npx --no-install playwright cli`. Read its commands in
-`node_modules/playwright-core/lib/tools/skills/playwright-cli/SKILL.md`,
-which matches the installed version; `--help` prints that path only under
-Claude Code or Copilot CLI. Older versions, such as 1.60, ship no such skill:
-when the file is missing or `npx --no-install playwright cli --help` fails,
-report that instead of installing or upgrading a package to follow this
-section. Do not install `@playwright/cli`, and do not copy or link that skill
-into `.agents/skills`: a fresh checkout has no `node_modules`, and `--adopt`
-deletes a `.claude/skills` link to a skill folder that is missing.
+With `@playwright/test` installed, use the CLI it ships, `npx --no-install playwright cli`.
+Read `node_modules/playwright-core/lib/tools/skills/playwright-cli/SKILL.md`.
+If it is missing or `npx --no-install playwright cli --help` fails, report
+the limitation. Do not install or upgrade packages for this, including
+`@playwright/cli`. Keep the installed skill out of `.agents/skills`, including
+symlinks. A fresh checkout lacks dependencies and adoption removes dangling
+skill mirrors.
 
+- Open only a local server started from this repository with fixture or test
+  data. Exclude hosted URLs, live or private data and real browser profiles
+  (`--persistent`, `--profile`, `attach --cdp`, `attach --extension`).
 - Name a session of your own with `-s=<name>` on `open` and every later
-  command. Without it, every agent in the checkout shares the `default`
-  session, and a second `open` replaces the browser another agent is using.
-- Pass `--browser=chromium` to `open`, which `--help` does not list but the
-  CLI accepts as Playwright's own Chromium. The default is the branded Chrome
-  channel, which the E2E setup does not install, and where Chrome is installed
-  it tests a different browser than the suite does.
-- Open only a local server started from this repository with its fixture or
-  test data. Never a hosted or production URL, live or private data, or a real
-  browser profile (`--persistent`, `--profile`, `attach --cdp`, or
-  `attach --extension`).
-- To inspect a failing E2E test, run it with `--debug=cli` in the background.
-  It pauses the test and prints `playwright-cli attach <name>`; run that
-  through `npx --no-install playwright cli`, then pass `-s=<name>` to later
-  commands. The page uses the suite's own servers and sign-in, so no
-  credentials are needed. Stop the run when you are done: it keeps the
-  suite's server, and any `next dev` lock, alive.
-- The CLI writes snapshots, console logs, screenshots, and traces to
-  `.playwright-cli/`, which `.gitignore` excludes because they can hold
-  session data. Leave out `--filename`, or start it with `.playwright-cli/`:
-  a named file is written relative to the repository root, outside that
-  folder. Never commit them. Attach a screenshot to a pull request or
-  issue only as the screenshot rules in `AGENTS.md` allow, after their privacy
-  review, never because the skill suggests `gh --attach`.
+  command to avoid replacing another browser. Pass `--browser=chromium` to
+  `open` for the suite's Chromium.
+- To inspect a failing test, run it in the background with `--debug=cli`.
+  When it pauses, use `npx --no-install playwright cli attach <name>` with
+  the printed name, then `-s=<name>` for later commands. Attaching reuses the
+  test's session without a separate sign-in. Stop the test afterward to release
+  its server and any dev lock.
+- Keep snapshots, console logs, screenshots and traces in the ignored
+  `.playwright-cli/` directory. Omit `--filename` or prefix its value with
+  `.playwright-cli/`. Never commit them. Attach screenshots only when the
+  rules in `AGENTS.md` allow it and privacy review has passed, even if the
+  CLI suggests `gh --attach`.
 - Do not run `npx playwright init-agents`, `init-skills`, or
-  `playwright cli install`. The healer agent that `init-agents` writes marks
-  failing tests `test.fixme()` and is told not to ask questions, and all three
-  write agent, skill, or MCP files outside this repository's layout.
+  `playwright cli install`. They write agent or tool configuration outside
+  the repository's layout.
 
 ## CI validation tiers
 
-As generated, CI runs one of two suites, chosen by the trigger. This repository owns
-`.github/workflows/ci.yml` and `test.yml`, so check them, and the `test.yml`
-call in `release-please.yml`, for its current tiers:
+Check the repository-owned `.github/workflows/ci.yml` and
+`.github/workflows/test.yml`, and the caller in `release-please.yml`.
+As generated:
 
-- **Pull requests (`ci.yml`):** fast validation (the `build` job only: production advisory audit, baseline verification, lint, format check, typecheck, unit tests, production build) with browser E2E skipped.
-- **Ordinary push to `main` (`release-please.yml`):** the same `build` job as a pull request, browser E2E skipped. A newer push cancels it.
-- **Release Please PR merge (`chore(main): release`) or a manual dispatch of `release-please.yml`:** the full validation suite, including every Playwright project. Nothing cancels it.
+- **PR or ordinary push to `main`.** Only `build` runs the production audit,
+  baseline verification, lint, format check, typecheck, unit tests and production
+  build. Browser E2E is skipped. A newer ordinary push cancels the prior
+  ordinary push's tests.
+- **Release merge on `main` (`chore(main): release`) or manual dispatch of
+  `release-please.yml`.** Run `build` and every Playwright project. Later pushes
+  do not cancel this run.
 
-`test.yml` runs `npm run lint` as the scaffold defines it, and the lint baseline
-requires the `lint` script in `package.json` to run `eslint --max-warnings=0`
-with unused disable directives reported (the default from ESLint 9; ESLint 8
-needs `--report-unused-disable-directives`, and a configuration that turns the
-option off reports none), over every file `scripts/verify-baselines.mjs`
-scans. Otherwise a stale baseline row keeps passing until its review date.
-`create-next-app` writes a plain `eslint` script, so check the script and the
-configuration, and add the flag in `package.json`, which local runs and CI
-both read.
+The baseline requires the `lint` script in `package.json` to run `eslint --max-warnings=0`
+with unused disable directives reported across every file
+`scripts/verify-baselines.mjs` scans. Check the scaffold's script and ESLint
+config. For ESLint 8, add `--report-unused-disable-directives`.
 
 ## Worktrees
 
-A worktree starts without `node_modules`, `.next`, or test output. Install
-dependencies in it with `npm ci`, which reuses the shared npm cache, only when
-a check needs them, and remove them with the worktree. Never copy
-`node_modules`, `.next`, `test-results`, or `playwright-report` into a
-verification copy.
+Run `npm ci` in the worktree when a check needs dependencies. It reuses the
+shared npm cache. Remove the installation with the worktree.
+Never copy `node_modules`, `.next`, `test-results`, or `playwright-report`
+into a verification copy.
 
 ## Sources
 

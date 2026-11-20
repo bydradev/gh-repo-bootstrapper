@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use for an initial or follow-up review of someone else's pull request, branch or diff.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=827b09722a0288300c687c787759c0962c945a366580594eff96713fa2867536 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=bd69bcbe5acb9789cf630572f74f03ad71e979ac16cb3cad1ecbd04ef08fe578 -->
 
 # Review guidelines
 
@@ -190,13 +190,14 @@ conditions or `continue-on-error` that hide failures.
 **Dependencies.** Check need, maintenance, licence, size and runtime cost.
 Update manifests and lockfiles together through the package manager.
 
-**Performance.** Give a realistic scale and cost for N+1 queries, unbounded
-loops or memory, blocking main or request threads, and client bundle growth.
+**Performance.** Check time and space complexity at realistic input sizes.
+Quantify the cost of N+1 queries, unbounded work or memory, blocking main
+or request threads, and client bundle growth.
 
 **User experience and accessibility.** Check keyboard access, visible focus, labels,
 roles, reading order, contrast, reduced motion, themes, text scaling and
-localisation. Check loading, empty and error states and their copy. Verify
-rendered changes through the repository's screenshot-review process.
+localisation. Check loading, empty and error states and their copy. Require
+rendered evidence for visual changes and follow any repository screenshot-review process.
 
 **Docs and claims.** Check README, docs and comments against changed behaviour.
 Platform, API and dependency claims need a dated primary source.

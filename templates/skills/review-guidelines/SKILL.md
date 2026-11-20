@@ -189,13 +189,14 @@ conditions or `continue-on-error` that hide failures.
 **Dependencies.** Check need, maintenance, licence, size and runtime cost.
 Update manifests and lockfiles together through the package manager.
 
-**Performance.** Give a realistic scale and cost for N+1 queries, unbounded
-loops or memory, blocking main or request threads, and client bundle growth.
+**Performance.** Check time and space complexity at realistic input sizes.
+Quantify the cost of N+1 queries, unbounded work or memory, blocking main
+or request threads, and client bundle growth.
 
 **User experience and accessibility.** Check keyboard access, visible focus, labels,
 roles, reading order, contrast, reduced motion, themes, text scaling and
-localisation. Check loading, empty and error states and their copy. Verify
-rendered changes through the repository's screenshot-review process.
+localisation. Check loading, empty and error states and their copy. Require
+rendered evidence for visual changes and follow any repository screenshot-review process.
 
 **Docs and claims.** Check README, docs and comments against changed behaviour.
 Platform, API and dependency claims need a dated primary source.

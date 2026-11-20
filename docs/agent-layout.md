@@ -5,8 +5,10 @@ see (scope, GitHub operations, branches, commits, preservation, definition of
 done), what an agent may do without asking and when it must stop and ask, the
 type's tooling commands, a skills table, and `## Project specifics` last.
 Unless a request says otherwise, the hub counts a code change as done when its
-PR is open, its checks pass and review findings are resolved; merging still
-needs explicit authorization. Detailed procedures live in skills that load
+PR is open, required checks pass (all checks if none are required) and blocking
+review findings are resolved. Merge authority must be explicit. Before committing
+or preparing a PR, agents load `pull-requests` for subject, attribution and
+squash-message formats. Detailed procedures live in skills that load
 when they're relevant. Harnesses with skill support load them by their
 descriptions; the hub's skills table gives each one a row saying when to load
 it, for every session and for harnesses without skill support.

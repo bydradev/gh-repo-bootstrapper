@@ -7,6 +7,20 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Next release
+
+Every repository type gets a shorter `AGENTS.md`. Detailed commit attribution
+and PR formatting now live in `.agents/skills/pull-requests/SKILL.md`. Read
+that skill before committing as well as before preparing a PR.
+
+Run `--check` with the original repository type and options. Inspect the
+differing generated sections and move any local instructions you want to keep
+under `## Project specifics`. Then run `--adopt --replace-generated-sections`
+with the same target and options. When adoption refuses the PR skill or its
+Claude mirror, it also keeps a hub that still carries the inline commit
+trailer rules. Resolve the reported conflict, preserve local skill changes in
+a repository-owned skill and rerun adoption. Review the diff before committing.
+
 ## Upgrading to 0.24.6
 
 Every type: the title check (`.github/workflows/pr-title-check.yml`) now also

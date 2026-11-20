@@ -1,9 +1,9 @@
 ---
 name: review-guidelines
 description: >-
-  Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
+  Use for an initial or follow-up review of someone else's pull request, branch or diff.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=b02ffe00b114a86224a34e3d3d655db59269c0c05cc3de2c53fea446a6b86616 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=43e8f4e606084837048cf5426a3ca292bbc8a31fa0eed4976f3a58084aa97c46 -->
 
 # Review guidelines
 
@@ -82,7 +82,9 @@ change again.
    after a rewrite, separate the author's changes with `git range-diff`, and
    read a base merge with `git show --remerge-diff <merge>`. Without git, ask
    whoever started the review for the delta; if it cannot be isolated, run a
-   full review.
+   full review. If `git range-diff` shows the author's commits are unchanged
+   and none of the full-review conditions below apply, add “No content change
+   since R*n*” and the new head to the last round. Keep the same round number.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the
@@ -131,9 +133,6 @@ open findings and what each round changed.
   matches their stamp are template output, not local edits. Check that
   `## Project specifics` survived, that no repository rule was dropped, and
   that kept action pins are listed.
-- **Rebase only.** When `git range-diff` shows no change to the author's
-  commits, post an addendum to the last round ("No content change since
-  R*n*", with the new head). It is not a new round.
 
 ## Focus areas
 

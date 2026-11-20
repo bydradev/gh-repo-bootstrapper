@@ -568,7 +568,9 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
         fragment = (Path(bootstrap.__file__).parent / "templates" / "android-safeguards.md").read_text()
         for term in (
             "Lifecycle and state", "process-death", "SavedStateHandle",
-            "Concurrency and cancellation", "stale results", "Persistence and storage",
+            "Concurrency and cancellation", "subtasks as child coroutines",
+            "cancel with the operation", "work owned by the ViewModel",
+            "stale results", "Persistence and storage",
             "transactional migrations", "Android Keystore", "Permissions and privacy",
             "permanent denial", "API compatibility", "`minSdk` to its `targetSdk`",
             "Before raising `targetSdk`",

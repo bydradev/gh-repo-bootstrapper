@@ -2,7 +2,9 @@
   own transitions across configuration changes. Verify process-death recovery
   with `SavedStateHandle` or persistence. Check composables are restartable
   and skippable where intended.
-- **Concurrency and cancellation.** Use an explicit scope such as `viewModelScope`. Use
+- **Concurrency and cancellation.** Launch an operation's subtasks as child coroutines
+  (for example, in `coroutineScope`) so they cancel with the operation.
+  Use `viewModelScope` for work owned by the ViewModel. Use
   `Dispatchers.Main` for UI and `Dispatchers.IO` for blocking I/O. Respect
   cancellation in long-running jobs and flows. Discard stale results after
   navigation or context changes.

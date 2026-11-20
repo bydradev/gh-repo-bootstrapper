@@ -3903,7 +3903,8 @@ def adopt_repository(
         # skills this configuration does not render as orphans.
         return [("refused", TYPE_MISMATCH, report[TYPE_MISMATCH][1] + "; nothing was changed")]
     seeds = _seed_actions(repo_dir, report, files)
-    # The sorted scan handles the commit skill and its Claude mirror before AGENTS.md.
+    missing_hub = "AGENTS.md" in report and report["AGENTS.md"][0] == "missing"
+    # Both skill paths sort before the hub and its CLAUDE.md import.
     commit_skill_blocker = None
     for rel, (status, detail) in sorted(report.items()):
         try:
@@ -3913,6 +3914,8 @@ def adopt_repository(
                 action = _adopt_link(repo_dir, rel, status, detail, mirrors[rel])
             elif rel in seeds:
                 action = seeds[rel] or _adopt_seed(repo_dir, rel, files[rel])
+            elif missing_hub and commit_skill_blocker and status == "missing" and rel in ("AGENTS.md", "CLAUDE.md"):
+                action = ("refused", rel, f"AGENTS.md needs {commit_skill_blocker} to be adopted first")
             else:
                 action = _adopt_file(repo_dir, rel, status, detail, files.get(rel), replace_generated,
                                      confirm, commit_skill_blocker)

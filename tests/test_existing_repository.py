@@ -2204,8 +2204,8 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertIn("repo-owned skill", action[2])
         self.assertEqual((self.repo / rel).read_text(), mine)
 
-    def test_inline_commit_rules_survive_until_the_skill_and_mirror_are_ready(self):
-        files = _render()
+    def test_hub_waits_until_the_commit_skill_and_mirror_are_ready(self):
+        files = _render("simple")
         skill = ".agents/skills/pull-requests/SKILL.md"
         mirror = ".claude/skills/pull-requests"
         old_commits = dict(bootstrap._agents_sections(_AGENTS_0_11_1_NEXTJS)[1])["## Commits"]
@@ -2215,29 +2215,45 @@ class ExistingRepositoryTests(unittest.TestCase):
         shared = Path(self._tmp.name) / "shared"
         shared.mkdir()
         (shared / "SKILL.md").write_text("---\nname: pull-requests\n---\n# Local\n")
-        for case in ("modified", "shared", "mirror"):
-            with self.subTest(case):
-                self.repo = Path(self._tmp.name) / case
-                self._write("AGENTS.md", original)
+        for case, existing_hub in itertools.product(("modified", "shared", "mirror"), (True, False)):
+            with self.subTest(case=case, existing_hub=existing_hub):
+                self.repo = Path(self._tmp.name) / f"{case}-{existing_hub}"
+                if existing_hub:
+                    self._write("AGENTS.md", original)
                 if case == "modified":
                     obstruction = self.repo / skill
-                    self._write(skill, files[skill] + "\nMy edits.\n")
+                    local_skill = files[skill] + "\nMy edits.\n" if existing_hub else (
+                        "---\nname: pull-requests\ndescription: Local\n---\n# Local PR rules\n"
+                    )
+                    self._write(skill, local_skill)
                 else:
                     obstruction = self.repo / (mirror if case == "mirror" else ".agents/skills/custom")
                     obstruction.parent.mkdir(parents=True)
-                    obstruction.symlink_to(shared)
+                    obstruction.symlink_to(shared, target_is_directory=True)
                 self._commit_all()
                 actions = {path: (action, why) for action, path, why in
-                           bootstrap.adopt_repository(self.repo, files, True)}
+                           bootstrap.adopt_repository(self.repo, files, replace_generated=existing_hub)}
                 blocked = mirror if case == "mirror" else skill
                 self.assertEqual(actions[blocked][0], "refused")
                 self.assertEqual(actions["AGENTS.md"][0], "refused")
                 self.assertIn(blocked, actions["AGENTS.md"][1])
-                self.assertEqual((self.repo / "AGENTS.md").read_bytes(), original.encode())
+                if existing_hub:
+                    self.assertEqual((self.repo / "AGENTS.md").read_bytes(), original.encode())
+                    self.assertEqual((self.repo / "CLAUDE.md").read_text(), files["CLAUDE.md"])
+                else:
+                    self.assertFalse((self.repo / "AGENTS.md").exists())
+                    self.assertFalse((self.repo / "CLAUDE.md").exists())
+                    self.assertEqual(actions["CLAUDE.md"][0], "refused")
+                if case == "modified":
+                    self.assertEqual(obstruction.read_bytes(), local_skill.encode())
+                else:
+                    self.assertEqual(obstruction.readlink(), shared)
                 self.assertEqual(actions["README.md"][0], "wrote")
                 obstruction.unlink()
                 bootstrap.adopt_repository(self.repo, files, True)
-                self.assertEqual((self.repo / "AGENTS.md").read_text(), files["AGENTS.md"] + ours)
+                expected = files["AGENTS.md"] + (ours if existing_hub else "")
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), expected)
+                self.assertEqual((self.repo / "CLAUDE.md").read_text(), files["CLAUDE.md"])
                 self.assertEqual((self.repo / skill).read_text(), files[skill])
                 self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/pull-requests")
                 self.assertEqual(bootstrap.adopt_repository(self.repo, files, True), [])

@@ -138,7 +138,7 @@ such as `.worktrees/app/align` renders as `app`.
 
 ### What `--adopt` writes
 
-`--adopt PATH --type TYPE` writes every missing file. It overwrites an
+`--adopt PATH --type TYPE` writes missing files. It overwrites an
 existing file only when it's a `stale` template-owned file (see the table
 above) or an unedited `nextjs` baseline script (below), with one more
 exception that preserves repository-owned content:
@@ -150,6 +150,10 @@ first. A generated section whose text differs may be an older template or a
 local edit, and the script cannot tell which, so it is replaced only with
 `--replace-generated-sections`, which lists those sections and asks before
 writing (`--non-interactive` skips the prompt).
+
+When the `pull-requests` skill or its Claude mirror is refused, adoption
+leaves a missing `AGENTS.md` and its missing `CLAUDE.md` import unwritten.
+Resolve the reported conflict and rerun adoption to create them.
 
 ### The `nextjs` baseline scripts
 

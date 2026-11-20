@@ -75,16 +75,17 @@ A follow-up runs when commits arrive after a report, or when someone asks for
 another review. It checks the earlier findings and the new code, not the whole
 change again.
 
-1. **Find the last report.** Note its round, the head commit it reviewed, and
-   each finding that is *Open* or *Partly fixed*.
+1. **Find the last report.** Note its round, reviewed head and each *Open*
+   or *Partly fixed* finding. For coverage carried forward from an earlier
+   review, read that review's *Coverage* and *Limits*.
 2. **Isolate the delta.** Diff the last reviewed head against the new head;
    after a rewrite, separate the author's changes with `git range-diff`, and
    read a base merge with `git show --remerge-diff <merge>`. Without git, ask
    whoever started the review for the delta; if it cannot be isolated, run a
-   full review. For a rebase alone, check that `git range-diff` shows unchanged
-   author commits. If the requested outcome and the base behaviour those
-   commits depend on are also unchanged, post an addendum to the last round
-   ("No content change since R*n*", with the new head) and stop there.
+   full review. For a rebase alone, stop with an addendum ("No content
+   change since R*n*", with the new head) only when `git range-diff` shows
+   unchanged author commits, the prior review covered the whole change,
+   and the requested outcome and relevant base behaviour are unchanged.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the
@@ -104,13 +105,12 @@ change again.
 7. **Keep identity stable.** Earlier findings keep their IDs. Change a
    severity only with a stated reason, such as new evidence or wider exposure.
 
-In a new follow-up round, run a full review as well as steps 1, 3, 5 and 7,
-and say why, when:
+Run a full review alongside steps 1, 3, 5 and 7, and say why, when:
 
 - the delta rewrites most of a changed file, changes the approach, or adds
   files in a high-risk area;
 - the requested outcome changed;
-- the last report listed areas it could not review;
+- an area affected by the overall change is still unreviewed;
 - the base branch changed behaviour this change depends on;
 - the last report cannot be found, or its head commit is unreachable.
 

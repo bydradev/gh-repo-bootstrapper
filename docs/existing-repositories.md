@@ -152,8 +152,9 @@ local edit, and the script cannot tell which, so it is replaced only with
 writing (`--non-interactive` skips the prompt).
 
 When the `pull-requests` skill or its Claude mirror is refused, adoption
-leaves a missing `AGENTS.md` and its missing `CLAUDE.md` import unwritten.
-Resolve the reported conflict and rerun adoption to create them.
+preserves an existing `AGENTS.md` if the rebuild would add or replace its
+`## Commits` section. A new hub and its `CLAUDE.md` import also wait.
+Resolve the reported conflict and rerun adoption to finish the update.
 
 ### The `nextjs` baseline scripts
 

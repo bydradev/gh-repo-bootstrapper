@@ -21,9 +21,10 @@ Claude mirror, it also keeps a hub that still carries the inline commit
 trailer rules. Resolve the reported conflict, preserve local skill changes in
 a repository-owned skill and rerun adoption. Review the diff before committing.
 
-Every type also gets a shorter description for `review-guidelines`. The
-follow-up procedure now explains when a rebase gets an addendum. Run
-`--adopt` to refresh an unedited copy.
+Every stack gets a shorter `review-guidelines` description. Run `--adopt`
+to refresh an unedited copy. A pure rebase can reuse a complete review
+when the requested outcome and relevant base behaviour are unchanged.
+A gap in review coverage requires a full review.
 
 Android repositories can refresh `local-validation-android` and
 `review-guidelines` with `--adopt`. Each skill now includes the same

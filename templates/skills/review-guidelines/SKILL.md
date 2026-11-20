@@ -137,104 +137,81 @@ open findings and what each round changed.
 
 ## Focus areas
 
-Check each area that applies.
+**Correctness.** Trace the requested outcome through boundaries and errors.
+Check empty, single, many, maximum, zero, negative, missing, null and duplicate
+inputs. Check Unicode, time zones, daylight saving, leap years, units, rounding
+and currency where relevant. Verify calculations against documented conventions
+and sources, including behaviour on retries.
 
-**Correctness.** The behaviour matches the requested outcome. Boundaries:
-empty, one, many and maximum; zero, negative, missing and null values;
-duplicates; Unicode; time zones and daylight saving; leap years; units,
-rounding and currency. Error paths, retries and idempotency. Calculations
-follow the repository's documented conventions and cited sources.
+**Access control.** Check server-side authorization at each entry point and
+each resource lookup. Fail closed on expired tokens, outages or unknown
+membership. Check caches, shared state and logs for cross-user disclosure.
 
-**Access control.** Every new entry point (route, action, job, webhook, CLI
-flag) checks on the server who may use it. When a check cannot complete
-(expired token, API down, membership unknown), access fails closed. Per-user
-data does not cross users through caches, shared state or logs, and an ID that
-selects a resource is checked against the caller's access on every use.
+**Security.** Validate untrusted input at entry and encode it for its destination
+(SQL, shell, paths, HTML, URLs, headers, templates or regex). Block internal
+destinations through redirects too. Keep secrets out of code, clients, logs,
+errors, build output and fixtures. Check session, token and OAuth expiry,
+replay, fixation and CSRF. Use maintained crypto and parsers. Keep untrusted
+data away from unsafe deserialisation and dynamic execution.
 
-**Security.** Untrusted input is validated where it enters and encoded where it
-leaves: SQL, shell, file paths, HTML, URLs, headers, templates and regular
-expressions. URLs from users or feeds cannot reach private or internal
-addresses, including through redirects. Secrets stay out of code, client
-bundles, logs, error messages, build artefacts and fixtures. Sessions, tokens
-and OAuth state expire and resist replay, fixation and CSRF. Cryptography and
-parsing use maintained libraries, and unsafe deserialisation or dynamic code
-execution never sees untrusted data.
+**Privacy.** Check that collection, storage, analytics, tracking and transmission
+are intended, documented and consistent with privacy promises. Keep personal
+data out of logs and errors.
 
-**Privacy.** New collection, storage, analytics, tracking or transmission of
-user data is intended and documented. Logs and errors carry no personal data.
-The product's stated privacy promises, such as "everything stays in the
-browser", still hold.
+**Reliability.** Bound network calls with timeouts and retries with backoff.
+Mark partial, stale or cached results accurately. Paginate to the end or
+report the interruption. Honour cancellation, prevent stale async writes and
+release resources on every path. Check retry idempotency.
 
-**Reliability.** Network calls have timeouts; retries are bounded and back off.
-Partial failure is visible: incomplete, stale or cached data is never shown as
-complete and current, and pagination reaches the end or says it stopped. An
-asynchronous result cannot overwrite newer state, and cancellation is honoured.
-Resources are released on every path.
+**Data and migrations.** Load existing data, including local storage, saved files,
+settings and caches. Check migration order, rollback or forward recovery,
+locks, backfills and required columns without defaults on large tables. Parameterise queries, index new access paths, make
+multi-step writes atomic and exercise database behaviour against a real database.
 
-**Data and migrations.** Schema and storage changes work on existing data and
-have a rollback or forward-fix path. Migrations are ordered and safe on large
-tables (locks, `NOT NULL` without a default, backfills). Queries are
-parameterised, multi-step writes are atomic, and new queries have the indexes
-they need. Tests that matter run against a real database, not only mocks. Data
-users already hold (local storage, caches, saved files, settings) still loads.
+**Interfaces.** Preserve compatibility for APIs, flags, config, formats, URLs
+and events, or document the break and mark it with `!` or a `BREAKING CHANGE` footer.
 
-**Interfaces.** Changes to public APIs, CLI flags, configuration keys, file
-formats, URLs and events stay compatible, or are marked breaking (`!` or a
-`BREAKING CHANGE` footer) and documented.
+**Tests.** Exercise changed behaviour, boundaries and failures with realistic
+fixtures and assertions that would fail without the change. Inspect snapshot
+and golden-file diffs. Watch for flaky timing, network or ordering. Reject
+skipped, weakened or deleted checks used to get green.
 
-**Tests.** Tests exercise the changed behaviour, including failure paths and
-boundaries, and would fail without the change. Fixtures are realistic. No test
-or check is skipped, loosened or deleted to get green. Updated snapshots and
-golden files show only intended changes. Watch for flaky timing, network and
-ordering.
+**CI and workflows.** Pin actions to full SHAs and minimise permissions.
+Never check out, build or run PR code in `pull_request_target` or
+`workflow_run` jobs. Treat PR artefacts as untrusted. Keep attacker-controlled
+expressions out of `run:` and `github-script` scripts. Pass short values
+(numbers, refs, SHAs) through `env:`, but a script reads free text such as a
+title, body or comment from the event file (`$GITHUB_EVENT_PATH`, or
+`context.payload` in `github-script`) because the runner prints each step's
+env values in its log. Keep job timeouts and required check names. Reject
+conditions or `continue-on-error` that hide failures.
 
-**CI and workflows.** Actions are pinned to a full commit SHA, and
-`permissions:` is least privilege. `pull_request_target` and `workflow_run`
-jobs never check out, build or run pull request code, and treat artefacts from
-pull request runs as untrusted. No `${{ github.event.* }}` or other
-attacker-controlled value is interpolated into `run:` or a `github-script`
-`script:`. A short value such as a number, ref or SHA goes through `env:`, but
-a script reads free text such as a title, body or comment from the event file
-(`$GITHUB_EVENT_PATH`, or `context.payload` in `github-script`), because the
-runner prints each step's env values in its log, where a later edit of the
-text never reaches. Jobs keep timeouts, and no `continue-on-error` or
-always-false `if:` hides a failure. Job and check names that branch protection
-requires do not change.
+**Dependencies.** Check need, maintenance, licence, size and runtime cost.
+Update manifests and lockfiles together through the package manager.
 
-**Dependencies.** Each new dependency is needed, maintained, compatibly
-licensed, and proportionate in size and runtime cost. Manifests and lockfiles
-change together, through the package manager.
+**Performance.** Give a realistic scale and cost for N+1 queries, unbounded
+loops or memory, blocking main or request threads, and client bundle growth.
 
-**Performance.** Complexity suits realistic input sizes. No N+1 queries,
-unbounded loops or memory, or blocking work on a main or request thread.
-Client bundle growth is justified. Report performance only with a plausible
-scale and cost.
+**User experience and accessibility.** Check keyboard access, visible focus, labels,
+roles, reading order, contrast, reduced motion, themes, text scaling and
+localisation. Check loading, empty and error states and their copy. Verify
+rendered changes through the repository's screenshot-review process.
 
-**User experience and accessibility.** Keyboard access and visible focus,
-labels and roles, screen reader order, contrast, reduced motion, theme
-support, text scaling and localisation. Loading, empty and error states exist,
-and copy is accurate. Visual changes have rendered evidence and pass the
-repository's screenshot-review process.
+**Docs and claims.** Check README, docs and comments against changed behaviour.
+Platform, API and dependency claims need a dated primary source.
 
-**Docs and claims.** README, docs and comments match the new behaviour. Claims
-about a platform, API or dependency cite a primary source and a date. No stale
-instructions remain.
+**Maintainability.** Give the concrete cost of duplication, dead code,
+misleading names, needless complexity or drift from surrounding code.
 
-**Maintainability.** Duplication, dead code, misleading names, needless
-complexity, and drift from surrounding code. Report it only with a concrete
-cost.
+**Changes written by AI.** Verify APIs, flags and options against pinned versions.
+Check tests against requirements, refactors and renames across callers, and
+claimed checks against actual runs.
 
-**Changes written by AI.** APIs, flags and options exist in the pinned
-versions. Tests check the requirement, not the implementation's current
-output. Renames and refactors are complete. Comments and PR text do not claim
-checks that did not run.
-
-**Repository conventions.** The PR title is a Conventional Commit whose type,
-like the body's `User-visible:` answer, is true to the diff, and the change is
-one change. Outside a template adoption, generated `AGENTS.md` sections and
-files stamped `gh-repo-bootstrapper: template-owned` stay unchanged:
-repository rules go in `## Project specifics`, and template changes belong in
-the template. The required check set is not weakened.
+**Repository conventions.** Check that the PR makes one change and its
+Conventional Commit type and `User-visible:` answer match the diff. Outside
+adoption, preserve generated `AGENTS.md` sections and template-owned files.
+Put local rules in `## Project specifics` and change templates at source.
+Preserve required checks.
 
 ## What counts as a finding
 
@@ -326,32 +303,21 @@ sections, except *Coverage* and *Limits*, which every report has.
 
 ### Findings
 
-| ID | Severity | Area | Where | Summary |
-| --- | --- | --- | --- | --- |
-| R2-01 | P1 | Reliability | `lib/sync.ts:88-104` | Last partial page reported as complete |
-
-#### R2-01 P1 Reliability: last partial page reported as complete
-
-- **Trigger:** <input, state or sequence>
-- **Impact:** <what goes wrong, for whom>
-- **Evidence:** <path traced, output, or source>
-- **Suggested fix:** <optional>
-- **Origin, confidence:** introduced, high
+- **R2-01 P1 Reliability** · `lib/sync.ts:88-104` · introduced, high.
+  When a slow request returns after a newer one, the unconditional write at
+  line 104 replaces the current total with stale data. Suggest a fix if useful.
 
 ### Earlier findings
 
-| ID | Severity | Status | Note |
-| --- | --- | --- | --- |
-| R1-01 | P1 | Fixed | `abc1234`; `sync.test.ts` "stops at the last page" |
+- **R1-01 P1 Fixed** · Verified at `abc1234` by the last-page test.
 
 ### Coverage
 
-Checked: Correctness, Access control, Reliability, Tests, CI and workflows.
-Not applicable: Data and migrations, User experience and accessibility.
+Checked: <areas examined>. Not applicable: <areas outside this change>.
 
 ### Limits
 
-Not run: <suites>. Assumed: <assumptions the findings rely on>.
+<Unreviewed areas, skipped checks, assumptions and unverified handoff claims.>
 
 ### Questions and notes
 

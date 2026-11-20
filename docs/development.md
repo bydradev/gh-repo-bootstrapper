@@ -31,11 +31,15 @@ python -m pip install -r requirements-dev.txt
 
 ## Run the checks
 
-Run the commands under *Tooling* in [`AGENTS.md`](../AGENTS.md) before you
-push. They are the same checks CI runs: the validator, the pytest suite, the
-`node:test` suites of the generated baseline scripts, Prettier and ESLint on
-those scripts, and markdownlint on the generated Markdown and on this
-repository's own.
+From the repository root, run [`.github/scripts/pre-push.sh`](../.github/scripts/pre-push.sh)
+in the environment above, or use uv directly:
+
+```sh
+uv run --with-requirements requirements-dev.txt .github/scripts/pre-push.sh
+```
+
+The script stops on the first failure. If the outgoing-content scan cannot
+resolve `origin/main`, fetch the base branch and retry.
 
 ## What CI runs
 

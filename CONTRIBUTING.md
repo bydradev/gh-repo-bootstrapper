@@ -27,10 +27,9 @@ Security issues go through private reporting instead; see
    `refactor`, `test`, `build` or `ci`). The same check fails when the line is
    missing or disagrees with what Release Please will do with the title and
    body.
-4. Run the checks listed under "Tooling" in [AGENTS.md](AGENTS.md) before you
-   push, and add or update tests for the behaviour you change.
-   [docs/development.md](docs/development.md) covers the setup and what CI
-   runs.
+4. Add or update tests for the behaviour you change. Before pushing, run
+   [`.github/scripts/pre-push.sh`](.github/scripts/pre-push.sh) as described
+   in the [development guide](docs/development.md#run-the-checks).
 5. If an AI tool helped write a commit, add the `Co-Authored-By:` trailer
    that [AGENTS.md](AGENTS.md) describes. You are still responsible for the
    change.

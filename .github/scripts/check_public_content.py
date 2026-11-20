@@ -5,15 +5,11 @@ Checks commit messages, the lines commits add to files, a pull request's
 title and body, or any other text for what AGENTS.md *Public repository
 content* rules out: claude.ai session, project, artifact and chat links,
 `Claude-Session:` trailers, session and thread IDs, paths from an agent's
-machine or project storage, email addresses other than noreply ones,
-`bydradev/` and `bydraio/` repositories other than the public ones, and the
-bare names listed in the PRIVATE_REPO_NAMES environment variable (comma- or
-whitespace-separated; a repository secret in CI, an environment variable in a
-cloud environment). gh-agent-kit's `.github/scripts/public-content.mjs` is the
-same check in JavaScript: keep the two in step.
+machine or project storage, and private email addresses.
+Keep this in step with gh-agent-kit's `.github/scripts/public-content.mjs`.
 
 It reports only where a match is and what kind it is, never the matched text,
-so its output cannot repeat a private name or act as a workflow command.
+so its output cannot repeat a private detail or act as a workflow command.
 
     check_public_content.py --range BASE..HEAD   commit messages in a range
     check_public_content.py --files BASE..HEAD   lines the range adds to files
@@ -32,16 +28,9 @@ only the standard library.
 """
 
 import argparse
-import os
 import re
 import subprocess
 import sys
-
-PUBLIC_REPOSITORIES = frozenset(
-    {"gh-repo-bootstrapper", "gh-agent-kit", "github-agent-kit", "gh-actions-dashboard"}
-)
-# The made-up repository the template tests' mock GitHub API serves.
-PLACEHOLDER_REPOSITORIES = frozenset({"fixture"})
 
 # Any claude.ai link with a path is found, so a new link format is too; only
 # the generic footer link `https://claude.ai/code`, the Claude Code installer
@@ -65,11 +54,6 @@ PATTERNS = (
         r"|\b[A-Za-z]:\\Users\\(?!you\b)[\w.-]"
     )),
 )
-# bydraio is the maintainer's earlier account name. The owner takes the bare
-# names' boundary rather than \b, so an underscore before it (Markdown
-# emphasis, _bydradev/name_) does not hide a reference.
-OWNER_REPO = re.compile(r"(?<![A-Za-z0-9-])(?:bydradev|bydraio)/([A-Za-z0-9._-]+)", re.I)
-
 # An address is found unless it is a noreply one, at an example domain, or
 # the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 # login, not a person's. A backslash before it is an escape such as `\n`.
@@ -89,7 +73,7 @@ DEPENDABOT_FOOTER = "Signed-off-by: dependabot[bot] <support@github.com>"
 # The check's own script and tests hold every pattern and example it finds.
 EXEMPT_FILES = frozenset({".github/scripts/check_public_content.py", "tests/test_public_content.py"})
 # A changed file's path is printed only when it has no finding and only these
-# characters, so it cannot repeat a private name or start a workflow command.
+# characters, so it cannot repeat private details or start a workflow command.
 PRINTABLE_PATH = re.compile(r"[\w./+@-]+")
 
 # The two lines a Claude project thread must put at the top of a pull request
@@ -104,15 +88,6 @@ ATTRIBUTION = (
 )
 
 
-def private_names(value):
-    names = [name for name in re.split(r"[\s,]+", value or "") if name]
-    return [
-        # An underscore is a boundary, so Markdown emphasis (`_name_`) is found.
-        (name, re.compile(r"(?<![A-Za-z0-9-])" + re.escape(name) + r"(?![A-Za-z0-9])", re.I))
-        for name in names
-    ]
-
-
 def private_address(local, domain):
     local, domain = local.lower(), domain.lower()
     return not (
@@ -122,7 +97,7 @@ def private_address(local, domain):
     )
 
 
-def scan(text, names, allow_attribution=False):
+def scan(text, *, allow_attribution=False):
     """Return (line number, kind) for each finding in text, in order."""
     lines = re.split(r"\r?\n", text)
     skip = 0
@@ -135,24 +110,11 @@ def scan(text, names, allow_attribution=False):
         if number <= skip:
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
-        for match in OWNER_REPO.finditer(line):
-            # Trailing dots end a sentence. Trailing underscores close emphasis
-            # only when an underscore opened it earlier in the line; otherwise
-            # they are part of the name, so bydradev/gh-agent-kit_ is another
-            # repository.
-            emphasised = re.search(r"(?:^|\W)_", line[: match.start()])
-            repository = re.sub(r"[._]+$" if emphasised else r"\.+$", "", match[1])
-            repository = repository.removesuffix(".git").lower()
-            if repository not in PUBLIC_REPOSITORIES | PLACEHOLDER_REPOSITORIES:
-                kinds.append("a bydradev or bydraio repository outside the public list")
-                break
         if line != DEPENDABOT_FOOTER and any(
             not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
             for match in EMAIL.finditer(line)
         ):
             kinds.append("an email address other than a noreply one")
-        if any(pattern.search(line) for _, pattern in names):
-            kinds.append("a private repository name")
         found += [(number, kind) for kind in kinds]
     return found
 
@@ -225,10 +187,6 @@ def main(argv=None):
     if not (args.ranges or args.files or args.title or args.pr_body or args.text):
         parser.error("give at least one of --range, --files, --title, --pr-body or --text")
 
-    names = private_names(os.environ.get("PRIVATE_REPO_NAMES"))
-    if not names:
-        print("PRIVATE_REPO_NAMES is not set, so bare private repository names were not checked.")
-
     sources = [("title", title, False) for title in args.title]
     sources += [("body", open(path, encoding="utf-8", newline="").read(), True) for path in args.pr_body]
     sources += [(f"text {path}", open(path, encoding="utf-8", newline="").read(), False) for path in args.text]
@@ -237,20 +195,20 @@ def main(argv=None):
 
     findings = []
     for source, text, allow in sources:
-        findings += [f"{source}, line {number}: {kind}" for number, kind in scan(text, names, allow)]
+        findings += [f"{source}, line {number}: {kind}" for number, kind in scan(text, allow_attribution=allow)]
     files = 0
     for revision_range in args.files:
         for commit, place, path, added in changed_files(revision_range):
             if path in EXEMPT_FILES:
                 continue
             files += 1
-            in_name = [kind for _, kind in scan(path, names)]
+            in_name = [kind for _, kind in scan(path)]
             source = f"commit {commit[:7]}, file {path}"
             if in_name or not PRINTABLE_PATH.fullmatch(path):
                 source = f"commit {commit[:7]}, changed file {place} (name not shown)"
             findings += [f"{source}, name: {kind}" for kind in in_name]
             for number, line in added:
-                findings += [f"{source}, line {number}: {kind}" for _, kind in scan(line, names)]
+                findings += [f"{source}, line {number}: {kind}" for _, kind in scan(line)]
 
     for finding in findings:
         print(f"::error title=Public repository content::{finding}")

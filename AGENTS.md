@@ -104,10 +104,9 @@ Without skill support, read `.agents/skills/<name>/SKILL.md`.
 
 ### Public repository content
 
-This public repository narrows *Commits* and *Pull requests*. Name only this
-repository, the maintainer’s `gh-agent-kit` while public, and public third-party
-upstreams. Keep private repository identifiers, personal details, local paths
-and session identifiers out of files and public text.
+This public repository narrows *Commits* and *Pull requests*. Keep private
+personal details (including names and email addresses), local paths and session
+identifiers out of files and public text.
 
 Use [public-content-check](.agents/skills/public-content-check/SKILL.md) for
 publication and review, including its exact public footer exception. Run the

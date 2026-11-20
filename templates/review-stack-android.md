@@ -1,28 +1,8 @@
 ### Android
 
-- **Lifecycle and state.** UI receives state and emits events. ViewModels own
-  state transitions; state surviving configuration changes and process death
-  is verified. Composable functions are restartable and skippable where intended.
-- **Concurrency.** Coroutines use structured concurrency and explicit scopes;
-  UI work runs on `Dispatchers.Main`, blocking I/O on `Dispatchers.IO`. Jobs and
-  flows check cancellation, and stale asynchronous results are discarded.
-- **Persistence and storage.** Database and file transactions run off the main
-  thread; migrations are tested and transactional. Sensitive data and credentials
-  are protected with keys in the Android Keystore, never plain preferences,
-  unencrypted local storage, or log statements; new code does not add the
-  deprecated `EncryptedSharedPreferences`.
-- **Permissions and privacy.** Runtime permissions are requested in context with
-  clear rationale, and denied and permanently denied states are handled.
-- **Compatibility and API verification.** Behavior holds across the app's own
-  range, from its `minSdk` to its `targetSdk`. Newer APIs sit behind version
-  checks with tested fallbacks. A `targetSdk` raise accounts for that
-  version's behavior changes (such as edge-to-edge and predictive Back), and
-  native code supports the all-apps changes of new releases, such as 16 KB
-  page sizes.
-- **Time and locale.** Date and time operations use `java.time` with injected
-  `Clock` and `ZoneId`, never fixed millisecond arithmetic or assumed system
-  defaults, and survive time zone and daylight-saving changes.
-- **Scaffold and build boundary.** App source, Gradle build files, and wrapper
-  remain application-owned. Build outputs, `local.properties`, and signing
-  keystores stay uncommitted. Dynamic dependency versions are rejected in favour
-  of qualified pins.
+# <<ANDROID_SAFEGUARDS>>
+- **Time and locale.** Inject `Clock` and `ZoneId` with `java.time`. Test time
+  zone and daylight-saving changes. Avoid fixed millisecond arithmetic.
+- **Build ownership.** The app owns its source, Gradle build and wrapper.
+  Use qualified dependency pins. Keep build outputs, `local.properties` and signing
+  keystores uncommitted.

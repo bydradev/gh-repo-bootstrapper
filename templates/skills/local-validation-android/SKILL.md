@@ -1,6 +1,6 @@
 ---
 name: local-validation-android
-description: "Use before running local validation in this Android repository: `./gradlew spotlessCheck`, `./gradlew lintDebug`, `./gradlew test`, `./gradlew connectedCheck`, `./gradlew check`, or worktrees and emulator runs. Covers CI validation tiers (fast PR checks vs full release validation), local device verification, safeguards for lifecycle, cancellation, state, persistence, permissions, and API-level compatibility, worktree Gradle locks, and versioning."
+description: Use before Android Gradle validation, emulator or device checks, or setting up an Android worktree.
 ---
 
 # Local validation for Android
@@ -8,94 +8,29 @@ description: "Use before running local validation in this Android repository: `.
 If `## Project specifics` in `AGENTS.md` names a repository-owned validation
 skill, load it first; where it is narrower, it governs.
 
-The commands to run before pushing are in the `## Tooling` section of
-`AGENTS.md`. This skill covers the details behind them, local emulator and
-device constraints, and CI validation tiers.
-
-## Gradle tasks and tooling commands
-
-The standard repository checks execute through the Gradle wrapper (`./gradlew`):
-
-- **Format check:** `./gradlew spotlessCheck` checks Kotlin formatting (configured
-  via Spotless and ktfmt). The task exists only when the application's build
-  applies the Spotless Gradle plugin; CI stops with an error until it does. Run `./gradlew spotlessApply` to automatically format
-  source files. Never circumvent formatter checks with manual escapes or
-  suppression comments.
-- **Lint:** `./gradlew lintDebug` performs static analysis of Android resources,
-  manifests, and Kotlin code. Treat lint warnings as errors where configured;
-  address the root issue rather than silencing lints without review.
-- **Host unit tests:** `./gradlew test` (or `./gradlew testDebugUnitTest`) runs
-  JVM-based unit tests. This includes unit tests using MockK or Robolectric,
-  independent of an emulator.
-- **Build compilation:** `./gradlew assembleDebug` compiles the debug APK.
-- **Full validation:** `./gradlew check` executes format checks, lint analysis,
-  and unit tests across the project.
-- **Connected device checks:** `./gradlew connectedCheck` (or
-  `./gradlew connectedDebugAndroidTest`) executes instrumentation tests against a
-  booted emulator or attached physical device.
+For pre-push tasks, see `## Tooling` in `AGENTS.md`. Use the Gradle wrapper.
+Fix formatting with `./gradlew spotlessApply`. Never bypass the formatter.
+Fix lint findings at the source and review any lint suppression.
 
 ## CI validation tiers and local device checks
 
-As generated, CI validates in tiers via `.github/workflows/test.yml` (called by
-`ci.yml` and `release-please.yml`):
+The generated `.github/workflows/test.yml` uses Ubuntu, JDK 17 and the Gradle
+cache. Both tiers require an executable wrapper, a verified wrapper JAR and
+the app's Spotless task.
 
-- **Pull requests (`ci.yml`) and ordinary pushes to `main`:** run fast checks
-  (`full: false`): wrapper checks (an executable `gradlew`, and
-  `gradle-wrapper.jar` validated against Gradle's published checksums),
-  JDK 17 setup with the Gradle cache, a check that the
-  `spotlessCheck` task exists, and
-  `./gradlew spotlessCheck lintDebug testDebugUnitTest` on `ubuntu-latest`.
-- **Release Please merge (`chore(main): release`) and manual dispatch of
-  `release-please.yml`:** run full validation (`full: true`): the same
-  wrapper checks and JDK 17 setup, the same `spotlessCheck` task check, and
-  `./gradlew check`. The release PR merges and
-  tags only after full validation passes.
-- **Connected device checks:** `./gradlew connectedCheck` (or
-  `./gradlew connectedDebugAndroidTest`) is repository-owned and executed
-  as an explicit local verification lane against a booted emulator or attached
-  device. Standard CI runners do not provide a running emulator or connected
-  device; verify device contracts locally before landing changes that touch
-  UI, lifecycle, persistence, permissions, or API-level behaviour.
+| When | Validation |
+| --- | --- |
+| PRs and ordinary pushes to `main` | fast checks (`full: false`) run `./gradlew spotlessCheck lintDebug testDebugUnitTest` |
+| Push of the release PR merge to `main` or manual dispatch of `release-please.yml` | full validation (`full: true`) runs `./gradlew check` before the release job |
+
+CI runs host tests. For changes to UI, lifecycle, persistence, permissions or
+API behaviour, run the app's instrumentation tests on a booted emulator or
+attached device before landing: `./gradlew connectedCheck` or
+`./gradlew connectedDebugAndroidTest`. Use the API levels the change affects.
 
 ## Android safeguards and review focus
 
-When developing or modifying Android application code, verify these core
-engineering safeguards:
-
-- **Lifecycle and state:** UI components observe observable state flows and emit
-  unidirectional events. ViewModels manage state transitions and survive
-  configuration changes (screen rotation, light/dark mode changes). Process
-  death and restoration must be verified with `SavedStateHandle` or persistent
-  state; never assume ViewModel memory state survives OS process termination.
-  Compose composables must be restartable and skippable where intended.
-- **Structured concurrency and cancellation:** Coroutine operations must adhere
-  to structured concurrency with explicit scopes (`viewModelScope`,
-  `lifecycleScope`). UI updates belong on `Dispatchers.Main`; disk and network
-  I/O belong on `Dispatchers.IO`. Long-running tasks and asynchronous flows must
-  cooperate with cancellation (checking `isActive` or calling `ensureActive()`).
-  Discard stale asynchronous results when user context changes or navigation
-  occurs.
-- **Persistence and storage:** Database queries and file system access must run
-  off the main thread. Database schema migrations must be tested and
-  transactional. Credentials, session tokens, and cryptographic keys must be
-  secured with keys held in the Android Keystore system, never in plain
-  preferences, unencrypted local files, or logs. Do not add Jetpack Security's
-  `EncryptedSharedPreferences` or other `security-crypto` APIs to new code:
-  AndroidX deprecated them in favour of platform APIs and direct use of the
-  Android Keystore.
-- **Runtime permissions and privacy:** Request runtime permissions in context
-  with clear rationale, never eagerly on launch. Handle both one-time denial and
-  permanent denial ("Don't ask again") states gracefully by disabling dependent
-  features or guiding users to system settings. Do not log personal data,
-  user content, or tokens.
-- **API-level compatibility:** Verify behavior across the app's supported
-  range, from its `minSdk` to its `targetSdk` (both in the app's Gradle build).
-  Guard newer APIs with version checks, and test the fallbacks at the lowest
-  supported level. Before raising `targetSdk`, read the behaviour changes for
-  apps that target the new version, such as edge-to-edge layout and predictive
-  Back. Each new Android release also brings changes for all apps, whatever
-  they target, such as 16 KB page sizes for native code. Verify on emulators
-  or devices at the levels a change touches.
+# <<ANDROID_SAFEGUARDS>>
 
 ## Compose Preview under AGP 9.5.1
 
@@ -110,16 +45,10 @@ guidance. Other AGP versions should verify their own task realization behavior.
 
 ## Worktrees and Gradle daemon
 
-Gradle caches build artifacts and dependencies in `GRADLE_USER_HOME` and the project-local
-`.gradle/` and `build/` directories. In git worktrees:
-
-- Do not copy `.gradle/` or `app/build/` into a new worktree; let Gradle build
-  cleanly.
-- When working concurrently across multiple worktrees, Gradle daemon handles
-  file locks, but parallel task execution across worktrees sharing an SDK
-  location must preserve `local.properties`.
-- Ensure `local.properties` exists in each worktree pointing to the local
-  `sdk.dir` (uncommitted, excluded by `.gitignore`).
+Share Gradle's user cache (`GRADLE_USER_HOME`). Do not copy `.gradle/` or
+`app/build/` into a new worktree. Ensure `local.properties` exists in each
+worktree pointing to the local `sdk.dir` and keep it uncommitted, including
+during parallel builds.
 
 ## Versioning
 

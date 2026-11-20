@@ -1917,6 +1917,8 @@ def generate_files(cfg: dict) -> dict:
             # One skill name for every type, so both reviewer agents and
             # fresh-eyes-review can name it; only its stack section differs.
             content = _compose(content, "REVIEW_STACK", _load(f"review-stack-{repo_type}.md"))
+        if repo_type == "android" and skill in ("review-guidelines", "local-validation-android"):
+            content = _compose(content, "ANDROID_SAFEGUARDS", _load("android-safeguards.md"))
         if skill == "local-validation-swift":
             content = _compose(content, "XCODEGEN_DEPENDENCY_NOTE", _extract_section(delta, "DEPENDENCY_NOTE"))
             content = (

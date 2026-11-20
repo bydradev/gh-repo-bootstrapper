@@ -514,16 +514,6 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
         self.assertIn("full validation", content)
         self.assertIn("device checks", content)
 
-        # Safeguards covered: lifecycle, cancellation, state, persistence, permissions, API levels
-        for topic in (
-            "Lifecycle and state",
-            "Structured concurrency and cancellation",
-            "Persistence and storage",
-            "Runtime permissions and privacy",
-            "API-level compatibility",
-        ):
-            self.assertIn(topic, content)
-
         # Compose Preview workaround under AGP 9.5.1
         self.assertIn("android.onlyEnableUnitTestForTheTestedBuildType=false", content)
         self.assertIn("testOptions.unitTests.isIncludeAndroidResources = true", content)
@@ -574,21 +564,27 @@ class AndroidB2HubAndValidationSkillTests(unittest.TestCase):
                             f"{path} mentions EncryptedSharedPreferences other than to rule it out",
                         )
 
-    def test_b2_ac1_review_guidelines_stack_section_coverage(self):
-        files = _render_android("sample-android")
-        review_skill = files[".agents/skills/review-guidelines/SKILL.md"]
-        self.assertIn("### Android", review_skill)
-        for req in (
-            "Lifecycle and state",
-            "Concurrency",
-            "cancellation",
-            "Persistence and storage",
-            "Android Keystore",
-            "Permissions and privacy",
-            "Compatibility and API verification",
-            "`minSdk` to its `targetSdk`",
+    def test_android_safeguards_are_inlined_in_both_skills(self):
+        fragment = (Path(bootstrap.__file__).parent / "templates" / "android-safeguards.md").read_text()
+        for term in (
+            "Lifecycle and state", "process-death", "SavedStateHandle",
+            "Concurrency and cancellation", "stale results", "Persistence and storage",
+            "transactional migrations", "Android Keystore", "Permissions and privacy",
+            "permanent denial", "API compatibility", "`minSdk` to its `targetSdk`",
+            "Before raising `targetSdk`",
         ):
-            self.assertIn(req, review_skill)
+            self.assertIn(term, fragment)
+        for label, cfg in validate_templates.configurations():
+            if cfg["repo_type"] != "android":
+                continue
+            with self.subTest(label):
+                files = bootstrap.generate_files(cfg)
+                review = files[".agents/skills/review-guidelines/SKILL.md"]
+                validation = files[".agents/skills/local-validation-android/SKILL.md"]
+                self.assertIn("### Android\n\n" + fragment, review)
+                self.assertIn("## Android safeguards and review focus\n\n" + fragment, validation)
+                self.assertIn("Time and locale", review)
+                self.assertIn("Build ownership", review)
 
 
 class AndroidB2WorkflowRoutingContractTests(unittest.TestCase):

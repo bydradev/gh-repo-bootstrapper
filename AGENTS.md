@@ -140,6 +140,7 @@ npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_di
 rm -rf "$md_dir"
 npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc \
   "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
+python3 -I .github/scripts/check_public_content.py --range=origin/main..HEAD --files=origin/main..HEAD
 ```
 
 ### Template-owned workflows

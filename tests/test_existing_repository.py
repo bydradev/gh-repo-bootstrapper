@@ -2258,6 +2258,40 @@ class ExistingRepositoryTests(unittest.TestCase):
                 self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/pull-requests")
                 self.assertEqual(bootstrap.adopt_repository(self.repo, files, True), [])
 
+    def test_partial_hub_waits_for_commit_skill_before_adding_or_replacing_commits(self):
+        files = _render("simple")
+        skill = ".agents/skills/pull-requests/SKILL.md"
+        mirror = ".claude/skills/pull-requests"
+        local_rules = "## Project specifics\n\nKeep our local rules.\n"
+        for blocked, replace in itertools.product((skill, mirror), (False, True)):
+            with self.subTest(blocked=blocked, replace=replace):
+                self.repo = Path(self._tmp.name) / f"{Path(blocked).name}-{replace}"
+                commits = "## Commits\n\nUse the house style.\n\n" if replace else ""
+                original = "# Working in this repo\n\n" + commits + local_rules
+                self._write("AGENTS.md", original)
+                ignored = files[".gitignore"] + "\n" + blocked + "\n"
+                self._write(".gitignore", ignored)
+                self._commit_all()
+
+                actions = {path: (action, why) for action, path, why in
+                           bootstrap.adopt_repository(self.repo, files, replace)}
+                self.assertEqual(actions[blocked][0], "refused")
+                self.assertEqual(actions["AGENTS.md"][0], "refused")
+                self.assertIn(blocked, actions["AGENTS.md"][1])
+                self.assertEqual((self.repo / "AGENTS.md").read_bytes(), original.encode())
+                self.assertEqual((self.repo / ".gitignore").read_text(), ignored)
+                self.assertFalse(os.path.lexists(self.repo / blocked))
+                self.assertFalse(os.path.lexists(self.repo / mirror))
+                self.assertEqual(actions["README.md"][0], "wrote")
+
+                self._write(".gitignore", files[".gitignore"])
+                bootstrap.adopt_repository(self.repo, files, replace)
+                generated, _ = bootstrap._split_project_specifics(files["AGENTS.md"])
+                self.assertEqual((self.repo / "AGENTS.md").read_text(), generated + local_rules)
+                self.assertEqual((self.repo / skill).read_text(), files[skill])
+                self.assertEqual(os.readlink(self.repo / mirror), "../../.agents/skills/pull-requests")
+                self.assertEqual(bootstrap.adopt_repository(self.repo, files, replace), [])
+
     def test_unstamped_template_skill_is_shadowed(self):
         files = _render()
         rel = ".agents/skills/pull-requests/SKILL.md"

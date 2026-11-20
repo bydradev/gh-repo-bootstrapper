@@ -3910,6 +3910,8 @@ def adopt_repository(
         try:
             if status == "dangling":
                 action = _adopt_dangling_mirror(repo_dir, rel)
+            elif rel == ".claude/skills/pull-requests" and status == "missing" and commit_skill_blocker:
+                action = ("refused", rel, f"mirror needs {commit_skill_blocker} to be adopted first")
             elif rel in mirrors:
                 action = _adopt_link(repo_dir, rel, status, detail, mirrors[rel])
             elif rel in seeds:
@@ -3923,7 +3925,7 @@ def adopt_repository(
             action = ("refused", rel, f"{type(exc).__name__}: {exc.strerror or exc}")
         if action:
             actions.append(action)
-            if action[0] == "refused" and rel in (
+            if not commit_skill_blocker and action[0] == "refused" and rel in (
                 ".agents/skills/pull-requests/SKILL.md", ".claude/skills/pull-requests",
             ):
                 commit_skill_blocker = rel
@@ -4336,14 +4338,10 @@ def _adopt_file(
                 "edit; move local rules under ## Project specifics, then re-run with "
                 "--replace-generated-sections: " + "; ".join(differing),
             )
-        # Through v0.24.6 the commit instructions lived in the hub. Keep them
-        # when their replacement was refused, without holding unrelated adoptions.
-        if commit_skill_blocker and "## Commits" in differing:
-            old_sections = dict(_agents_sections(_split_project_specifics(current)[0])[1])
-            new_sections = dict(_agents_sections(_split_project_specifics(expected)[0])[1])
-            if ("Co-Authored-By:" in old_sections["## Commits"]
-                    and "Co-Authored-By:" not in new_sections["## Commits"]):
-                return ("refused", rel, f"commit attribution stays here until {commit_skill_blocker} is adopted")
+        if commit_skill_blocker and any(
+            heading == "## Commits" and status in ("missing", "differs") for status, heading in rows
+        ):
+            return ("refused", rel, f"AGENTS.md needs {commit_skill_blocker} to be adopted first")
         added = [f"{heading} (missing; will be added)" for row_status, heading in rows
                  if row_status == "missing" and heading != NEXTJS_RULES_BEGIN]
         if differing and confirm is not None and not confirm(differing + added):

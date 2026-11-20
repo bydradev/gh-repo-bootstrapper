@@ -7,7 +7,7 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
-## Next release
+## Upgrading to 0.25.0
 
 Every repository type gets a shorter `AGENTS.md`. Detailed commit attribution
 and PR formatting now live in `.agents/skills/pull-requests/SKILL.md`. Read

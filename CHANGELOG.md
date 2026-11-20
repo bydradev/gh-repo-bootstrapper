@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.25.0...v0.25.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* preserve partial agent hubs until the commit skill is ready ([92b9e11](https://github.com/bydradev/gh-repo-bootstrapper/commit/92b9e11bb185c6b2f0f697f05cc0dcc72f8434da))
+
 ## [0.25.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.24.6...v0.25.0) (2026-11-20)
 
 

@@ -1507,9 +1507,9 @@ class ExistingRepositoryTests(unittest.TestCase):
                                ("<source", "")):
             with self.subTest(opener):
                 edited = files["AGENTS.md"].replace(
-                    "## Project specifics",
-                    f"{opener}\n{fence}\n{closer}\n\n## My rules\n\nKeep this.\n\n{fence}sh\nmake\n{fence}\n\n"
-                    "## Project specifics", 1,
+                    "\n## Project specifics\n",
+                    f"\n{opener}\n{fence}\n{closer}\n\n## My rules\n\nKeep this.\n\n{fence}sh\nmake\n{fence}\n\n"
+                    "\n## Project specifics\n", 1,
                 )
                 rows = bootstrap.compare_agents(files["AGENTS.md"], edited)
                 self.assertIn(("local", f"(HTML block: {opener})"), rows)

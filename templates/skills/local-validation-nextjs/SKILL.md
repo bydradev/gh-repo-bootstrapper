@@ -60,8 +60,9 @@ skill mirrors.
   `open` for the suite's Chromium.
 - To inspect a failing test, run it in the background with `--debug=cli`.
   When it pauses, use `npx --no-install playwright cli attach <name>` with
-  the printed name, then `-s=<name>` for later commands. Use the suite's
-  sign-in. Stop the test afterward to release its server and any dev lock.
+  the printed name, then `-s=<name>` for later commands. Attaching reuses the
+  test's session without a separate sign-in. Stop the test afterward to release
+  its server and any dev lock.
 - Keep snapshots, console logs, screenshots and traces in the ignored
   `.playwright-cli/` directory. Omit `--filename` or prefix its value with
   `.playwright-cli/`. Never commit them. Attach screenshots only when the

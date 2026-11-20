@@ -30,6 +30,9 @@ Android repositories can refresh `local-validation-android` and
 application safeguards. Review local edits to either skill if adoption
 reports a refusal.
 
+For Next.js, `--adopt` refreshes an unedited `local-validation-nextjs` skill
+with shorter troubleshooting instructions.
+
 ## Upgrading to 0.24.6
 
 Every type: the title check (`.github/workflows/pr-title-check.yml`) now also

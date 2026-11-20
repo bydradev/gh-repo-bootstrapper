@@ -5,9 +5,8 @@ description: Check this repository’s commits, GitHub drafts and final squash m
 
 # Check public content
 
-- For repositories outside the [public list](../../../AGENTS.md#public-repository-content), use “a private repository” or “a target repository”. Omit names, numbers and links.
-  Cite reports by public repository path. Omit local, scratch and project-storage
-  paths. Use `/Users/you/` in examples.
+- Keep local, scratch and project-storage paths private. Use `/Users/you/`
+  for a path example.
 - Omit session, project and thread IDs and links. The generic
   `https://claude.ai/code` is the only ordinary claude.ai link allowed.
 - Use only noreply email addresses. Keep the required `Co-Authored-By:`
@@ -25,8 +24,7 @@ Signed-off-by: dependabot[bot] <support@github.com>
 ## Run the checker before publication
 
 Run `python3 -I .github/scripts/check_public_content.py` with the arguments
-below. It checks bare names in `PRIVATE_REPO_NAMES`. If unset, check them
-manually. Findings omit matched text.
+below. Findings omit matched text.
 
 | Before | Arguments |
 | --- | --- |

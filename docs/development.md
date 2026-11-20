@@ -76,12 +76,9 @@ are the required checks on `main`; a skipped run counts as passed.
 `.github/scripts/check_public_content.py` on each pull request's title, body
 and commits and the lines they add to files, and on each push to `main`, for
 the private details that [`AGENTS.md`](../AGENTS.md) *Public repository
-content* rules out: claude.ai links and session IDs, local paths, email
-addresses other than noreply ones, and repositories outside the public
-list. It leaves out the script and its own tests, which hold the patterns.
-It reads bare private repository names from the `PRIVATE_REPO_NAMES`
-repository secret, which pull requests from forks do not get, and prints
-where each finding is and its kind, never the matched text.
+content* rules out, including session links and IDs, local paths and private
+email addresses. The check skips its own script and tests, which contain the
+patterns. Findings report the location and kind without printing matched text.
 
 ## Validator options
 

@@ -20,8 +20,6 @@ _spec = importlib.util.spec_from_file_location("check_public_content", SCRIPT)
 check = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(check)
 
-# Made-up names: the real list lives in a secret, never in this repository.
-NAMES = "sunrise-app, Orchard"
 ATTRIBUTION = (
     '<!-- claude-projects-attribution: {"github_login":"someone"} -->\n'
     "_Requested by **Sam** · [project thread](https://claude.ai/code/project/"
@@ -29,8 +27,8 @@ ATTRIBUTION = (
 )
 
 
-def kinds(text, allow_attribution=False, names=NAMES):
-    return [kind for _, kind in check.scan(text, check.private_names(names), allow_attribution)]
+def kinds(text, allow_attribution=False):
+    return [kind for _, kind in check.scan(text, allow_attribution=allow_attribution)]
 
 
 class ScanTests(unittest.TestCase):
@@ -56,15 +54,6 @@ class ScanTests(unittest.TestCase):
             "/var/folders/xy/T/tmp.1234": "a local or project-storage path",
             "on /Volumes/Work/GitHub": "a local or project-storage path",
             "Plan: `~/GitHub/.omo/plans/x.md`": "a local or project-storage path",
-            "see bydradev/secret-thing#12": "a bydradev or bydraio repository outside the public list",
-            "https://github.com/bydradev/example-private": "a bydradev or bydraio repository outside the public list",
-            "moved from bydraio/old-private-app": "a bydradev or bydraio repository outside the public list",
-            "from _bydradev/secret-thing_": "a bydradev or bydraio repository outside the public list",
-            "from __bydradev/secret-thing__.": "a bydradev or bydraio repository outside the public list",
-            "see _bydradev/gh-agent-kit_ and bydradev/secret-thing":
-                "a bydradev or bydraio repository outside the public list",
-            "https://github.com/bydradev/gh-agent-kit_": "a bydradev or bydraio repository outside the public list",
-            "a snake_case bydradev/gh-agent-kit_": "a bydradev or bydraio repository outside the public list",
             "Signed-off-by: Sam <sam@mailbox.test>": "an email address other than a noreply one",
             "write to Sam.Lee+github@corp.Mailbox.test.": "an email address other than a noreply one",
             "[mail](mailto:sam@mailbox.test)": "an email address other than a noreply one",
@@ -74,10 +63,6 @@ class ScanTests(unittest.TestCase):
             "https://user:password@github.com/acme/repo by sam@mailbox.test": (
                 "an email address other than a noreply one"
             ),
-            "ported from sunrise-app's baseline": "a private repository name",
-            "as ORCHARD does": "a private repository name",
-            "from _sunrise-app_": "a private repository name",
-            "from __Orchard__": "a private repository name",
         }
         for text, kind in cases.items():
             with self.subTest(text=text):
@@ -92,15 +77,7 @@ class ScanTests(unittest.TestCase):
             "https://user:password@github.com/acme/repo and https://user@github.com/acme/repo",
             '"https://:password@github.com/acme/repo", "https://api.github.com@evil.test/items"',
             "git+ssh://deploy@git.mailbox.test/acme.git",
-            "bydradev/gh-agent-kit#72 and https://github.com/bydradev/gh-repo-bootstrapper.git",
-            "see bydradev/gh-actions-dashboard#12",
-            "the old name bydradev/github-agent-kit. still redirects",
-            "from _bydradev/gh-agent-kit_ and __bydraio/gh-repo-bootstrapper__.",
-            "[_bydradev/gh-actions-dashboard_](https://github.com/bydradev/gh-actions-dashboard)",
-            "_https://github.com/bydradev/gh-agent-kit.git_",
-            "notbydradev/secret-thing and x-bydraio/secret-thing are other owners",
             "a session_id field, a chan_ prefix",
-            "orchards, sunrise-apps and the-sunrise-app",
             "/home/runner/work is the runner's checkout",
             "/home/linuxbrew/.linuxbrew/bin/brew and GET /users/octocat",
             "https://example.com/mnt/data and https://claude.ai/code.",
@@ -141,16 +118,13 @@ class ScanTests(unittest.TestCase):
         for text in near:
             with self.subTest(text=text):
                 self.assertIn("an email address other than a noreply one", kinds(text))
-        for forbidden in ("sam@mailbox.test", "Claude-Session: x", "from sunrise-app",
-                          "bydradev/secret-thing", "/Users/sam/x"):
+        for forbidden in ("sam@mailbox.test", "Claude-Session: x", "/Users/sam/x"):
             self.assertEqual(kinds(footer + "\n" + forbidden), kinds(forbidden))
             self.assertEqual(kinds(forbidden + "\n" + footer), kinds(forbidden))
             self.assertTrue(kinds(footer + " " + forbidden))
-        # The exception does not bypass independent configured-name checks.
-        self.assertEqual(kinds(footer, names="dependabot"), ["a private repository name"])
 
     def test_reports_line_numbers(self):
-        found = check.scan("ok\n\nClaude-Session: x\n", [], False)
+        found = check.scan("ok\n\nClaude-Session: x\n")
         self.assertEqual(found, [(3, "a Claude-Session trailer")])
 
     def test_attribution_block_allowed_only_at_the_top_of_a_body(self):
@@ -161,12 +135,8 @@ class ScanTests(unittest.TestCase):
         self.assertIn("a claude.ai link", kinds(moved, allow_attribution=True))
         # Anything after the block is still checked.
         self.assertEqual(
-            kinds(ATTRIBUTION + "\nfrom sunrise-app\n", allow_attribution=True), ["a private repository name"]
+            kinds(ATTRIBUTION + "\nClaude-Session: x\n", allow_attribution=True), ["a Claude-Session trailer"]
         )
-
-    def test_no_names_means_no_bare_name_check(self):
-        self.assertEqual(kinds("from sunrise-app", names=""), [])
-        self.assertEqual([name for name, _ in check.private_names(" a,b\nc  ")], ["a", "b", "c"])
 
 
 def _git(directory, *args):
@@ -185,10 +155,9 @@ class CommandLineTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.dir = Path(self._tmp.name)
 
-    def _run(self, *args, names=NAMES, cwd=None):
-        env = {"PATH": os.environ["PATH"], "PRIVATE_REPO_NAMES": names}
+    def _run(self, *args, **env):
         result = subprocess.run(
-            [sys.executable, "-I", str(SCRIPT), *args], env=env, cwd=cwd or self.dir,
+            [sys.executable, "-I", str(SCRIPT), *args], env={"PATH": os.environ["PATH"], **env}, cwd=self.dir,
             capture_output=True, text=True, timeout=30,
         )
         return result.returncode, result.stdout + result.stderr
@@ -199,15 +168,15 @@ class CommandLineTests(unittest.TestCase):
     def test_never_prints_the_matched_text(self):
         body = self.dir / "body.md"
         body.write_text(
-            "Ported from sunrise-app.\nhttps://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV\n"
+            "Draft for review.\nhttps://claude.ai/code/session_01ABCDEFGHIJKLMNOPQRSTUV\n"
             "Signed-off-by: Sam <sam@mailbox.test>\n"
         )
-        code, out = self._run("--title=fix: port the sunrise-app fix", f"--pr-body={body}")
+        code, out = self._run("--title=fix: inspect /Users/sam/project", f"--pr-body={body}")
         self.assertEqual(code, 1, out)
-        self.assertIn("::error title=Public repository content::title, line 1: a private repository name", out)
+        self.assertIn("::error title=Public repository content::title, line 1: a local or project-storage path", out)
         self.assertIn("line 2: a claude.ai link", out)
         self.assertIn("line 3: an email address other than a noreply one", out)
-        self.assertNotIn("sunrise", out)
+        self.assertNotIn("/Users/sam", out)
         self.assertNotIn("session_01", out)
         self.assertNotIn("mailbox", out)
 
@@ -255,10 +224,13 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(out.count("::error"), 2, out)
         self.assertNotIn("mailbox", out)
 
-    def test_says_when_no_names_are_set(self):
-        code, out = self._run("--title=docs: x", names="")
-        self.assertEqual(code, 0, out)
-        self.assertIn("PRIVATE_REPO_NAMES is not set", out)
+    def test_repository_references_pass_even_with_a_legacy_name_list(self):
+        draft = "Example-project (bydradev/example-project#12, https://github.com/bydraio/example-project)."
+        for env in ({}, {"PRIVATE_REPO_NAMES": "example-project"}):
+            with self.subTest(env=env):
+                code, out = self._run("--title", draft, **env)
+                self.assertEqual(code, 0, out)
+                self.assertNotIn("PRIVATE_REPO_NAMES", out)
 
     def test_needs_something_to_check(self):
         code, _ = self._run()
@@ -294,7 +266,7 @@ class CommandLineTests(unittest.TestCase):
         self._git("tag", "base")
         self._commit("feat: add", {
             "notes.md": "old\nfrom /home/alice/old\nnew line\nsee /Users/sam/GitHub\n",
-            "docs/sunrise-app.md": "Signed-off-by: Sam <sam@mailbox.test>\n",
+            "docs/sam@mailbox.test.md": "Signed-off-by: Sam <sam@mailbox.test>\n",
             "logo.png": b"\x89PNG\x00/Users/sam/x\n",
             # The check's own script and tests hold the patterns they find.
             ".github/scripts/check_public_content.py": "# /Users/sam/x\n",
@@ -309,14 +281,14 @@ class CommandLineTests(unittest.TestCase):
         )
         # A file whose name has a finding is not named but numbered as
         # `git show --name-only` lists it; its lines are still checked.
-        self.assertIn(f"commit {commit}, changed file 2 (name not shown), name: a private repository name", out)
+        self.assertIn(f"commit {commit}, changed file 2 (name not shown), name: an email address other than a noreply one", out)
         self.assertIn(
             f"commit {commit}, changed file 2 (name not shown), line 1: an email address other than a noreply one",
             out,
         )
         # Not the old line, the removed file, the image or the exempt files.
         self.assertEqual(out.count("::error"), 3, out)
-        self.assertNotIn("sunrise", out)
+        self.assertNotIn("mailbox.test", out)
         self.assertNotIn("sam", out.lower())
 
     def test_files_are_read_commit_by_commit(self):
@@ -414,7 +386,7 @@ class StepTests(unittest.TestCase):
     def _step(self, name, **env):
         result = subprocess.run(
             ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", _step(name)],
-            env={"PATH": os.environ["PATH"], "PRIVATE_REPO_NAMES": NAMES, "RUNNER_TEMP": self._tmp.name, **env},
+            env={"PATH": os.environ["PATH"], "RUNNER_TEMP": self._tmp.name, **env},
             cwd=self.dir, capture_output=True, text=True, timeout=30,
         )
         return result.returncode, result.stdout + result.stderr
@@ -428,16 +400,16 @@ class StepTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("jq"), "needs jq")
     def test_pull_request_step(self):
-        code, out = self._pr_step("fix: two", ATTRIBUTION + "\nfrom Orchard\n", self.base)
+        code, out = self._pr_step("fix: two", ATTRIBUTION + "\ncontact sam@mailbox.test\n", self.base)
         self.assertEqual(code, 1, out)
-        self.assertIn("body, line 4: a private repository name", out)
+        self.assertIn("body, line 4: an email address other than a noreply one", out)
         self.assertRegex(out, r"commit [0-9a-f]{7}, line 3: a Claude-Session trailer")
         self.assertRegex(out, r"commit [0-9a-f]{7}, file notes\.md, line 1: a local or project-storage path")
-        self.assertNotIn("Orchard", out)
-        code, out = self._pr_step("fix: Orchard", ATTRIBUTION, self.head)
+        self.assertNotIn("mailbox.test", out)
+        code, out = self._pr_step("fix: contact sam@mailbox.test", ATTRIBUTION, self.head)
         self.assertEqual(code, 1, out)
-        self.assertIn("title, line 1: a private repository name", out)
-        self.assertNotIn("Orchard", out)
+        self.assertIn("title, line 1: an email address other than a noreply one", out)
+        self.assertNotIn("mailbox.test", out)
         code, out = self._pr_step("fix: two", ATTRIBUTION, self.head)
         self.assertEqual(code, 0, out)
         # A pull request opened with no description has a null body.
@@ -468,7 +440,7 @@ class WorkflowTests(unittest.TestCase):
         for step in runs:
             self.assertIn(".github/scripts/check_public_content.py", step["run"])
             self.assertRegex(step["run"], r'--files="\$(BASE\.\.\$HEAD|range)"')
-            self.assertEqual(step["env"]["PRIVATE_REPO_NAMES"], "${{ secrets.PRIVATE_REPO_NAMES }}")
+            self.assertNotIn("PRIVATE_REPO_NAMES", step["env"])
         self.assertEqual(workflow["permissions"], {"contents": "read"})
 
 
@@ -490,6 +462,6 @@ class RepositoryTests(unittest.TestCase):
             data = path.read_bytes()
             if b"\0" in data:
                 continue
-            for number, kind in check.scan(name + "\n" + data.decode("utf-8", "replace"), []):
+            for number, kind in check.scan(name + "\n" + data.decode("utf-8", "replace")):
                 found.setdefault(name, []).append((number - 1, kind))  # line 0 is the name
         self.assertEqual(found, {})

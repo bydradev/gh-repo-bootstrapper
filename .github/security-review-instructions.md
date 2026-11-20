@@ -1,6 +1,6 @@
 Repository-specific security focus for gh-repo-bootstrapper:
 
-- Nothing names a private repository or carries a claude.ai link other
+- Keep private personal details out of public content. Check for claude.ai links other
   than `https://claude.ai/code`, a `Claude-Session:` trailer, an email
   address other than a noreply one, or a path from an agent's machine, in
   files, commits or pull request text (*Public repository content* in

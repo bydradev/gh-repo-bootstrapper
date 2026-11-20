@@ -21,6 +21,10 @@ Claude mirror, it also keeps a hub that still carries the inline commit
 trailer rules. Resolve the reported conflict, preserve local skill changes in
 a repository-owned skill and rerun adoption. Review the diff before committing.
 
+Every type also gets a shorter description for `review-guidelines`. The
+follow-up procedure now explains when a rebase gets an addendum. Run
+`--adopt` to refresh an unedited copy.
+
 ## Upgrading to 0.24.6
 
 Every type: the title check (`.github/workflows/pr-title-check.yml`) now also

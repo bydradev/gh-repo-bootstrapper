@@ -1,9 +1,9 @@
 ---
 name: review-guidelines
 description: >-
-  Use when reviewing a change as the reviewer: a pull request, branch or diff that someone else wrote, whether the implementer or a person asked for the review. Covers what to read first, initial and follow-up reviews, focus areas, what counts as a finding, severities P0 to P3, finding IDs and statuses, the verdict and report template, and this stack's checks.
+  Use for an initial or follow-up review of someone else's pull request, branch or diff.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=b02ffe00b114a86224a34e3d3d655db59269c0c05cc3de2c53fea446a6b86616 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=7b0b74cbfd05d485b65c5e57b3a41a0865e013da12b2f90a54c3e0b2b71cf7bf -->
 
 # Review guidelines
 
@@ -82,7 +82,10 @@ change again.
    after a rewrite, separate the author's changes with `git range-diff`, and
    read a base merge with `git show --remerge-diff <merge>`. Without git, ask
    whoever started the review for the delta; if it cannot be isolated, run a
-   full review.
+   full review. For a rebase alone, check that `git range-diff` shows unchanged
+   author commits. If the requested outcome and the base behaviour those
+   commits depend on are also unchanged, post an addendum to the last round
+   ("No content change since R*n*", with the new head) and stop there.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the
@@ -102,7 +105,8 @@ change again.
 7. **Keep identity stable.** Earlier findings keep their IDs. Change a
    severity only with a stated reason, such as new evidence or wider exposure.
 
-Run a full review as well as steps 1, 3, 5 and 7, and say why, when:
+In a new follow-up round, run a full review as well as steps 1, 3, 5 and 7,
+and say why, when:
 
 - the delta rewrites most of a changed file, changes the approach, or adds
   files in a high-risk area;
@@ -131,9 +135,6 @@ open findings and what each round changed.
   matches their stamp are template output, not local edits. Check that
   `## Project specifics` survived, that no repository rule was dropped, and
   that kept action pins are listed.
-- **Rebase only.** When `git range-diff` shows no change to the author's
-  commits, post an addendum to the last round ("No content change since
-  R*n*", with the new head). It is not a new round.
 
 ## Focus areas
 

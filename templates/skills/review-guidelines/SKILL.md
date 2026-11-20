@@ -81,9 +81,10 @@ change again.
    after a rewrite, separate the author's changes with `git range-diff`, and
    read a base merge with `git show --remerge-diff <merge>`. Without git, ask
    whoever started the review for the delta; if it cannot be isolated, run a
-   full review. If `git range-diff` shows the author's commits are unchanged
-   and none of the full-review conditions below apply, add “No content change
-   since R*n*” and the new head to the last round. Keep the same round number.
+   full review. For a rebase alone, check that `git range-diff` shows unchanged
+   author commits. If the requested outcome and the base behaviour those
+   commits depend on are also unchanged, post an addendum to the last round
+   ("No content change since R*n*", with the new head) and stop there.
 3. **Verify each open finding on the new head yourself.** A commit message or
    reply saying "fixed" is a claim. A finding is fixed when its trigger no
    longer produces its impact, ideally shown by a test that fails without the
@@ -103,7 +104,8 @@ change again.
 7. **Keep identity stable.** Earlier findings keep their IDs. Change a
    severity only with a stated reason, such as new evidence or wider exposure.
 
-Run a full review as well as steps 1, 3, 5 and 7, and say why, when:
+In a new follow-up round, run a full review as well as steps 1, 3, 5 and 7,
+and say why, when:
 
 - the delta rewrites most of a changed file, changes the approach, or adds
   files in a high-risk area;

@@ -3,7 +3,7 @@ name: review-guidelines
 description: >-
   Use for an initial or follow-up review of someone else's pull request, branch or diff.
 ---
-<!-- gh-repo-bootstrapper: template-owned; sha256=bd69bcbe5acb9789cf630572f74f03ad71e979ac16cb3cad1ecbd04ef08fe578 -->
+<!-- gh-repo-bootstrapper: template-owned; sha256=f95b90f5c3e614dadeacb05bad44dc800e0aeab3dcf2465a829e9ed425296111 -->
 
 # Review guidelines
 
@@ -164,17 +164,18 @@ Mark partial, stale or cached results accurately. Paginate to the end or
 report the interruption. Honour cancellation, prevent stale async writes and
 release resources on every path. Check retry idempotency.
 
-**Data and migrations.** Load existing data, including local storage, saved files,
-settings and caches. Check migration order, rollback or forward recovery,
-locks, backfills and required columns without defaults on large tables. Parameterise queries, index new access paths, make
-multi-step writes atomic and exercise database behaviour against a real database.
+**Data and migrations.** Check that users’ existing files, settings, caches and
+local storage still load. Check migration order, rollback or forward recovery,
+locks, backfills and required columns without defaults on large tables.
+Parameterise queries, index new access paths, make multi-step writes atomic
+and exercise database behaviour against a real database.
 
 **Interfaces.** Preserve compatibility for APIs, flags, config, formats, URLs
 and events, or document the break and mark it with `!` or a `BREAKING CHANGE` footer.
 
 **Tests.** Exercise changed behaviour, boundaries and failures with realistic
-fixtures and assertions that would fail without the change. Inspect snapshot
-and golden-file diffs. Watch for flaky timing, network or ordering. Reject
+fixtures and assertions that would fail without the change. Check that snapshot
+and golden-file diffs contain only intended changes. Watch for flaky timing, network or ordering. Reject
 skipped, weakened or deleted checks used to get green.
 
 **CI and workflows.** Pin actions to full SHAs and minimise permissions.
@@ -306,8 +307,9 @@ sections, except *Coverage* and *Limits*, which every report has.
 ### Findings
 
 - **R2-01 P1 Reliability** · `lib/sync.ts:88-104` · introduced, high.
-  When a slow request returns after a newer one, the unconditional write at
-  line 104 replaces the current total with stale data. Suggest a fix if useful.
+  Traced both refresh calls to the unconditional write at line 104. When the
+  older request finishes last, it replaces the current total with stale data.
+  Check the request ID before writing.
 
 ### Earlier findings
 

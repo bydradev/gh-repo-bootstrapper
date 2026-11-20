@@ -122,25 +122,8 @@ contributors follow its commit and PR conventions and
 
 ### Tooling
 
-These commands extend the generated sections above with this repository's
-pre-push checks.
-
-Run checks before pushing:
-
-```sh
-uv run --with pyyaml python3 validate_templates.py
-uv run --with pytest --with pyyaml python3 -m pytest
-node --test templates/*.test.mjs
-npx --yes prettier@3.9.9 --config templates/.prettierrc.json --check "templates/*.mjs"
-npx --yes eslint@9.39.5 --no-config-lookup --rule '{"no-unused-vars":"error"}' "templates/*.mjs"
-md_dir=$(mktemp -d)
-uv run --with pyyaml python3 validate_templates.py --render-markdown "$md_dir"
-npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc "$md_dir/**/*.md"
-rm -rf "$md_dir"
-npx --yes markdownlint-cli2@0.23.3 --config markdownlint-generated.jsonc \
-  "*.md" "docs/**/*.md" ".github/**/*.md" ".agents/**/*.md" "!CHANGELOG.md"
-python3 -I .github/scripts/check_public_content.py --range=origin/main..HEAD --files=origin/main..HEAD
-```
+Before pushing, run [`.github/scripts/pre-push.sh`](.github/scripts/pre-push.sh)
+in the [development environment](docs/development.md#run-the-checks).
 
 ### Template-owned workflows
 

@@ -25,6 +25,11 @@ Every type also gets a shorter description for `review-guidelines`. The
 follow-up procedure now explains when a rebase gets an addendum. Run
 `--adopt` to refresh an unedited copy.
 
+Android repositories can refresh `local-validation-android` and
+`review-guidelines` with `--adopt`. Each skill now includes the same
+application safeguards. Review local edits to either skill if adoption
+reports a refusal.
+
 ## Upgrading to 0.24.6
 
 Every type: the title check (`.github/workflows/pr-title-check.yml`) now also

@@ -51,21 +51,27 @@ writes the *Work tracking* section of `AGENTS.md` between its markers; this
 repository's own lines moved to *Issue forms* and *Kit workflows in
 validation* after it.
 
-## Releases and adoption (2026-11-12)
+## Releases and adoption (2026-11-22)
 
-v0.23.3 is the latest release. v0.23.0 (2026-11-11) added
-`--type android`, and changed nothing for the other types. v0.23.1 to
-v0.23.3 fix the Android type: its pull request checks stop with a clear
-error when the Spotless plugin is missing, its guidance fits any app
-instead of one app's SDK levels, and its `test.yml` validates the Gradle
-wrapper and caches Gradle
-([Upgrading to 0.23.3](upgrading.md#upgrading-to-0233)). v0.22.0
-(2026-10-28) shortened the generated skills. Generated repositories take
-each release in an adoption round, one `chore: adopt gh-repo-bootstrapper
-<version>` pull request per repository; gh-agent-kit adopted 0.22.0 on
-2026-10-29. No adoption round has run since, because 0.23.x changes only
-the Android type. Older releases are in the
-[changelog](../CHANGELOG.md) and [Upgrading](upgrading.md).
+[v0.25.1](https://github.com/bydradev/gh-repo-bootstrapper/releases/tag/v0.25.1)
+is the latest release. It fixes a partial-adoption case in which a hub could
+refer to a commit skill that was not installed; its templates match v0.25.0.
+[v0.25.0](https://github.com/bydradev/gh-repo-bootstrapper/releases/tag/v0.25.0)
+shortened the generated agent hub and review guidance. See
+[Upgrading](upgrading.md) and the [changelog](../CHANGELOG.md) for the
+release history.
+
+The v0.25.0 shared agent instructions were selectively rolled out to seven
+downstream repositories, preserving each repository's own instructions and
+leaving other template drift for audit. The rollout also updated installations
+of gh-agent-kit to v0.7.0.
+
+As of 2026-11-22, audit follow-up pull requests in private repositories
+include 11 merged, 17 open and ready for review, and one closed without
+merging after a slower runner trial. A further repository's audit is pending.
+In the public gh-agent-kit repository,
+[#79](https://github.com/bydradev/gh-agent-kit/pull/79) is open and ready
+for review.
 
 ## Documentation (2026-10-24)
 

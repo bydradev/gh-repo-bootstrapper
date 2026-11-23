@@ -5,51 +5,32 @@ decisions and when they were made, and anything deliberately not done yet.
 `AGENTS.md` holds the durable rules; status that can go stale belongs here.
 Date each entry, and delete it once it no longer applies.
 
-## gh-agent-kit (2026-11-17)
+## gh-agent-kit (2026-11-23)
 
-gh-agent-kit v0.5.0 is installed, with the settings in
-`.github/gh-agent-kit.yml` that the operator chose for every kit repository
-on 2026-10-27: `pr-review` reviews each push to a pull request,
-`security-scan` scans a pull request when it opens, `issue-triage` triages
-issues, and `kit-update-check` opens an issue when a newer kit release is
-out. They run beside Codex Cloud's reviews and gate nothing. The install
-keeps this repository's own issue forms (`--issue-forms=own`; `AGENTS.md`,
-*Issue forms*). The operator added the `ANTHROPIC_API_KEY` secret and the
-labels on 2026-10-27; the update from v0.1.0 that day changed no label.
+gh-agent-kit v0.7.0 is installed (`.github/gh-agent-kit.lock`, ref
+`4f62668e`, updated on 2026-11-20 from v0.5.0). The operator chose its
+settings for every kit repository on 2026-10-27: `pr-review` reviews each push
+to a pull request, `security-scan` scans a pull request when it opens,
+`issue-triage` triages issues, and `kit-update-check` opens an issue when a
+newer kit release is out. They run beside Codex Cloud's reviews and gate
+nothing. `pr-issue-link` stays off, since `KIT_ISSUE_LINK_CHECK` is not set.
+The install keeps this repository's own issue forms (`--issue-forms=own`;
+`AGENTS.md`, *Issue forms*). Since v0.6.0 the bots' posts are held to the
+public-content check.
 
-On 2026-10-28 the review, scan and triage moved to OpenCode Go, on its
-default model `deepseek-v4.1-flash`: `KIT_REVIEW_PROVIDER`,
-`KIT_SECURITY_PROVIDER` and `KIT_TRIAGE_PROVIDER` are `opencode-go` and
-`KIT_REVIEW_MAX_TURNS` is 120 in `.github/gh-agent-kit.yml`. The operator
-added the `OPENCODE_API_KEY` secret that day; `ANTHROPIC_API_KEY` stays
-set, unused while the providers are `opencode-go`.
+The review, scan and triage run on Anthropic: the repository variables
+`KIT_REVIEW_PROVIDER`, `KIT_SECURITY_PROVIDER` and `KIT_TRIAGE_PROVIDER` were
+set to `anthropic` on 2026-11-18. They override the `opencode-go` values still
+in `.github/gh-agent-kit.yml`. On the kit's default models, review and scan
+use `claude-opus-5-5` and triage uses `claude-sonnet-5-5` (seen in a triage
+run on 2026-11-23). The `ANTHROPIC_API_KEY` and `OPENCODE_API_KEY` secrets are
+both set.
 
-On 2026-10-28 the kit was updated to v0.4.0 (from v0.3.1). On OpenCode Go
-the review, scan and triage now run in OpenCode's CLI, since the runner
-follows the provider; before, they ran in Claude Code on Go. The triage
-and review skills set out their decision steps case by case, and a claim
-comment on an issue carries no session link. The install kept this
-repository's own issue forms, and no setting, secret or label changed.
-
-On 2026-10-29 the kit was updated to v0.4.1: a run that ends in error
-prints the end of OpenCode's log, and triage puts `.git` back in the
-checkout after its run. No setting, secret or label changed.
-
-On 2026-11-17 the kit was updated to v0.5.0. A bug or feature the operator
-asks for directly now gets an issue first, labelled `requested`, filed with
-the new `github-issue-file` skill. The new `pr-issue-link` workflow checks
-that a pull request says `Closes #<n>` or `No issue:`; it stays off until
-`KIT_ISSUE_LINK_CHECK` is `on`, which is not set here. The labels go from 15
-to 13: `requested` is added, and `ready`, `blocked` and `docs` are dropped,
-which `.github/scripts/sync-labels.sh --migrate` applies once this update
-is on `main`. When OpenCode Go turns a request away as at capacity, the
-review, scan and triage wait 60, 120 and then 180 seconds for each refusal
-in a row (or the time the refusal names, when longer), start the count
-again once a step is served, and stop when the wait would not fit the
-step's `KIT_*_TIMEOUT_MINUTES` less a 300-second reserve. The installer now
-writes the *Work tracking* section of `AGENTS.md` between its markers; this
-repository's own lines moved to *Issue forms* and *Kit workflows in
-validation* after it.
+The triage bot never plans an issue that `github-actions[bot]` opened, such as
+an out-of-scope finding that `pr-review` files, and `github-issue-e2e` accepts
+only the bot's plan. Such an issue is worked only on the operator's waiver or
+after being re-filed, until bydradev/gh-agent-kit#80 is resolved (recorded
+2026-11-23).
 
 ## Releases and adoption (2026-11-22)
 

@@ -7,6 +7,15 @@ adopted at and the current one, then run `--check` and `--adopt` as
 [changelog](../CHANGELOG.md) lists every change; these notes cover what a
 repository has to do or decide.
 
+## Upgrading to 0.26.0
+
+Every repository type gets `.claude/settings.json`, which sets
+`attribution.sessionUrl` to `false` so Claude Code adds no claude.ai session
+link to commits and pull requests from cloud or Remote Control sessions.
+`--adopt` writes it where it is missing. An existing file is the repository's
+own and is never rewritten: `--check` reports it as `differs` only when
+`attribution.sessionUrl` is not `false`, and then you set that key by hand.
+
 ## Upgrading to 0.25.0
 
 Every repository type gets a shorter `AGENTS.md`. Detailed commit attribution

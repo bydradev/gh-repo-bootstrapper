@@ -145,8 +145,9 @@ export RELEASE_PLEASE_CLIENT_ID="..."
 | `simple` | scripts, docs, anything without a test suite | none: Release Please only | none |
 
 Every type also gets a README starter, `AGENTS.md` and `CLAUDE.md`, the
-agent skills, `docs/current-work.md`, a pull request template, the PR title
-check, Release Please and Dependabot. The bootstrapper does not create the
+agent skills, `docs/current-work.md`, a pull request template,
+`.claude/settings.json` (session links off), the PR title check, Release
+Please and Dependabot. The bootstrapper does not create the
 application itself (no `package.json`, `cargo init` or Xcode project) or any
 deployment. [Repository types](docs/repository-types.md) lists every file per
 type and what each type assumes of the application.

@@ -444,6 +444,67 @@ class ExistingRepositoryTests(unittest.TestCase):
         self.assertEqual((self.repo / "README.md").read_text(), "# Mine\n")
         self.assertEqual((self.repo / bootstrap.CURRENT_WORK).read_text(), "# Current work\n\nOurs.\n")
 
+    def test_claude_settings_are_written_when_missing_and_judged_on_session_url_alone(self):
+        files = _render()
+        rel = bootstrap.CLAUDE_SETTINGS
+        self.assertEqual(json.loads(files[rel]), {"attribution": {"sessionUrl": False}})
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel], ("missing", None))
+        self.assertIn(("wrote", rel, ""), bootstrap.adopt_repository(self.repo, files))
+        self.assertEqual((self.repo / rel).read_text(), files[rel])
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel], ("same", None))
+        # Other keys and formatting are the repository's own: not drift.
+        own = '{"permissions": {"allow": ["Bash(ls)"]},\n "attribution": {"sessionUrl": false, "pr": ""}}'
+        self._write(rel, own)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel], ("same", None))
+        self.assertNotIn(rel, [action[1] for action in bootstrap.adopt_repository(self.repo, files)])
+        self.assertEqual((self.repo / rel).read_text(), own)
+
+    def test_claude_settings_that_differ_are_reported_and_never_overwritten(self):
+        files = _render()
+        rel = bootstrap.CLAUDE_SETTINGS
+        unset = "attribution.sessionUrl is not false"
+        for text, needle in (
+            ('{\n  "permissions": {"deny": []},\n  "attribution": {"sessionUrl": true}\n}\n', unset),
+            ('{"permissions": {}}', unset),
+            ('{"attribution": {"sessionUrl": "false"}}', unset),
+            ('{"attribution": false}', unset),
+            ("[]", "not a JSON object"),
+            ("{\n", "not valid JSON"),
+            ('{"attribution": {"sessionUrl": false}, "x": NaN}', "not valid JSON"),
+            ('{"attribution": {"sessionUrl": false}, "x": -Infinity}', "not valid JSON"),
+            ('{"attribution": {"sessionUrl": false}, "x": ' + "[" * 100_000 + "]" * 100_000 + "}",
+             "nested too deeply"),
+        ):
+            with self.subTest(text=text):
+                self._write(rel, text)
+                status, detail = bootstrap.compare_repository(self.repo, files)[rel]
+                self.assertEqual(status, "differs")
+                self.assertIn(needle, detail)
+                self.assertIn("attribution.sessionUrl", detail)
+                self.assertIn(("kept", rel, f"{detail}; not overwritten"), bootstrap.adopt_repository(self.repo, files))
+                self.assertEqual((self.repo / rel).read_text(), text)
+        (self.repo / rel).write_bytes(b"\xff\xfe{}")
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel][0], "differs")
+        self.assertEqual((self.repo / rel).read_bytes(), b"\xff\xfe{}")
+
+    def test_claude_settings_behind_a_symlink_or_ignored_are_refused(self):
+        files = _render()
+        rel = bootstrap.CLAUDE_SETTINGS
+        self._write("elsewhere/settings.json", "{}\n")
+        (self.repo / ".claude").mkdir()
+        (self.repo / rel).symlink_to("../elsewhere/settings.json")
+        refused = ("symlink", "a symlink in this path; not compared or written")
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel], refused)
+        self.assertIn(("refused", rel, refused[1]), bootstrap.adopt_repository(self.repo, files))
+        self.assertEqual((self.repo / "elsewhere/settings.json").read_text(), "{}\n")
+        (self.repo / rel).unlink()
+        self._git_init()
+        self._write(".gitignore", ".claude/settings.json\n")
+        ignored = ("ignored", "ignored by git; update the ignore rules before adopting")
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)[rel], ignored)
+        self.assertIn(("refused", rel, ignored[1]), bootstrap.adopt_repository(self.repo, files))
+        self.assertFalse((self.repo / rel).exists())
+
     def test_adopt_adds_no_pull_request_template_beside_the_repository_own(self):
         files = _render()
         for own in ("pull_request_template.md", "docs/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md",

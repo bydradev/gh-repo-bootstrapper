@@ -113,6 +113,13 @@ CURRENT_WORK = "docs/current-work.md"
 # checked 2026-10-19).
 PR_TEMPLATE = ".github/pull_request_template.md"
 PR_TEMPLATE_FOLDERS = (".github", "", "docs")
+# Repository-owned Claude Code project settings. Only attribution.sessionUrl is
+# the template's: false omits the claude.ai session link (a Claude-Session
+# commit trailer and a pull request URL) that cloud and Remote Control sessions
+# otherwise add ("attribution.sessionUrl", Claude Code settings reference,
+# checked 2026-11-23). Other keys are the repository's own, so --check judges
+# that key alone and --adopt writes the file only when it is missing.
+CLAUDE_SETTINGS = ".claude/settings.json"
 README = "README.md"
 AGENTS_SIZE_WARN_BYTES = 20_000
 # Fits the longest --check state, `local-modified`, so every path lines up.
@@ -1839,6 +1846,9 @@ def generate_files(cfg: dict) -> dict:
     # requires. --adopt writes it only when the repository has no pull
     # request template of its own.
     files[PR_TEMPLATE] = _load("pull-request-template.md")
+    # Repository-owned: turns off the session link in commits and pull
+    # requests. --adopt writes it only when missing; see _claude_settings_state.
+    files[CLAUDE_SETTINGS] = _load("claude-settings.json")
 
     preamble = ""
     tooling = ""
@@ -3210,6 +3220,43 @@ def _pr_template_state(repo_dir: Path) -> tuple | None:
     return ("missing", None)
 
 
+def _reject_json_constant(name: str):
+    """json.loads accepts NaN and Infinity, which are not JSON; refuse them."""
+    raise ValueError(f"{name} is not valid JSON")
+
+
+def _claude_settings_state(repo_dir: Path) -> tuple:
+    """The report entry for CLAUDE_SETTINGS, judged on attribution.sessionUrl alone.
+
+    The file is the repository's own: its other keys and its formatting are
+    never drift, and --adopt keeps a differing file as it is. A symlink in the
+    path, or a path git ignores, is refused, since nothing reaches the default
+    branch through it.
+    """
+    if _symlink_in_path(repo_dir, CLAUDE_SETTINGS):
+        return ("symlink", "a symlink in this path; not compared or written")
+    if _git_ignored(repo_dir, CLAUDE_SETTINGS):
+        return ("ignored", "ignored by git; update the ignore rules before adopting")
+    path = repo_dir / CLAUDE_SETTINGS
+    if not path.is_file():
+        return ("missing", None)
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"), parse_constant=_reject_json_constant)
+    except UnicodeDecodeError:
+        return ("differs", "not UTF-8 text; set attribution.sessionUrl to false by hand")
+    except ValueError:
+        return ("differs", "not valid JSON; set attribution.sessionUrl to false by hand")
+    except RecursionError:
+        return ("differs", "nested too deeply to read; set attribution.sessionUrl to false by hand")
+    if not isinstance(data, dict):
+        return ("differs", "not a JSON object; set attribution.sessionUrl to false by hand")
+    attribution = data.get("attribution")
+    if isinstance(attribution, dict) and attribution.get("sessionUrl") is False:
+        return ("same", None)
+    return ("differs", "attribution.sessionUrl is not false; set it to false to keep the session link "
+            "out of commits and pull requests")
+
+
 def _extra_owned_files(repo_dir: Path, files: dict) -> dict:
     """Find orphaned stamped files and name collisions, without following links."""
     extras = {}
@@ -3405,6 +3452,12 @@ def compare_repository(repo_dir: Path, files: dict, links: dict = None) -> dict:
             if state is not None:
                 report[rel] = state
                 continue
+        if rel == CLAUDE_SETTINGS:
+            try:
+                report[rel] = _claude_settings_state(repo_dir)
+            except OSError as exc:
+                report[rel] = ("unreadable", f"{type(exc).__name__}: {exc.strerror or exc}")
+            continue
         try:
             linked = _symlink_in_path(repo_dir, rel)
         except OSError as exc:
@@ -4299,6 +4352,8 @@ def _adopt_file(
         return ("wrote", rel, "")
     if rel in MANAGED_BLOCK_FILES and isinstance(detail, dict):
         return _adopt_managed_block(repo_dir, rel, detail, expected)
+    if rel == CLAUDE_SETTINGS and isinstance(detail, str):
+        return ("kept", rel, f"{detail}; not overwritten")
     if rel != "AGENTS.md":
         return ("kept", rel, "differs from the template; not overwritten")
     if not _git_file_is_clean(repo_dir, rel):

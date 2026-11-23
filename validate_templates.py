@@ -599,7 +599,7 @@ TEMPLATE_RUNBOOK_PATH = Path(__file__).parent / TEMPLATE_RUNBOOK
 OWN_COPY_CONFIG = {
     "name": "gh-repo-bootstrapper", "repo_type": "simple", "postgres": False, "scheme": "", "screenshots": False,
 }
-OWN_COPY_FILES = ("AGENTS.md", "CLAUDE.md")
+OWN_COPY_FILES = ("AGENTS.md", "CLAUDE.md", bootstrap.CLAUDE_SETTINGS)
 OWN_COPY_DIRS = (".agents/skills/", ".claude/skills/", ".claude/agents/", ".opencode/agents/")
 
 # The bug-report form asks which repository type and which flags were in play.
@@ -3014,6 +3014,24 @@ def check_pr_template(label: str, files: dict) -> list:
     return []
 
 
+def check_claude_settings(label: str, files: dict) -> list:
+    """The generated .claude/settings.json turns the session link off and stays repository-owned."""
+    rel = bootstrap.CLAUDE_SETTINGS
+    text = files.get(rel)
+    if text is None:
+        return [f"[{label}] missing {rel}, which turns off the session link in commits and pull requests"]
+    if bootstrap.read_stamp(text)[0] is not None or bootstrap.STAMP_PREFIX in text:
+        return [f"[{label}] {rel} is repository-owned and must carry no ownership stamp"]
+    try:
+        data = json.loads(text, parse_constant=bootstrap._reject_json_constant)
+    except ValueError:
+        return [f"[{label}] {rel} must be valid JSON"]
+    attribution = data.get("attribution") if isinstance(data, dict) else None
+    if not isinstance(attribution, dict) or attribution.get("sessionUrl") is not False:
+        return [f"[{label}] {rel} must set attribution.sessionUrl to false"]
+    return []
+
+
 def _kit_workflow_paths() -> frozenset:
     """The kit's workflows that gh-agent-kit's lock says it installed, seeds left out.
 
@@ -3357,7 +3375,9 @@ def check_own_template_copies(label: str, repo_dir: Path) -> list:
             detail = "an unstamped file at a template skill's path"
             fix = ("move any change you want to keep into the template under templates/, then delete "
                    "it and run " + adopt.format("") + commit)
-        elif status in ("shadowed", "symlink", "ignored", "unreadable"):
+        elif status in ("shadowed", "symlink", "ignored", "unreadable") or (
+            rel == bootstrap.CLAUDE_SETTINGS and status == "differs"
+        ):
             fix = None  # the detail says what is wrong, such as a name collision to rename
         elif rel == "AGENTS.md":
             if isinstance(detail, list):
@@ -5600,6 +5620,26 @@ def _structure_self_tests() -> list:
            template_errors(pr_template.replace("User-visible: yes or no", "User-visible: yes", 1)),
            "leave the user-visible answer")
 
+    # The generated Claude Code settings turn the session link off, unstamped.
+    def settings_errors(text):
+        return check_claude_settings(
+            "self-test:claude settings", {} if text is None else {bootstrap.CLAUDE_SETTINGS: text}
+        )
+
+    settings = bootstrap.generate_files(
+        dict(next(c for _, c in configurations() if c["repo_type"] == "simple"))
+    )[bootstrap.CLAUDE_SETTINGS]
+    expect("claude settings in a clean simple render", settings_errors(settings), None)
+    expect("claude settings missing", settings_errors(None), "missing")
+    expect("claude settings turn the session link on",
+           settings_errors(settings.replace("false", "true", 1)), "sessionUrl to false")
+    expect("claude settings without the key", settings_errors("{}\n"), "sessionUrl to false")
+    expect("claude settings not JSON", settings_errors("{\n"), "valid JSON")
+    expect("claude settings with NaN", settings_errors(settings.replace("false", "false, \"x\": NaN", 1)),
+           "valid JSON")
+    expect("claude settings carry a stamp",
+           settings_errors(bootstrap.STAMP_PREFIX + "0" * 64 + " -->\n" + settings), "no ownership stamp")
+
     # This repository's own agent files: a copy of the render passes, Project
     # specifics are its own, and an edited, stale, missing, unstamped or extra
     # copy, a moved link, or an edited generated hub section fails.
@@ -5705,6 +5745,7 @@ def main() -> int:
         all_errors += check_release_step_names(label, files)
         all_errors += check_user_visible_step(label, files)
         all_errors += check_pr_template(label, files)
+        all_errors += check_claude_settings(label, files)
         all_errors += check_reusable_workflow_inputs(label, files)
         all_errors += check_release_full_suite_contract(label, cfg["repo_type"], files)
         all_errors += check_rust_suite(label, cfg["repo_type"], files)

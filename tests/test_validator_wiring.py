@@ -39,6 +39,7 @@ CHECKS = (
     "check_release_step_names",
     "check_user_visible_step",
     "check_pr_template",
+    "check_claude_settings",
     "check_reusable_workflow_inputs",
     "check_release_full_suite_contract",
     "check_rust_suite",

@@ -14,7 +14,7 @@ additional files and README guidance for that type.
 
 | Type | For | CI | Options |
 |---|---|---|---|
-| [`nextjs`](#nextjs) | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots` |
+| [`nextjs`](#nextjs) | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots`, `--cloudflare-rules`, `--app-dir` |
 | [`python`](#python) | Python packages and tools | ruff format check, ruff, mypy, pytest | none |
 | [`android`](#android) | Android applications | fast checks on PRs; full `./gradlew check` on release merges; local device checks | `--screenshots` |
 | [`swift`](#swift) | Xcode apps | `swift-format` lint on every PR; `xcodebuild test` on release merges | `--scheme` (required), `--destination`, `--xcodegen`, `--screenshots` |
@@ -90,6 +90,17 @@ Options:
 - `--postgres`: adds a PostgreSQL 16 service container to the build job
 - `--screenshots`: adds the `screenshot-review` skill and
   `docs/screenshot-review.md`, for an app with a screenshot capture lane
+- `--cloudflare-rules`: adds a `## Cloudflare deployment` section to
+  `AGENTS.md`, after *Autonomy and escalation*. Its stop-and-ask rules cover
+  merging a Release Please PR while `release-deploy.yml` deploys
+  (`CLOUDFLARE_DEPLOY_ENABLED`), running Wrangler's deploy, version, rollback
+  and secret commands (dry runs exempt), and the vendored `cloudflare/skills`
+  pinned in `skills-lock.json`. It names the production URL, the npm scripts
+  and the skill list by reference, so a repository keeps those details, and
+  rules of its own such as Workers Previews, under `## Project specifics`
+- `--app-dir src/app` or `--app-dir app`: replaces the generated App Router
+  line, "Routes live in `app/` or `src/app/`", with one naming only that
+  folder, so a repository no longer narrows it under `## Project specifics`
 
 `ci.yml` and `release-please.yml` use the canonical light-PR/full-release
 caller contract. `test.yml` is necessarily scaffold-general: it retains that
@@ -319,6 +330,9 @@ test suite.
 ## Deployments
 
 The previous provider-deployment flags are rejected as unknown options. The
-bootstrapper no longer generates or configures provider deployments. Add a
+bootstrapper no longer generates or configures provider deployments.
+`--cloudflare-rules` (nextjs only) adds stop-and-ask rules to `AGENTS.md` for a
+repository that already deploys to Cloudflare Workers; it writes no workflow,
+`wrangler.jsonc` or setting. Add a
 reviewed, application-owned deployment workflow after choosing a provider; keep
 it separate from `release-please.yml`.

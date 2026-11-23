@@ -52,6 +52,8 @@ storing those two values with them.
 | `--org TEXT` | GitHub org or user (default: authenticated user) |
 | `--private` / `--public` | Visibility (default: private) |
 | `--postgres` | Add PostgreSQL 16 service to test workflow (nextjs only) |
+| `--cloudflare-rules` | Add the `AGENTS.md` stop-and-ask rules for Cloudflare Workers deployments; generates no deployment (nextjs only) |
+| `--app-dir src/app\|app` | Narrow the `AGENTS.md` App Router line to that routes folder (nextjs only) |
 | `--scheme TEXT` | Xcode scheme name for `xcodebuild test` (swift only) |
 | `--destination iphone\|ipad\|macos` | Target destination for `xcodebuild test` (swift only, default: iphone) |
 | `--xcodegen` | Generate the Xcode project from `project.yml` in Swift CI |
@@ -112,7 +114,8 @@ storing those two values with them.
 All prompts can be bypassed by combining `--non-interactive` with the
 relevant flags. The optional features `--postgres`, `--xcodegen` and
 `--screenshots` stay off unless their flag is passed; an interactive run asks
-about each, with No as the default. The Release Please App's values are read
+about each, with No as the default. `--cloudflare-rules` and `--app-dir` are
+never asked about: pass them to use them. The Release Please App's values are read
 from environment variables:
 
 | Environment variable | Used when |
@@ -137,7 +140,7 @@ export RELEASE_PLEASE_CLIENT_ID="..."
 
 | Type | For | CI | Options |
 |---|---|---|---|
-| `nextjs` | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots` |
+| `nextjs` | Next.js applications | production audit and baselines, lint, format, typecheck, unit tests, build, Playwright e2e | `--postgres`, `--screenshots`, `--cloudflare-rules`, `--app-dir` |
 | `python` | Python packages and tools | ruff format check, ruff, mypy, pytest | none |
 | `android` | Android applications | fast checks on PRs; `./gradlew check` on release merges | `--screenshots` |
 | `swift` | Xcode apps | `swift-format` lint on every PR; `xcodebuild test` on release merges | `--scheme` (required), `--destination`, `--xcodegen`, `--screenshots` |

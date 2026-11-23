@@ -81,6 +81,8 @@ body:
       options:
         - label: "--private"
         - label: "--postgres"
+        - label: "--cloudflare-rules"
+        - label: "--app-dir"
         - label: "--scheme"
         - label: "--destination"
         - label: "--xcodegen"

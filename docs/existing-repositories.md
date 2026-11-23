@@ -83,6 +83,17 @@ example further down. Without the template's skill it is left alone; next to
 the template's skill it is reported as `local-modified`, as before, so move it
 to another path first.
 
+`--cloudflare-rules` and `--app-dir` are exceptions too. When the generated
+part of `AGENTS.md`, above `## Project specifics`, already has the template's
+`## Cloudflare deployment` section, unedited, or a narrowed App Router line,
+`--check` and `--adopt` keep that option on without its flag and the report
+says so. Rules a repository wrote itself are its own and turn nothing on. That
+includes a section with the same heading but other text, which the report shows
+as `local`. `--adopt` leaves such rules as they are, unless the flag is passed
+and `--replace-generated-sections` confirms replacing a differing section. To drop the section, delete
+it from `AGENTS.md`. To drop the narrowing, delete the line and run `--adopt
+--replace-generated-sections`.
+
 A Next.js repository's `test.yml` is its own, so `--check` reports it as
 `differs`, not `stale`, whether the repository edited it or it was generated
 with the other `--postgres`; under that row a line says whether the file and

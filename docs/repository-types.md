@@ -3,7 +3,9 @@
 Every type gets a type-specific `README.md` starter, `AGENTS.md` and
 `CLAUDE.md` (contribution guidance), `docs/current-work.md` (dated status),
 `.github/pull_request_template.md` (asks for the `User-visible:` line),
-`.gitignore`, `release-please-config.json`, and
+`.claude/settings.json` (sets `attribution.sessionUrl` to `false`, so Claude
+Code adds no claude.ai session link to commits and pull requests from cloud or
+Remote Control sessions), `.gitignore`, `release-please-config.json`, and
 `.release-please-manifest.json` seeded at `0.1.0`. Every type also gets the
 agent skills and reviewer agents ([Generated agent layout](agent-layout.md)),
 `pr-title-check.yml`, `release-please.yml`, `dependabot.yml` and

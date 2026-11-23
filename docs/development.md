@@ -168,7 +168,8 @@ tags, the validator prints a notice and skips them.
 - the bootstrapper's own runbook copy, and its legacy-digest and
   seed-script digest tables against the git release tags
 - the bootstrapper's own agent files (the general skills and their
-  `.claude/skills` links, both reviewer agents, `CLAUDE.md`, and `AGENTS.md`
+  `.claude/skills` links, both reviewer agents, `CLAUDE.md`,
+  `.claude/settings.json` on its `attribution.sessionUrl` key, and `AGENTS.md`
   above `## Project specifics`), which must match its `--type simple` render.
   To refresh them, the error suggests `./bootstrap.py --adopt . --type simple`;
   that run also stamps `pr-title-check.yml` and refuses `release-please.yml`,

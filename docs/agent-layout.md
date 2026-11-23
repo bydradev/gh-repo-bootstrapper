@@ -50,6 +50,13 @@ checked 2026-10-22). The generated
 `.gitignore` ignores `.agents/*` and `.opencode/*` but re-includes
 `!.agents/skills/` and `!.opencode/agents/`, so these files are committed.
 
+Every type also gets `.claude/settings.json`, Claude Code's shared project
+settings. It sets only `attribution.sessionUrl` to `false`, so commits and pull
+requests from cloud or Remote Control sessions carry no claude.ai session link
+(Claude Code settings reference, checked 2026-11-23). The file is the
+repository's own: add permissions, hooks or other keys there, and `--check`
+still judges only that one key.
+
 Each `local-validation-<type>` skill describes CI tiers, test configuration
 and formatter scope as generated, and says which repository file to check for
 the current ones. It tells agents to load first a repository-owned validation

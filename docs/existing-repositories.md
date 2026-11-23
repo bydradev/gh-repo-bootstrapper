@@ -31,7 +31,11 @@ and an unedited `nextjs` baseline script from an earlier release as `stale`
 It reports `.github/pull_request_template.md` as `own` when the repository
 already has a pull request template of its own, which `--adopt` keeps, and as
 `ignored` when git ignores that path and the repository has no other template
-(see [Repository types](repository-types.md)). Template-owned files get their own
+(see [Repository types](repository-types.md)). It judges
+`.claude/settings.json` only on `attribution.sessionUrl`: `same` when it is
+`false`, whatever other keys and formatting the file has, and `differs`, naming
+the key, when it is missing or not `false`, or the file is not a JSON object.
+Template-owned files get their own
 states:
 
 | State | Meaning | `--adopt` |
@@ -130,7 +134,8 @@ section that shares the name of an earlier generated one stays `missing`.
 For `.gitignore` and `.prettierignore` it says whether the managed block is
 missing or differs, and lists the template's entries outside the block the
 repository lacks; for `CLAUDE.md` it flags a file that does not import
-`AGENTS.md`. It never writes,
+`AGENTS.md`; for `.claude/settings.json` it names `attribution.sessionUrl`
+when that key is not `false`. It never writes,
 and exits 1 on drift. Templates that embed the repository name use the
 directory's name, or, for a linked git worktree whose shared git directory is
 its main checkout's `.git`, that checkout's name, so a verification worktree
@@ -277,6 +282,10 @@ edited up to date (see
 `.github/pull_request_template.md` isn't in the set either: it is the
 repository's to edit once written, and
 [Repository types](repository-types.md) says when `--adopt` writes it.
+Nor is `.claude/settings.json`, which holds each repository's own Claude Code
+settings: `--adopt` writes it only when it is missing, and keeps an existing
+file byte for byte, even when `attribution.sessionUrl` is not `false`; set
+that key by hand. A symlink in its path, or a path git ignores, is refused.
 
 ### Prettier and actionlint
 

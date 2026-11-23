@@ -172,6 +172,31 @@ SCREENSHOT_TYPES = ("nextjs", "swift", "android")
 SCREENSHOT_FILES = (f".agents/skills/{SCREENSHOT_REVIEW_SKILL}/SKILL.md", SCREENSHOT_REVIEW)
 SCREENSHOTS_QUESTION = "Add the screenshot-review skill and doc (for a screenshot capture lane)?"
 SCREENSHOTS_IGNORED = "warning: --screenshots is only used with --type nextjs, swift, or android; ignoring"
+# --cloudflare-rules (nextjs only) adds this generated AGENTS.md section of
+# stop-and-ask rules for Cloudflare Workers deployments. It is rules text only:
+# the bootstrapper still generates and configures no provider deployment.
+CLOUDFLARE_SECTION = "## Cloudflare deployment"
+# The whitespace-normalised digest of every released text of that section,
+# the current one included. --check and --adopt take an AGENTS.md section with
+# one of these digests for the template's, so the option survives a wording
+# change; any other text under that heading is the repository's own. A change
+# to templates/AGENTS-nextjs-cloudflare.md adds its new digest here and keeps
+# the old ones (validate_templates.check_nextjs_agents_options enforces it).
+CLOUDFLARE_SECTION_DIGESTS = frozenset({
+    "7ec0e45def94ad5961e203ccba7e2f6ebd785d70536e944877545c2ea93d0e8b",  # 0.26.0
+})
+
+
+def cloudflare_section_digest(text: str) -> str:
+    """The whitespace-normalised digest that CLOUDFLARE_SECTION_DIGESTS records."""
+    return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()
+# --app-dir (nextjs only) narrows the generated App Router line to one folder.
+APP_ROUTER_HEADING = "# This project uses the App Router"
+APP_ROUTER_LINE = "Routes live in `app/` or `src/app/`; don't mix in the Pages Router (`pages/`).\n"
+APP_DIR_LINES = {
+    "src/app": "Routes live in `src/app/` only; there is no `app/` or `pages/` directory.\n",
+    "app": "Routes live in `app/` only; there is no `src/app/` or `pages/` directory.\n",
+}
 _TEMPLATE_AGENTS = {
     ".claude/agents/fresh-eyes-reviewer.md": "agents/claude-fresh-eyes-reviewer.md",
     ".opencode/agents/fresh-eyes-reviewer.md": "agents/opencode-fresh-eyes-reviewer.md",
@@ -990,6 +1015,9 @@ def check_dependencies():
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="bootstrap.py",
+        # No prefix matching: a retired flag such as --cloudflare must stay an
+        # unknown option rather than resolve to --cloudflare-rules.
+        allow_abbrev=False,
         description="Create a standardised GitHub repository.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
@@ -1011,6 +1039,7 @@ def build_parser() -> argparse.ArgumentParser:
               ./bootstrap.py --name my-service --type rust --private
               ./bootstrap.py --name my-app --type nextjs --postgres --dry-run
               ./bootstrap.py --name my-app --type nextjs --screenshots
+              ./bootstrap.py --name my-app --type nextjs --cloudflare-rules --app-dir src/app
               ./bootstrap.py --name my-app --type nextjs --configure-only
               ./bootstrap.py --check ../my-app --type nextjs
               ./bootstrap.py --adopt ../my-app --type nextjs
@@ -1028,6 +1057,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Make repository public")
     p.add_argument("--postgres", action="store_true",
                    help="Add PostgreSQL 16 service to test workflow (nextjs only)")
+    p.add_argument("--cloudflare-rules", action="store_true",
+                   help="Add the AGENTS.md stop-and-ask rules for Cloudflare Workers deployments "
+                        "(nextjs only; generates no deployment)")
+    p.add_argument("--app-dir", choices=sorted(APP_DIR_LINES),
+                   help="Narrow the AGENTS.md App Router line to this routes folder (nextjs only)")
     p.add_argument("--scheme",
                    help="Xcode scheme name for xcodebuild test (swift only)")
     p.add_argument("--destination", choices=["iphone", "ipad", "macos"],
@@ -1442,6 +1476,14 @@ def _gh_orgs() -> list:
         return []
 
 
+def _warn_nextjs_only(args):
+    """Say that the Next.js-only AGENTS.md options are ignored for another type."""
+    if getattr(args, "cloudflare_rules", False):
+        print("warning: --cloudflare-rules is only used with --type nextjs; ignoring")
+    if getattr(args, "app_dir", None):
+        print("warning: --app-dir is only used with --type nextjs; ignoring")
+
+
 def gather_config(args) -> dict:
     ni = args.non_interactive
     dry = args.dry_run
@@ -1526,6 +1568,13 @@ def gather_config(args) -> dict:
     destination = ""
     xcodegen = False
     screenshots = False
+    cloudflare_rules = False
+    app_dir = ""
+    if repo_type == "nextjs":
+        cloudflare_rules = bool(args.cloudflare_rules)
+        app_dir = args.app_dir or ""
+    else:
+        _warn_nextjs_only(args)
 
     if repo_type == "nextjs":
         postgres = args.postgres
@@ -1621,6 +1670,8 @@ def gather_config(args) -> dict:
         "destination": destination,
         "xcodegen": xcodegen,
         "screenshots": screenshots,
+        "cloudflare_rules": cloudflare_rules,
+        "app_dir": app_dir,
         "configure_only": configure_only,
         "release_please_client_id": release_please_client_id,
         "release_please_app_key": release_please_app_key,
@@ -1852,8 +1903,16 @@ def generate_files(cfg: dict) -> dict:
 
     preamble = ""
     tooling = ""
+    sections = ""
     if repo_type == "nextjs":
         preamble = _load("AGENTS-nextjs-block.md")
+        app_dir = cfg.get("app_dir") or ""
+        if app_dir:
+            if APP_ROUTER_LINE not in preamble:
+                _die("the App Router line was not found in AGENTS-nextjs-block.md")
+            preamble = preamble.replace(APP_ROUTER_LINE, APP_DIR_LINES[app_dir], 1)
+        if cfg.get("cloudflare_rules"):
+            sections = _load("AGENTS-nextjs-cloudflare.md")
         tooling = _load("AGENTS-nextjs-commands.md")
     elif repo_type == "python":
         tooling = _load("AGENTS-python-commands.md")
@@ -1886,6 +1945,7 @@ def generate_files(cfg: dict) -> dict:
     files["CLAUDE.md"] = _load("CLAUDE.md")
     agents = _load("AGENTS.md")
     agents = _compose(agents, "TYPE_PREAMBLE", preamble)
+    agents = _compose(agents, "TYPE_SECTIONS", sections)
     agents = _compose(agents, "TYPE_TOOLING", tooling)
     skill_rows = "".join(_TYPE_SKILL_ROWS.get(repo_type, ()))
     if screenshots:
@@ -3607,9 +3667,9 @@ def _retired_section_text(repo_dir: Path, rows: list) -> dict[str, list[str]]:
 def print_repository_report(repo_dir: Path, cfg: dict, report: dict) -> bool:
     """Print a --check report; return True when the repository is aligned."""
     print(f"\n{repo_dir} — compared with the '{cfg['repo_type']}' template")
-    notice = screenshot_review_notice(cfg)
-    if notice:
-        print(f"  {notice}")
+    for notice in (screenshot_review_notice(cfg), nextjs_options_notice(cfg)):
+        if notice:
+            print(f"  {notice}")
     aligned = True
     for rel, (status, detail) in sorted(report.items()):
         if status != "same":
@@ -4544,6 +4604,20 @@ def existing_repository_config(args) -> dict:
         found = [rel for rel in SCREENSHOT_FILES
                  if _template_screenshot_file(repo_dir, rel, args.repo_type)]
         screenshots = bool(found)
+    cloudflare_rules, app_dir, rules_found = False, "", []
+    if args.repo_type == "nextjs":
+        cloudflare_rules, app_dir = bool(args.cloudflare_rules), args.app_dir or ""
+        # Without the flags, keep what the generated part of AGENTS.md already
+        # has, so a run that omits them never drops or rewrites those rules.
+        found_rules, found_dir = _generated_nextjs_options(repo_dir)
+        if not cloudflare_rules and found_rules:
+            cloudflare_rules = True
+            rules_found.append("--cloudflare-rules")
+        if not app_dir and found_dir:
+            app_dir = found_dir
+            rules_found.append(f"--app-dir {found_dir}")
+    else:
+        _warn_nextjs_only(args)
     return {
         "name": existing_repository_name(repo_dir),
         "repo_dir": str(repo_dir),
@@ -4554,7 +4628,54 @@ def existing_repository_config(args) -> dict:
         "xcodegen": bool(args.xcodegen),
         "screenshots": screenshots,
         "screenshots_found": found,
+        "cloudflare_rules": cloudflare_rules,
+        "app_dir": app_dir,
+        "nextjs_options_found": rules_found,
     }
+
+
+def _generated_nextjs_options(repo_dir: Path) -> tuple:
+    """(has the Cloudflare section, --app-dir value or "") from AGENTS.md's generated part.
+
+    Only text above `## Project specifics` counts: rules a repository wrote
+    there itself are its own. An AGENTS.md behind a symlink, or one that
+    cannot be read, counts as neither.
+    """
+    try:
+        if _symlink_in_path(repo_dir, "AGENTS.md") or not (repo_dir / "AGENTS.md").is_file():
+            return False, ""
+        text = (repo_dir / "AGENTS.md").read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return False, ""
+    generated, _ = _split_project_specifics(_mask_nextjs_rules(text.removeprefix("\ufeff")))
+    sections = _agents_sections(generated)[1]
+    # Only a released text of the template's counts: a section of that name
+    # the repository wrote or edited itself stays `local`, so --adopt never
+    # replaces it.
+    has_rules = any(heading == CLOUDFLARE_SECTION and cloudflare_section_digest(body) in CLOUDFLARE_SECTION_DIGESTS
+                    for heading, body in sections)
+    # Only a whole, unindented, unfenced line of the App Router section itself,
+    # not an example in a fence or an indented code block.
+    lines = {
+        line.rstrip()
+        for heading, body in sections if heading == APP_ROUTER_HEADING
+        for _, line, in_fence in _markdown_lines(body) if not in_fence
+    }
+    app_dir = next((value for value, line in APP_DIR_LINES.items() if line.rstrip() in lines), "")
+    return has_rules, app_dir
+
+
+def nextjs_options_notice(cfg: dict) -> str | None:
+    """Why --check or --adopt kept a Next.js AGENTS.md option on without its flag."""
+    found = cfg.get("nextjs_options_found")
+    if not found:
+        return None
+    return (
+        f"notice: {' and '.join(found)} kept on, because the generated part of AGENTS.md "
+        f"already has that text; pass the option to silence this. To drop the Cloudflare "
+        f"section, delete it from AGENTS.md; to drop the App Router narrowing, delete that "
+        f"line and re-run --adopt --replace-generated-sections"
+    )
 
 
 def _template_screenshot_file(repo_dir: Path, rel: str, repo_type: str) -> bool:
@@ -4613,7 +4734,8 @@ def print_dry_run(cfg: dict, files: dict):
     print(f"  DRY RUN — {cfg['owner']}/{cfg['name']} ({cfg['repo_type']}, {vis})")
     print(f"  Local path: {cfg['repo_dir']}/")
     if cfg["repo_type"] == "nextjs":
-        print(f"  Postgres: {cfg['postgres']}")
+        print(f"  Postgres: {cfg['postgres']}  |  Cloudflare rules: {bool(cfg.get('cloudflare_rules'))}"
+              f"  |  App directory: {cfg.get('app_dir') or 'app/ or src/app/'}")
     elif cfg["repo_type"] == "swift":
         print(
             f"  Scheme: {cfg.get('scheme', '')}  |  "
@@ -5222,9 +5344,9 @@ def main():
                 aligned = all(status == "same" for status, _ in report.values())
             sys.exit(0 if aligned else 1)
         print(f"\nAdopting {repo_dir} as '{cfg['repo_type']}'")
-        notice = screenshot_review_notice(cfg)
-        if notice:
-            print(f"  {notice}")
+        for notice in (screenshot_review_notice(cfg), nextjs_options_notice(cfg)):
+            if notice:
+                print(f"  {notice}")
         def confirm(sections):
             print("\nAGENTS.md: these generated sections differ from the template and will be")
             print("replaced with its text, are retired and will be removed, or are missing and")

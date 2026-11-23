@@ -18,6 +18,7 @@ CHECKS = (
     "check_npm_script_assumptions",
     "check_syntax",
     "check_nextjs_provider_free",
+    "check_nextjs_agents_options",
     "check_retired_lane_phrases",
     "check_markers",
     "check_markdown_blank_lines",

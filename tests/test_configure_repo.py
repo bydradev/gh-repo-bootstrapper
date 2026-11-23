@@ -253,6 +253,58 @@ class ConfigureRepoTests(unittest.TestCase):
                 ignored = "--screenshots is only used with --type nextjs, swift, or android; ignoring"
                 self.assertEqual(ignored in out.getvalue(), repo_type not in ("nextjs", "swift", "android"))
 
+    def test_cloudflare_rules_and_app_dir_are_used_for_nextjs_only(self):
+        base = ["bootstrap.py", "--name", "sample", "--org", "octocat", "--non-interactive", "--dry-run"]
+        cases = {
+            ("nextjs",): (False, ""),
+            ("nextjs", "--cloudflare-rules"): (True, ""),
+            ("nextjs", "--app-dir", "src/app"): (False, "src/app"),
+            ("nextjs", "--cloudflare-rules", "--app-dir", "app"): (True, "app"),
+            ("python", "--cloudflare-rules", "--app-dir", "app"): (False, ""),
+            ("swift", "--scheme", "App", "--cloudflare-rules"): (False, ""),
+            ("android", "--app-dir", "src/app"): (False, ""),
+        }
+        for (repo_type, *flags), expected in cases.items():
+            with self.subTest(repo_type=repo_type, flags=flags):
+                out = io.StringIO()
+                with patch.object(sys, "argv", base + ["--type", repo_type, *flags]), \
+                        contextlib.redirect_stdout(out):
+                    config = bootstrap.gather_config(bootstrap.parse_args())
+                self.assertEqual((config["cloudflare_rules"], config["app_dir"]), expected)
+                for flag in ("--cloudflare-rules", "--app-dir"):
+                    ignored = f"{flag} is only used with --type nextjs; ignoring"
+                    self.assertEqual(ignored in out.getvalue(), repo_type != "nextjs" and flag in flags)
+        with patch.object(sys, "argv", base + ["--type", "nextjs", "--app-dir", "pages"]), \
+                contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            bootstrap.parse_args()
+
+    def test_cloudflare_rules_add_one_hub_section_and_app_dir_narrows_the_router_line(self):
+        cfg = {**self._config(), "name": "sample", "screenshots": False}
+        plain = bootstrap.generate_files(cfg)["AGENTS.md"]
+        self.assertNotIn(bootstrap.CLOUDFLARE_SECTION, plain)
+        self.assertIn(bootstrap.APP_ROUTER_LINE, plain)
+        rules = bootstrap.generate_files({**cfg, "cloudflare_rules": True, "app_dir": "src/app"})["AGENTS.md"]
+        headings = [heading for heading, _ in bootstrap._agents_sections(rules)[1]]
+        index = headings.index(bootstrap.CLOUDFLARE_SECTION)
+        self.assertEqual(headings[index - 1:index + 2],
+                         ["## Autonomy and escalation", bootstrap.CLOUDFLARE_SECTION, "## GitHub operations"])
+        self.assertIn(bootstrap.APP_DIR_LINES["src/app"], rules)
+        self.assertNotIn(bootstrap.APP_ROUTER_LINE, rules)
+        # Everything else is the default render: the section and line are the only change.
+        section = dict(bootstrap._agents_sections(rules)[1])[bootstrap.CLOUDFLARE_SECTION]
+        self.assertEqual(
+            rules.replace(section, "", 1).replace(bootstrap.APP_DIR_LINES["src/app"], bootstrap.APP_ROUTER_LINE, 1),
+            plain,
+        )
+        app = bootstrap.generate_files({**cfg, "app_dir": "app"})["AGENTS.md"]
+        self.assertIn(bootstrap.APP_DIR_LINES["app"], app)
+        # Other types never carry the section, even when asked.
+        for repo_type in ("python", "rust", "simple"):
+            other = bootstrap.generate_files({**cfg, "repo_type": repo_type, "cloudflare_rules": True,
+                                              "app_dir": "app"})["AGENTS.md"]
+            self.assertNotIn(bootstrap.CLOUDFLARE_SECTION, other)
+            self.assertNotIn("Routes live", other)
+
     def test_interactive_runs_ask_about_screenshots_with_no_as_the_default(self):
         for repo_type, flags in (
             ("nextjs", []),
@@ -316,7 +368,9 @@ class ConfigureRepoTests(unittest.TestCase):
         self.assertIn("--org", err.getvalue())
 
     def test_retired_provider_flags_are_rejected(self):
-        for flag in ("--vercel", "--no-vercel", "--cloudflare", "--no-cloudflare"):
+        # --cloudflare and --app abbreviate current options, which the parser
+        # must not accept (allow_abbrev=False), so they stay rejected too.
+        for flag in ("--vercel", "--no-vercel", "--cloudflare", "--no-cloudflare", "--cloudflare-rule", "--app"):
             with self.subTest(flag=flag), patch.object(sys, "argv", ["bootstrap.py", flag]):
                 with self.assertRaises(SystemExit) as error:
                     bootstrap.parse_args()

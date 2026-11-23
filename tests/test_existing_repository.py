@@ -871,6 +871,124 @@ class ExistingRepositoryTests(unittest.TestCase):
             _keeping_block(expected["AGENTS.md"], _AGENTS_0_11_1_NEXTJS) + "\n" + mine,
         )
 
+    def _nextjs_config(self, *args):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cfg = bootstrap.existing_repository_config(
+                bootstrap.build_parser().parse_args(["--check", str(self.repo), "--type", "nextjs", *args]))
+        return cfg, out.getvalue()
+
+    def test_existing_repository_config_keeps_generated_cloudflare_rules_and_app_dir(self):
+        rules = bootstrap.generate_files(
+            {"name": "sample", "repo_type": "nextjs", "postgres": False, "scheme": "App", "screenshots": False,
+             "cloudflare_rules": True, "app_dir": "src/app"})
+        cfg, _ = self._nextjs_config()
+        self.assertEqual((cfg["cloudflare_rules"], cfg["app_dir"], cfg["nextjs_options_found"]), (False, "", []))
+        self._write("AGENTS.md", rules["AGENTS.md"])
+        cfg, _ = self._nextjs_config()
+        self.assertEqual((cfg["cloudflare_rules"], cfg["app_dir"]), (True, "src/app"))
+        self.assertEqual(cfg["nextjs_options_found"], ["--cloudflare-rules", "--app-dir src/app"])
+        notice = bootstrap.nextjs_options_notice(cfg)
+        self.assertIn("--cloudflare-rules and --app-dir src/app kept on", notice)
+        # Without the flags, --check finds the generated hub aligned rather than
+        # reporting the section as local and the router line as differing.
+        files = bootstrap.generate_files(cfg)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)["AGENTS.md"], ("same", None))
+        cfg, _ = self._nextjs_config("--cloudflare-rules", "--app-dir", "src/app")
+        self.assertEqual(cfg["nextjs_options_found"], [])
+        self.assertIsNone(bootstrap.nextjs_options_notice(cfg))
+        # An explicit --app-dir wins over the detected one.
+        cfg, _ = self._nextjs_config("--app-dir", "app")
+        self.assertEqual((cfg["app_dir"], cfg["nextjs_options_found"]), ("app", ["--cloudflare-rules"]))
+        # Other types ignore the options, with a warning.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cfg = bootstrap.existing_repository_config(bootstrap.build_parser().parse_args(
+                ["--check", str(self.repo), "--type", "python", "--cloudflare-rules", "--app-dir", "app"]))
+        self.assertEqual((cfg["cloudflare_rules"], cfg["app_dir"]), (False, ""))
+        self.assertIn("--cloudflare-rules is only used with --type nextjs; ignoring", out.getvalue())
+        self.assertIn("--app-dir is only used with --type nextjs; ignoring", out.getvalue())
+
+    def test_a_hand_written_cloudflare_section_above_project_specifics_is_not_taken_for_the_template(self):
+        plain = _render("nextjs")
+        generated, owned = bootstrap._split_project_specifics(plain["AGENTS.md"])
+        own_section = bootstrap.CLOUDFLARE_SECTION + "\n\n- Production needs two approvals.\n\n"
+        self._write("AGENTS.md", generated.replace("## GitHub operations\n", own_section + "## GitHub operations\n", 1)
+                    + owned)
+        self._commit_all()
+        before = (self.repo / "AGENTS.md").read_text()
+        cfg, out = self._nextjs_config()
+        self.assertFalse(cfg["cloudflare_rules"])
+        self.assertNotIn("kept on", out)
+        files = bootstrap.generate_files(cfg)
+        self.assertIn(("local", bootstrap.CLOUDFLARE_SECTION), bootstrap.compare_repository(self.repo, files)["AGENTS.md"][1])
+        with contextlib.redirect_stdout(io.StringIO()):
+            bootstrap.adopt_repository(self.repo, files, replace_generated=True, confirm=lambda sections: True)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), before)
+        # Edited template text counts as the repository's too.
+        rules = bootstrap.generate_files({**cfg, "cloudflare_rules": True})["AGENTS.md"]
+        self._write("AGENTS.md", rules.replace("for any environment", "for production", 1))
+        self.assertFalse(self._nextjs_config()[0]["cloudflare_rules"])
+
+    def test_an_earlier_released_cloudflare_section_keeps_the_option_and_is_updated(self):
+        cfg = {"name": "sample", "repo_type": "nextjs", "postgres": False, "scheme": "App",
+               "screenshots": False, "cloudflare_rules": True}
+        rules = bootstrap.generate_files(cfg)["AGENTS.md"]
+        section = dict(bootstrap._agents_sections(rules)[1])[bootstrap.CLOUDFLARE_SECTION]
+        earlier = section.replace("Secret changes deploy immediately.", "Secret changes take effect at once.", 1)
+        self._write("AGENTS.md", rules.replace(section, earlier, 1))
+        self._commit_all()
+        self.assertFalse(self._nextjs_config()[0]["cloudflare_rules"])
+        released = bootstrap.CLOUDFLARE_SECTION_DIGESTS | {bootstrap.cloudflare_section_digest(earlier)}
+        with unittest.mock.patch.object(bootstrap, "CLOUDFLARE_SECTION_DIGESTS", released):
+            found, out = self._nextjs_config()
+            self.assertTrue(found["cloudflare_rules"])
+            files = bootstrap.generate_files(found)
+            self.assertIn(("differs", bootstrap.CLOUDFLARE_SECTION),
+                          bootstrap.compare_repository(self.repo, files)["AGENTS.md"][1])
+            with contextlib.redirect_stdout(io.StringIO()):
+                bootstrap.adopt_repository(self.repo, files, replace_generated=True, confirm=lambda sections: True)
+        self.assertEqual((self.repo / "AGENTS.md").read_text(), rules)
+
+    def test_a_fenced_example_of_the_narrowed_router_line_turns_nothing_on(self):
+        plain = _render("nextjs")
+        example = "```markdown\n" + bootstrap.APP_DIR_LINES["app"] + "```\n\n"
+        self._write("AGENTS.md", plain["AGENTS.md"].replace("## GitHub operations\n",
+                                                            "## Example\n\n" + example + "## GitHub operations\n", 1))
+        self.assertEqual(self._nextjs_config()[0]["app_dir"], "")
+        self._write("AGENTS.md", plain["AGENTS.md"].replace(
+            bootstrap.APP_ROUTER_LINE, "```\n" + bootstrap.APP_DIR_LINES["app"] + "```\n", 1))
+        self.assertEqual(self._nextjs_config()[0]["app_dir"], "")
+        # Nor an indented code block under the default line.
+        self._write("AGENTS.md", plain["AGENTS.md"].replace(
+            bootstrap.APP_ROUTER_LINE, bootstrap.APP_ROUTER_LINE + "\n    " + bootstrap.APP_DIR_LINES["app"], 1))
+        self.assertEqual(self._nextjs_config()[0]["app_dir"], "")
+
+    def test_hand_written_cloudflare_rules_under_project_specifics_stay_the_repository_own(self):
+        plain = _render("nextjs")
+        mine = ("## Project specifics\n\n### Stop and ask\n\n" + bootstrap.CLOUDFLARE_SECTION
+                + "\n\nNever run `wrangler deploy` unasked.\n\n### Router\n\n"
+                + bootstrap.APP_DIR_LINES["app"])
+        generated, _ = bootstrap._split_project_specifics(plain["AGENTS.md"])
+        self._write("AGENTS.md", generated + mine)
+        self._commit_all()
+        # Rules under Project specifics are not the generated ones: not detected.
+        cfg, _ = self._nextjs_config()
+        self.assertEqual((cfg["cloudflare_rules"], cfg["app_dir"]), (False, ""))
+        # Asked for, the section is added above Project specifics, which stays as it was.
+        cfg, _ = self._nextjs_config("--cloudflare-rules")
+        files = bootstrap.generate_files(cfg)
+        rows = bootstrap.compare_repository(self.repo, files)["AGENTS.md"][1]
+        self.assertIn(("missing", bootstrap.CLOUDFLARE_SECTION), rows)
+        bootstrap.adopt_repository(self.repo, files)
+        text = (self.repo / "AGENTS.md").read_text()
+        self.assertTrue(text.endswith(mine))
+        self.assertEqual(text.count(bootstrap.CLOUDFLARE_SECTION + "\n"), 2)
+        self.assertEqual(bootstrap.compare_repository(self.repo, files)["AGENTS.md"], ("same", None))
+        # Detected from the generated section now, so a run without the flag keeps it.
+        cfg, _ = self._nextjs_config()
+        self.assertTrue(cfg["cloudflare_rules"])
+
     def test_existing_repository_config_detects_screenshot_files(self):
         def config(*args):
             out = io.StringIO()

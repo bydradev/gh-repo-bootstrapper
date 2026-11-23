@@ -657,9 +657,14 @@ def configurations():
     self-test that takes the type's first configuration gets every file the
     type can generate.
     """
-    for postgres, screenshots in itertools.product((False, True), (True, False)):
+    for postgres, screenshots, cloudflare_rules, app_dir in itertools.product(
+        (False, True), (True, False), (False, True), ("", "src/app", "app")
+    ):
+        label = f"nextjs postgres={postgres} screenshots={screenshots}"
+        if cloudflare_rules or app_dir:
+            label += f" cloudflare-rules={cloudflare_rules} app-dir={app_dir or 'unset'}"
         yield (
-            f"nextjs postgres={postgres} screenshots={screenshots}",
+            label,
             {
                 "name": "sample-app",
                 "repo_type": "nextjs",
@@ -667,6 +672,8 @@ def configurations():
                 "scheme": "",
                 "destination": "",
                 "screenshots": screenshots,
+                "cloudflare_rules": cloudflare_rules,
+                "app_dir": app_dir,
             },
         )
 
@@ -749,11 +756,19 @@ def check_syntax(label: str, files: dict) -> list:
     return errors
 
 
-def check_nextjs_provider_free(label: str, repo_type: str, files: dict) -> list:
+def _without_cloudflare_section(agents: str) -> str:
+    """AGENTS.md with the generated Cloudflare deployment section left out."""
+    preamble, sections = bootstrap._agents_sections(agents)
+    return preamble + "".join(body for heading, body in sections if heading != bootstrap.CLOUDFLARE_SECTION)
+
+
+def check_nextjs_provider_free(label: str, repo_type: str, files: dict, cloudflare_rules: bool = False) -> list:
     """Keep provider provisioning out of generated Next.js content.
 
     `.gitignore` intentionally retains local Vercel and Wrangler cache entries
-    for applications that later add their own deployment workflow.
+    for applications that later add their own deployment workflow. With
+    --cloudflare-rules, Cloudflare and Wrangler may appear in the generated
+    AGENTS.md section of deployment rules, and nowhere else.
     """
     if repo_type != "nextjs":
         return []
@@ -761,18 +776,83 @@ def check_nextjs_provider_free(label: str, repo_type: str, files: dict) -> list:
     rendered = "\n".join(
         content for path, content in files.items() if path != ".gitignore"
     ).lower()
+    outside = "\n".join(
+        (_without_cloudflare_section(content) if path == HUB and cloudflare_rules else content)
+        for path, content in files.items() if path != ".gitignore"
+    ).lower()
     errors = []
     for term in ("vercel", "cloudflare", "wrangler", "deployments: write"):
-        if term in rendered:
+        if term in (outside if term in ("cloudflare", "wrangler") else rendered):
             errors.append(
                 f"[{label}] generated Next.js output still contains retired provider surface {term!r}"
             )
+    if "wrangler.jsonc" in rendered:
+        errors.append(f"[{label}] generated Next.js output names retired wrangler.jsonc")
     if "wrangler.jsonc" in files:
         errors.append(f"[{label}] generated Next.js output includes retired wrangler.jsonc")
     gitignore = files.get(".gitignore", "")
     for cache_path in (".vercel/", ".wrangler/"):
         if cache_path not in gitignore:
             errors.append(f"[{label}] .gitignore is missing local tool cache {cache_path!r}")
+    return errors
+
+
+# Phrases the generated Cloudflare deployment section must keep, so an edit
+# cannot loosen the production-deploy guards below the approved wording
+# (issue #252, operator decisions of 2026-11-23).
+CLOUDFLARE_RULE_PHRASES = (
+    "These rules are stop-and-ask items.",
+    "Never merge one without explicit operator authorization for that release.",
+    "`CLOUDFLARE_DEPLOY_ENABLED`",
+    "(or any npm script that runs it)",
+    "`wrangler versions upload`",
+    "`wrangler versions deploy`",
+    "`wrangler rollback`",
+    "`wrangler secret put`",
+    "`wrangler secret delete`",
+    "for any environment",
+    "Secret changes deploy immediately.",
+    "they only build and package locally.",
+    "Never install, update or re-add the vendored Cloudflare skills",
+    "configure the Cloudflare MCP server",
+    "Refresh them only when asked, in a PR that shows the diff, by moving that pin.",
+    "stay byte-identical to the `skills-lock.json` pin",
+    "this file governs",
+    "get the operator's approval of the exact title and body",
+)
+
+
+def check_nextjs_agents_options(label: str, cfg: dict, files: dict) -> list:
+    """--cloudflare-rules adds the approved section; --app-dir narrows the App Router line."""
+    agents = files.get(HUB, "")
+    sections = dict(bootstrap._agents_sections(agents)[1])
+    errors = []
+    section = sections.get(bootstrap.CLOUDFLARE_SECTION)
+    template = bootstrap._load("AGENTS-nextjs-cloudflare.md")
+    if bootstrap.cloudflare_section_digest(template) not in bootstrap.CLOUDFLARE_SECTION_DIGESTS:
+        errors.append(
+            f"[{label}] templates/AGENTS-nextjs-cloudflare.md changed: add its digest "
+            f"{bootstrap.cloudflare_section_digest(template)} to CLOUDFLARE_SECTION_DIGESTS and keep the "
+            "earlier ones, so repositories on the earlier text keep the option"
+        )
+    if cfg["repo_type"] == "nextjs" and cfg.get("cloudflare_rules"):
+        if section is None:
+            errors.append(f"[{label}] AGENTS.md lacks {bootstrap.CLOUDFLARE_SECTION!r}, which --cloudflare-rules adds")
+        else:
+            flat = " ".join(section.split())
+            errors += [
+                f"[{label}] {bootstrap.CLOUDFLARE_SECTION!r} no longer says {phrase!r}"
+                for phrase in CLOUDFLARE_RULE_PHRASES if " ".join(phrase.split()) not in flat
+            ]
+    elif section is not None:
+        errors.append(f"[{label}] AGENTS.md has {bootstrap.CLOUDFLARE_SECTION!r} without --cloudflare-rules")
+    if cfg["repo_type"] == "nextjs":
+        app_dir = cfg.get("app_dir") or ""
+        expected = bootstrap.APP_DIR_LINES[app_dir] if app_dir else bootstrap.APP_ROUTER_LINE
+        others = [line for line in (bootstrap.APP_ROUTER_LINE, *bootstrap.APP_DIR_LINES.values()) if line != expected]
+        if expected not in agents:
+            errors.append(f"[{label}] AGENTS.md lacks the App Router line {expected.strip()!r}")
+        errors += [f"[{label}] AGENTS.md also has the App Router line {line.strip()!r}" for line in others if line in agents]
     return errors
 
 
@@ -5620,6 +5700,53 @@ def _structure_self_tests() -> list:
            template_errors(pr_template.replace("User-visible: yes or no", "User-visible: yes", 1)),
            "leave the user-visible answer")
 
+    # Cloudflare and Wrangler text only inside the opt-in section; the section
+    # keeps the approved phrases; --app-dir narrows the App Router line.
+    nextjs_base = dict(next(c for _, c in configurations() if c["repo_type"] == "nextjs"))
+    rules_cfg = {**nextjs_base, "cloudflare_rules": True, "app_dir": "src/app"}
+    plain = bootstrap.generate_files(nextjs_base)
+    rules = bootstrap.generate_files(rules_cfg)
+    expect("provider-free default nextjs render", check_nextjs_provider_free("self-test:nextjs", "nextjs", plain), None)
+    expect("cloudflare rules inside their section",
+           check_nextjs_provider_free("self-test:nextjs", "nextjs", rules, True), None)
+    expect("cloudflare section in a render without the flag",
+           check_nextjs_provider_free("self-test:nextjs", "nextjs", rules, False), "'cloudflare'")
+    expect("wrangler outside the cloudflare section",
+           check_nextjs_provider_free("self-test:nextjs", "nextjs",
+                                      {**rules, "README.md": rules["README.md"] + "Run wrangler.\n"}, True),
+           "'wrangler'")
+    expect("wrangler.jsonc inside the cloudflare section",
+           check_nextjs_provider_free("self-test:nextjs", "nextjs", {**rules, HUB: rules[HUB].replace(
+               "These rules are stop-and-ask items.", "These rules are stop-and-ask items. Edit wrangler.jsonc.", 1)},
+               True),
+           "names retired wrangler.jsonc")
+    expect("vercel inside the cloudflare section",
+           check_nextjs_provider_free("self-test:nextjs", "nextjs", {**rules, HUB: rules[HUB].replace(
+               "These rules are stop-and-ask items.", "These rules are stop-and-ask items. Vercel too.", 1)}, True),
+           "'vercel'")
+    expect("nextjs options in a clean render", check_nextjs_agents_options("self-test:nextjs", rules_cfg, rules), None)
+    expect("nextjs options absent in a clean default render",
+           check_nextjs_agents_options("self-test:nextjs", nextjs_base, plain), None)
+    expect("cloudflare section loosened",
+           check_nextjs_agents_options("self-test:nextjs", rules_cfg, {
+               **rules, HUB: rules[HUB].replace(", for any environment,", ",", 1)}),
+           "'for any environment'")
+    expect("cloudflare section missing with the flag",
+           check_nextjs_agents_options("self-test:nextjs", rules_cfg, plain), "lacks '## Cloudflare deployment'")
+    expect("cloudflare section without the flag",
+           check_nextjs_agents_options("self-test:nextjs", {**rules_cfg, "cloudflare_rules": False}, rules),
+           "without --cloudflare-rules")
+    recorded = bootstrap.CLOUDFLARE_SECTION_DIGESTS
+    bootstrap.CLOUDFLARE_SECTION_DIGESTS = frozenset()
+    try:
+        expect("cloudflare section text changed without its digest",
+               check_nextjs_agents_options("self-test:nextjs", rules_cfg, rules), "add its digest")
+    finally:
+        bootstrap.CLOUDFLARE_SECTION_DIGESTS = recorded
+    expect("app dir line not narrowed",
+           check_nextjs_agents_options("self-test:nextjs", {**rules_cfg, "app_dir": "app"}, rules),
+           "lacks the App Router line")
+
     # The generated Claude Code settings turn the session link off, unstamped.
     def settings_errors(text):
         return check_claude_settings(
@@ -5721,7 +5848,10 @@ def main() -> int:
     total = 0
     for label, cfg, files in rendered:
         total += 1
-        all_errors += check_nextjs_provider_free(label, cfg["repo_type"], files)
+        all_errors += check_nextjs_provider_free(
+            label, cfg["repo_type"], files, bool(cfg.get("cloudflare_rules"))
+        )
+        all_errors += check_nextjs_agents_options(label, cfg, files)
         all_errors += check_retired_lane_phrases(label, files)
         all_errors += check_markers(label, files)
         all_errors += check_markdown_blank_lines(label, files)

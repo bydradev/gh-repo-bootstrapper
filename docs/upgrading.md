@@ -16,6 +16,18 @@ link to commits and pull requests from cloud or Remote Control sessions.
 own and is never rewritten: `--check` reports it as `differs` only when
 `attribution.sessionUrl` is not `false`, and then you set that key by hand.
 
+A `nextjs` repository that deploys to Cloudflare Workers can take the shared
+deployment rules with `--adopt --cloudflare-rules`, and its routes folder with
+`--app-dir src/app` or `--app-dir app`. The first adds a generated
+`## Cloudflare deployment` section of stop-and-ask rules. The second changes
+the generated App Router line, so `--adopt` needs
+`--replace-generated-sections` to write it. Then compare the new section with
+the rules the repository wrote under `## Project specifics`. Delete the copies
+it covers, and keep only the rules it lacks, such as Workers Previews or cache
+bindings, and a *Router* subsection only when it says more than the new line.
+`--adopt` never edits `## Project specifics` for you. Argument prefixes are no
+longer accepted, so spell each option in full.
+
 ## Upgrading to 0.25.0
 
 Every repository type gets a shorter `AGENTS.md`. Detailed commit attribution

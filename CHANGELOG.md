@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.26.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.25.1...v0.26.0) (2026-11-23)
+
+
+### Features
+
+* generate .claude/settings.json with session links off ([fe1047d](https://github.com/bydradev/gh-repo-bootstrapper/commit/fe1047df3efeca665a13f29992bd5945de011dc7))
+* **nextjs:** add opt-in Cloudflare deployment rules and app directory ([737d243](https://github.com/bydradev/gh-repo-bootstrapper/commit/737d24381b12ed60ac49d6555739b479e79f8438))
+
 ## [0.25.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.25.0...v0.25.1) (2026-11-20)
 
 

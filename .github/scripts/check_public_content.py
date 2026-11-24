@@ -69,10 +69,13 @@ EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)
 EMAIL_WHOLE = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
 # An address right after a complete literal escape in JSON or source text
 # (`"Contact:\nsam@corp.example"`), which the patterns above pass over: their
-# start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. Each
-# alternative is fixed-width, as Python's lookbehind requires.
+# start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. The
+# escape's backslash must not itself be escaped (`C:\\new@...`), a quote must
+# come earlier on the line (a string, not a Windows path or a regex), and the
+# local part is ASCII so that it agrees with the JavaScript copy, whose \w is
+# ASCII. Each lookbehind is fixed-width, as Python requires.
 EMAIL_AFTER_ESCAPE = re.compile(
-    r'(?:(?<=\\[nrtbfv0"\\/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])'
+    r'(?:(?<=(?<!\\)\\[nrtbfv0"/])|(?<=(?<!\\)\\u[0-9A-Fa-f]{4})|(?<=(?<!\\)\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])'
 )
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
@@ -130,6 +133,7 @@ def scan(text, *, allow_attribution=False):
             not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
             for pattern in (EMAIL, EMAIL_WHOLE, EMAIL_AFTER_ESCAPE)
             for match in pattern.finditer(line)
+            if pattern is not EMAIL_AFTER_ESCAPE or re.search("[\"']", line[: match.start()])
         ):
             kinds.append("an email address other than a noreply one")
         found += [(number, kind) for kind in kinds]

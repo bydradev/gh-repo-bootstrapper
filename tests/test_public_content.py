@@ -63,6 +63,25 @@ class ScanTests(unittest.TestCase):
             "https://user:password@github.com/acme/repo by sam@mailbox.test": (
                 "an email address other than a noreply one"
             ),
+            # An address that punctuation no domain holds ends: Markdown
+            # emphasis, a hyphenated suffix and an underscore.
+            "_contact sam@mailbox.test_": "an email address other than a noreply one",
+            "the sam@mailbox.test-related thread": "an email address other than a noreply one",
+            "sam@mailbox.test_old": "an email address other than a noreply one",
+            "to sam@mailbox.test, then": "an email address other than a noreply one",
+            "(ask sam@mailbox.test)": "an email address other than a noreply one",
+            "sam@mailbox.test_-x": "an email address other than a noreply one",
+            "the sam@mailbox.test-2024 archive": "an email address other than a noreply one",
+            # After a hyphen the domain may go on, so an allowed-looking start
+            # does not make it public.
+            "user@team.example.com-xn--p1ai": "an email address other than a noreply one",
+            "user@team.example.com-foo.test2": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com-sam@mailbox.test.txt": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com_sam@mailbox.test.txt": "an email address other than a noreply one",
+            "https://user@corp.test-sam@mailbox.test/path": "an email address other than a noreply one",
+            "report it to github@bydra.dev-ops.mailbox.test": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com\u00e9sam@mailbox.test.txt": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com\u0661sam@mailbox.test.txt": "an email address other than a noreply one",
         }
         for text, kind in cases.items():
             with self.subTest(text=text):
@@ -92,6 +111,10 @@ class ScanTests(unittest.TestCase):
             "Signed-off-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
             "Signed-off-by: Sam <sam@example.com>, t@mail.example.org and a@example.net",
             "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
+            # The same trailing punctuation after an allowed address.
+            "_write to sam@example.com_ or noreply@anthropic.com, noreply@mailbox.test_x",
+            "noreply@anthropic.com_ and sam@example.com_",
+            "noreply@anthropic.com-x and github@bydra.dev-ops",
             # Package versions and decorators are not addresses, nor is an escape.
             "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
             r'files[HUB] + "\n@AGENTS.md\n"',

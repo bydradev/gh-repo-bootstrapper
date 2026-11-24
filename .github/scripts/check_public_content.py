@@ -57,7 +57,16 @@ PATTERNS = (
 # An address is found unless it is a noreply one, at an example domain, or
 # the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 # login, not a person's. A backslash before it is an escape such as `\n`.
-EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
+# It ends where no letter or digit follows: `_` never appears in a domain,
+# and a `-` after the letters-only top-level label opens a suffix
+# (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
+EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])")
+# The same address ending only where no word character or `-` follows. Where
+# EMAIL stops early (before a `-` or `_`), this one keeps searching and can
+# find an address that overlaps it (`noreply@x.example-sam@corp.example`)
+# or the whole domain a `-` continues, so a line is checked with both and
+# nothing this one finds is lost to the earlier end.
+EMAIL_WHOLE = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
 # a match whose text before it ends with this is skipped. mailto: has no //,
@@ -112,7 +121,8 @@ def scan(text, *, allow_attribution=False):
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
         if line != DEPENDABOT_FOOTER and any(
             not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
-            for match in EMAIL.finditer(line)
+            for pattern in (EMAIL, EMAIL_WHOLE)
+            for match in pattern.finditer(line)
         ):
             kinds.append("an email address other than a noreply one")
         found += [(number, kind) for kind in kinds]

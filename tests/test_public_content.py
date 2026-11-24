@@ -72,6 +72,8 @@ class ScanTests(unittest.TestCase):
             "(ask sam@mailbox.test)": "an email address other than a noreply one",
             "sam@mailbox.test_-x": "an email address other than a noreply one",
             "the sam@mailbox.test-2024 archive": "an email address other than a noreply one",
+            # After a URL and an escaped newline, the next line's address.
+            r'"https://example.com\nsam@mailbox.test"': "an email address other than a noreply one",
             # In a template literal, and after an escaped backslash and an escape.
             r'const contact = `Contact:\nsam@mailbox.test`;': "an email address other than a noreply one",
             r'"Contact:\\\nsam@mailbox.test"': "an email address other than a noreply one",
@@ -139,6 +141,7 @@ class ScanTests(unittest.TestCase):
             r"Don't use C:\new@v2.config",
             r'"C:\\\\new@v2.config"',
             r'"https://user:pa\u0073s@host.test"',
+            r'''"https://user:pa\'\u0073s@host.test"''',
             r'"C:\\new@v2.config"',
             r'"\n李@host.test", "\nénoreply@host.test"',
             # The rule's own text names the prefixes and markers it rules out.

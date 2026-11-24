@@ -107,7 +107,36 @@ def escaped_address(line, index):
         j += 1
     if quote is None:
         return False
-    return "://" not in re.split(r"[ \t\r\n\f\v\"'`]", line[:index])[-1]
+    return "://" not in url_token(line, index)
+
+
+# Escapes of a space or control character, which end a token as they decode.
+SPACE_ESCAPES = {"n": 10, "r": 13, "t": 9, "f": 12, "v": 11, "0": 0, "b": 8}
+
+
+def url_token(line, index):
+    """The token the address ends, as the text decodes: it starts after the
+    last space, unescaped quote, or escape of a space or control character
+    (`https://x.example\\nsam@corp.example` is a URL, then an address); an
+    escaped quote or letter (`pa\\'ss`, `\\u0073`) stays inside it."""
+    start, j = 0, 0
+    while j < index:
+        if line[j] == "\\":
+            length, code = 2, SPACE_ESCAPES.get(line[j + 1 : j + 2])
+            u = re.match(r"\\u([0-9A-Fa-f]{4})", line[j : j + 6])
+            x = re.match(r"\\x([0-9A-Fa-f]{2})", line[j : j + 4])
+            if u:
+                length, code = 6, int(u.group(1), 16)
+            elif x:
+                length, code = 4, int(x.group(1), 16)
+            if code is not None and code < 0x21:
+                start = min(j + length, index)
+            j += length
+        else:
+            if line[j] in " \t\r\n\f\v\"'`":
+                start = j + 1
+            j += 1
+    return line[start:index]
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
 # a match whose text before it ends with this is skipped. mailto: has no //,

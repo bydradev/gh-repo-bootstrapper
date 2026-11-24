@@ -70,7 +70,7 @@ EMAIL_WHOLE = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9
 # An address right after a complete literal escape in a string, in JSON or
 # source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
 # over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
-# quiet. escaped_address decides whether the escape is one. The local part is
+# quiet. escape_starts decides whether the escape is one. The local part is
 # ASCII so that it agrees with the JavaScript copy, whose \w is ASCII; each
 # lookbehind is fixed-width, as Python requires.
 EMAIL_AFTER_ESCAPE = re.compile(
@@ -78,66 +78,67 @@ EMAIL_AFTER_ESCAPE = re.compile(
 )
 
 
-def escaped_address(line, index):
-    """An EMAIL_AFTER_ESCAPE match counts when its escape's backslash ends an
-    odd run of backslashes (an even run is escaped backslashes and text),
-    sits inside a string opened by ", ` or a ' that no letter or digit comes
-    before other than a Python string prefix (f'...', rb'...'; not a Windows
-    path, a regex or an apostrophe in prose), and is not in a URL (escaped
-    slashes included), whose user information the URL guard judges."""
-    start = index - 2
-    if re.search(r"\\u[0-9A-Fa-f]{4}$", line[max(0, index - 6) : index]):
-        start = index - 6
-    elif re.search(r"\\x[0-9A-Fa-f]{2}$", line[max(0, index - 4) : index]):
-        start = index - 4
-    run, j = 0, start
-    while j >= 0 and line[j] == "\\":
-        run, j = run + 1, j - 1
-    if run % 2 == 0:
-        return False
-    quote, j = None, 0
-    while j < start:
-        c = line[j]
-        if quote:
-            if c == "\\":
-                j += 1
-            elif c == quote:
-                quote = None
-        elif c in "\"`" or (c == "'" and re.search(r"(?:^|[^A-Za-z0-9_])[rRbBuUfF]{0,2}$", line[:j])):
-            quote = c
-        j += 1
-    if quote is None:
-        return False
-    return "://" not in url_token(line, index).replace("\\/", "/")
-
-
-# Escapes of a space or control character, which end a token as they decode.
+# Escapes of a space or control character.
 SPACE_ESCAPES = {"n": 10, "r": 13, "t": 9, "f": 12, "v": 11, "0": 0, "b": 8}
 
 
-def url_token(line, index):
-    """The token the address ends, as the text decodes: it starts after the
-    last space, unescaped quote, or escape of a space or control character
-    (`https://x.example\\nsam@corp.example` is a URL, then an address); an
-    escaped quote or letter (`pa\\'ss`, `\\u0073`) stays inside it."""
-    start, j = 0, 0
-    while j < index:
-        if line[j] == "\\":
-            length, code = 2, SPACE_ESCAPES.get(line[j + 1 : j + 2])
-            u = re.match(r"\\u([0-9A-Fa-f]{4})", line[j : j + 6])
-            x = re.match(r"\\x([0-9A-Fa-f]{2})", line[j : j + 4])
-            if u:
-                length, code = 6, int(u.group(1), 16)
-            elif x:
-                length, code = 4, int(x.group(1), 16)
-            if code is not None and code < 0x21:
-                start = min(j + length, index)
-            j += length
+def escape_starts(line):
+    """Where an address may start after an escape: the positions right after
+    an escape inside a string (opened by ", ` or a ' that no letter or digit
+    comes before other than a Python string prefix such as f or rb, and not
+    raw) that decodes to a space, a control character, a quote or a slash,
+    mapped to whether the token the address ends is a URL (`scheme://` or
+    `scheme:\\/\\/` since its last space, quote, or escaped space or control
+    character), whose user information the URL guard judges. An escaped
+    letter (`\\u006e`) is part of the address, and an escaped backslash
+    consumes its pair, so a run of them leaves the escape after it as it is.
+    One pass over the line."""
+    starts = {}
+    quote, raw, url = None, False, False
+
+    def scheme(j):
+        return line.startswith("://", j) or line.startswith(":\\/\\/", j)
+
+    j = 0
+    while j < len(line):
+        c = line[j]
+        if quote:
+            if c == "\\" and raw:
+                j += 2
+            elif c == "\\":
+                length = 2
+                nxt = line[j + 1 : j + 2]
+                code = SPACE_ESCAPES.get(nxt, ord(nxt) if nxt else 0x100)
+                u = re.match(r"\\u([0-9A-Fa-f]{4})", line[j : j + 6])
+                x = re.match(r"\\x([0-9A-Fa-f]{2})", line[j : j + 4])
+                if u:
+                    length, code = 6, int(u.group(1), 16)
+                elif x:
+                    length, code = 4, int(x.group(1), 16)
+                if code < 0x21:
+                    url = False
+                if code < 0x21 or code in (34, 39, 47, 96):
+                    starts[j + length] = url
+                j += length
+            else:
+                if c == quote:
+                    quote, raw, url = None, False, False
+                elif c in " \t\r\n\f\v":
+                    url = False
+                elif scheme(j):
+                    url = True
+                j += 1
         else:
-            if line[j] in " \t\r\n\f\v\"'`":
-                start = j + 1
+            prefix = re.search(r"(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$", line[max(0, j - 3) : j])
+            if c in "\"`" or (c == "'" and prefix):
+                quote, url = c, False
+                raw = c != "`" and bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
+            elif c in " \t\r\n\f\v'\"`":
+                url = False
+            elif scheme(j):
+                url = True
             j += 1
-    return line[start:index]
+    return starts
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
 # a match whose text before it ends with this is skipped. mailto: has no //,
@@ -190,11 +191,14 @@ def scan(text, *, allow_attribution=False):
         if number <= skip:
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
+        starts = escape_starts(line) if EMAIL_AFTER_ESCAPE.search(line) else {}
         if line != DEPENDABOT_FOOTER and any(
-            not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
+            # The address test first: it is cheap, and the URL guard reads the
+            # text before the match, which a long line holds many of.
+            private_address(*match.groups()) and not URL_USERINFO.search(line[: match.start()])
             for pattern in (EMAIL, EMAIL_WHOLE, EMAIL_AFTER_ESCAPE)
             for match in pattern.finditer(line)
-            if pattern is not EMAIL_AFTER_ESCAPE or escaped_address(line, match.start())
+            if pattern is not EMAIL_AFTER_ESCAPE or starts.get(match.start()) is False
         ):
             kinds.append("an email address other than a noreply one")
         found += [(number, kind) for kind in kinds]

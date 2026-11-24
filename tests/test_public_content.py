@@ -1,5 +1,6 @@
 """The public-content check: what it finds, what it lets through, and that it never prints the match."""
 
+import time
 import importlib.util
 import json
 import os
@@ -75,7 +76,7 @@ class ScanTests(unittest.TestCase):
             # After a URL and an escaped newline, the next line's address.
             r'"https://example.com\nsam@mailbox.test"': "an email address other than a noreply one",
             # In prefixed Python strings.
-            r"msg = f'to:\nsam@mailbox.test' + rb'\tsam@mailbox.test'": "an email address other than a noreply one",
+            r"msg = f'to:\nsam@mailbox.test' + b'\tsam@mailbox.test'": "an email address other than a noreply one",
             # In a template literal, and after an escaped backslash and an escape.
             r'const contact = `Contact:\nsam@mailbox.test`;': "an email address other than a noreply one",
             r'"Contact:\\\nsam@mailbox.test"': "an email address other than a noreply one",
@@ -99,6 +100,12 @@ class ScanTests(unittest.TestCase):
         for text, kind in cases.items():
             with self.subTest(text=text):
                 self.assertIn(kind, kinds(text))
+
+    def test_long_escaped_line_scans_in_linear_time(self):
+        line = '"' + "\\nnoreply@host.test" * 20000 + '"'
+        started = time.monotonic()
+        self.assertEqual(kinds(line), [])
+        self.assertLess(time.monotonic() - started, 2)
 
     def test_lets_public_text_through(self):
         for text in (
@@ -144,6 +151,11 @@ class ScanTests(unittest.TestCase):
             r'"C:\\\\new@v2.config"',
             r'"https://user:pa\u0073s@host.test"',
             r'"https:\/\/user:pa\u0073s@host.test"',
+            # A raw string's backslash, an apostrophe in a double-quoted URL's
+            # password, and an allowed address with an escaped first letter.
+            r'''path = r'C:\new@v2.config' + R"C:\tmp@v2.config"''',
+            r'''"https://user:pa's\u0073s@host.test"''',
+            r'"to \u006eoreply@anthropic.com and \x6eoreply@anthropic.com"',
             r'''"https://user:pa\'\u0073s@host.test"''',
             r'"C:\\new@v2.config"',
             r'"\n李@host.test", "\nénoreply@host.test"',

@@ -57,10 +57,13 @@ PATTERNS = (
 # An address is found unless it is a noreply one, at an example domain, or
 # the contact address CODE_OF_CONDUCT.md publishes; git@github.com is SSH's
 # login, not a person's. A backslash before it is an escape such as `\n`.
-# It ends where a letter or digit cannot follow: `_` never appears in a
-# domain, and a `-` after the letters-only top-level label opens a suffix
+# It ends where no letter or digit follows: `_` never appears in a domain,
+# and a `-` after the letters-only top-level label opens a suffix
 # (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
-EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])")
+# A `-` and a digit continue the token, as in a package tag (`a@b.cd-1`).
+# After a `-`, the domain may go on (`x.example.com-y.test`), so only the
+# local part can make that address public.
+EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9]|-[0-9])")
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
 # a match whose text before it ends with this is skipped. mailto: has no //,
@@ -91,11 +94,14 @@ ATTRIBUTION = (
 )
 
 
-def private_address(local, domain):
+def private_address(local, domain, continued=False):
     local, domain = local.lower(), domain.lower()
+    if local in NOREPLY_LOCAL_PARTS:
+        return False
+    if continued:
+        return True
     return not (
-        local in NOREPLY_LOCAL_PARTS
-        or any(domain == allowed or domain.endswith("." + allowed) for allowed in NOREPLY_DOMAINS)
+        any(domain == allowed or domain.endswith("." + allowed) for allowed in NOREPLY_DOMAINS)
         or f"{local}@{domain}" in PUBLISHED_ADDRESSES
     )
 
@@ -114,7 +120,8 @@ def scan(text, *, allow_attribution=False):
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
         if line != DEPENDABOT_FOOTER and any(
-            not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
+            not URL_USERINFO.search(line[: match.start()])
+            and private_address(*match.groups(), line[match.end() : match.end() + 1] == "-")
             for match in EMAIL.finditer(line)
         ):
             kinds.append("an email address other than a noreply one")

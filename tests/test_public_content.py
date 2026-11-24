@@ -75,9 +75,12 @@ class ScanTests(unittest.TestCase):
             # does not make it public.
             "user@team.example.com-xn--p1ai": "an email address other than a noreply one",
             "user@team.example.com-foo.test2": "an email address other than a noreply one",
-            "report it to github@bydra.dev-ops": "an email address other than a noreply one",
             "contacts/noreply@anthropic.com-sam@mailbox.test.txt": "an email address other than a noreply one",
-            "noreply@anthropic.com-x": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com_sam@mailbox.test.txt": "an email address other than a noreply one",
+            "https://user@corp.test-sam@mailbox.test/path": "an email address other than a noreply one",
+            "report it to github@bydra.dev-ops.mailbox.test": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com\u00e9sam@mailbox.test.txt": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com\u0661sam@mailbox.test.txt": "an email address other than a noreply one",
         }
         for text, kind in cases.items():
             with self.subTest(text=text):
@@ -110,6 +113,7 @@ class ScanTests(unittest.TestCase):
             # The same trailing punctuation after an allowed address.
             "_write to sam@example.com_ or noreply@anthropic.com, noreply@mailbox.test_x",
             "noreply@anthropic.com_ and sam@example.com_",
+            "noreply@anthropic.com-x and github@bydra.dev-ops",
             # A package tag, where a hyphen and a digit follow.
             "npm install a@b.cd-1 and @scope/a@b.cd-1",
             # Package versions and decorators are not addresses, nor is an escape.

@@ -61,10 +61,13 @@ PATTERNS = (
 # and a `-` after the letters-only top-level label opens a suffix
 # (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
 # A `-` and a digit continue the token, as in a package tag (`a@b.cd-1`).
-# After a `-`, the domain may go on (`x.example.com-y.test`), or another
-# address may start (`noreply@x.example-sam@corp.example`), so no exemption
-# applies to that match.
 EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9]|-[0-9])")
+# The same address ending only where no word character or `-` follows. Where
+# EMAIL stops early (before a `-` or `_`), this one keeps searching and can
+# find an address that overlaps it (`noreply@x.example-sam@corp.example`)
+# or the whole domain a `-` continues, so a line is checked with both and
+# nothing this one finds is lost to the earlier end.
+EMAIL_WHOLE = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
 # a match whose text before it ends with this is skipped. mailto: has no //,
@@ -95,10 +98,8 @@ ATTRIBUTION = (
 )
 
 
-def private_address(local, domain, continued=False):
+def private_address(local, domain):
     local, domain = local.lower(), domain.lower()
-    if continued:
-        return True
     return not (
         local in NOREPLY_LOCAL_PARTS
         or any(domain == allowed or domain.endswith("." + allowed) for allowed in NOREPLY_DOMAINS)
@@ -120,9 +121,9 @@ def scan(text, *, allow_attribution=False):
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
         if line != DEPENDABOT_FOOTER and any(
-            not URL_USERINFO.search(line[: match.start()])
-            and private_address(*match.groups(), line[match.end() : match.end() + 1] == "-")
-            for match in EMAIL.finditer(line)
+            not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
+            for pattern in (EMAIL, EMAIL_WHOLE)
+            for match in pattern.finditer(line)
         ):
             kinds.append("an email address other than a noreply one")
         found += [(number, kind) for kind in kinds]

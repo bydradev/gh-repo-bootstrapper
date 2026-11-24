@@ -27,11 +27,14 @@ review and reverts.
 
 ## When to open a pull request
 
-Open a standard PR once the change is complete and the checks it affects
-pass locally. Until then, push the branch without a PR when you need a backup
-or a hand-off. Open a draft earlier only for a reason the body states, such as
-checks that run only in CI, early feedback the operator asked for, or work
-handed back unfinished, and mark it ready only once that bar is met.
+Open a standard PR once the change is complete and the affected checks that
+can run locally pass. Until then, push the branch without a PR when you need a
+backup or a hand-off. Open a draft earlier only for a reason the body states,
+such as checks that run only in CI, early feedback the operator asked for, or
+work handed back unfinished. Mark it ready once the change is complete, those
+local checks pass and, for substantial work, `fresh-eyes-review` has found no
+open blocking finding; checks and reviews that run only on a ready PR follow,
+and the PR is done only when it meets `AGENTS.md`'s bar.
 
 ## Standard pull requests
 

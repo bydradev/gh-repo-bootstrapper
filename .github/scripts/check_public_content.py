@@ -86,14 +86,15 @@ SPACE_ESCAPES = {"n": 10, "r": 13, "t": 9, "f": 12, "v": 11, "0": 0, "b": 8}
 def escape_starts(line):
     """Where an address may start after an escape: the positions right after
     an escape inside a string (opened by ", ` or a ' that no letter or digit
-    comes before other than a Python string prefix such as f or rb, and not
-    raw) that decodes to a space, a control character, a quote or a slash,
-    mapped to whether the token the address ends is a URL (`scheme://` or
-    `scheme:\\/\\/` since its last space, quote, or escaped space or control
-    character), whose user information the URL guard judges. An escaped
-    letter (`\\u006e`) is part of the address, and an escaped backslash
-    consumes its pair, so a run of them leaves the escape after it as it is.
-    One pass over the line."""
+    comes before other than a Python string prefix such as f or rb; a
+    triple-quoted one ends at its own three quotes; a raw one has no escapes)
+    that decodes to a space, a control character, a quote or a slash, mapped
+    to whether it is in a URL's user information: from a scheme's :// (escaped
+    or not) to the next space, slash, ?, # or quote, or escape of one or of a
+    control character. The URL guard judges that part. An escaped letter
+    (`\\u006e`) is part of the address, and an escaped backslash consumes its
+    pair, so a run of them leaves the escape after it as it is. One pass over
+    the line."""
     starts = {}
     quote, raw, url = None, False, False
 
@@ -107,7 +108,9 @@ def escape_starts(line):
     while j < len(line):
         c = line[j]
         if quote:
-            if c == "\\" and raw:
+            if scheme(j) >= 0:
+                url, j = True, scheme(j) + 1
+            elif c == "\\" and raw:
                 j += 2
             elif c == "\\":
                 length = 2
@@ -122,30 +125,32 @@ def escape_starts(line):
                     length, code = 4, int(x.group(1), 16)
                 elif o:
                     length, code = 1 + len(o.group(1)), int(o.group(1), 8)
-                # A space, or a slash after the authority (the user information
-                # is only between scheme:// and the first slash), ends the URL's
-                # part.
-                if code < 0x21 or (code == 47 and url):
+                # A space, or a slash, ? or # after the authority (the user
+                # information is only between scheme:// and the first of them),
+                # ends the URL's part.
+                if code < 0x21 or code in (35, 47, 63):
                     url = False
                 if code < 0x21 or code in (34, 39, 47, 96):
                     starts[j + length] = url
                 j += length
+            elif line.startswith(quote, j):
+                j, quote, raw, url = j + len(quote), None, False, False
             else:
-                if c == quote:
-                    quote, raw, url = None, False, False
-                elif scheme(j) >= 0:
-                    url, j = True, scheme(j)
-                elif c in " \t\r\n\f\v/":
+                if c in " \t\r\n\f\v/?#":
                     url = False
                 j += 1
         else:
             prefix = re.search(r"(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$", line[max(0, j - 3) : j])
             if c in "\"`" or (c == "'" and prefix):
-                quote, url = c, False
+                # A Python triple-quoted string ends only at its own three quotes.
+                quote = c * 3 if c != "`" and line.startswith(c * 3, j) else c
                 raw = c != "`" and bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
-            elif scheme(j) >= 0:
+                url = False
+                j += len(quote)
+                continue
+            if scheme(j) >= 0:
                 url, j = True, scheme(j)
-            elif c in " \t\r\n\f\v'\"`/":
+            elif c in " \t\r\n\f\v'\"`/?#":
                 url = False
             j += 1
     return starts

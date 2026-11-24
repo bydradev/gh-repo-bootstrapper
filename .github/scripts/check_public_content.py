@@ -111,11 +111,17 @@ def escape_starts(line):
                 code = SPACE_ESCAPES.get(nxt, ord(nxt) if nxt else 0x100)
                 u = re.match(r"\\u([0-9A-Fa-f]{4})", line[j : j + 6])
                 x = re.match(r"\\x([0-9A-Fa-f]{2})", line[j : j + 4])
+                o = re.match(r"\\([0-7]{1,3})", line[j : j + 4])
                 if u:
                     length, code = 6, int(u.group(1), 16)
                 elif x:
                     length, code = 4, int(x.group(1), 16)
-                if code < 0x21:
+                elif o:
+                    length, code = 1 + len(o.group(1)), int(o.group(1), 8)
+                # A space, or a slash after the authority (the user information
+                # is only between scheme:// and the first slash), ends the URL's
+                # part.
+                if code < 0x21 or (code == 47 and url):
                     url = False
                 if code < 0x21 or code in (34, 39, 47, 96):
                     starts[j + length] = url
@@ -123,20 +129,20 @@ def escape_starts(line):
             else:
                 if c == quote:
                     quote, raw, url = None, False, False
-                elif c in " \t\r\n\f\v":
-                    url = False
                 elif scheme(j):
-                    url = True
+                    url, j = True, j + (2 if line[j + 1 : j + 2] == "/" else 4)
+                elif c in " \t\r\n\f\v/":
+                    url = False
                 j += 1
         else:
             prefix = re.search(r"(?:^|[^A-Za-z0-9_])([rRbBuUfF]{0,2})$", line[max(0, j - 3) : j])
             if c in "\"`" or (c == "'" and prefix):
                 quote, url = c, False
                 raw = c != "`" and bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
-            elif c in " \t\r\n\f\v'\"`":
-                url = False
             elif scheme(j):
-                url = True
+                url, j = True, j + (2 if line[j + 1 : j + 2] == "/" else 4)
+            elif c in " \t\r\n\f\v'\"`/":
+                url = False
             j += 1
     return starts
 # A URL's user information (scheme://user@host or scheme://user:password@host),
@@ -192,13 +198,21 @@ def scan(text, *, allow_attribution=False):
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
         starts = escape_starts(line) if EMAIL_AFTER_ESCAPE.search(line) else {}
+        candidates = [(m, False) for m in EMAIL.finditer(line)]
+        candidates += [(m, False) for m in EMAIL_WHOLE.finditer(line)]
+        # After an escape, a hyphen and a letter or digit may continue the
+        # domain (`sam@x.example-y.test`), so no exemption applies then.
+        candidates += [
+            (m, bool(re.match(r"-[A-Za-z0-9]", line[m.end() :])))
+            for m in EMAIL_AFTER_ESCAPE.finditer(line)
+            if starts.get(m.start()) is False
+        ]
         if line != DEPENDABOT_FOOTER and any(
             # The address test first: it is cheap, and the URL guard reads the
             # text before the match, which a long line holds many of.
-            private_address(*match.groups()) and not URL_USERINFO.search(line[: match.start()])
-            for pattern in (EMAIL, EMAIL_WHOLE, EMAIL_AFTER_ESCAPE)
-            for match in pattern.finditer(line)
-            if pattern is not EMAIL_AFTER_ESCAPE or starts.get(match.start()) is False
+            (continued or private_address(*match.groups()))
+            and not URL_USERINFO.search(line[: match.start()])
+            for match, continued in candidates
         ):
             kinds.append("an email address other than a noreply one")
         found += [(number, kind) for kind in kinds]

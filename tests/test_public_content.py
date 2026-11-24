@@ -77,6 +77,10 @@ class ScanTests(unittest.TestCase):
             r'"https://example.com\nsam@mailbox.test"': "an email address other than a noreply one",
             # In prefixed Python strings.
             r"msg = f'to:\nsam@mailbox.test' + b'\tsam@mailbox.test'": "an email address other than a noreply one",
+            # In a URL's path after an escaped slash, and before a hyphen that
+            # may continue the domain.
+            r'"https://example.com/contacts\u002fsam@mailbox.test"': "an email address other than a noreply one",
+            r'"Contact:\nsam@example.com-xn--p1ai"': "an email address other than a noreply one",
             # In a template literal, and after an escaped backslash and an escape.
             r'const contact = `Contact:\nsam@mailbox.test`;': "an email address other than a noreply one",
             r'"Contact:\\\nsam@mailbox.test"': "an email address other than a noreply one",
@@ -156,6 +160,8 @@ class ScanTests(unittest.TestCase):
             r'''path = r'C:\new@v2.config' + R"C:\tmp@v2.config"''',
             r'''"https://user:pa's\u0073s@host.test"''',
             r'"to \u006eoreply@anthropic.com and \x6eoreply@anthropic.com"',
+            # An octal escape is read whole.
+            r'"Contact:\012noreply@host.test"',
             r'''"https://user:pa\'\u0073s@host.test"''',
             r'"C:\\new@v2.config"',
             r'"\n李@host.test", "\nénoreply@host.test"',

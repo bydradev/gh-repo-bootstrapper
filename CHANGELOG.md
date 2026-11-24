@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.1](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.27.0...v0.27.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* let a draft PR become ready on the checks that can run locally ([#295](https://github.com/bydradev/gh-repo-bootstrapper/issues/295)) ([9f3c91c](https://github.com/bydradev/gh-repo-bootstrapper/commit/9f3c91c6b2febf1fc72a915856c932a9ff82d8b2))
+
 ## [0.27.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.26.0...v0.27.0) (2026-11-24)
 
 

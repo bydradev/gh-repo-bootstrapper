@@ -71,6 +71,7 @@ class ScanTests(unittest.TestCase):
             "to sam@mailbox.test, then": "an email address other than a noreply one",
             "(ask sam@mailbox.test)": "an email address other than a noreply one",
             "sam@mailbox.test_-x": "an email address other than a noreply one",
+            "the sam@mailbox.test-2024 archive": "an email address other than a noreply one",
             # After a hyphen the domain may go on, so an allowed-looking start
             # does not make it public.
             "user@team.example.com-xn--p1ai": "an email address other than a noreply one",
@@ -114,8 +115,6 @@ class ScanTests(unittest.TestCase):
             "_write to sam@example.com_ or noreply@anthropic.com, noreply@mailbox.test_x",
             "noreply@anthropic.com_ and sam@example.com_",
             "noreply@anthropic.com-x and github@bydra.dev-ops",
-            # A package tag, where a hyphen and a digit follow.
-            "npm install a@b.cd-1 and @scope/a@b.cd-1",
             # Package versions and decorators are not addresses, nor is an escape.
             "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
             r'files[HUB] + "\n@AGENTS.md\n"',

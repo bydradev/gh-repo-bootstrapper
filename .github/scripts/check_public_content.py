@@ -60,8 +60,7 @@ PATTERNS = (
 # It ends where no letter or digit follows: `_` never appears in a domain,
 # and a `-` after the letters-only top-level label opens a suffix
 # (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
-# A `-` and a digit continue the token, as in a package tag (`a@b.cd-1`).
-EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9]|-[0-9])")
+EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])")
 # The same address ending only where no word character or `-` follows. Where
 # EMAIL stops early (before a `-` or `_`), this one keeps searching and can
 # find an address that overlaps it (`noreply@x.example-sam@corp.example`)

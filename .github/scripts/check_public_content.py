@@ -67,16 +67,47 @@ EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)
 # or the whole domain a `-` continues, so a line is checked with both and
 # nothing this one finds is lost to the earlier end.
 EMAIL_WHOLE = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])")
-# An address right after a complete literal escape in JSON or source text
-# (`"Contact:\nsam@corp.example"`), which the patterns above pass over: their
-# start may not follow a backslash, so that `\n@AGENTS.md` stays quiet. The
-# escape's backslash must not itself be escaped (`C:\\new@...`), a quote must
-# come earlier on the line (a string, not a Windows path or a regex), and the
-# local part is ASCII so that it agrees with the JavaScript copy, whose \w is
-# ASCII. Each lookbehind is fixed-width, as Python requires.
+# An address right after a complete literal escape in a string, in JSON or
+# source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
+# over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
+# quiet. escaped_address decides whether the escape is one. The local part is
+# ASCII so that it agrees with the JavaScript copy, whose \w is ASCII; each
+# lookbehind is fixed-width, as Python requires.
 EMAIL_AFTER_ESCAPE = re.compile(
-    r'(?:(?<=(?<!\\)\\[nrtbfv0"/])|(?<=(?<!\\)\\u[0-9A-Fa-f]{4})|(?<=(?<!\\)\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])'
+    r'(?:(?<=\\[nrtbfv0"\'`/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])'
 )
+
+
+def escaped_address(line, index):
+    """An EMAIL_AFTER_ESCAPE match counts when its escape's backslash ends an
+    odd run of backslashes (an even run is escaped backslashes and text),
+    sits inside a string opened by ", ` or a ' that no letter or digit comes
+    before (not a Windows path, a regex or an apostrophe in prose), and is
+    not in a URL, whose user information the URL guard judges."""
+    start = index - 2
+    if re.search(r"\\u[0-9A-Fa-f]{4}$", line[max(0, index - 6) : index]):
+        start = index - 6
+    elif re.search(r"\\x[0-9A-Fa-f]{2}$", line[max(0, index - 4) : index]):
+        start = index - 4
+    run, j = 0, start
+    while j >= 0 and line[j] == "\\":
+        run, j = run + 1, j - 1
+    if run % 2 == 0:
+        return False
+    quote, j = None, 0
+    while j < start:
+        c = line[j]
+        if quote:
+            if c == "\\":
+                j += 1
+            elif c == quote:
+                quote = None
+        elif c in "\"`" or (c == "'" and not (j > 0 and re.match(r"[A-Za-z0-9_]", line[j - 1]))):
+            quote = c
+        j += 1
+    if quote is None:
+        return False
+    return "://" not in re.split(r"[ \t\r\n\f\v\"'`]", line[:index])[-1]
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
 # a match whose text before it ends with this is skipped. mailto: has no //,
@@ -133,7 +164,7 @@ def scan(text, *, allow_attribution=False):
             not URL_USERINFO.search(line[: match.start()]) and private_address(*match.groups())
             for pattern in (EMAIL, EMAIL_WHOLE, EMAIL_AFTER_ESCAPE)
             for match in pattern.finditer(line)
-            if pattern is not EMAIL_AFTER_ESCAPE or re.search("[\"']", line[: match.start()])
+            if pattern is not EMAIL_AFTER_ESCAPE or escaped_address(line, match.start())
         ):
             kinds.append("an email address other than a noreply one")
         found += [(number, kind) for kind in kinds]

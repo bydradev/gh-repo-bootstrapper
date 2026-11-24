@@ -72,6 +72,9 @@ class ScanTests(unittest.TestCase):
             "(ask sam@mailbox.test)": "an email address other than a noreply one",
             "sam@mailbox.test_-x": "an email address other than a noreply one",
             "the sam@mailbox.test-2024 archive": "an email address other than a noreply one",
+            # In a template literal, and after an escaped backslash and an escape.
+            r'const contact = `Contact:\nsam@mailbox.test`;': "an email address other than a noreply one",
+            r'"Contact:\\\nsam@mailbox.test"': "an email address other than a noreply one",
             # An address right after a literal escape in serialized text.
             r'{"message":"Contact:\nalice@mailbox.test"}': "an email address other than a noreply one",
             r'"to:\tsam@mailbox.test"': "an email address other than a noreply one",
@@ -130,6 +133,12 @@ class ScanTests(unittest.TestCase):
             # A Windows path, a regex and an escaped backslash are not escapes
             # before an address, and Python's Unicode letters do not count.
             r"C:\new@v2.config and /\new@v2.config/",
+            # A regex after a closed string, an apostrophe in prose, an even run
+            # of backslashes, and an escape in a URL's user information.
+            r'const label = "regex"; const pattern = /\new@v2.config/;',
+            r"Don't use C:\new@v2.config",
+            r'"C:\\\\new@v2.config"',
+            r'"https://user:pa\u0073s@host.test"',
             r'"C:\\new@v2.config"',
             r'"\n李@host.test", "\nénoreply@host.test"',
             # The rule's own text names the prefixes and markers it rules out.

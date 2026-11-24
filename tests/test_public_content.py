@@ -81,6 +81,9 @@ class ScanTests(unittest.TestCase):
             # may continue the domain.
             r'"https://example.com/contacts\u002fsam@mailbox.test"': "an email address other than a noreply one",
             r'"Contact:\nsam@example.com-xn--p1ai"': "an email address other than a noreply one",
+            # After an octal escape.
+            r'"Contact:\012sam@mailbox.test"': "an email address other than a noreply one",
+            r'"\7sam@mailbox.test"': "an email address other than a noreply one",
             # In a template literal, and after an escaped backslash and an escape.
             r'const contact = `Contact:\nsam@mailbox.test`;': "an email address other than a noreply one",
             r'"Contact:\\\nsam@mailbox.test"': "an email address other than a noreply one",
@@ -160,6 +163,9 @@ class ScanTests(unittest.TestCase):
             r'''path = r'C:\new@v2.config' + R"C:\tmp@v2.config"''',
             r'''"https://user:pa's\u0073s@host.test"''',
             r'"to \u006eoreply@anthropic.com and \x6eoreply@anthropic.com"',
+            # A noreply address before a hyphenated suffix, and escaped scheme separators.
+            r'"\nnoreply@host.test-related"',
+            r'"https:\u002f\u002fuser:pa\u0022ss@host.test"',
             # An octal escape is read whole.
             r'"Contact:\012noreply@host.test"',
             r'''"https://user:pa\'\u0073s@host.test"''',

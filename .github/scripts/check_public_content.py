@@ -70,11 +70,12 @@ EMAIL_WHOLE = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9
 # An address right after a complete literal escape in a string, in JSON or
 # source text (`"Contact:\nsam@corp.example"`), which the patterns above pass
 # over: their start may not follow a backslash, so that `\n@AGENTS.md` stays
-# quiet. escape_starts decides whether the escape is one. The local part is
-# ASCII so that it agrees with the JavaScript copy, whose \w is ASCII; each
-# lookbehind is fixed-width, as Python requires.
+# quiet. escape_starts finds the positions where one may start, and this
+# pattern is tried at each of them (anchored), so overlapping candidates such
+# as `\012sam` (an octal escape) cannot hide each other. The local part is
+# ASCII so that it agrees with the JavaScript copy, whose \w is ASCII.
 EMAIL_AFTER_ESCAPE = re.compile(
-    r'(?:(?<=\\[nrtbfv0"\'`/])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])'
+    r'([A-Za-z0-9_.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9])'
 )
 
 
@@ -97,7 +98,10 @@ def escape_starts(line):
     quote, raw, url = None, False, False
 
     def scheme(j):
-        return line.startswith("://", j) or line.startswith(":\\/\\/", j)
+        """A scheme's :// as written or escaped (`:\\/\\/`,
+        `\\u003a\\u002f\\u002f`): the index of its last character, or -1."""
+        m = re.match(r"(?::|\\u003[aA]|\\x3[aA])(?:/|\\/|\\u002[fF]|\\x2[fF]){2}", line[j : j + 18])
+        return j + len(m.group(0)) - 1 if m else -1
 
     j = 0
     while j < len(line):
@@ -129,8 +133,8 @@ def escape_starts(line):
             else:
                 if c == quote:
                     quote, raw, url = None, False, False
-                elif scheme(j):
-                    url, j = True, j + (2 if line[j + 1 : j + 2] == "/" else 4)
+                elif scheme(j) >= 0:
+                    url, j = True, scheme(j)
                 elif c in " \t\r\n\f\v/":
                     url = False
                 j += 1
@@ -139,8 +143,8 @@ def escape_starts(line):
             if c in "\"`" or (c == "'" and prefix):
                 quote, url = c, False
                 raw = c != "`" and bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
-            elif scheme(j):
-                url, j = True, j + (2 if line[j + 1 : j + 2] == "/" else 4)
+            elif scheme(j) >= 0:
+                url, j = True, scheme(j)
             elif c in " \t\r\n\f\v'\"`/":
                 url = False
             j += 1
@@ -197,20 +201,21 @@ def scan(text, *, allow_attribution=False):
         if number <= skip:
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
-        starts = escape_starts(line) if EMAIL_AFTER_ESCAPE.search(line) else {}
         candidates = [(m, False) for m in EMAIL.finditer(line)]
         candidates += [(m, False) for m in EMAIL_WHOLE.finditer(line)]
-        # After an escape, a hyphen and a letter or digit may continue the
-        # domain (`sam@x.example-y.test`), so no exemption applies then.
-        candidates += [
-            (m, bool(re.match(r"-[A-Za-z0-9]", line[m.end() :])))
-            for m in EMAIL_AFTER_ESCAPE.finditer(line)
-            if starts.get(m.start()) is False
-        ]
+        if "\\" in line and "@" in line:
+            for start, url in escape_starts(line).items():
+                m = None if url else EMAIL_AFTER_ESCAPE.match(line, start)
+                if m:
+                    # A hyphen and a letter or digit may continue the domain
+                    # (`sam@x.example-y.test`), so only the local part's
+                    # exemption applies then.
+                    after = line[m.end() : m.end() + 2]
+                    candidates.append((m, len(after) == 2 and after[0] == "-" and after[1].isascii() and after[1].isalnum()))
         if line != DEPENDABOT_FOOTER and any(
             # The address test first: it is cheap, and the URL guard reads the
             # text before the match, which a long line holds many of.
-            (continued or private_address(*match.groups()))
+            (match.group(1).lower() not in NOREPLY_LOCAL_PARTS if continued else private_address(*match.groups()))
             and not URL_USERINFO.search(line[: match.start()])
             for match, continued in candidates
         ):

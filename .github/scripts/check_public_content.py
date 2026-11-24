@@ -82,8 +82,9 @@ def escaped_address(line, index):
     """An EMAIL_AFTER_ESCAPE match counts when its escape's backslash ends an
     odd run of backslashes (an even run is escaped backslashes and text),
     sits inside a string opened by ", ` or a ' that no letter or digit comes
-    before (not a Windows path, a regex or an apostrophe in prose), and is
-    not in a URL, whose user information the URL guard judges."""
+    before other than a Python string prefix (f'...', rb'...'; not a Windows
+    path, a regex or an apostrophe in prose), and is not in a URL (escaped
+    slashes included), whose user information the URL guard judges."""
     start = index - 2
     if re.search(r"\\u[0-9A-Fa-f]{4}$", line[max(0, index - 6) : index]):
         start = index - 6
@@ -102,12 +103,12 @@ def escaped_address(line, index):
                 j += 1
             elif c == quote:
                 quote = None
-        elif c in "\"`" or (c == "'" and not (j > 0 and re.match(r"[A-Za-z0-9_]", line[j - 1]))):
+        elif c in "\"`" or (c == "'" and re.search(r"(?:^|[^A-Za-z0-9_])[rRbBuUfF]{0,2}$", line[:j])):
             quote = c
         j += 1
     if quote is None:
         return False
-    return "://" not in url_token(line, index)
+    return "://" not in url_token(line, index).replace("\\/", "/")
 
 
 # Escapes of a space or control character, which end a token as they decode.

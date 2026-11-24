@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.26.0...v0.27.0) (2026-11-24)
+
+
+### Features
+
+* say when to open a PR and how to size commits in the pull-requests skill ([#293](https://github.com/bydradev/gh-repo-bootstrapper/issues/293)) ([4e661b2](https://github.com/bydradev/gh-repo-bootstrapper/commit/4e661b2dead82d06cf5d58964c98167026d0ae8f))
+
 ## [0.26.0](https://github.com/bydradev/gh-repo-bootstrapper/compare/v0.25.1...v0.26.0) (2026-11-23)
 
 

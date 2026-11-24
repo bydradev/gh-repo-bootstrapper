@@ -61,8 +61,9 @@ PATTERNS = (
 # and a `-` after the letters-only top-level label opens a suffix
 # (`sam@corp.example-related`) or Markdown emphasis closes it (`_..._`).
 # A `-` and a digit continue the token, as in a package tag (`a@b.cd-1`).
-# After a `-`, the domain may go on (`x.example.com-y.test`), so only the
-# local part can make that address public.
+# After a `-`, the domain may go on (`x.example.com-y.test`), or another
+# address may start (`noreply@x.example-sam@corp.example`), so no exemption
+# applies to that match.
 EMAIL = re.compile(r"(?<![\w.%+\\-])([\w.%+-]+(?:\[bot\])?)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![A-Za-z0-9]|-[0-9])")
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
@@ -96,12 +97,11 @@ ATTRIBUTION = (
 
 def private_address(local, domain, continued=False):
     local, domain = local.lower(), domain.lower()
-    if local in NOREPLY_LOCAL_PARTS:
-        return False
     if continued:
         return True
     return not (
-        any(domain == allowed or domain.endswith("." + allowed) for allowed in NOREPLY_DOMAINS)
+        local in NOREPLY_LOCAL_PARTS
+        or any(domain == allowed or domain.endswith("." + allowed) for allowed in NOREPLY_DOMAINS)
         or f"{local}@{domain}" in PUBLISHED_ADDRESSES
     )
 

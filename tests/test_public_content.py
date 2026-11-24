@@ -76,6 +76,8 @@ class ScanTests(unittest.TestCase):
             "user@team.example.com-xn--p1ai": "an email address other than a noreply one",
             "user@team.example.com-foo.test2": "an email address other than a noreply one",
             "report it to github@bydra.dev-ops": "an email address other than a noreply one",
+            "contacts/noreply@anthropic.com-sam@mailbox.test.txt": "an email address other than a noreply one",
+            "noreply@anthropic.com-x": "an email address other than a noreply one",
         }
         for text, kind in cases.items():
             with self.subTest(text=text):
@@ -106,8 +108,8 @@ class ScanTests(unittest.TestCase):
             "Signed-off-by: Sam <sam@example.com>, t@mail.example.org and a@example.net",
             "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
             # The same trailing punctuation after an allowed address.
-            "_write to sam@example.com_ or noreply@anthropic.com-style, noreply@mailbox.test_x",
-            "noreply@anthropic.com_ and noreply@anthropic.com-x",
+            "_write to sam@example.com_ or noreply@anthropic.com, noreply@mailbox.test_x",
+            "noreply@anthropic.com_ and sam@example.com_",
             # A package tag, where a hyphen and a digit follow.
             "npm install a@b.cd-1 and @scope/a@b.cd-1",
             # Package versions and decorators are not addresses, nor is an escape.

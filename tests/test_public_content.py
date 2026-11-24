@@ -72,6 +72,12 @@ class ScanTests(unittest.TestCase):
             "(ask sam@mailbox.test)": "an email address other than a noreply one",
             "sam@mailbox.test_-x": "an email address other than a noreply one",
             "the sam@mailbox.test-2024 archive": "an email address other than a noreply one",
+            # An address right after a literal escape in serialized text.
+            r'{"message":"Contact:\nalice@mailbox.test"}': "an email address other than a noreply one",
+            r'"to:\tsam@mailbox.test"': "an email address other than a noreply one",
+            r"'line\rsam@mailbox.test'": "an email address other than a noreply one",
+            r'"a\u000asam@mailbox.test" and "b\x0asam@mailbox.test"': "an email address other than a noreply one",
+            r'"quote\"sam@mailbox.test\""': "an email address other than a noreply one",
             # After a hyphen the domain may go on, so an allowed-looking start
             # does not make it public.
             "user@team.example.com-xn--p1ai": "an email address other than a noreply one",
@@ -118,6 +124,9 @@ class ScanTests(unittest.TestCase):
             # Package versions and decorators are not addresses, nor is an escape.
             "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
             r'files[HUB] + "\n@AGENTS.md\n"',
+            # An escape not followed by an address, and an allowed address after one.
+            r'"\t@decorator", "\r@x", "\u0040", "line\nnoreply@anthropic.com"',
+            r'"Contact:\nsam@example.com"',
             # The rule's own text names the prefixes and markers it rules out.
             "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
             "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",

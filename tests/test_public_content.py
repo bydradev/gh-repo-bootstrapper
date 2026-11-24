@@ -68,6 +68,9 @@ class ScanTests(unittest.TestCase):
             "_contact sam@mailbox.test_": "an email address other than a noreply one",
             "the sam@mailbox.test-related thread": "an email address other than a noreply one",
             "sam@mailbox.test_old": "an email address other than a noreply one",
+            "to sam@mailbox.test, then": "an email address other than a noreply one",
+            "(ask sam@mailbox.test)": "an email address other than a noreply one",
+            "sam@mailbox.test_-x": "an email address other than a noreply one",
         }
         for text, kind in cases.items():
             with self.subTest(text=text):
@@ -99,6 +102,7 @@ class ScanTests(unittest.TestCase):
             "report it to github@bydra.dev, or clone git@github.com:bydradev/gh-agent-kit.git",
             # The same trailing punctuation after an allowed address.
             "_write to sam@example.com_ or noreply@anthropic.com-style, noreply@mailbox.test_x",
+            "noreply@anthropic.com_ and sam@example.com-x",
             # Package versions and decorators are not addresses, nor is an escape.
             "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
             r'files[HUB] + "\n@AGENTS.md\n"',

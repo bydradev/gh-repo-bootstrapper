@@ -153,7 +153,7 @@ def escape_starts(line):
                 # A raw string has no escapes: a Python r or R prefix, or
                 # String.raw`...`.
                 if c == "`":
-                    raw = bool(re.search(r"String\.raw\s*$", line[:j]))
+                    raw = bool(re.search(r"String\.raw\s{0,8}$", line[max(0, j - 18) : j]))
                 else:
                     raw = bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
                 url = False

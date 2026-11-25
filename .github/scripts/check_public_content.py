@@ -28,6 +28,7 @@ only the standard library.
 """
 
 import argparse
+import itertools
 import re
 import subprocess
 import sys
@@ -87,8 +88,9 @@ def escape_starts(line):
     """Where an address may start after an escape: the positions right after
     an escape inside a string (opened by ", ` or a ' that no letter or digit
     comes before other than a Python string prefix such as f or rb; a
-    triple-quoted one ends at its own three quotes; a raw one has no escapes)
-    that decodes to a space, a control character, a quote or a slash, mapped
+    triple-quoted one ends at its own three quotes; a raw one, r'...' or
+    String.raw`...`, has no escapes)
+    that decodes to a character an address's local part cannot hold, mapped
     to whether it is in a URL's user information: from a scheme's :// (escaped
     or not) to the next space, slash, ?, # or quote, or escape of one or of a
     control character. The URL guard judges that part. An escaped letter
@@ -130,7 +132,11 @@ def escape_starts(line):
                 # ends the URL's part.
                 if code < 0x21 or code in (35, 47, 63):
                     url = False
-                if code < 0x21 or code in (34, 39, 47, 96):
+                # Any character a local part cannot hold ends the text before
+                # it, so an address may start after its escape (`\u003c` in
+                # Go's JSON); an escaped backslash is followed by literal text
+                # (`C:\\new`).
+                if code != 92 and not re.match(r"[A-Za-z0-9_.%+-]", chr(code) if code < 0x110000 else "\0"):
                     starts[j + length] = url
                 j += length
             elif line.startswith(quote, j):
@@ -144,7 +150,12 @@ def escape_starts(line):
             if c in "\"`" or (c == "'" and prefix):
                 # A Python triple-quoted string ends only at its own three quotes.
                 quote = c * 3 if c != "`" and line.startswith(c * 3, j) else c
-                raw = c != "`" and bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
+                # A raw string has no escapes: a Python r or R prefix, or
+                # String.raw`...`.
+                if c == "`":
+                    raw = bool(re.search(r"String\.raw\s*$", line[:j]))
+                else:
+                    raw = bool(re.search(r"[rR]", prefix.group(1) if prefix else ""))
                 url = False
                 j += len(quote)
                 continue
@@ -193,6 +204,20 @@ def private_address(local, domain):
     )
 
 
+def after_escape_candidates(line):
+    """Addresses right after an escape, tried at each start escape_starts
+    records, each with whether a hyphen and a letter or digit continue it
+    (`sam@x.example-y.test`): the domain may go on, so only the local part's
+    exemption applies then. Lazy, like the other patterns' matches."""
+    if "\\" not in line or "@" not in line:
+        return
+    for start, url in escape_starts(line).items():
+        m = None if url else EMAIL_AFTER_ESCAPE.match(line, start)
+        if m:
+            after = line[m.end() : m.end() + 2]
+            yield m, len(after) == 2 and after[0] == "-" and after[1].isascii() and after[1].isalnum()
+
+
 def scan(text, *, allow_attribution=False):
     """Return (line number, kind) for each finding in text, in order."""
     lines = re.split(r"\r?\n", text)
@@ -206,17 +231,11 @@ def scan(text, *, allow_attribution=False):
         if number <= skip:
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
-        candidates = [(m, False) for m in EMAIL.finditer(line)]
-        candidates += [(m, False) for m in EMAIL_WHOLE.finditer(line)]
-        if "\\" in line and "@" in line:
-            for start, url in escape_starts(line).items():
-                m = None if url else EMAIL_AFTER_ESCAPE.match(line, start)
-                if m:
-                    # A hyphen and a letter or digit may continue the domain
-                    # (`sam@x.example-y.test`), so only the local part's
-                    # exemption applies then.
-                    after = line[m.end() : m.end() + 2]
-                    candidates.append((m, len(after) == 2 and after[0] == "-" and after[1].isascii() and after[1].isalnum()))
+        candidates = itertools.chain(
+            ((m, False) for m in EMAIL.finditer(line)),
+            ((m, False) for m in EMAIL_WHOLE.finditer(line)),
+            after_escape_candidates(line),
+        )
         if line != DEPENDABOT_FOOTER and any(
             # The address test first: it is cheap, and the URL guard reads the
             # text before the match, which a long line holds many of.

@@ -84,6 +84,9 @@ class ScanTests(unittest.TestCase):
             # In a URL's query or fragment after an escaped quote.
             r'"https://example.com?contact=\u0027sam@mailbox.test"': "an email address other than a noreply one",
             r'"https://example.com#\u0027sam@mailbox.test"': "an email address other than a noreply one",
+            # After an escaped character an address can follow (Go escapes < > &).
+            r'"Sam \u003csam@mailbox.test\u003e"': "an email address other than a noreply one",
+            r'"to:\u0028sam@mailbox.test\u0029"': "an email address other than a noreply one",
             # After an octal escape.
             r'"Contact:\012sam@mailbox.test"': "an email address other than a noreply one",
             r'"\7sam@mailbox.test"': "an email address other than a noreply one",
@@ -173,6 +176,8 @@ class ScanTests(unittest.TestCase):
             r'"https\u003a\u002f\u002fuser:pa\u0022ss@host.test"',
             r'p = r"""C:\new@v2.config"""',
             r"p = r'''C:\tmp@v2.config'''",
+            # A String.raw template keeps its backslashes.
+            r'String.raw`C:\new@v2.config`',
             # An octal escape is read whole.
             r'"Contact:\012noreply@host.test"',
             r'''"https://user:pa\'\u0073s@host.test"''',

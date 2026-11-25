@@ -1,5 +1,6 @@
 """The public-content check: what it finds, what it lets through, and that it never prints the match."""
 
+import time
 import importlib.util
 import json
 import os
@@ -72,6 +73,32 @@ class ScanTests(unittest.TestCase):
             "(ask sam@mailbox.test)": "an email address other than a noreply one",
             "sam@mailbox.test_-x": "an email address other than a noreply one",
             "the sam@mailbox.test-2024 archive": "an email address other than a noreply one",
+            # After a URL and an escaped newline, the next line's address.
+            r'"https://example.com\nsam@mailbox.test"': "an email address other than a noreply one",
+            # In prefixed Python strings.
+            r"msg = f'to:\nsam@mailbox.test' + b'\tsam@mailbox.test'": "an email address other than a noreply one",
+            # In a URL's path after an escaped slash, and before a hyphen that
+            # may continue the domain.
+            r'"https://example.com/contacts\u002fsam@mailbox.test"': "an email address other than a noreply one",
+            r'"Contact:\nsam@example.com-xn--p1ai"': "an email address other than a noreply one",
+            # In a URL's query or fragment after an escaped quote.
+            r'"https://example.com?contact=\u0027sam@mailbox.test"': "an email address other than a noreply one",
+            r'"https://example.com#\u0027sam@mailbox.test"': "an email address other than a noreply one",
+            # After an escaped character an address can follow (Go escapes < > &).
+            r'"Sam \u003csam@mailbox.test\u003e"': "an email address other than a noreply one",
+            r'"to:\u0028sam@mailbox.test\u0029"': "an email address other than a noreply one",
+            # After an octal escape.
+            r'"Contact:\012sam@mailbox.test"': "an email address other than a noreply one",
+            r'"\7sam@mailbox.test"': "an email address other than a noreply one",
+            # In a template literal, and after an escaped backslash and an escape.
+            r'const contact = `Contact:\nsam@mailbox.test`;': "an email address other than a noreply one",
+            r'"Contact:\\\nsam@mailbox.test"': "an email address other than a noreply one",
+            # An address right after a literal escape in serialized text.
+            r'{"message":"Contact:\nalice@mailbox.test"}': "an email address other than a noreply one",
+            r'"to:\tsam@mailbox.test"': "an email address other than a noreply one",
+            r"'line\rsam@mailbox.test'": "an email address other than a noreply one",
+            r'"a\u000asam@mailbox.test" and "b\x0asam@mailbox.test"': "an email address other than a noreply one",
+            r'"quote\"sam@mailbox.test\""': "an email address other than a noreply one",
             # After a hyphen the domain may go on, so an allowed-looking start
             # does not make it public.
             "user@team.example.com-xn--p1ai": "an email address other than a noreply one",
@@ -86,6 +113,18 @@ class ScanTests(unittest.TestCase):
         for text, kind in cases.items():
             with self.subTest(text=text):
                 self.assertIn(kind, kinds(text))
+
+    def test_long_escaped_line_scans_in_linear_time(self):
+        line = '"' + "\\nnoreply@host.test" * 20000 + '"'
+        started = time.monotonic()
+        self.assertEqual(kinds(line), [])
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_many_template_literals_scan_in_linear_time(self):
+        line = "`x`; " * 40000 + '"\\nnoreply@host.test"'
+        started = time.monotonic()
+        self.assertEqual(kinds(line), [])
+        self.assertLess(time.monotonic() - started, 2)
 
     def test_lets_public_text_through(self):
         for text in (
@@ -118,6 +157,38 @@ class ScanTests(unittest.TestCase):
             # Package versions and decorators are not addresses, nor is an escape.
             "npx eslint@9.39.5, actions/checkout@v7.0.1, @anthropic-ai/sdk@0.71.0 and @property",
             r'files[HUB] + "\n@AGENTS.md\n"',
+            # An escape not followed by an address, and an allowed address after one.
+            r'"\t@decorator", "\r@x", "\u0040", "line\nnoreply@anthropic.com"',
+            r'"Contact:\nsam@example.com"',
+            # A Windows path, a regex and an escaped backslash are not escapes
+            # before an address, and Python's Unicode letters do not count.
+            r"C:\new@v2.config and /\new@v2.config/",
+            # A regex after a closed string, an apostrophe in prose, an even run
+            # of backslashes, and an escape in a URL's user information.
+            r'const label = "regex"; const pattern = /\new@v2.config/;',
+            r"Don't use C:\new@v2.config",
+            r'"C:\\\\new@v2.config"',
+            r'"https://user:pa\u0073s@host.test"',
+            r'"https:\/\/user:pa\u0073s@host.test"',
+            # A raw string's backslash, an apostrophe in a double-quoted URL's
+            # password, and an allowed address with an escaped first letter.
+            r'''path = r'C:\new@v2.config' + R"C:\tmp@v2.config"''',
+            r'''"https://user:pa's\u0073s@host.test"''',
+            r'"to \u006eoreply@anthropic.com and \x6eoreply@anthropic.com"',
+            # A noreply address before a hyphenated suffix, and escaped scheme separators.
+            r'"\nnoreply@host.test-related"',
+            r'"https:\u002f\u002fuser:pa\u0022ss@host.test"',
+            # An escaped scheme colon, and raw triple-quoted strings.
+            r'"https\u003a\u002f\u002fuser:pa\u0022ss@host.test"',
+            r'p = r"""C:\new@v2.config"""',
+            r"p = r'''C:\tmp@v2.config'''",
+            # A String.raw template keeps its backslashes.
+            r'String.raw`C:\new@v2.config`',
+            # An octal escape is read whole.
+            r'"Contact:\012noreply@host.test"',
+            r'''"https://user:pa\'\u0073s@host.test"''',
+            r'"C:\\new@v2.config"',
+            r'"\n李@host.test", "\nénoreply@host.test"',
             # The rule's own text names the prefixes and markers it rules out.
             "No paths (`/mnt/`, `/home/`, `/root/`, `/Users/`, `/workspace/`, `/Volumes/`, `~/`)",
             "carries no `Claude-Session:` trailer and no `claude-projects-attribution` marker",

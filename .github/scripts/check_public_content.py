@@ -168,9 +168,44 @@ def escape_starts(line):
     return starts
 # A URL's user information (scheme://user@host or scheme://user:password@host),
 # as tests of code that refuses credentials in URLs hold, is not an address:
-# a match whose text before it ends with this is skipped. mailto: has no //,
-# so an address after it is still found.
-URL_USERINFO = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://(?:[^\s/?#@:]*:)?$")
+# a match whose text before it ends as
+# r"[A-Za-z][A-Za-z0-9+.-]*://(?:[^\s/?#@:]*:)?$" matches is skipped.
+# mailto: has no //, so an address after it is still found.
+# userinfo_ends finds those positions of a line in one pass: testing the
+# text before each match instead takes quadratic time on a line of many.
+# A position follows a `://` whose scheme run (letters, digits, `+`, `.`
+# and `-`) holds a letter, where the scheme can start, or follows that and
+# a run without whitespace, `/`, `?`, `#`, `@` or `:`, then a `:`. Neither
+# run can hold a `://`, so each character is read a bounded number of
+# times.
+SCHEME_CHAR = re.compile(r"[A-Za-z0-9+.-]")
+USER_CHAR = re.compile(r"[^\s/?#@:]")
+
+
+def userinfo_ends(line):
+    """The positions of line whose text before them ends in URL user information."""
+    ends = set()
+    k = line.find("://")
+    while k != -1:
+        i = k - 1
+        letter = False
+        while i >= 0 and SCHEME_CHAR.match(line[i]):
+            if line[i].isascii() and line[i].isalpha():
+                letter = True
+                break
+            i -= 1
+        if letter:
+            ends.add(k + 3)
+            j = k + 3
+            while j < len(line) and USER_CHAR.match(line[j]):
+                j += 1
+            if j < len(line) and line[j] == ":":
+                ends.add(j + 1)
+        k = line.find("://", k + 3)
+    return ends
+
+
+
 NOREPLY_LOCAL_PARTS = frozenset({"noreply", "no-reply"})
 NOREPLY_DOMAINS = ("users.noreply.github.com", "example.com", "example.org", "example.net")
 PUBLISHED_ADDRESSES = frozenset({"github@bydra.dev", "git@github.com"})
@@ -241,16 +276,22 @@ def scan(text, *, allow_attribution=False):
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
         if line != DEPENDABOT_FOOTER and SIGNOFF.search(line):
             kinds.append(SIGNOFF_KIND)
+        ends = None
+
+        def after_userinfo(at):
+            nonlocal ends
+            if ends is None:
+                ends = userinfo_ends(line)
+            return at in ends
+
         candidates = itertools.chain(
             ((m, False) for m in EMAIL.finditer(line)),
             ((m, False) for m in EMAIL_WHOLE.finditer(line)),
             after_escape_candidates(line),
         )
         if line != DEPENDABOT_FOOTER and any(
-            # The address test first: it is cheap, and the URL guard reads the
-            # text before the match, which a long line holds many of.
             (match.group(1).lower() not in NOREPLY_LOCAL_PARTS if continued else private_address(*match.groups()))
-            and not URL_USERINFO.search(line[: match.start()])
+            and not after_userinfo(match.start())
             for match, continued in candidates
         ):
             kinds.append("an email address other than a noreply one")

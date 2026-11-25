@@ -5,7 +5,8 @@ Checks commit messages, the lines commits add to files, a pull request's
 title and body, or any other text for what AGENTS.md *Public repository
 content* rules out: claude.ai session, project, artifact and chat links,
 `Claude-Session:` trailers, session and thread IDs, paths from an agent's
-machine or project storage, and private email addresses.
+machine or project storage, private email addresses, and `Signed-off-by:`
+lines other than the exact public footer.
 Keep this in step with gh-agent-kit's `.github/scripts/public-content.mjs`.
 
 It reports only where a match is and what kind it is, never the matched text,
@@ -176,6 +177,13 @@ PUBLISHED_ADDRESSES = frozenset({"github@bydra.dev", "git@github.com"})
 
 # Only this complete literal line exempts its email; it does not verify authorship.
 DEPENDABOT_FOOTER = "Signed-off-by: dependabot[bot] <support@github.com>"
+# A commit carries no Signed-off-by line but that footer (the
+# public-content-check skill), whatever address it names. Anchored at the
+# line's start, so prose that names the trailer stays clean. ASCII letters
+# and spaces only, so that it agrees with the JavaScript copy, whose
+# case-folding and \s differ from Python's.
+SIGNOFF = re.compile(r"^[ \t]*[Ss][Ii][Gg][Nn][Ee][Dd]-[Oo][Ff][Ff]-[Bb][Yy][ \t]*:")
+SIGNOFF_KIND = "a Signed-off-by line other than the public footer"
 
 # The check's own script and tests hold every pattern and example it finds.
 EXEMPT_FILES = frozenset({".github/scripts/check_public_content.py", "tests/test_public_content.py"})
@@ -231,6 +239,8 @@ def scan(text, *, allow_attribution=False):
         if number <= skip:
             continue
         kinds = [kind for kind, pattern in PATTERNS if pattern.search(line)]
+        if line != DEPENDABOT_FOOTER and SIGNOFF.search(line):
+            kinds.append(SIGNOFF_KIND)
         candidates = itertools.chain(
             ((m, False) for m in EMAIL.finditer(line)),
             ((m, False) for m in EMAIL_WHOLE.finditer(line)),
